@@ -26377,8 +26377,17 @@ s-page[inline-size="large-500"] {
   place-items: center;
 }
 
-.ppWatchlistStatCard .ppDashboardIcon s-icon {
-  transform: scale(1.55);
+.ppWatchlistStatCard .ppDashboardIcon .ppProductPulseIconBadgeGlyph {
+  display: grid;
+  place-items: center;
+}
+
+.ppWatchlistStatCard .ppDashboardIcon .ppProductPulseIconBadgeGlyph > s-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+  margin: 0;
+  transform: none;
 }
 
 .ppWatchlistStatCard .ppDashboardIcon .ppBinocularsIcon {
@@ -28125,9 +28134,10 @@ s-page[inline-size="large-500"] {
 
 .ppWatchRecentRunsList {
   --pp-watch-run-gap: 20px;
-  --pp-watch-run-card-width: min(210px, calc((100% - 80px) / 5));
+  --pp-watch-run-min-card-width: 200px;
+  --pp-watch-run-slot-width: calc((100% - (var(--pp-watch-run-gap) * 4)) / 5);
   display: grid;
-  grid-template-columns: repeat(var(--pp-watch-run-count, 5), minmax(0, var(--pp-watch-run-card-width)));
+  grid-template-columns: repeat(var(--pp-watch-run-count, 5), minmax(var(--pp-watch-run-min-card-width), var(--pp-watch-run-slot-width)));
   gap: var(--pp-watch-run-gap);
   align-items: center;
   justify-content: start;
@@ -28861,7 +28871,9 @@ s-page[inline-size="large-500"] {
 
   .ppWatchRecentRunsList {
     --pp-watch-run-gap: 10px;
-    grid-template-columns: repeat(var(--pp-watch-run-count, 5), 126px);
+    --pp-watch-run-min-card-width: 200px;
+    --pp-watch-run-slot-width: calc((100% - (var(--pp-watch-run-gap) * 4)) / 5);
+    grid-template-columns: repeat(var(--pp-watch-run-count, 5), minmax(var(--pp-watch-run-min-card-width), var(--pp-watch-run-slot-width)));
     gap: 10px;
     overflow-x: auto;
     padding-bottom: 2px;
@@ -31655,12 +31667,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductsEmptyState .ppDashboardIcon .ppProductPulseIconBadgeGlyph > s-icon {
-  width: 46px;
-  height: 46px;
   display: block;
   margin: 0;
-  transform: scale(1.12);
-  transform-origin: center;
+  transform: scale(2);
+  transform-origin: top left;
 }
 
 .ppProductsEmptyState h2 {

@@ -4,6 +4,7 @@ import {
   debitStorePointsForShop,
   getStorePointBalanceForShop,
   getStorePointSummaryForShop,
+  getConfiguredChatMessagesPerPoint,
   recordExtraCreditPackForShop,
   recordPlanMonthlyPointGrantForShop,
   recordChatMessagePointDebitForShop,
@@ -167,9 +168,9 @@ describe("ProductPulse store points", () => {
     expect(db.state.entries.filter((entry) => entry.reason.includes("Manual adjustment"))).toHaveLength(1);
   });
 
-  it("charges chat points only after five successful assistant responses", async () => {
+  it("charges chat points only after ten successful assistant responses by default", async () => {
     const db = createPointTestDb({
-      messages: buildAssistantMessages(4),
+      messages: buildAssistantMessages(9),
     });
     await getStorePointBalanceForShop("test-shop.myshopify.com", {
       db,
@@ -181,7 +182,7 @@ describe("ProductPulse store points", () => {
       charged: false,
     });
 
-    db.state.messages = buildAssistantMessages(5);
+    db.state.messages = buildAssistantMessages(10);
     expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
       status: "success",
       charged: true,
@@ -189,13 +190,13 @@ describe("ProductPulse store points", () => {
       balance: { available: 4 },
     });
 
-    db.state.messages = buildAssistantMessages(9);
+    db.state.messages = buildAssistantMessages(19);
     expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
       status: "no_charge",
       charged: false,
     });
 
-    db.state.messages = buildAssistantMessages(10);
+    db.state.messages = buildAssistantMessages(20);
     expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
       status: "success",
       charged: true,
@@ -204,9 +205,39 @@ describe("ProductPulse store points", () => {
     });
   });
 
+  it("uses PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT to configure chat credit cadence", async () => {
+    const db = createPointTestDb({
+      messages: buildAssistantMessages(2),
+    });
+    const env = {
+      PRODUCT_PULSE_INITIAL_STORE_POINTS: "5",
+      PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT: "3",
+    };
+    await getStorePointBalanceForShop("test-shop.myshopify.com", { db, env });
+
+    expect(getConfiguredChatMessagesPerPoint(env)).toBe(3);
+    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db, env })).toMatchObject({
+      status: "no_charge",
+      charged: false,
+    });
+
+    db.state.messages = buildAssistantMessages(3);
+    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db, env })).toMatchObject({
+      status: "success",
+      charged: true,
+      amount: 1,
+      balance: { available: 4 },
+    });
+    expect(db.state.entries.at(-1).metadata).toMatchObject({
+      source: "chat",
+      messagesPerPoint: 3,
+      successfulAssistantMessageCount: 3,
+    });
+  });
+
   it("blocks chat turns when the next successful response would exceed available credits", async () => {
     const db = createPointTestDb({
-      messages: buildAssistantMessages(4),
+      messages: buildAssistantMessages(9),
     });
     await getStorePointBalanceForShop("test-shop.myshopify.com", {
       db,

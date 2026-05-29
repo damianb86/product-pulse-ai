@@ -3,6 +3,7 @@ import { authenticate } from "../shopify.server";
 import { ConnectScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 import {
+  connectChatMeReviews,
   connectJudgeMeReviews,
   confirmCsvReviews,
   getConnectViewDataForShop,
@@ -26,6 +27,10 @@ export const action = async ({ request }) => {
 
   if (actionType === "connect-judgeme") {
     return connectJudgeMeReviews(session.shop, formData.get("privateApiToken"));
+  }
+
+  if (actionType === "connect-chatme") {
+    return connectChatMeReviews(session.shop, formData.get("privateApiToken"));
   }
 
   if (actionType === "preview-csv") {

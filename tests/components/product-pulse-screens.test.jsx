@@ -449,7 +449,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Yotpo Reviews")).toBeInTheDocument();
     expect(screen.getByText("Shopify Returns & Refunds")).toBeInTheDocument();
     const chatMeRow = screen.getByText("ChatMe Reviews").closest("tr");
-    expect(within(chatMeRow).getByRole("button", { name: "Coming soon" })).toBeDisabled();
+    expect(within(chatMeRow).getByRole("button", { name: "Manage" })).toBeEnabled();
+    expect(chatMeRow).toHaveAttribute("data-pp-connect-source-row", "chatmeReviews");
     expect(screen.getAllByText("Coming soon").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Always on").length).toBeGreaterThan(0);
     expect(screen.getByText("Data coverage")).toBeInTheDocument();
@@ -489,7 +490,8 @@ describe("ProductPulse screens", () => {
 
   it("connects Judge.me from the connection modal", async () => {
     renderWithRouter(<ConnectScreen data={defaultView} />);
-    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    const judgeMeRow = screen.getByText("Judge.me Reviews").closest("tr");
+    fireEvent.click(within(judgeMeRow).getByRole("button", { name: "Manage" }));
     expect(screen.getByRole("heading", { name: "Judge.me Reviews" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Judge.me API settings" })).toHaveAttribute("href", "https://judge.me/settings?jump_to=judge.me+api");
     expect(screen.getByRole("link", { name: "Judge.me API documentation" })).toHaveAttribute("href", "https://judge.me/help/en/articles/8409180-judge-me-api");

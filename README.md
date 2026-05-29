@@ -108,6 +108,7 @@ Relevant env vars:
 OPENAI_API_KEY=
 AI_ASSISTANT_ENABLED=true
 AI_CHAT_MODEL=gpt-5.4-mini
+PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT=10
 AI_CHAT_MAX_TOOL_CALLS_PER_TURN=5
 AI_CHAT_MAX_OUTPUT_TOKENS=1600
 AI_RATE_LIMIT_ENABLED=true
@@ -127,6 +128,7 @@ AI_ACTION_CONFIRMATIONS_ENABLED=true
 The browser receives only safe ChatKit config, including the public ChatKit domain key from OpenAI's domain allowlist. OpenAI inference runs server-side through the existing `/api/ai/chatkit/message` adapter and `AiChatOrchestrator`.
 
 `AI_ASSISTANT_ENABLED=false` disables all assistant endpoints. `AI_INTERNAL_ACTIONS_ENABLED=false` keeps read-only chat available while blocking internal app action proposals and confirmations. `AI_CHATKIT_WORKFLOW_ID` is intentionally not required for the default custom-backend architecture.
+`PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT` controls how many successful assistant responses consume 1 ProductPulse credit; the default is `10`.
 
 AI cost/eval tooling:
 

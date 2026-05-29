@@ -47,9 +47,8 @@ export const connectCategoryDefinitions = [
         tone: "cyan",
         source: "Product reviews & Q&A",
         provides: "Sentiment, topics, pros & cons",
-        available: false,
+        available: true,
         actionKind: "chatme",
-        comingSoonMessage: "ChatMe Reviews connector is coming soon.",
       },
       {
         key: "csvReviews",

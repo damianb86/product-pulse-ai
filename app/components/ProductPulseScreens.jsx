@@ -108,6 +108,11 @@ const PRODUCT_NOT_FOUND_TOAST = {
   message: "This product is not in the current signal snapshot. Return to Products and choose another item.",
 };
 
+function dispatchProductPulseWizardEvent(detail) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail }));
+}
+
 export function DashboardScreen({ data, actionData }) {
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -335,6 +340,10 @@ export function ConnectScreen({ data, actionData }) {
     if (actionData?.status === "success") {
       setCsvPreview(null);
       setActiveModal(null);
+      dispatchProductPulseWizardEvent({
+        type: "connect-provider-saved",
+        provider: actionData.providerKey || "",
+      });
     }
   }, [actionData]);
 
@@ -362,6 +371,7 @@ export function ConnectScreen({ data, actionData }) {
       setLocalConnecting(false);
       setActiveModal(null);
       setLocalToast({ status: "success", message: "Connected to Judge.me." });
+      dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "judgemeReviews" });
     }, 450);
   };
 
@@ -389,6 +399,7 @@ export function ConnectScreen({ data, actionData }) {
       setLocalConnecting(false);
       setActiveModal(null);
       setLocalToast({ status: "success", message: "Connected to ChatMe." });
+      dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "chatmeReviews" });
     }, 450);
   };
 
@@ -433,6 +444,7 @@ export function ConnectScreen({ data, actionData }) {
 
   const handleLocalCsvConfirm = (event) => {
     event.preventDefault();
+    const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
     setRecords((current) => upsertLocalConnectionRecord(current, "csvReviews", {
       connected: true,
       active: true,
@@ -455,6 +467,7 @@ export function ConnectScreen({ data, actionData }) {
     setActiveModal(null);
     setCsvPreview(null);
     setLocalToast({ status: "success", message: `${fileName} was processed and ${Number(csvPreview?.normalizedRowCount || 0)} review rows were normalized.` });
+    dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "csvReviews" });
   };
 
   const handleOpenCsvGuide = (returnModal = activeModal || "csv") => {
@@ -651,7 +664,9 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
+  const requestedProductsTab = normalizeProductsTab(filters.activeTab);
   const [activeProductsTab, setActiveProductsTab] = useState(() => {
+    if (requestedProductsTab) return requestedProductsTab;
     if (hasActiveProductTableFilters(filters.resolved)) return "resolved";
     if (hasActiveProductTableFilters(filters.candidates)) return "candidates";
     return "full";
@@ -762,6 +777,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   useEffect(() => {
     setLocalResolvedSortConfig(null);
   }, [resolvedFilters.sort, resolvedFilters.direction]);
+
+  useEffect(() => {
+    if (requestedProductsTab) setActiveProductsTab(requestedProductsTab);
+  }, [requestedProductsTab]);
 
   useEffect(() => {
     setSearchValue(currentSearchQuery);
@@ -973,6 +992,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const handleConfirmFastScan = () => {
     if (fastScanRunning) return;
     setQuickScanConfirmation(false);
+    dispatchProductPulseWizardEvent({ type: "quick-scan-started" });
     if (!persistProductJobs) {
       handleLocalFastScan();
       return;
@@ -1128,6 +1148,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const handleConfirmAnalysis = () => {
     if (!analysisConfirmation?.products?.length || pendingBulkAnalyze) return;
+    dispatchProductPulseWizardEvent({ type: "deep-scan-started" });
     const formData = new FormData();
     formData.set("_action", "bulk-diagnose");
     analysisConfirmation.products.forEach((productId) => formData.append("productId", productId));
@@ -1164,6 +1185,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           <div className="ppProductsSecondaryActions">
             <button
               className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary ppProductsToolbarIconButton ppProductsAnalyzeSelectedButton"
+              data-pp-products-run-deep-scan-selected={table === "candidates" ? "true" : undefined}
               type="button"
               aria-label={`Analyze selected (${selectedCount})`}
               title="Analyze Selected"
@@ -1215,7 +1237,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     const productLabel = getProductTableLabel(table);
 
     return (
-      <s-section className={`ppProductsTableSection ${table === "candidates" ? "ppProductsCandidatesSection" : table === "resolved" ? "ppProductsResolvedSection" : ""}`.trim()} padding="none">
+      <s-section
+        className={`ppProductsTableSection ${table === "candidates" ? "ppProductsCandidatesSection" : table === "resolved" ? "ppProductsResolvedSection" : ""}`.trim()}
+        data-pp-products-table={table}
+        padding="none"
+      >
         <div className="ppProductsTableHeading">
           <div>
             <h2>{title}</h2>
@@ -1281,7 +1307,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           </div>
         </div>
         <div className="ppProductsTableWrap">
-          <table className="ppProductsTable" data-testid={tableTestId}>
+          <table className="ppProductsTable" data-pp-products-candidates-table={table === "candidates" ? "true" : undefined} data-testid={tableTestId}>
             <thead>
               <tr>
                 <th aria-label={`Select ${productLabel}`}>
@@ -1348,9 +1374,14 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 ].filter(Boolean).join(" ");
 
                 return (
-                  <tr className={rowClassName} key={actionKey}>
+                  <tr
+                    className={rowClassName}
+                    data-pp-products-candidate-row={table === "candidates" ? actionKey : undefined}
+                    key={actionKey}
+                  >
                     <td>
                       <input
+                        data-pp-products-candidate-select={table === "candidates" ? actionKey : undefined}
                         type="checkbox"
                         checked={selected}
                         aria-label={`Select ${displayProduct.title}`}
@@ -1402,6 +1433,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                       <div className="ppTableAction">
                         <button
                           className="ppAnalyzeLinkButton ppAnalyzeLinkButton-primary ppAnalyzeIconOnly"
+                          data-pp-products-candidate-run-deep-scan={table === "candidates" ? actionKey : undefined}
                           type="button"
                           aria-label={`Analyze ${displayProduct.title}`}
                           disabled={pendingBulkAnalyze}
@@ -1493,6 +1525,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           return (
             <button
               className={`ppProductsTableTab ${active ? "isActive" : ""}`.trim()}
+              data-pp-products-tab={tab.id}
               type="button"
               role="tab"
               aria-selected={active}
@@ -2794,13 +2827,43 @@ function getWatchCategorySecondaryBadge(card = {}, focus = {}) {
 
 function WatchRecentRunsTimeline({ rows = [] }) {
   const orderedRows = useMemo(() => rows.slice().reverse(), [rows]);
-  const windowSize = 5;
+  const listRef = useRef(null);
+  const maxVisibleRuns = 5;
+  const [windowSize, setWindowSize] = useState(Math.min(maxVisibleRuns, Math.max(1, orderedRows.length || 1)));
   const maxStart = Math.max(0, orderedRows.length - windowSize);
   const selectedIndex = orderedRows.findIndex((row) => row?.isSelected);
   const defaultStart = selectedIndex >= 0
     ? Math.min(maxStart, Math.max(0, selectedIndex - windowSize + 1))
     : maxStart;
   const [windowStart, setWindowStart] = useState(defaultStart);
+
+  useLayoutEffect(() => {
+    const node = listRef.current;
+    if (!node || typeof window === "undefined") return undefined;
+
+    const measureVisibleRuns = () => {
+      const width = node.getBoundingClientRect().width;
+      if (!Number.isFinite(width) || width <= 0) return;
+      const style = window.getComputedStyle(node);
+      const gap = Number.parseFloat(style.columnGap || style.gap || "20") || 20;
+      const minCardWidth = Number.parseFloat(style.getPropertyValue("--pp-watch-run-min-card-width")) || 200;
+      const nextWindowSize = Math.max(1, Math.min(maxVisibleRuns, orderedRows.length || 1, Math.floor((width + gap) / (minCardWidth + gap))));
+      setWindowSize((current) => (current === nextWindowSize ? current : nextWindowSize));
+    };
+
+    measureVisibleRuns();
+
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measureVisibleRuns);
+      observer.observe(node);
+    }
+    window.addEventListener("resize", measureVisibleRuns);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measureVisibleRuns);
+    };
+  }, [orderedRows.length]);
 
   useEffect(() => {
     setWindowStart(defaultStart);
@@ -2823,7 +2886,11 @@ function WatchRecentRunsTimeline({ rows = [] }) {
         >
           <s-icon type="chevron-left" size="small"></s-icon>
         </button>
-        <ol className="ppWatchRecentRunsList" style={{ "--pp-watch-run-count": String(Math.max(1, visibleRows.length)) }}>
+        <ol
+          className="ppWatchRecentRunsList"
+          ref={listRef}
+          style={{ "--pp-watch-run-count": String(Math.max(1, visibleRows.length)) }}
+        >
           {visibleRows.map((row) => (
             <li className="ppWatchRecentRunsItem" key={row.id || row.label}>
               <WatchRecentRunCard row={row} />
@@ -4918,7 +4985,7 @@ export function SettingsScreen({ data = {}, actionData }) {
         <Form ref={formRef} method="post" className="ppSettingsForm">
           <input type="hidden" name="_action" value="save-settings" />
 
-          <section className="ppSettingsStepCard ppSettingsRiskCard" aria-labelledby="settings-risk-title">
+          <section className="ppSettingsStepCard ppSettingsRiskCard" data-pp-settings-target="risk-thresholds" aria-labelledby="settings-risk-title">
             <span className="ppSettingsStepNumber ppSettingsStepNumber-purple">1</span>
             <DashboardIcon type="shield" tone="purple" />
             <div className="ppSettingsStepBody">
@@ -4942,7 +5009,7 @@ export function SettingsScreen({ data = {}, actionData }) {
             </div>
           </section>
 
-          <section className="ppSettingsStepCard ppSettingsMomentumCard" aria-labelledby="settings-momentum-title">
+          <section className="ppSettingsStepCard ppSettingsMomentumCard" data-pp-settings-target="momentum-inclusion" aria-labelledby="settings-momentum-title">
             <span className="ppSettingsStepNumber ppSettingsStepNumber-green">2</span>
             <DashboardIcon type="product-momentum" tone="green" />
             <div className="ppSettingsStepBody">
@@ -4965,7 +5032,7 @@ export function SettingsScreen({ data = {}, actionData }) {
             </div>
           </section>
 
-          <section className="ppSettingsStepCard ppSettingsLookbackCard" aria-labelledby="settings-window-title">
+          <section className="ppSettingsStepCard ppSettingsLookbackCard" data-pp-settings-target="evidence-lookback" aria-labelledby="settings-window-title">
             <span className="ppSettingsStepNumber ppSettingsStepNumber-blue">3</span>
             <DashboardIcon type="clock" tone="blue" />
             <div className="ppSettingsStepBody">
@@ -6496,7 +6563,7 @@ function getPendingAnalysisLabel(pendingIds) {
 
 function FastScanButton({ pending, onStart }) {
   return (
-    <button className="ppQuickScanButton" type="button" disabled={pending} onClick={onStart}>
+    <button className="ppQuickScanButton" data-pp-products-quick-scan type="button" disabled={pending} onClick={onStart}>
       <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
       {pending ? "Scan running..." : "Run quick scan"}
     </button>
@@ -6851,6 +6918,11 @@ function getProductTableLabel(table = "main") {
   if (table === "candidates") return "candidates";
   if (table === "resolved") return "resolved products";
   return "products";
+}
+
+function normalizeProductsTab(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["full", "candidates", "resolved"].includes(normalized) ? normalized : "";
 }
 
 function hasActiveProductTableFilters(values = {}) {
@@ -30598,7 +30670,11 @@ function ConnectCategoryCard({
             </thead>
             <tbody>
               {category.sources.map((source) => (
-                <tr className={getConnectSourceRowClass(source)} key={source.name}>
+                <tr
+                  className={getConnectSourceRowClass(source)}
+                  data-pp-connect-source-row={source.key}
+                  key={source.name}
+                >
                   <td>
                     <div className="ppConnectSourceName">
                       <ConnectSourceLogo source={source} />
@@ -30690,7 +30766,12 @@ function ConnectSourceActions({
   if (source.actionKind === "chatme") {
     return (
       <div className="ppConnectActions">
-        <button className="ppConnectSmallButton" type="button" onClick={onOpenChatMe}>
+        <button
+          className="ppConnectSmallButton"
+          data-pp-connect-source-action={source.key}
+          type="button"
+          onClick={onOpenChatMe}
+        >
           {source.connected ? "Manage" : "Manage"}
         </button>
         {activeButton}
@@ -30701,7 +30782,12 @@ function ConnectSourceActions({
   if (source.actionKind === "csv") {
     return (
       <div className="ppConnectActions">
-        <button className="ppConnectSmallButton" type="button" onClick={onOpenCsv}>
+        <button
+          className="ppConnectSmallButton"
+          data-pp-connect-source-action={source.key}
+          type="button"
+          onClick={onOpenCsv}
+        >
           {source.action}
         </button>
         {activeButton}

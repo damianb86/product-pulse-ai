@@ -1,0 +1,418 @@
+.ppWizardRoot {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.ppWizardBlurLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 130;
+  pointer-events: auto;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-shadow-rgb), 0.22), rgba(var(--pp-shadow-rgb), 0.12)),
+    rgba(248, 250, 252, 0.38);
+  backdrop-filter: blur(5px);
+}
+
+.ppWizardWelcomeModal,
+.ppWizardTooltip,
+.ppWizardModalCoach,
+.ppWizardControlBar,
+.ppWizardLoadingCard,
+.ppWizardSuccessToast {
+  pointer-events: auto;
+}
+
+.ppWizardWelcomeModal,
+.ppWizardLoadingCard {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 132;
+  width: min(520px, calc(100vw - 32px));
+  padding: 22px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 26px 70px rgba(var(--pp-shadow-rgb), 0.2);
+  color: var(--pp-slate-700);
+  transform: translate(-50%, calc(-50% - 28px));
+}
+
+.ppWizardWelcomeIcon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.12), rgba(var(--pp-primary-green-rgb), 0.14)),
+    var(--pp-cloud-white);
+  box-shadow: inset 0 0 0 1px rgba(var(--pp-pulse-blue-rgb), 0.12);
+}
+
+.ppWizardWelcomeIcon span {
+  width: 18px;
+  height: 18px;
+  display: block;
+  border-radius: 5px;
+  background: linear-gradient(135deg, var(--pp-pulse-blue), var(--pp-primary-green));
+  box-shadow: 0 8px 18px rgba(var(--pp-pulse-blue-rgb), 0.22);
+}
+
+.ppWizardEyebrow,
+.ppWizardTooltipEyebrow {
+  margin: 0 0 7px;
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.ppWizardWelcomeModal h2 {
+  margin: 0 0 10px;
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
+
+.ppWizardWelcomeModal p,
+.ppWizardTooltip p,
+.ppWizardModalCoach p,
+.ppWizardLoadingCard p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13.5px;
+  line-height: 1.48;
+}
+
+.ppWizardWelcomeModal p + p,
+.ppWizardTooltip p + p {
+  margin-top: 9px;
+}
+
+.ppWizardProgress {
+  display: inline-flex;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.ppWizardProgress span {
+  width: 24px;
+  height: 4px;
+  display: block;
+  border-radius: 999px;
+  background: var(--pp-slate-200);
+}
+
+.ppWizardProgress span.isActive {
+  background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-primary-green));
+}
+
+.ppWizardControlBar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 180;
+  padding: 12px clamp(14px, 3vw, 28px);
+  border-top: 1px solid rgba(var(--pp-shadow-rgb), 0.1);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -16px 40px rgba(var(--pp-shadow-rgb), 0.12);
+}
+
+.ppWizardControlBarInner {
+  width: 100%;
+  max-width: 1440px;
+  display: grid;
+  grid-template-columns: minmax(92px, auto) minmax(0, 1fr) minmax(108px, auto);
+  gap: 10px;
+  align-items: center;
+  margin: 0 auto;
+}
+
+.ppWizardBackButton,
+.ppWizardSkipButton,
+.ppWizardNextButton {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ppWizardBackButton,
+.ppWizardSkipButton {
+  border: 1px solid var(--pp-slate-300);
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+}
+
+.ppWizardSkipButton {
+  justify-self: center;
+  border-color: transparent;
+  background: transparent;
+  color: var(--pp-slate-500);
+}
+
+.ppWizardNextButton {
+  border: 1px solid var(--pp-primary-green);
+  background: var(--pp-primary-green);
+  color: var(--pp-cloud-white);
+  box-shadow: 0 4px 10px rgba(var(--pp-primary-green-rgb), 0.18);
+}
+
+.ppWizardNextButton s-icon {
+  color: var(--pp-cloud-white);
+  filter: brightness(0) invert(1);
+}
+
+.ppWizardBackButton:hover:not(:disabled),
+.ppWizardSkipButton:hover {
+  border-color: var(--pp-pulse-blue);
+  color: var(--pp-pulse-blue);
+}
+
+.ppWizardNextButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pp-primary-green) 86%, var(--pp-midnight-ink));
+  border-color: color-mix(in srgb, var(--pp-primary-green) 82%, var(--pp-midnight-ink));
+}
+
+.ppWizardBackButton:disabled,
+.ppWizardNextButton:disabled {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.ppWizardNextButton:disabled s-icon {
+  color: var(--pp-slate-500);
+  filter: none;
+}
+
+.ppWizardSpotlightTarget {
+  position: relative !important;
+  z-index: 142 !important;
+}
+
+.ppConnectSourceTable tr.ppWizardSpotlightTarget td,
+.ppProductsTable tr.ppWizardSpotlightTarget td {
+  background: var(--pp-cloud-white) !important;
+  color: var(--pp-slate-800);
+}
+
+.ppConnectSourceTable tr.ppWizardSpotlightTarget td:first-child,
+.ppProductsTable tr.ppWizardSpotlightTarget td:first-child {
+  box-shadow: inset 3px 0 var(--pp-primary-green);
+}
+
+.ppConnectSourceTable tr.ppWizardSpotlightTarget .ppConnectSourceLogo,
+.ppConnectSourceTable tr.ppWizardSpotlightTarget .ppConnectStatus {
+  opacity: 1;
+}
+
+.ppSettingsStepCard.ppWizardSpotlightTarget {
+  background: var(--pp-cloud-white);
+  box-shadow:
+    0 0 0 3px rgba(var(--pp-primary-green-rgb), 0.12),
+    0 16px 40px rgba(var(--pp-shadow-rgb), 0.14);
+}
+
+button.ppWizardSpotlightTarget,
+.ppConnectSourceTable tr.ppWizardSpotlightTarget .ppConnectSmallButton,
+.ppProductsTable tr.ppWizardSpotlightTarget .ppAnalyzeLinkButton {
+  box-shadow:
+    0 0 0 3px rgba(var(--pp-primary-green-rgb), 0.14),
+    0 12px 28px rgba(var(--pp-shadow-rgb), 0.14);
+}
+
+.ppWizardTooltip,
+.ppWizardModalCoach {
+  position: fixed;
+  padding: 16px 16px 15px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 22px 56px rgba(var(--pp-shadow-rgb), 0.18);
+  color: var(--pp-slate-700);
+}
+
+.ppWizardTooltip {
+  z-index: 132;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+}
+
+.ppWizardModalCoach {
+  z-index: 170;
+  border: 1px solid rgba(var(--pp-primary-green-rgb), 0.18);
+}
+
+.ppWizardTooltip h3,
+.ppWizardModalCoach h3 {
+  margin: 0 0 8px;
+  color: var(--pp-slate-900);
+  font-size: 16px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.22;
+}
+
+.ppWizardTooltip strong {
+  color: var(--pp-slate-900);
+  font-weight: 760;
+}
+
+.ppWizardTooltipArrow {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  display: block;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: -1px 1px 0 rgba(var(--pp-pulse-blue-rgb), 0.16);
+}
+
+.ppWizardTooltip.isRight .ppWizardTooltipArrow,
+.ppWizardModalCoach.isRight .ppWizardTooltipArrow {
+  left: -7px;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.ppWizardTooltip.isBottom .ppWizardTooltipArrow,
+.ppWizardModalCoach.isBottom .ppWizardTooltipArrow {
+  top: -7px;
+  transform: translateX(-50%) rotate(135deg);
+}
+
+.ppWizardProviderBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.ppWizardProviderBadges span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.ppWizardProviderBadges img {
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+}
+
+.ppWizardSuccessToast {
+  position: fixed;
+  right: clamp(14px, 3vw, 28px);
+  bottom: 82px;
+  z-index: 150;
+  width: min(360px, calc(100vw - 28px));
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px 13px;
+  border: 1px solid rgba(var(--pp-primary-green-rgb), 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 44px rgba(var(--pp-shadow-rgb), 0.14);
+  color: var(--pp-slate-700);
+}
+
+.ppWizardSuccessToast strong {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--pp-green-soft);
+  color: var(--pp-primary-green);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ppWizardSuccessToast span {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ppWizardLoadingCard {
+  display: grid;
+  gap: 5px;
+  width: min(360px, calc(100vw - 32px));
+  text-align: center;
+}
+
+.ppWizardLoadingCard strong {
+  color: var(--pp-slate-900);
+  font-size: 15px;
+}
+
+.ppWizardActive .ppConnectionModalOverlay,
+.ppWizardActive .ppAnalysisConfirmOverlay {
+  z-index: 145;
+  background: transparent;
+}
+
+.ppWizardActive .ppConnectionModal,
+.ppWizardActive .ppAnalysisConfirmModal {
+  position: relative;
+  z-index: 146;
+}
+
+@media (max-width: 680px) {
+  .ppWizardWelcomeModal {
+    padding: 18px;
+  }
+
+  .ppWizardWelcomeModal h2 {
+    font-size: 20px;
+  }
+
+  .ppWizardControlBarInner {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ppWizardControlBarInner .ppWizardSkipButton {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .ppWizardTooltip,
+  .ppWizardModalCoach {
+    padding: 14px;
+  }
+
+  .ppWizardSuccessToast {
+    right: 12px;
+    bottom: 120px;
+    width: calc(100vw - 24px);
+  }
+}

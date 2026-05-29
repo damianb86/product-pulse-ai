@@ -26,6 +26,7 @@ export const loader = async ({ request }) => {
     ...mainFilters,
     candidates: candidateFilters,
     resolved: resolvedFilters,
+    activeTab: normalizeProductsTab(url.searchParams.get("tab")),
   };
 
   const [productTable, candidateProductTable, resolvedProductTable, quickScanCsvReviews] = await Promise.all([
@@ -142,4 +143,9 @@ function parseProductTableFilters(searchParams, prefix = "") {
     sort: get("sort", ""),
     direction: get("direction", "desc"),
   };
+}
+
+function normalizeProductsTab(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["full", "candidates", "resolved"].includes(normalized) ? normalized : "";
 }

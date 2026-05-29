@@ -6,6 +6,7 @@ import { getAiChatKitClientConfig } from "../ai/chatkit/config.server";
 import { isAiCostDashboardEnabled } from "../ai/observability/usageEvents.server";
 import { ProductPulseChatKitAssistant } from "../components/ProductPulseChatKitAssistant";
 import { ProductPulseJobMonitor } from "../components/ProductPulseJobMonitor";
+import { ProductPulseWizard } from "../components/ProductPulseWizard";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
 import { getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
 
@@ -49,6 +50,7 @@ export default function App() {
       </s-app-nav>
       <Outlet />
       <ProductPulseChatKitAssistant config={chatKit} pageContext={aiPageContext} />
+      <ProductPulseWizard />
     </AppProvider>
   );
 }

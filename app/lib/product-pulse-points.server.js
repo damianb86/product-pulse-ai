@@ -3,8 +3,10 @@ import prisma from "../db.server";
 export const PRODUCT_PULSE_INITIAL_STORE_POINTS_ENV = "PRODUCT_PULSE_INITIAL_STORE_POINTS";
 export const PRODUCT_PULSE_LEGACY_INITIAL_POINTS_ENV = "PRODUCT_PULSE_INITIAL_POINTS";
 export const PRODUCT_PULSE_DEFAULT_INITIAL_STORE_POINTS = 100;
-export const PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT = 5;
-export const PRODUCT_PULSE_CHAT_MESSAGE_POINT_COST = 1 / PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT;
+export const PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT_ENV = "PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT";
+export const PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT = 10;
+export const PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT = PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT;
+export const PRODUCT_PULSE_CHAT_MESSAGE_POINT_COST = 1 / PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT;
 export const PRODUCT_PULSE_CHAT_POINT_REASON_PREFIX = "Chat messages point debit";
 
 const POINT_DECIMAL_PLACES = 1;
@@ -17,6 +19,16 @@ export function getConfiguredInitialStorePoints(env = process.env) {
     env?.[PRODUCT_PULSE_INITIAL_STORE_POINTS_ENV] ?? env?.[PRODUCT_PULSE_LEGACY_INITIAL_POINTS_ENV],
     PRODUCT_PULSE_DEFAULT_INITIAL_STORE_POINTS,
   );
+}
+
+export function getConfiguredChatMessagesPerPoint(env = process.env) {
+  const number = Number(env?.[PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT_ENV]);
+  if (!Number.isFinite(number) || number < 1) return PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT;
+  return Math.floor(number);
+}
+
+function getConfiguredChatMessagePointCost(env = process.env) {
+  return roundPointAmount(1 / getConfiguredChatMessagesPerPoint(env));
 }
 
 export function normalizePointAmount(value, fallback = 0) {
@@ -277,12 +289,15 @@ export async function recordExtraCreditPackForShop(shop, input = {}) {
 export async function validateChatMessagePointsForShop(shop, input = {}) {
   const db = input.db || prisma;
   const normalizedShop = normalizeShop(shop);
+  const env = input.env || process.env;
+  const messagesPerPoint = getConfiguredChatMessagesPerPoint(env);
+  const chatMessagePointCost = getConfiguredChatMessagePointCost(env);
   if (!normalizedShop) {
     return {
       valid: false,
       status: "validation_error",
       message: "A valid shop is required.",
-      requestedAmount: PRODUCT_PULSE_CHAT_MESSAGE_POINT_COST,
+      requestedAmount: chatMessagePointCost,
     };
   }
   if (
@@ -294,23 +309,23 @@ export async function validateChatMessagePointsForShop(shop, input = {}) {
       valid: true,
       status: "no_point_ledger",
       message: "Point ledger is not available in this runtime.",
-      requestedAmount: PRODUCT_PULSE_CHAT_MESSAGE_POINT_COST,
+      requestedAmount: chatMessagePointCost,
     };
   }
 
   const [balance, successfulAssistantMessageCount, chatPointDebits] = await Promise.all([
-    getStorePointBalanceForShop(normalizedShop, { db, env: input.env || process.env }),
+    getStorePointBalanceForShop(normalizedShop, { db, env }),
     countBillableChatAssistantMessages(db, normalizedShop),
     getChatPointDebitEntries(db, normalizedShop),
   ]);
   const chargedPoints = sumPointAmounts(chatPointDebits);
   const duePointsAfterNextSuccessfulResponse = Math.floor(
-    (Number(successfulAssistantMessageCount || 0) + 1) / PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT,
+    (Number(successfulAssistantMessageCount || 0) + 1) / messagesPerPoint,
   );
   const amountDueAfterNextSuccessfulResponse = roundPointAmount(duePointsAfterNextSuccessfulResponse - chargedPoints);
   const requestedAmount = amountDueAfterNextSuccessfulResponse > 0
     ? amountDueAfterNextSuccessfulResponse
-    : PRODUCT_PULSE_CHAT_MESSAGE_POINT_COST;
+    : chatMessagePointCost;
 
   if (balance.available + POINT_EPSILON < requestedAmount) {
     return {
@@ -338,6 +353,8 @@ export async function validateChatMessagePointsForShop(shop, input = {}) {
 export async function recordChatMessagePointDebitForShop(shop, input = {}) {
   const db = input.db || prisma;
   const normalizedShop = normalizeShop(shop);
+  const env = input.env || process.env;
+  const messagesPerPoint = getConfiguredChatMessagesPerPoint(env);
   if (!normalizedShop) {
     return { status: "validation_error", charged: false, message: "A valid shop is required." };
   }
@@ -356,7 +373,7 @@ export async function recordChatMessagePointDebitForShop(shop, input = {}) {
     countBillableChatAssistantMessages(db, normalizedShop),
     getChatPointDebitEntries(db, normalizedShop),
   ]);
-  const duePoints = Math.floor(Number(successfulAssistantMessageCount || 0) / PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT);
+  const duePoints = Math.floor(Number(successfulAssistantMessageCount || 0) / messagesPerPoint);
   const chargedPoints = sumPointAmounts(chatPointDebits);
   const amountToCharge = roundPointAmount(duePoints - chargedPoints);
 
@@ -372,7 +389,7 @@ export async function recordChatMessagePointDebitForShop(shop, input = {}) {
 
   return debitStorePointsForShop(normalizedShop, {
     db,
-    env: input.env,
+    env,
     amount: amountToCharge,
     reason: `${PRODUCT_PULSE_CHAT_POINT_REASON_PREFIX} chat-messages:${normalizedShop}:${duePoints} - ${duePoints} credit${duePoints === 1 ? "" : "s"} due after ${successfulAssistantMessageCount} successful chat responses`,
     idempotencyKey: `chat-messages:${normalizedShop}:${duePoints}`,
@@ -380,7 +397,7 @@ export async function recordChatMessagePointDebitForShop(shop, input = {}) {
       source: "chat",
       successfulAssistantMessageCount,
       chatMessageCount: successfulAssistantMessageCount,
-      messagesPerPoint: PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT,
+      messagesPerPoint,
       duePoints,
       chargedPoints,
       messageId: input.messageId || null,
