@@ -53,7 +53,10 @@ import {
   executeAiSupportContactTool,
   type ExecuteAiSupportContactToolInput,
 } from "../support/supportContactTool.server";
-import { recordChatMessagePointDebitForShop } from "../../lib/product-pulse-points.server";
+import {
+  recordChatMessagePointDebitForShop,
+  validateChatMessagePointsForShop,
+} from "../../lib/product-pulse-points.server";
 
 const MAX_USER_MESSAGE_LENGTH = 3000;
 
@@ -269,14 +272,14 @@ export class AiChatOrchestrator {
       });
     }
 
-    const chatPointDebit = await recordChatMessagePointDebitForShop(chatContext.shop, {
+    const chatPointCheck = await validateChatMessagePointsForShop(chatContext.shop, {
       messageId: userMessage.id,
       conversationId: conversation.id,
       env: this.env,
     });
-    if (chatPointDebit.status === "validation_error") {
-      const fallback = createFallbackAssistantResponse("There are not enough ProductPulse points available to continue this chat turn.", [
-        chatPointDebit.message || "ProductPulse points are unavailable.",
+    if (!chatPointCheck.valid) {
+      const fallback = createFallbackAssistantResponse("No tenés créditos disponibles para seguir usando el chat. Cargá más créditos en [Plans & Credits](/app/plans-and-credits).", [
+        chatPointCheck.message || "ProductPulse chat credits are unavailable.",
       ]);
       const assistantMessageId = createMessageId("ai_msg", this.now);
       const trace = buildAiChatTrace({
@@ -422,6 +425,18 @@ export class AiChatOrchestrator {
         entityId: usageEntity.entityId,
         usage,
         estimatedCost,
+      });
+      await recordChatMessagePointDebitForShop(chatContext.shop, {
+        messageId: assistantMessage.id,
+        conversationId: conversation.id,
+        env: this.env,
+      }).catch((error) => {
+        console.warn("[ProductPulse AI] Could not record chat credit debit.", {
+          shop: chatContext.shop,
+          conversationId: conversation.id,
+          messageId: assistantMessage.id,
+          error: error instanceof Error ? error.message : String(error || "unknown_error"),
+        });
       });
 
       return buildTurnResult({

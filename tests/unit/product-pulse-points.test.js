@@ -4,6 +4,7 @@ import {
   getStorePointBalanceForShop,
   getStorePointSummaryForShop,
   recordChatMessagePointDebitForShop,
+  validateChatMessagePointsForShop,
 } from "../../app/lib/product-pulse-points.server";
 
 describe("ProductPulse store points", () => {
@@ -62,9 +63,9 @@ describe("ProductPulse store points", () => {
     expect(db.state.entries.filter((entry) => entry.direction === "debit")).toHaveLength(1);
   });
 
-  it("charges chat points only after full ten-message batches", async () => {
+  it("charges chat points only after five successful assistant responses", async () => {
     const db = createPointTestDb({
-      messages: buildUserMessages(9),
+      messages: buildAssistantMessages(4),
     });
     await getStorePointBalanceForShop("test-shop.myshopify.com", {
       db,
@@ -76,7 +77,7 @@ describe("ProductPulse store points", () => {
       charged: false,
     });
 
-    db.state.messages = buildUserMessages(10);
+    db.state.messages = buildAssistantMessages(5);
     expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
       status: "success",
       charged: true,
@@ -84,18 +85,35 @@ describe("ProductPulse store points", () => {
       balance: { available: 4 },
     });
 
-    db.state.messages = buildUserMessages(19);
+    db.state.messages = buildAssistantMessages(9);
     expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
       status: "no_charge",
       charged: false,
     });
 
-    db.state.messages = buildUserMessages(20);
+    db.state.messages = buildAssistantMessages(10);
     expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
       status: "success",
       charged: true,
       amount: 1,
       balance: { available: 3 },
+    });
+  });
+
+  it("blocks chat turns when the next successful response would exceed available credits", async () => {
+    const db = createPointTestDb({
+      messages: buildAssistantMessages(4),
+    });
+    await getStorePointBalanceForShop("test-shop.myshopify.com", {
+      db,
+      env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "0" },
+    });
+
+    expect(await validateChatMessagePointsForShop("test-shop.myshopify.com", { db })).toMatchObject({
+      valid: false,
+      status: "validation_error",
+      requestedAmount: 1,
+      balance: { available: 0 },
     });
   });
 
@@ -124,7 +142,7 @@ describe("ProductPulse store points", () => {
       amount: 1,
       reason: "Chat messages point debit chat-messages:test-shop.myshopify.com:1",
       idempotencyKey: "chat-messages:test-shop.myshopify.com:1",
-      metadata: { source: "chat", userMessageCount: 10 },
+      metadata: { source: "chat", successfulAssistantMessageCount: 5, messagesPerPoint: 5 },
     });
 
     const summary = await getStorePointSummaryForShop("test-shop.myshopify.com", {
@@ -152,7 +170,7 @@ describe("ProductPulse store points", () => {
     expect(summary.activity).toHaveLength(2);
     expect(summary.activity[0]).toMatchObject({
       title: "AI chat messages",
-      detail: "10 messages",
+      detail: "5 messages",
       amountLabel: "-1 credit",
     });
     expect(summary.activity[1]).toMatchObject({
@@ -200,6 +218,11 @@ function createPointTestDb({ entries = [], messages = [] } = {}) {
         return state.messages.filter((message) => (
           (!where.shop || message.shop === where.shop)
           && (!where.role || message.role === where.role)
+          && (
+            !where.openAiResponseId
+            || !Object.prototype.hasOwnProperty.call(where.openAiResponseId, "not")
+            || message.openAiResponseId !== where.openAiResponseId.not
+          )
         )).length;
       },
     },
@@ -227,10 +250,11 @@ function sortLedgerEntries(entries) {
   });
 }
 
-function buildUserMessages(count) {
+function buildAssistantMessages(count) {
   return Array.from({ length: count }, (_, index) => ({
-    id: `message-${index + 1}`,
+    id: `assistant-message-${index + 1}`,
     shop: "test-shop.myshopify.com",
-    role: "user",
+    role: "assistant",
+    openAiResponseId: `response-${index + 1}`,
   }));
 }
