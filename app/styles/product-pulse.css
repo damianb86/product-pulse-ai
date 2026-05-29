@@ -4319,6 +4319,7 @@ s-page[inline-size="large-500"] {
 .ppProductDetailOverviewFinding {
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 14px;
+  align-items: start;
   padding: 18px 20px;
   border-color: rgba(var(--pp-insight-violet-rgb), 0.18);
   background:
@@ -4326,11 +4327,40 @@ s-page[inline-size="large-500"] {
     var(--pp-card-bg);
 }
 
+.ppProductDetailOverviewFinding > .ppBetaFeedbackCardCorner {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+}
+
+.ppProductDetailOverviewFinding > .ppDashboardIcon {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: center;
+}
+
+.ppProductDetailOverviewFinding > div:not(.ppBetaFeedbackCardCorner) {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  width: 100%;
+}
+
 .ppProductDetailOverviewFinding .ppDashboardIcon {
   width: 38px;
   height: 38px;
   background: var(--pp-violet-soft);
   color: var(--pp-insight-violet);
+}
+
+.ppProductDetailOverviewFinding .ppDashboardIcon .ppProductPulseIconBadgeGlyph {
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
 }
 
 .ppProductDetailOverviewFinding > div > span {
