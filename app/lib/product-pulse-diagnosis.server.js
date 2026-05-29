@@ -478,6 +478,7 @@ async function fetchProductMomentumCatalogBaseline({ shop, currentProductGid }) 
 }
 
 export function buildProductMomentumCatalogBaseline(snapshots = [], currentProductGid = "") {
+  const classificationOptions = buildCatalogClassificationOptions(snapshots);
   const rows = (Array.isArray(snapshots) ? snapshots : [])
     .map((snapshot) => {
       const metrics = snapshot?.metrics || {};
@@ -513,7 +514,38 @@ export function buildProductMomentumCatalogBaseline(snapshots = [], currentProdu
     storeUnitsPrevious90,
     storeRevenueLast30,
     storeRevenuePrevious90,
+    productTypes: classificationOptions.productTypes,
+    vendors: classificationOptions.vendors,
     hasCatalogBaseline: distributionRows.length >= 3,
+  };
+}
+
+function buildCatalogClassificationOptions(snapshots = []) {
+  const productTypes = new Map();
+  const vendors = new Map();
+  const addValue = (map, value) => {
+    const label = String(value || "").replace(/\s+/g, " ").trim();
+    const key = normalizeText(label);
+    if (!key) return;
+    const current = map.get(key) || { label, count: 0 };
+    current.count += 1;
+    map.set(key, current);
+  };
+
+  (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
+    const metrics = snapshot?.metrics || {};
+    addValue(productTypes, metrics.productType);
+    addValue(vendors, metrics.vendor);
+  });
+
+  const sortOptions = (map) => Array.from(map.values())
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .map((item) => item.label)
+    .slice(0, 50);
+
+  return {
+    productTypes: sortOptions(productTypes),
+    vendors: sortOptions(vendors),
   };
 }
 
@@ -2434,6 +2466,8 @@ function calculateDeterministicDiagnosis({
       handle: product.handle || snapshot.handle,
       productType: product.productType || snapshotMetrics.productType || "",
       vendor: product.vendor || snapshotMetrics.vendor || "",
+      catalogProductTypes: Array.isArray(momentumCatalogBaseline?.productTypes) ? momentumCatalogBaseline.productTypes : [],
+      catalogVendors: Array.isArray(momentumCatalogBaseline?.vendors) ? momentumCatalogBaseline.vendors : [],
       seoTitle: product.seoTitle || snapshotMetrics.seoTitle || "",
       seoDescription: product.seoDescription || snapshotMetrics.seoDescription || "",
       templateSuffix: product.templateSuffix || snapshotMetrics.templateSuffix || "",
@@ -5794,7 +5828,11 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.classification.shouldRecommend) {
-    const classificationDraft = buildProductClassificationDraft({ product: deterministic.product, mainIssue });
+    const classificationDraft = buildProductClassificationDraft({
+      product: deterministic.product,
+      mainIssue,
+      existingProductTypes: deterministic.metrics?.catalogProductTypes,
+    });
     recommendations.push({
       id: "update-product-classification",
       label: "Update product classification",
@@ -6463,6 +6501,12 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const productRetentionSignals = getProductRetentionRecommendationSignals(deterministic, { productRelationshipSignals });
   const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, productRelationshipSignals);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
+  const classificationDraft = buildProductClassificationDraft({
+    product,
+    mainIssue,
+    existingProductTypes: metrics.catalogProductTypes,
+  });
+  const hasClassificationChange = hasProductClassificationDraftChange(classificationDraft, product);
   const focusedRemediationMode = isFocusedRemediationDiagnosis(deterministic, {
     aiActionGuidance,
     subjectiveExpectationOnly,
@@ -6575,8 +6619,10 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "Customers may need an additional contextual image showing scale, packaging, color, material or real use.",
     },
     classification: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.classificationNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
-      reason: "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.classificationNeedsReview && hasClassificationChange && (hasActionableEvidence || productMomentumScore >= 70)),
+      reason: classificationDraft.draftProductType
+        ? "Product type is missing or too generic, and ProductPulse matched a better existing Shopify product type for this store."
+        : "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
     },
     structuredMetafields: {
       shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !focusedRemediationMode && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
@@ -8258,7 +8304,7 @@ function dedupeSpecItems(items = []) {
   );
 }
 
-function buildProductClassificationDraft({ product = {}, mainIssue = "" } = {}) {
+function buildProductClassificationDraft({ product = {}, mainIssue = "", existingProductTypes = [] } = {}) {
   const title = String(product.title || "").trim();
   const categories = detectProductCategoryGroups([
     title,
@@ -8267,12 +8313,100 @@ function buildProductClassificationDraft({ product = {}, mainIssue = "" } = {}) 
     ...(Array.isArray(product.collections) ? product.collections : []),
   ].join(" "));
   const [category] = [...categories];
-  const draftProductType = product.productType || getProductTypeFromCategory(category, mainIssue);
+  const currentProductType = String(product.productType || "").replace(/\s+/g, " ").trim();
+  const matchedProductType = chooseCatalogProductType({
+    product,
+    category,
+    mainIssue,
+    existingProductTypes,
+  });
+  const draftProductType = !currentProductType
+    ? matchedProductType
+    : isWeakProductType(currentProductType) && matchedProductType && normalizeText(matchedProductType) !== normalizeText(currentProductType)
+    ? matchedProductType
+    : "";
   return {
-    draftVendor: product.vendor || "",
+    draftVendor: "",
     draftProductType: draftProductType || "",
     draftCategory: category || "",
+    classificationSource: draftProductType ? "store_existing_product_type" : "",
+    productTypeOptions: (Array.isArray(existingProductTypes) ? existingProductTypes : [])
+      .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, 8),
   };
+}
+
+function hasProductClassificationDraftChange(classificationDraft = {}, product = {}) {
+  const currentVendor = String(product.vendor || "").replace(/\s+/g, " ").trim();
+  const currentProductType = String(product.productType || "").replace(/\s+/g, " ").trim();
+  const draftVendor = String(classificationDraft.draftVendor || "").replace(/\s+/g, " ").trim();
+  const draftProductType = String(classificationDraft.draftProductType || "").replace(/\s+/g, " ").trim();
+  return Boolean(
+    draftVendor && normalizeText(draftVendor) !== normalizeText(currentVendor)
+    || draftProductType && normalizeText(draftProductType) !== normalizeText(currentProductType),
+  );
+}
+
+function isWeakProductType(value = "") {
+  const normalized = normalizeText(value);
+  return !normalized || [
+    "product",
+    "products",
+    "item",
+    "items",
+    "general",
+    "misc",
+    "miscellaneous",
+    "uncategorized",
+    "other",
+    "default",
+  ].includes(normalized) || normalized.length <= 2;
+}
+
+function chooseCatalogProductType({ product = {}, category = "", mainIssue = "", existingProductTypes = [] } = {}) {
+  const options = uniqueBy(
+    (Array.isArray(existingProductTypes) ? existingProductTypes : [])
+      .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean),
+    (value) => normalizeText(value),
+  );
+  if (!options.length) return "";
+
+  const productText = [
+    product.title,
+    product.description,
+    ...(Array.isArray(product.tags) ? product.tags : []),
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    category,
+    mainIssue,
+  ].filter(Boolean).join(" ");
+  const productTokens = new Set(meaningfulTokens(productText));
+  const categoryGroups = new Set([
+    category,
+    ...detectProductCategoryGroups(productText),
+  ].filter(Boolean));
+  const fallbackType = getProductTypeFromCategory(category, mainIssue);
+
+  const scored = options
+    .filter((option) => normalizeText(option) !== normalizeText(product.productType))
+    .map((option) => {
+      const optionTokens = meaningfulTokens(option);
+      const optionGroups = detectProductCategoryGroups(option);
+      const sharedTokens = optionTokens.filter((token) => productTokens.has(token)).length;
+      const groupOverlap = [...optionGroups].filter((group) => categoryGroups.has(group)).length;
+      const directTextMatch = normalizeText(productText).includes(normalizeText(option));
+      const fallbackMatch = fallbackType && normalizeText(option).includes(normalizeText(fallbackType));
+      const score = (directTextMatch ? 8 : 0)
+        + (groupOverlap * 6)
+        + (sharedTokens * 3)
+        + (fallbackMatch ? 4 : 0);
+      return { option, score };
+    })
+    .filter((item) => item.score >= 3)
+    .sort((first, second) => second.score - first.score || first.option.length - second.option.length || first.option.localeCompare(second.option));
+
+  return scored[0]?.option || "";
 }
 
 function getProductTypeFromCategory(category = "", mainIssue = "") {

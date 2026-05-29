@@ -4705,6 +4705,100 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.every((item) => item.payload.recipe === true)).toBe(true);
   });
 
+  it("does not propose a vendor classification change when the vendor already exists", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 62,
+      confidence: 71,
+      product: {
+        title: "Example Art Print",
+        description: "Decorative wall art print for home display.",
+        vendor: "damian",
+        productType: "",
+        tags: ["art"],
+        collections: ["Wall Art"],
+      },
+      issueSignalCounts: { product_content: 1 },
+      metrics: {
+        classificationNeedsReview: true,
+        catalogProductTypes: ["Art print", "Game console", "Puzzle"],
+        productMomentumScore: 84,
+        customerSignalCount: 0,
+        signalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentIssues: [],
+        contentAnalysis: { issues: [], advisories: [] },
+        faqNeed: { shouldRecommend: false },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/classification-vendor",
+        productTitle: "Example Art Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const classification = recommendations.find((item) => item.id === "update-product-classification");
+    expect(classification).toBeTruthy();
+    expect(classification.payload).toMatchObject({
+      currentVendor: "damian",
+      currentProductType: "",
+      draftVendor: "",
+      draftProductType: "Art print",
+      classificationSource: "store_existing_product_type",
+    });
+  });
+
+  it("skips product classification recommendations when no real field change is available", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 62,
+      confidence: 71,
+      product: {
+        title: "Example Art Print",
+        description: "Decorative wall art print for home display.",
+        vendor: "damian",
+        productType: "Art print",
+        tags: ["art"],
+        collections: ["Wall Art"],
+      },
+      issueSignalCounts: { product_content: 1 },
+      metrics: {
+        classificationNeedsReview: true,
+        catalogProductTypes: ["Art print", "Game console", "Puzzle"],
+        productMomentumScore: 84,
+        customerSignalCount: 0,
+        signalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentIssues: [],
+        contentAnalysis: { issues: [], advisories: [] },
+        faqNeed: { shouldRecommend: false },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/classification-noop",
+        productTitle: "Example Art Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
   it("treats covered setup guidance as description coverage and uses targeted description edits for remaining gaps", () => {
     const currentDescription = [
       "GEN LumaSpan Modular Desk Rail Light mounts under a shelf or monitor riser with adhesive pads or optional clamp feet.",

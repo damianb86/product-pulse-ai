@@ -620,6 +620,7 @@ describe("ProductPulse actions", () => {
         handleNeedsReview: content.handleNeedsReview,
         specsBlockRecommended: content.specsBlockRecommended,
         classificationNeedsReview: content.classificationNeedsReview,
+        catalogProductTypes: ["Game console", "Puzzle", "Wall Art"],
         templateNeedsReview: content.templateNeedsReview,
         faqNeed: { shouldRecommend: false },
         textInsights: {},
