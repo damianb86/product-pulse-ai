@@ -1442,12 +1442,15 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     const parsed = parseClassificationDraft(payload.draftText || payload.value || "");
     const vendor = String(payload.draftVendor || parsed.vendor || "").replace(/\s+/g, " ").trim();
     const productType = String(payload.draftProductType || parsed.productType || "").replace(/\s+/g, " ").trim();
+    const categoryId = String(payload.draftCategoryId || payload.categoryId || "").trim();
     const currentVendor = String(snapshot.metrics?.vendor || "").replace(/\s+/g, " ").trim();
     const currentProductType = String(snapshot.metrics?.productType || "").replace(/\s+/g, " ").trim();
+    const currentCategoryId = String(snapshot.metrics?.categoryId || snapshot.metrics?.category?.id || "").trim();
     const productFields = {};
     if (vendor && vendor.toLowerCase() !== currentVendor.toLowerCase()) productFields.vendor = vendor;
     if (productType && productType.toLowerCase() !== currentProductType.toLowerCase()) productFields.productType = productType;
-    if (!Object.keys(productFields).length) return { status: "validation_error", message: "This classification action does not include a new vendor or product type to apply." };
+    if (categoryId && categoryId !== currentCategoryId) productFields.category = categoryId;
+    if (!Object.keys(productFields).length) return { status: "validation_error", message: "This classification action does not include a new vendor, product type or Shopify category to apply." };
     const result = await updateProductFields(admin, snapshot.productGid, productFields);
     if (result.status === "validation_error") return result;
     return {

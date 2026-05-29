@@ -4756,6 +4756,69 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("proposes a Shopify taxonomy category when the product has no category and a category suggestion is available", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 62,
+      confidence: 71,
+      product: {
+        title: "Example Art Print",
+        description: "Decorative wall art print for home display.",
+        vendor: "damian",
+        productType: "Art print",
+        category: null,
+        tags: ["art"],
+        collections: ["Wall Art"],
+      },
+      issueSignalCounts: { product_content: 1 },
+      metrics: {
+        classificationNeedsReview: true,
+        catalogProductTypes: ["Art print", "Game console", "Puzzle"],
+        taxonomyCategorySuggestions: [{
+          id: "gid://shopify/TaxonomyCategory/aa-1",
+          name: "Posters, Prints & Visual Artwork",
+          fullName: "Arts & Entertainment > Artwork > Posters, Prints & Visual Artwork",
+          isLeaf: true,
+          level: 3,
+          source: "shopify_taxonomy_search",
+        }],
+        productMomentumScore: 84,
+        customerSignalCount: 0,
+        signalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentIssues: [],
+        contentAnalysis: { issues: [], advisories: [] },
+        faqNeed: { shouldRecommend: false },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/classification-category",
+        productTitle: "Example Art Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const classification = recommendations.find((item) => item.id === "update-product-classification");
+    expect(classification).toBeTruthy();
+    expect(classification.payload).toMatchObject({
+      currentVendor: "damian",
+      currentProductType: "Art print",
+      draftVendor: "",
+      draftProductType: "",
+      draftCategoryId: "gid://shopify/TaxonomyCategory/aa-1",
+      draftCategoryFullName: "Arts & Entertainment > Artwork > Posters, Prints & Visual Artwork",
+      categorySource: "shopify_taxonomy_search",
+    });
+    expect(classification.payload.shopifyField).toContain("Product.category");
+  });
+
   it("skips product classification recommendations when no real field change is available", () => {
     const deterministic = {
       mainIssue: "product_content",

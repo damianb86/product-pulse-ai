@@ -11706,10 +11706,11 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
   if (payload.field === "classification" || normalized.includes("product classification")) {
     const draftVendor = String(payload.draftVendor || "").trim();
     const draftProductType = String(payload.draftProductType || "").trim();
+    const draftCategory = String(payload.draftCategoryFullName || payload.draftCategoryName || payload.draftCategory || "").trim();
     const value = [
       draftVendor ? `Vendor: ${draftVendor}` : "",
       draftProductType ? `Product type: ${draftProductType}` : "",
-      payload.draftCategory ? `Category to review: ${payload.draftCategory}` : "",
+      draftCategory ? `Shopify category: ${draftCategory}` : "",
     ].filter(Boolean).join("\n");
     return withRecipeApplicationFields(action, {
       kind: "shopify_product",
@@ -11726,6 +11727,9 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       currentValue: [
         product?.metrics?.vendor ? `Vendor: ${product.metrics.vendor}` : "",
         product?.metrics?.productType ? `Product type: ${product.metrics.productType}` : "",
+        product?.metrics?.categoryFullName || product?.metrics?.category?.fullName
+          ? `Shopify category: ${product.metrics.categoryFullName || product.metrics.category.fullName}`
+          : "",
       ].filter(Boolean).join("\n"),
     });
   }
