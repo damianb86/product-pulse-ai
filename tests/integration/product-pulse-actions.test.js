@@ -645,7 +645,7 @@ describe("ProductPulse actions", () => {
     expect(byId.get("improve-url-handle")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
     expect(byId.get("add-specs-details-block")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
     expect(byId.get("update-product-classification")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
-    expect(byId.get("add-structured-metafields")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.has("add-structured-metafields")).toBe(false);
     expect(byId.get("add-to-watchlist")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
   });
 });
