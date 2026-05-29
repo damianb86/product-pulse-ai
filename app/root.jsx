@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLocation, useNavigation } from "react-router";
 import appStylesheet from "./styles/product-pulse.css?url";
+import betaFeedbackStylesheet from "./styles/product-pulse-beta-feedback.css?url";
 import chatKitStylesheet from "./styles/product-pulse-chatkit.css?url";
 import wizardStylesheet from "./styles/product-pulse-wizard.css?url";
 
@@ -8,6 +9,7 @@ export const links = () => [
   { rel: "preconnect", href: "https://cdn.shopify.com/" },
   { rel: "stylesheet", href: "https://cdn.shopify.com/static/fonts/inter/v4/styles.css" },
   { rel: "stylesheet", href: appStylesheet },
+  { rel: "stylesheet", href: betaFeedbackStylesheet },
   { rel: "stylesheet", href: chatKitStylesheet },
   { rel: "stylesheet", href: wizardStylesheet },
 ];

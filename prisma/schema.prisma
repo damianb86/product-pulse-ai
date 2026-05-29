@@ -724,6 +724,57 @@ model ContactRequest {
   @@index([shop, createdAt])
 }
 
+model BetaFeedbackReport {
+  id                String   @id @default(cuid())
+  shop              String
+  userKey           String   @default("shop")
+  userId            String?
+  userEmail         String?
+  userName          String?
+  category          String
+  severity          String?
+  message           String
+  pagePath          String?
+  pageRoute         String?
+  panelId           String?
+  panelLabel        String?
+  source            String   @default("global")
+  relatedEntityType String?
+  relatedEntityId   String?
+  context           Json?
+  status            String   @default("new")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([shop, createdAt])
+  @@index([shop, status, createdAt])
+  @@index([shop, panelId, createdAt])
+  @@index([shop, userKey, createdAt])
+}
+
+model BetaFeedbackPanelPreference {
+  id                String    @id @default(cuid())
+  shop              String
+  userKey           String    @default("shop")
+  userId            String?
+  pageKey           String
+  panelId           String
+  panelLabel        String?
+  hidden            Boolean   @default(false)
+  hideReason        String?
+  hideReasonMessage String?
+  context           Json?
+  firstHiddenAt     DateTime?
+  lastHiddenAt      DateTime?
+  restoredAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([shop, userKey, pageKey, panelId])
+  @@index([shop, userKey, pageKey])
+  @@index([shop, panelId])
+}
+
 model CreditLedgerEntry {
   id           String   @id @default(cuid())
   shop         String

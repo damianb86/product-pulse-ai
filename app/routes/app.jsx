@@ -4,9 +4,11 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
 import { getAiChatKitClientConfig } from "../ai/chatkit/config.server";
 import { isAiCostDashboardEnabled } from "../ai/observability/usageEvents.server";
+import { BetaFeedbackProvider } from "../components/beta-feedback/BetaFeedbackLayer";
 import { ProductPulseChatKitAssistant } from "../components/ProductPulseChatKitAssistant";
 import { ProductPulseJobMonitor } from "../components/ProductPulseJobMonitor";
 import { ProductPulseWizard } from "../components/ProductPulseWizard";
+import { getBetaFeedbackClientConfig } from "../lib/beta-feedback-config.server";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
 import { getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
 
@@ -22,11 +24,12 @@ export const loader = async ({ request }) => {
     aiCostDashboardEnabled: isAiCostDashboardEnabled(),
     chatKit: getAiChatKitClientConfig(),
     jobMonitor: await getJobMonitorForShop(session.shop),
+    betaFeedback: getBetaFeedbackClientConfig({ session }),
   };
 };
 
 export default function App() {
-  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, jobMonitor } = useLoaderData();
+  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, jobMonitor, betaFeedback } = useLoaderData();
   const location = useLocation();
   const activeSection = getActiveNavSection(location.pathname);
   const aiPageContext = getAiPageContext(location);
@@ -34,23 +37,25 @@ export default function App() {
 
   return (
     <AppProvider embedded apiKey={apiKey}>
-      <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
-      <s-app-nav>
-        <s-link href={dashboardHref} data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
-        <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
-        <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
-        <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
-        <s-link href="/app/plans-and-credits" data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plans & Credits</s-link>
-        {aiCostDashboardEnabled ? (
-          <s-link href="/app/ai-costs" data-active={activeSection === "ai-costs" ? "true" : undefined}>AI Costs</s-link>
-        ) : null}
-        <s-link href="/app/connect" data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
-        <s-link href="/app/settings" data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
-        <s-link href="/app/help" data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
-      </s-app-nav>
-      <Outlet />
-      <ProductPulseChatKitAssistant config={chatKit} pageContext={aiPageContext} />
-      <ProductPulseWizard />
+      <BetaFeedbackProvider config={betaFeedback}>
+        <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
+        <s-app-nav>
+          <s-link href={dashboardHref} data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
+          <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
+          <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
+          <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
+          <s-link href="/app/plans-and-credits" data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plans & Credits</s-link>
+          {aiCostDashboardEnabled ? (
+            <s-link href="/app/ai-costs" data-active={activeSection === "ai-costs" ? "true" : undefined}>AI Costs</s-link>
+          ) : null}
+          <s-link href="/app/connect" data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
+          <s-link href="/app/settings" data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
+          <s-link href="/app/help" data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
+        </s-app-nav>
+        <Outlet />
+        <ProductPulseChatKitAssistant config={chatKit} pageContext={aiPageContext} />
+        <ProductPulseWizard />
+      </BetaFeedbackProvider>
     </AppProvider>
   );
 }

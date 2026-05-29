@@ -31,6 +31,7 @@ import {
   getProductPulseHtmlStylePreset,
   normalizeProductPulseHtmlStyle,
 } from "../lib/product-pulse-html-style-presets";
+import { BetaFeedbackPanelControls, BetaFeedbackPanelFrame } from "./beta-feedback/BetaFeedbackLayer";
 
 const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 4_000;
 const RISK_THRESHOLD_HANDLE_GAP = 5;
@@ -1894,36 +1895,54 @@ function WatchlistOverviewDashboard({ overview = {}, trend = {}, sort = "urgency
 }
 
 function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "urgency", onSortChange }) {
+  const panel = buildBetaFeedbackPanel("watchlist.productChanges", "Watchlist product changes", {
+    watchlist: {
+      rowCount: rows.length,
+      windowLabel,
+      sort,
+      visibleProducts: rows.slice(0, 6).map((row) => ({
+        title: row.title,
+        riskLabel: row.riskLabel,
+        changeTitle: row.changeTitle,
+        recommendationLabel: row.recommendationLabel,
+      })),
+    },
+  });
   return (
-    <section className="ppWatchOverviewPanel ppWatchOverviewChangesPanel" aria-label="Watchlist changes since previous run">
-      <header className="ppWatchOverviewPanelHeader">
-        <h3>Changes since previous run {windowLabel ? <span>{windowLabel}</span> : null}</h3>
-        <label className="ppWatchOverviewSort">
-          <span>Sort by:</span>
-          <select value={sort} onChange={(event) => onSortChange?.(event.target.value)}>
-            <option value="urgency">Urgency</option>
-            <option value="risk">Risk</option>
-            <option value="latest">Latest run</option>
-            <option value="product">Product</option>
-          </select>
-        </label>
-      </header>
-      {rows.length ? (
-        <div className="ppWatchOverviewProductList">
-          {rows.map((row, index) => <WatchlistOverviewProductChangeRow row={row} rank={index + 1} key={row.id || row.productGid || row.title} />)}
-        </div>
-      ) : (
-        <div className="ppWatchOverviewEmpty">
-          <s-icon type="check-circle" size="small"></s-icon>
-          <span>No changed products were found in the latest Watchlist run.</span>
-        </div>
-      )}
-      {rows.length ? (
-        <footer className="ppWatchOverviewPanelFooter">
-          <span>Showing 1-{rows.length} of {rows.length} changed products</span>
-        </footer>
-      ) : null}
-    </section>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className="ppWatchOverviewPanel ppWatchOverviewChangesPanel" aria-label="Watchlist changes since previous run">
+        <header className="ppWatchOverviewPanelHeader">
+          <h3>Changes since previous run {windowLabel ? <span>{windowLabel}</span> : null}</h3>
+          <div className="ppBetaFeedbackHeaderActions">
+            <BetaFeedbackPanelControls panel={panel} />
+            <label className="ppWatchOverviewSort">
+              <span>Sort by:</span>
+              <select value={sort} onChange={(event) => onSortChange?.(event.target.value)}>
+                <option value="urgency">Urgency</option>
+                <option value="risk">Risk</option>
+                <option value="latest">Latest run</option>
+                <option value="product">Product</option>
+              </select>
+            </label>
+          </div>
+        </header>
+        {rows.length ? (
+          <div className="ppWatchOverviewProductList">
+            {rows.map((row, index) => <WatchlistOverviewProductChangeRow row={row} rank={index + 1} key={row.id || row.productGid || row.title} />)}
+          </div>
+        ) : (
+          <div className="ppWatchOverviewEmpty">
+            <s-icon type="check-circle" size="small"></s-icon>
+            <span>No changed products were found in the latest Watchlist run.</span>
+          </div>
+        )}
+        {rows.length ? (
+          <footer className="ppWatchOverviewPanelFooter">
+            <span>Showing 1-{rows.length} of {rows.length} changed products</span>
+          </footer>
+        ) : null}
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -1982,60 +2001,88 @@ function WatchOverviewTinyMetric({ label, value, tone = "neutral" }) {
 }
 
 function WatchlistOverviewWhatChanged({ rows = [], total = 0 }) {
+  const panel = buildBetaFeedbackPanel("watchlist.whatChanged", "Watchlist change categories", {
+    watchlist: {
+      total,
+      categories: rows.slice(0, 8).map((row) => ({
+        label: row.label,
+        count: row.count,
+        worsened: row.worsened,
+        improved: row.improved,
+        changed: row.changed,
+      })),
+    },
+  });
   return (
-    <section className="ppWatchOverviewPanel ppWatchOverviewWhatChanged" aria-label="What changed in latest Watchlist run">
-      <header className="ppWatchOverviewPanelHeader">
-        <h3>What changed <span>({formatInteger(total)})</span></h3>
-      </header>
-      <div className="ppWatchOverviewCategoryRows">
-        {rows.map((row) => (
-          <details className="ppWatchOverviewCategoryRow" key={row.id}>
-            <summary>
-              <span>
-                <DashboardIcon type={row.icon} tone={row.tone || "blue"} size="small" />
-                <strong>{row.label}</strong>
-              </span>
-              <b>{formatInteger(row.count)}</b>
-              <em className="isBad">{row.worsened ? `${formatInteger(row.worsened)} worsened` : "-"}</em>
-              <em className="isGood">{row.improved ? `${formatInteger(row.improved)} improved` : "-"}</em>
-              <em className="isNeutral">{row.changed ? `${formatInteger(row.changed)} changed` : "-"}</em>
-              <s-icon type="chevron-down" size="small"></s-icon>
-            </summary>
-            <p>{row.detail}</p>
-          </details>
-        ))}
-      </div>
-    </section>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className="ppWatchOverviewPanel ppWatchOverviewWhatChanged" aria-label="What changed in latest Watchlist run">
+        <header className="ppWatchOverviewPanelHeader">
+          <h3>What changed <span>({formatInteger(total)})</span></h3>
+          <BetaFeedbackPanelControls panel={panel} />
+        </header>
+        <div className="ppWatchOverviewCategoryRows">
+          {rows.map((row) => (
+            <details className="ppWatchOverviewCategoryRow" key={row.id}>
+              <summary>
+                <span>
+                  <DashboardIcon type={row.icon} tone={row.tone || "blue"} size="small" />
+                  <strong>{row.label}</strong>
+                </span>
+                <b>{formatInteger(row.count)}</b>
+                <em className="isBad">{row.worsened ? `${formatInteger(row.worsened)} worsened` : "-"}</em>
+                <em className="isGood">{row.improved ? `${formatInteger(row.improved)} improved` : "-"}</em>
+                <em className="isNeutral">{row.changed ? `${formatInteger(row.changed)} changed` : "-"}</em>
+                <s-icon type="chevron-down" size="small"></s-icon>
+              </summary>
+              <p>{row.detail}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
 function WatchlistOverviewEvents({ rows = [] }) {
+  const panel = buildBetaFeedbackPanel("watchlist.events", "Watchlist run events", {
+    watchlist: {
+      eventCount: rows.length,
+      events: rows.slice(0, 8).map((row) => ({
+        title: row.title,
+        detail: row.detail,
+        severityLabel: row.severityLabel,
+      })),
+    },
+  });
   return (
-    <section className="ppWatchOverviewPanel ppWatchOverviewEvents" aria-label="Events from this Watchlist run">
-      <header className="ppWatchOverviewPanelHeader">
-        <h3>Events from this run</h3>
-      </header>
-      {rows.length ? (
-        <div className="ppWatchOverviewEventRows">
-          {rows.map((row) => (
-            <Link className="ppWatchOverviewEventRow" to={row.href || "/app/watchlist/activity"} key={row.id}>
-              <DashboardIcon type={row.icon} tone={row.tone || "blue"} size="small" />
-              <span>
-                <strong>{row.title}</strong>
-                <small>{row.detail}</small>
-              </span>
-              <time>{row.timeLabel}</time>
-              <em className={`ppWatchOverviewSeverity ppWatchOverviewSeverity-${row.severityTone || "neutral"}`}>{row.severityLabel}</em>
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="ppWatchOverviewEmpty">
-          <s-icon type="check-circle" size="small"></s-icon>
-          <span>No events were isolated for the latest Watchlist run.</span>
-        </div>
-      )}
-    </section>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className="ppWatchOverviewPanel ppWatchOverviewEvents" aria-label="Events from this Watchlist run">
+        <header className="ppWatchOverviewPanelHeader">
+          <h3>Events from this run</h3>
+          <BetaFeedbackPanelControls panel={panel} />
+        </header>
+        {rows.length ? (
+          <div className="ppWatchOverviewEventRows">
+            {rows.map((row) => (
+              <Link className="ppWatchOverviewEventRow" to={row.href || "/app/watchlist/activity"} key={row.id}>
+                <DashboardIcon type={row.icon} tone={row.tone || "blue"} size="small" />
+                <span>
+                  <strong>{row.title}</strong>
+                  <small>{row.detail}</small>
+                </span>
+                <time>{row.timeLabel}</time>
+                <em className={`ppWatchOverviewSeverity ppWatchOverviewSeverity-${row.severityTone || "neutral"}`}>{row.severityLabel}</em>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="ppWatchOverviewEmpty">
+            <s-icon type="check-circle" size="small"></s-icon>
+            <span>No events were isolated for the latest Watchlist run.</span>
+          </div>
+        )}
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -4296,6 +4343,14 @@ function WatchlistTrendPanel({ trend = {} }) {
   const hasSeries = series.length > 0;
   const riskScore = Number.isFinite(Number(trend.riskScore)) ? Math.round(Number(trend.riskScore)) : null;
   const visibleSeries = series.filter((item) => visibleSeriesKeys.has(item.trendKey));
+  const panel = buildBetaFeedbackPanel("watchlist.trend", "Watchlist trend", {
+    watchlist: {
+      riskScore,
+      riskLabel: trend.riskLabel,
+      seriesCount: series.length,
+      visibleSeries: visibleSeries.map((item) => item.productTitle || item.label || item.trendKey),
+    },
+  });
 
   useEffect(() => {
     setVisibleSeriesKeys(new Set(defaultVisibleSeriesKeys));
@@ -4314,62 +4369,65 @@ function WatchlistTrendPanel({ trend = {} }) {
   };
 
   return (
-    <section className="ppWatchlistPanel ppWatchTrendPanel">
-      <div className="ppWatchlistPanelHeader">
-        <div>
-          <h2>Watchlist trend (risk activity)</h2>
-          <small>{hasSeries ? "Risk history for all watched products" : "Risk history for watched products"}</small>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className="ppWatchlistPanel ppWatchTrendPanel">
+        <div className="ppWatchlistPanelHeader">
+          <div>
+            <h2>Watchlist trend (risk activity)</h2>
+            <small>{hasSeries ? "Risk history for all watched products" : "Risk history for watched products"}</small>
+          </div>
+          <BetaFeedbackPanelControls panel={panel} />
         </div>
-      </div>
-      <div className="ppWatchTrendMetric">
-        <strong>{riskScore ?? "-"}</strong>
-        <span>{riskScore === null ? "No data" : `Avg ${trend.riskLabel || "risk"}`}</span>
-      </div>
-      <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-          {visibleSeries.map((item) => {
-            const linePoints = Array.isArray(item.points) && item.points.length ? item.points : parseSvgPointString(item.path);
+        <div className="ppWatchTrendMetric">
+          <strong>{riskScore ?? "-"}</strong>
+          <span>{riskScore === null ? "No data" : `Avg ${trend.riskLabel || "risk"}`}</span>
+        </div>
+        <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+            {visibleSeries.map((item) => {
+              const linePoints = Array.isArray(item.points) && item.points.length ? item.points : parseSvgPointString(item.path);
+              return (
+                <path
+                  key={item.trendKey}
+                  className="ppWatchTrendLine"
+                  d={buildSmoothSvgPath(linePoints)}
+                  stroke={item.color || "#2563EB"}
+                />
+              );
+            })}
+          </svg>
+        </div>
+        <div className="ppWatchTrendLegend" aria-label="Watched product trend legend">
+          {hasSeries ? series.map((item) => {
+            const active = visibleSeriesKeys.has(item.trendKey);
             return (
-              <path
+              <button
+                aria-pressed={active}
+                className={`ppWatchTrendLegendItem${active ? "" : " isDisabled"}`}
                 key={item.trendKey}
-                className="ppWatchTrendLine"
-                d={buildSmoothSvgPath(linePoints)}
-                stroke={item.color || "#2563EB"}
-              />
+                onClick={() => handleToggleSeries(item.trendKey)}
+                title={item.productTitle}
+                type="button"
+              >
+                <span style={{ backgroundColor: active ? item.color || "#2563EB" : undefined }} aria-hidden="true" />
+                <strong>{item.productTitle || "Watched product"}</strong>
+                <small>{Number.isFinite(Number(item.riskScore)) ? `${item.riskScore} · ${item.riskLabel}` : item.riskLabel || "No data"}</small>
+              </button>
             );
-          })}
-        </svg>
-      </div>
-      <div className="ppWatchTrendLegend" aria-label="Watched product trend legend">
-        {hasSeries ? series.map((item) => {
-          const active = visibleSeriesKeys.has(item.trendKey);
-          return (
-            <button
-              aria-pressed={active}
-              className={`ppWatchTrendLegendItem${active ? "" : " isDisabled"}`}
-              key={item.trendKey}
-              onClick={() => handleToggleSeries(item.trendKey)}
-              title={item.productTitle}
-              type="button"
-            >
-              <span style={{ backgroundColor: active ? item.color || "#2563EB" : undefined }} aria-hidden="true" />
-              <strong>{item.productTitle || "Watched product"}</strong>
-              <small>{Number.isFinite(Number(item.riskScore)) ? `${item.riskScore} · ${item.riskLabel}` : item.riskLabel || "No data"}</small>
-            </button>
-          );
-        }) : (
-          <span className="ppWatchTrendLegendEmpty">Run diagnostics to start storing score history.</span>
-        )}
-      </div>
-      <div className="ppWatchTrendCallout">
-        <span className="ppWatchIssueDot ppWatchIssueDot-orange" aria-hidden="true" />
-        <div>
-          <strong>{trend.calloutTitle || "No watch trend yet"}</strong>
-          <small>{trend.calloutDetail || "Add a watched product and run analyses to build history."}</small>
+          }) : (
+            <span className="ppWatchTrendLegendEmpty">Run diagnostics to start storing score history.</span>
+          )}
         </div>
-        <s-icon type="chevron-right" size="small"></s-icon>
-      </div>
-    </section>
+        <div className="ppWatchTrendCallout">
+          <span className="ppWatchIssueDot ppWatchIssueDot-orange" aria-hidden="true" />
+          <div>
+            <strong>{trend.calloutTitle || "No watch trend yet"}</strong>
+            <small>{trend.calloutDetail || "Add a watched product and run analyses to build history."}</small>
+          </div>
+          <s-icon type="chevron-right" size="small"></s-icon>
+        </div>
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -13021,6 +13079,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }
 
   const detail = getProductDetailModel(product);
+  const productBetaContext = buildProductBetaFeedbackContext(detail, product);
+  const productBetaRelatedEntity = buildProductBetaRelatedEntity(detail, product);
   const ignoredIssueRows = detail.detectedIssues.filter((issue) => isIssueIgnored(issue, ignoredIssues));
   const selectedEvidence = detail.evidenceSources[selectedEvidenceIndex] || detail.evidenceSources[0];
   const baseInsightCards = getProductDetailInsightCards(detail);
@@ -13297,159 +13357,205 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       : action);
   };
 
+  const overviewFeedbackPanel = buildBetaFeedbackPanel("product.overview", "Product overview", productBetaContext, productBetaRelatedEntity);
+  const recommendedActionsFeedbackPanel = buildBetaFeedbackPanel(
+    "product.recommendedActions",
+    "Recommended actions",
+    {
+      ...productBetaContext,
+      recommendedActions: {
+        visibleCount: visibleRecommendedActionCount,
+        hiddenIgnoredCount: hiddenIgnoredRecommendedActionCount,
+        minimizedCount: minimizedRecommendedActions.length,
+        sort: recommendedActionSort,
+        visibleActions: visibleRecommendedActions.slice(0, 6).map((action) => ({
+          id: action.id,
+          title: action.title,
+          priority: action.priority,
+          confidence: action.confidence,
+        })),
+      },
+    },
+    productBetaRelatedEntity,
+  );
+  const issuesFeedbackPanel = buildBetaFeedbackPanel(
+    "product.issuesDetected",
+    "Issues detected",
+    {
+      ...productBetaContext,
+      issues: detail.detectedIssues.slice(0, 10).map((issue) => ({
+        issue: issue.issue,
+        severity: issue.severity,
+        confidence: issue.confidence,
+        signals: issue.signals,
+      })),
+    },
+    productBetaRelatedEntity,
+  );
+
   const overviewPanel = (
-    <div className="ppMainFindingCard ppProductDetailOverviewFinding">
-      <DashboardIcon type="ai-evidence-synthesis" tone={detail.findingTone} />
-      <div>
-        <span>AI interpretation</span>
-        <h2>{detail.mainFindingTitle}</h2>
-        <div className="ppMainFindingText">
-          {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
-            <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
-          ))}
+    <BetaFeedbackPanelFrame panel={overviewFeedbackPanel}>
+      <div className="ppMainFindingCard ppProductDetailOverviewFinding">
+        <div className="ppBetaFeedbackCardCorner">
+          <BetaFeedbackPanelControls panel={overviewFeedbackPanel} />
+        </div>
+        <DashboardIcon type="ai-evidence-synthesis" tone={detail.findingTone} />
+        <div>
+          <span>AI interpretation</span>
+          <h2>{detail.mainFindingTitle}</h2>
+          <div className="ppMainFindingText">
+            {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
+              <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+    </BetaFeedbackPanelFrame>
   );
 
   const recommendedActionsPanel = (
-    <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
-      <div className="ppRecommendedActionsHeader">
-        <div>
-          <span className="ppRecommendedActionsTitle">
-            <span className="ppRecommendedActionsTitleIcon" aria-hidden="true">
-              <ProductPulseGlyph type="ai-evidence-synthesis" />
-            </span>
-            <h2>Recommended actions</h2>
-          </span>
-          <p>Prioritized next steps based on product signals and evidence.</p>
-          <span>
-            {detail.hasFullDiagnosis
-              ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
-              : "Run full diagnosis to unlock actions"}
-          </span>
-        </div>
-        <button
-          className="ppPanelCollapseButton"
-          type="button"
-          aria-expanded={!recommendedActionsCollapsed}
-          aria-controls="pp-recommended-actions-content"
-          onClick={handleToggleRecommendedActions}
-        >
-          <s-icon type={recommendedActionsCollapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
-          <span>{recommendedActionsCollapsed ? "Expand" : "Minimize"}</span>
-        </button>
-      </div>
-      {!recommendedActionsCollapsed && (
-        <div id="pp-recommended-actions-content">
-          <div className="ppRecommendedActionsToolbar">
-            <span className="ppRecommendedActionsCountBadge">
-              <span className="ppRecommendedActionsCountIcon" aria-hidden="true">
-                <span></span>
-                <span></span>
-                <span></span>
+    <BetaFeedbackPanelFrame panel={recommendedActionsFeedbackPanel}>
+      <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
+        <div className="ppRecommendedActionsHeader">
+          <div>
+            <span className="ppRecommendedActionsTitle">
+              <span className="ppRecommendedActionsTitleIcon" aria-hidden="true">
+                <ProductPulseGlyph type="ai-evidence-synthesis" />
               </span>
-              {visibleRecommendedActionCount} action{visibleRecommendedActionCount === 1 ? "" : "s"}
+              <h2>Recommended actions</h2>
             </span>
-            <label className="ppRecommendedActionsSort">
-              <span>Sort recommended actions</span>
-              <select
-                value={recommendedActionSort}
-                onChange={(event) => {
-                  setRecommendedActionSort(event.target.value);
-                  setRecommendedActionsExpanded(false);
-                }}
-              >
-                <option value="priority">Sort by priority</option>
-                <option value="impact">Sort by impact</option>
-                <option value="confidence">Sort by confidence</option>
-                <option value="risk">Sort by lowest apply risk</option>
-                <option value="effort">Sort by lowest effort</option>
-              </select>
-            </label>
+            <p>Prioritized next steps based on product signals and evidence.</p>
+            <span>
+              {detail.hasFullDiagnosis
+                ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
+                : "Run full diagnosis to unlock actions"}
+            </span>
           </div>
-          <div className="ppRecommendedActionList">
-            {!detail.hasFullDiagnosis ? (
-              <EmptyProductDetailState
-                message="Recommended actions will appear after you run the full product diagnosis for this product."
-                variant="recommendedActions"
-              />
-            ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
-              <EmptyProductDetailState
-                message={hiddenIgnoredRecommendedActionCount
-                  ? `${hiddenIgnoredRecommendedActionCount} recommendation${hiddenIgnoredRecommendedActionCount === 1 ? "" : "s"} hidden because related issues are ignored for this product.`
-                  : "0 deterministic recommended actions from current stored signals."}
-                variant="recommendedActions"
+          <div className="ppBetaFeedbackHeaderActions">
+            <BetaFeedbackPanelControls panel={recommendedActionsFeedbackPanel} />
+            <button
+              className="ppPanelCollapseButton"
+              type="button"
+              aria-expanded={!recommendedActionsCollapsed}
+              aria-controls="pp-recommended-actions-content"
+              onClick={handleToggleRecommendedActions}
+            >
+              <s-icon type={recommendedActionsCollapsed ? "chevron-down" : "chevron-up"} size="small"></s-icon>
+              <span>{recommendedActionsCollapsed ? "Expand" : "Minimize"}</span>
+            </button>
+          </div>
+        </div>
+        {!recommendedActionsCollapsed && (
+          <div id="pp-recommended-actions-content">
+            <div className="ppRecommendedActionsToolbar">
+              <span className="ppRecommendedActionsCountBadge">
+                <span className="ppRecommendedActionsCountIcon" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </span>
+                {visibleRecommendedActionCount} action{visibleRecommendedActionCount === 1 ? "" : "s"}
+              </span>
+              <label className="ppRecommendedActionsSort">
+                <span>Sort recommended actions</span>
+                <select
+                  value={recommendedActionSort}
+                  onChange={(event) => {
+                    setRecommendedActionSort(event.target.value);
+                    setRecommendedActionsExpanded(false);
+                  }}
+                >
+                  <option value="priority">Sort by priority</option>
+                  <option value="impact">Sort by impact</option>
+                  <option value="confidence">Sort by confidence</option>
+                  <option value="risk">Sort by lowest apply risk</option>
+                  <option value="effort">Sort by lowest effort</option>
+                </select>
+              </label>
+            </div>
+            <div className="ppRecommendedActionList">
+              {!detail.hasFullDiagnosis ? (
+                <EmptyProductDetailState
+                  message="Recommended actions will appear after you run the full product diagnosis for this product."
+                  variant="recommendedActions"
+                />
+              ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
+                <EmptyProductDetailState
+                  message={hiddenIgnoredRecommendedActionCount
+                    ? `${hiddenIgnoredRecommendedActionCount} recommendation${hiddenIgnoredRecommendedActionCount === 1 ? "" : "s"} hidden because related issues are ignored for this product.`
+                    : "0 deterministic recommended actions from current stored signals."}
+                  variant="recommendedActions"
+                />
+              )}
+              {primaryRecommendedActions.map((action, index) => (
+                <ProductRecommendedActionCompact
+                  key={getRecommendedActionKey(action)}
+                  action={action}
+                  index={index}
+                  onOpen={handleOpenRecommendedAction}
+                />
+              ))}
+            </div>
+            {visibleRecommendedActions.length > 3 && (
+              <>
+                <div className={`ppRecommendedActionsOverflow${recommendedActionsExpanded ? " isExpanded" : ""}`} aria-hidden={!recommendedActionsExpanded}>
+                  <div className="ppRecommendedActionList ppRecommendedActionList-extra">
+                    {hiddenRecommendedActions.map((action, index) => (
+                      <ProductRecommendedActionCompact
+                        key={getRecommendedActionKey(action)}
+                        action={action}
+                        index={index + primaryRecommendedActions.length}
+                        onOpen={handleOpenRecommendedAction}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <button
+                  className="ppRecommendedActionsMore"
+                  type="button"
+                  onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
+                >
+                  <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
+                  <span className="ppRecommendedActionsMoreLabel">
+                    {recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}
+                    <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
+                  </span>
+                  <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
+                </button>
+              </>
+            )}
+            {minimizedRecommendedActions.length > 0 && (
+              <MinimizedRecommendedActionsTray
+                actions={minimizedRecommendedActions}
+                minimizedActionStates={minimizedActionStates}
+                onExpand={handleExpandArchivedAction}
               />
             )}
-            {primaryRecommendedActions.map((action, index) => (
-              <ProductRecommendedActionCompact
-                key={getRecommendedActionKey(action)}
-                action={action}
-                index={index}
-                onOpen={handleOpenRecommendedAction}
-              />
-            ))}
-          </div>
-          {visibleRecommendedActions.length > 3 && (
-            <>
-              <div className={`ppRecommendedActionsOverflow${recommendedActionsExpanded ? " isExpanded" : ""}`} aria-hidden={!recommendedActionsExpanded}>
-                <div className="ppRecommendedActionList ppRecommendedActionList-extra">
-                  {hiddenRecommendedActions.map((action, index) => (
-                    <ProductRecommendedActionCompact
-                      key={getRecommendedActionKey(action)}
-                      action={action}
-                      index={index + primaryRecommendedActions.length}
-                      onOpen={handleOpenRecommendedAction}
-                    />
-                  ))}
+            {editingAction && (
+              <Form method="post" className="ppActionDraftEditor">
+                <input type="hidden" name="_action" value="apply-action" />
+                <input type="hidden" name="productId" value={product.slug} />
+                <input type="hidden" name="actionId" value={editingAction.id} />
+                <input type="hidden" name="label" value={editingAction.title} />
+                <label htmlFor="pp-action-draft">Draft</label>
+                <textarea
+                  id="pp-action-draft"
+                  name="draftText"
+                  value={draftText}
+                  onChange={(event) => setDraftText(event.target.value)}
+                />
+                <div>
+                  <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
+                  <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
+                    {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
+                  </button>
                 </div>
-              </div>
-              <button
-                className="ppRecommendedActionsMore"
-                type="button"
-                onClick={() => setRecommendedActionsExpanded((expanded) => !expanded)}
-              >
-                <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
-                <span className="ppRecommendedActionsMoreLabel">
-                  {recommendedActionsExpanded ? "View less" : `View more${hiddenVisibleRecommendedActionCount ? ` (${hiddenVisibleRecommendedActionCount})` : ""}`}
-                  <s-icon type={recommendedActionsExpanded ? "chevron-up" : "chevron-down"} size="small"></s-icon>
-                </span>
-                <span className="ppRecommendedActionsMoreLine" aria-hidden="true" />
-              </button>
-            </>
-          )}
-          {minimizedRecommendedActions.length > 0 && (
-            <MinimizedRecommendedActionsTray
-              actions={minimizedRecommendedActions}
-              minimizedActionStates={minimizedActionStates}
-              onExpand={handleExpandArchivedAction}
-            />
-          )}
-          {editingAction && (
-            <Form method="post" className="ppActionDraftEditor">
-              <input type="hidden" name="_action" value="apply-action" />
-              <input type="hidden" name="productId" value={product.slug} />
-              <input type="hidden" name="actionId" value={editingAction.id} />
-              <input type="hidden" name="label" value={editingAction.title} />
-              <label htmlFor="pp-action-draft">Draft</label>
-              <textarea
-                id="pp-action-draft"
-                name="draftText"
-                value={draftText}
-                onChange={(event) => setDraftText(event.target.value)}
-              />
-              <div>
-                <button className="ppSecondaryButton" type="button" onClick={() => setEditingAction(null)}>Cancel</button>
-                <button className="ppPrimaryButton" type="submit" disabled={pendingActionId === editingAction.id}>
-                  {pendingActionId === editingAction.id ? "Saving..." : "Save draft"}
-                </button>
-              </div>
-            </Form>
-          )}
-        </div>
-      )}
-    </div>
+              </Form>
+            )}
+          </div>
+        )}
+      </div>
+    </BetaFeedbackPanelFrame>
   );
 
   return (
@@ -13587,71 +13693,76 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               <main className="ppProductDetailPrimary">
                 {overviewPanel}
 
-                <div className="ppProductPanel ppIssuesOverviewPanel">
-                  <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
-                  <div className="ppIssuesTableWrap">
-                    <table className="ppIssuesTable">
-                      <thead>
-                        <tr>
-                          <th>Issue</th>
-                          <th>Impact</th>
-                          <th>Confidence</th>
-                          <th>Signals</th>
-                          <th>Trend</th>
-                          <th>Suggested action</th>
-                          <th aria-label="More actions"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.detectedIssues.length === 0 && (
-                          <tr className="ppIssuesEmptyRow">
-                            <td colSpan="7">
-                              <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
-                            </td>
+                <BetaFeedbackPanelFrame panel={issuesFeedbackPanel}>
+                  <div className="ppProductPanel ppIssuesOverviewPanel">
+                    <div className="ppBetaFeedbackPanelHeaderLine">
+                      <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
+                      <BetaFeedbackPanelControls panel={issuesFeedbackPanel} />
+                    </div>
+                    <div className="ppIssuesTableWrap">
+                      <table className="ppIssuesTable">
+                        <thead>
+                          <tr>
+                            <th>Issue</th>
+                            <th>Impact</th>
+                            <th>Confidence</th>
+                            <th>Signals</th>
+                            <th>Trend</th>
+                            <th>Suggested action</th>
+                            <th aria-label="More actions"></th>
                           </tr>
-                        )}
-                        {detail.detectedIssues.map((issue, index) => {
-                          const ignorePayload = buildIssueIgnorePayload(issue);
-                          const ignored = isIssueIgnored(issue, ignoredIssues);
-                          const ignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "ignore-issue";
-                          const unignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "unignore-issue";
-                          const issueEvidenceText = issue.evidence?.length > 0 ? issue.evidence.slice(0, 2).join(" ") : "";
-
-                          return (
-                            <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
-                              <td>
-                                <span className="ppIssueNameCell">
-                                  <span className="ppIssueIcon" aria-hidden="true">
-                                    <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
-                                  </span>
-                                  <span>
-                                    <IssueTitleWithEvidence title={issue.issue} evidence={issueEvidenceText} />
-                                  </span>
-                                  {ignored && <s-badge tone="success">Ignored</s-badge>}
-                                </span>
-                              </td>
-                              <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
-                              <td>{issue.confidence}</td>
-                              <td>{issue.signals}</td>
-                              <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
-                              <td title={issue.action}>{issue.action}</td>
-                              <td>
-                                <IssueInlineActions
-                                  issue={issue}
-                                  onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
-                                  onIgnore={() => handleIgnoreIssue(issue)}
-                                  onUnignore={() => handleUnignoreIssue(issue)}
-                                  ignored={ignored}
-                                  pending={ignorePending || unignorePending}
-                                />
+                        </thead>
+                        <tbody>
+                          {detail.detectedIssues.length === 0 && (
+                            <tr className="ppIssuesEmptyRow">
+                              <td colSpan="7">
+                                <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                          )}
+                          {detail.detectedIssues.map((issue, index) => {
+                            const ignorePayload = buildIssueIgnorePayload(issue);
+                            const ignored = isIssueIgnored(issue, ignoredIssues);
+                            const ignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "ignore-issue";
+                            const unignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "unignore-issue";
+                            const issueEvidenceText = issue.evidence?.length > 0 ? issue.evidence.slice(0, 2).join(" ") : "";
+
+                            return (
+                              <tr className={ignored ? "isIgnored" : ""} key={issue.issue}>
+                                <td>
+                                  <span className="ppIssueNameCell">
+                                    <span className="ppIssueIcon" aria-hidden="true">
+                                      <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                                    </span>
+                                    <span>
+                                      <IssueTitleWithEvidence title={issue.issue} evidence={issueEvidenceText} />
+                                    </span>
+                                    {ignored && <s-badge tone="success">Ignored</s-badge>}
+                                  </span>
+                                </td>
+                                <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
+                                <td>{issue.confidence}</td>
+                                <td>{issue.signals}</td>
+                                <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
+                                <td title={issue.action}>{issue.action}</td>
+                                <td>
+                                  <IssueInlineActions
+                                    issue={issue}
+                                    onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
+                                    onIgnore={() => handleIgnoreIssue(issue)}
+                                    onUnignore={() => handleUnignoreIssue(issue)}
+                                    ignored={ignored}
+                                    pending={ignorePending || unignorePending}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
+                </BetaFeedbackPanelFrame>
 
                 {!detail.hasFullDiagnosis ? (
                   <ProductDeepDiagnosisDataPlaceholder detail={detail} />
@@ -13867,12 +13978,24 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
   const tooltipLockProps = getProductMetricTimelineTooltipLockProps(lockedTooltipIndex);
   const hasLockedTooltip = Boolean(lockedTooltipPoint);
   const handleHoverLockToggle = (active) => onHoverLockToggle?.(chart, active);
+  const panel = buildBetaFeedbackPanel(getBetaFeedbackPanelId("metricTimeline", chart.key || chart.title), chart.title, {
+    metric: {
+      key: chart.key,
+      title: chart.title,
+      kind: chart.kind,
+      currentLabel: chart.currentLabel,
+      deltaLabel: chart.deltaLabel,
+      pointCount: chart.points?.length || 0,
+      axis: chart.axis,
+    },
+  });
   return (
-    <article
-      className={`ppMetricTimelineChart ppMetricTimelineChart-${chart.tone}${isHoverLockSource ? " isHoverLockSource" : ""}`}
-      aria-label={`${chart.title} timeline`}
-      data-metric-key={chart.key}
-    >
+    <BetaFeedbackPanelFrame panel={panel}>
+      <article
+        className={`ppMetricTimelineChart ppMetricTimelineChart-${chart.tone}${isHoverLockSource ? " isHoverLockSource" : ""}`}
+        aria-label={`${chart.title} timeline`}
+        data-metric-key={chart.key}
+      >
       <div className="ppMetricTimelineSummary">
         <div className="ppMetricTimelineReorderControls" aria-label={`${chart.title} reorder controls`}>
           <button
@@ -13908,6 +14031,7 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
             {chart.deltaLabel}
           </small>
         </div>
+        <BetaFeedbackPanelControls panel={panel} />
       </div>
       <div className="ppMetricTimelineChartBody">
         <div className="ppMetricTimelineChartPlot">
@@ -14012,7 +14136,8 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
         </div>
         <ProductMetricTimelineLegend chart={chart} />
       </div>
-    </article>
+      </article>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -17716,68 +17841,86 @@ function ProductOrderActivityPanel({ detail }) {
     ? Math.max(Number(summary.maxRevenue || 0), ...months.map((month) => Number(month.revenue || 0)), 1)
     : 1;
   const chartDescription = "Orders, return cohorts, refund cohorts, revenue and optional unresolved return balance grouped by cohort month.";
+  const panel = buildBetaFeedbackPanel(
+    "product.monthlyOrderActivity",
+    "Monthly order activity",
+    buildProductBetaFeedbackContext(detail, {}, {
+      chart: {
+        kind: "monthlyOrderActivity",
+        monthCount: months.length,
+        range: getMonthlyOrderActivityRangeLabel(months),
+        summary,
+      },
+    }),
+    buildProductBetaRelatedEntity(detail),
+  );
   const toggleOrderActivitySeries = (key) => {
     setVisibleOrderActivitySeries((current) => ({ ...current, [key]: !current[key] }));
   };
 
   return (
-    <section className={`ppProductOrderActivityPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Monthly order activity">
-      <div className="ppOrderActivityHeader">
-        <div>
-          <span>Deep research</span>
-          <h2>Monthly order activity</h2>
-          <p>{chartDescription}</p>
-        </div>
-        <ProductDetailPanelCollapseButton
-          collapsed={collapsed}
-          label="Monthly order activity"
-          onToggle={() => setCollapsed((current) => !current)}
-        />
-      </div>
-
-      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
-        <>
-          <div className="ppOrderActivitySummary">
-            <OrderActivityStat icon="shopify-orders" label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
-            <OrderActivityStat icon="shopify-returns" label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />
-            <OrderActivityStat icon="shopify-refunds" label="Refunded units" value={formatInteger(summary.totalRefundedUnits)} detail={`${formatPercent(summary.refundRate)} of ordered units`} tone="red" />
-            <OrderActivityStat icon="financial-exposure" label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className={`ppProductOrderActivityPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Monthly order activity">
+        <div className="ppOrderActivityHeader">
+          <div>
+            <span>Deep research</span>
+            <h2>Monthly order activity</h2>
+            <p>{chartDescription}</p>
           </div>
+          <div className="ppBetaFeedbackHeaderActions">
+            <BetaFeedbackPanelControls panel={panel} />
+            <ProductDetailPanelCollapseButton
+              collapsed={collapsed}
+              label="Monthly order activity"
+              onToggle={() => setCollapsed((current) => !current)}
+            />
+          </div>
+        </div>
 
-          {hasActivity ? (
-            <div className="ppOrderActivityChart" aria-label={`Monthly Shopify order activity chart for ${detail.title}`}>
-              <OrderActivityComboChart
-                months={months}
-                maxOrders={maxOrders}
-                maxRevenue={maxRevenue}
-                unresolvedReturnSeries={unresolvedReturnSeries}
-                visibleSeries={effectiveVisibleSeries}
-              />
-              <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
-                {ORDER_ACTIVITY_LEGEND_ITEMS.filter((item) => !item.requiresUnresolvedSeries || hasUnresolvedReturnSeries).map((item) => {
-                  const active = Boolean(effectiveVisibleSeries[item.key]);
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      className={`ppOrderActivityLegendToggle${active ? " isActive" : ""}`}
-                      aria-pressed={active}
-                      aria-label={`${active ? "Hide" : "Show"} ${item.ariaLabel}`}
-                      onClick={() => toggleOrderActivitySeries(item.key)}
-                    >
-                      <i className={item.className} />{item.label}
-                    </button>
-                  );
-                })}
-              </div>
+        <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+          <>
+            <div className="ppOrderActivitySummary">
+              <OrderActivityStat icon="shopify-orders" label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
+              <OrderActivityStat icon="shopify-returns" label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />
+              <OrderActivityStat icon="shopify-refunds" label="Refunded units" value={formatInteger(summary.totalRefundedUnits)} detail={`${formatPercent(summary.refundRate)} of ordered units`} tone="red" />
+              <OrderActivityStat icon="financial-exposure" label="Refund value" value={formatMoney(summary.totalRefundAmount || 0)} detail={`${formatMoney(summary.totalRevenue || 0)} ordered revenue`} tone="teal" />
             </div>
-          ) : (
-            <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
-          )}
-        </>
-      </ProductDetailPanelCollapseRegion>
-      <ProductChartAiInterpretation detail={detail} chartKey="monthlyOrderActivity" />
-    </section>
+
+            {hasActivity ? (
+              <div className="ppOrderActivityChart" aria-label={`Monthly Shopify order activity chart for ${detail.title}`}>
+                <OrderActivityComboChart
+                  months={months}
+                  maxOrders={maxOrders}
+                  maxRevenue={maxRevenue}
+                  unresolvedReturnSeries={unresolvedReturnSeries}
+                  visibleSeries={effectiveVisibleSeries}
+                />
+                <div className="ppOrderActivityLegend" aria-label="Monthly order activity legend">
+                  {ORDER_ACTIVITY_LEGEND_ITEMS.filter((item) => !item.requiresUnresolvedSeries || hasUnresolvedReturnSeries).map((item) => {
+                    const active = Boolean(effectiveVisibleSeries[item.key]);
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={`ppOrderActivityLegendToggle${active ? " isActive" : ""}`}
+                        aria-pressed={active}
+                        aria-label={`${active ? "Hide" : "Show"} ${item.ariaLabel}`}
+                        onClick={() => toggleOrderActivitySeries(item.key)}
+                      >
+                        <i className={item.className} />{item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
+            )}
+          </>
+        </ProductDetailPanelCollapseRegion>
+        <ProductChartAiInterpretation detail={detail} chartKey="monthlyOrderActivity" />
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -17790,81 +17933,99 @@ function ProductReturnRatePredictionPanel({ detail }) {
   const hasPrediction = observedPoints.some((point) => point.orders || point.returnedOrders) || forecastPoints.length > 0;
   const chart = getReturnRatePredictionChart(prediction);
   const actionCopy = getReturnRatePredictionActionCopy(prediction.actionAdjustment);
+  const panel = buildBetaFeedbackPanel(
+    "product.returnRatePrediction",
+    "Return rate prediction",
+    buildProductBetaFeedbackContext(detail, {}, {
+      chart: {
+        kind: "returnRatePrediction",
+        observedPointCount: observedPoints.length,
+        forecastPointCount: forecastPoints.length,
+        summary,
+      },
+    }),
+    buildProductBetaRelatedEntity(detail),
+  );
 
   return (
-    <section className={`ppProductReturnPredictionPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Return rate prediction">
-      <div className="ppReturnPredictionHeader">
-        <div>
-          <span>Prediction model</span>
-          <h2>Return rate prediction</h2>
-          <p>Weekly Shopify order cohorts, smoothed from observed return behavior and projected three months forward. The lilac range widens as forecast uncertainty grows.</p>
-        </div>
-        <ProductDetailPanelCollapseButton
-          collapsed={collapsed}
-          label="Return rate prediction"
-          onToggle={() => setCollapsed((current) => !current)}
-        />
-      </div>
-
-      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
-        <>
-          <div className="ppReturnPredictionStats">
-            <OrderActivityStat
-              icon="shopify-returns"
-              label="Total return rate"
-              value={formatPercent(summary.totalReturnRate)}
-              detail={`${formatInteger(summary.totalReturnedUnits || summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrderUnits || summary.totalOrders)} units`}
-              tone="blue"
-            />
-            <OrderActivityStat icon="product-momentum" label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
-            <OrderActivityStat icon="product-risk" label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
-            <OrderActivityStat icon="diagnostic-confidence" label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className={`ppProductReturnPredictionPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Return rate prediction">
+        <div className="ppReturnPredictionHeader">
+          <div>
+            <span>Prediction model</span>
+            <h2>Return rate prediction</h2>
+            <p>Weekly Shopify order cohorts, smoothed from observed return behavior and projected three months forward. The lilac range widens as forecast uncertainty grows.</p>
           </div>
+          <div className="ppBetaFeedbackHeaderActions">
+            <BetaFeedbackPanelControls panel={panel} />
+            <ProductDetailPanelCollapseButton
+              collapsed={collapsed}
+              label="Return rate prediction"
+              onToggle={() => setCollapsed((current) => !current)}
+            />
+          </div>
+        </div>
 
-          {hasPrediction ? (
-            <div className="ppReturnPredictionChartWrap">
-              <div className="ppReturnPredictionPlot">
-                <div className="ppReturnPredictionYAxis" aria-hidden="true">
-                  <span className="ppReturnPredictionYAxisTitle">Return rate</span>
-                  {chart.yTicks.map((tick) => (
-                    <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
-                  ))}
-                </div>
-                <div className="ppReturnPredictionChartArea">
-                  <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
-                    {chart.yTicks.map((tick) => (
-                      <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
-                    ))}
-                    {chart.monthTicks.map((tick) => (
-                      <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
-                    ))}
-                    {chart.forecastRangePath && <path className="ppReturnPredictionForecastRange" d={chart.forecastRangePath} />}
-                    {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
-                    {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
-                    {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
-                  </svg>
-                  <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
-                </div>
-                <div className="ppReturnPredictionXAxis">
-                  {chart.monthTicks.map((tick) => (
-                    <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
-                  ))}
-                  {chart.boundaryX > 0 && <strong style={{ left: `${chart.boundaryX}%` }}>Today</strong>}
-                </div>
-              </div>
-              <div className="ppReturnPredictionLegend">
-                <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
-                <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
-                <span><i className="ppReturnPredictionLegendRange" />Forecast range</span>
-              </div>
+        <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+          <>
+            <div className="ppReturnPredictionStats">
+              <OrderActivityStat
+                icon="shopify-returns"
+                label="Total return rate"
+                value={formatPercent(summary.totalReturnRate)}
+                detail={`${formatInteger(summary.totalReturnedUnits || summary.totalReturnedOrders)} of ${formatInteger(summary.totalOrderUnits || summary.totalOrders)} units`}
+                tone="blue"
+              />
+              <OrderActivityStat icon="product-momentum" label="Last 60 days" value={formatPercent(summary.last60DayReturnRate)} detail="Recent order cohorts" tone="amber" />
+              <OrderActivityStat icon="product-risk" label="Last 30 days" value={formatPercent(summary.last30DayReturnRate)} detail="Current short-term signal" tone="red" />
+              <OrderActivityStat icon="diagnostic-confidence" label="Next 3 months" value={formatPercent(summary.forecastNext90ReturnRate)} detail={actionCopy.short} tone="teal" />
             </div>
-          ) : (
-            <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
-          )}
-        </>
-      </ProductDetailPanelCollapseRegion>
-      <ProductChartAiInterpretation detail={detail} chartKey="returnRatePrediction" />
-    </section>
+
+            {hasPrediction ? (
+              <div className="ppReturnPredictionChartWrap">
+                <div className="ppReturnPredictionPlot">
+                  <div className="ppReturnPredictionYAxis" aria-hidden="true">
+                    <span className="ppReturnPredictionYAxisTitle">Return rate</span>
+                    {chart.yTicks.map((tick) => (
+                      <span key={tick.label} style={{ top: `${tick.y}%` }}>{tick.label}</span>
+                    ))}
+                  </div>
+                  <div className="ppReturnPredictionChartArea">
+                    <svg className="ppReturnPredictionChart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`Return rate prediction for ${detail.title}`}>
+                      {chart.yTicks.map((tick) => (
+                        <path key={`y-${tick.label}`} className="ppReturnPredictionGridLine" d={`M 0 ${tick.y} L 100 ${tick.y}`} />
+                      ))}
+                      {chart.monthTicks.map((tick) => (
+                        <path key={`month-${tick.key}`} className="ppReturnPredictionMonthLine" d={`M ${tick.x} 8 L ${tick.x} 92`} />
+                      ))}
+                      {chart.forecastRangePath && <path className="ppReturnPredictionForecastRange" d={chart.forecastRangePath} />}
+                      {chart.boundaryX > 0 && <path className="ppReturnPredictionBoundary" d={`M ${chart.boundaryX} 8 L ${chart.boundaryX} 92`} />}
+                      {chart.observedPath && <path className="ppReturnPredictionObserved" d={chart.observedPath} />}
+                      {chart.forecastPath && <path className="ppReturnPredictionForecast" d={chart.forecastPath} />}
+                    </svg>
+                    <ReturnPredictionActionImpact adjustment={prediction.actionAdjustment} />
+                  </div>
+                  <div className="ppReturnPredictionXAxis">
+                    {chart.monthTicks.map((tick) => (
+                      <span key={tick.key} style={{ left: `${tick.x}%` }}>{tick.label}</span>
+                    ))}
+                    {chart.boundaryX > 0 && <strong style={{ left: `${chart.boundaryX}%` }}>Today</strong>}
+                  </div>
+                </div>
+                <div className="ppReturnPredictionLegend">
+                  <span><i className="ppReturnPredictionLegendObserved" />Observed smoothed return rate</span>
+                  <span><i className="ppReturnPredictionLegendForecast" />Predicted next 3 months</span>
+                  <span><i className="ppReturnPredictionLegendRange" />Forecast range</span>
+                </div>
+              </div>
+            ) : (
+              <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
+            )}
+          </>
+        </ProductDetailPanelCollapseRegion>
+        <ProductChartAiInterpretation detail={detail} chartKey="returnRatePrediction" />
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -17876,85 +18037,102 @@ function ProductRetentionMetricsPanel({ detail }) {
   const ltvChart = useMemo(() => getProductRetentionLtvBreakdownChart(retention.ltvCurve), [retention.ltvCurve]);
   const retentionActions = useMemo(() => getRetentionPanelActionCards(detail), [detail]);
   const emptyMessage = getProductRetentionEmptyMessage(summary, retention.run);
+  const panel = buildBetaFeedbackPanel(
+    "product.retentionMetrics",
+    "Product retention metrics",
+    buildProductBetaFeedbackContext(detail, {}, {
+      retention: {
+        hasData,
+        summary,
+        runId: retention.run?.id || "",
+      },
+    }),
+    buildProductBetaRelatedEntity(detail),
+  );
 
   return (
-    <section className={`ppProductRetentionPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product retention metrics">
-      <div className="ppProductRetentionHeader">
-        <div>
-          <span>Retention</span>
-          <h2>Product retention metrics</h2>
-          <p>Deterministic Shopify order cohorts, LTV and follow-on purchase behavior for customers who first bought this product.</p>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className={`ppProductRetentionPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product retention metrics">
+        <div className="ppProductRetentionHeader">
+          <div>
+            <span>Retention</span>
+            <h2>Product retention metrics</h2>
+            <p>Deterministic Shopify order cohorts, LTV and follow-on purchase behavior for customers who first bought this product.</p>
+          </div>
+          <div className="ppBetaFeedbackHeaderActions">
+            <BetaFeedbackPanelControls panel={panel} />
+            <ProductDetailPanelCollapseButton
+              collapsed={collapsed}
+              label="Product retention metrics"
+              onToggle={() => setCollapsed((current) => !current)}
+            />
+          </div>
         </div>
-        <ProductDetailPanelCollapseButton
-          collapsed={collapsed}
-          label="Product retention metrics"
-          onToggle={() => setCollapsed((current) => !current)}
-        />
-      </div>
 
-      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
-        <>
-          {!hasData ? (
-            <EmptyProductDetailState message={emptyMessage} />
-          ) : (
-            <>
-              <div className="ppProductRetentionBody">
-                <div className="ppProductRetentionMain">
-                  <div className="ppRetentionMetricGrid">
-                    <ProductRetentionMetricCard
-                      icon="shopify-orders"
-                      label="180-day customer retention"
-                      value={formatRetentionRate(summary.repeatPurchaseRate180d)}
-                      detail={`${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`}
-                      tone="blue"
-                    />
-                    <ProductRetentionMetricCard
-                      icon="shopify-product"
-                      label="Same-product repurchase rate"
-                      value={formatRetentionRate(summary.sameProductRepurchaseRate90d)}
-                      detail="90-day same-product repeat"
-                      tone="teal"
-                    />
-                    <ProductRetentionMetricCard
-                      icon="diagnostic-confidence"
-                      label="Median time to 2nd purchase"
-                      value={formatRetentionDays(summary.medianDaysToSecondPurchase)}
-                      detail={summary.avgDaysToSecondPurchase == null ? "Average unavailable" : `${formatRetentionDays(summary.avgDaysToSecondPurchase)} average`}
-                      tone="blue"
-                    />
-                    <ProductRetentionMetricCard
-                      icon="financial-exposure"
-                      label="Product LTV"
-                      value={formatRetentionMoneyCents(summary.productLtv90Cents)}
-                      detail="90-day LTV per cohort customer"
-                      tone="teal"
-                    />
-                    <ProductRetentionMetricCard
-                      icon="product-momentum"
-                      label="Retention health"
-                      value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
-                      detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
-                      tone={summary.hasEnoughData ? "blue" : "amber"}
-                    />
+        <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+          <>
+            {!hasData ? (
+              <EmptyProductDetailState message={emptyMessage} />
+            ) : (
+              <>
+                <div className="ppProductRetentionBody">
+                  <div className="ppProductRetentionMain">
+                    <div className="ppRetentionMetricGrid">
+                      <ProductRetentionMetricCard
+                        icon="shopify-orders"
+                        label="180-day customer retention"
+                        value={formatRetentionRate(summary.repeatPurchaseRate180d)}
+                        detail={`${formatInteger(summary.totalCustomersAnalyzed)} product cohort customers`}
+                        tone="blue"
+                      />
+                      <ProductRetentionMetricCard
+                        icon="shopify-product"
+                        label="Same-product repurchase rate"
+                        value={formatRetentionRate(summary.sameProductRepurchaseRate90d)}
+                        detail="90-day same-product repeat"
+                        tone="teal"
+                      />
+                      <ProductRetentionMetricCard
+                        icon="diagnostic-confidence"
+                        label="Median time to 2nd purchase"
+                        value={formatRetentionDays(summary.medianDaysToSecondPurchase)}
+                        detail={summary.avgDaysToSecondPurchase == null ? "Average unavailable" : `${formatRetentionDays(summary.avgDaysToSecondPurchase)} average`}
+                        tone="blue"
+                      />
+                      <ProductRetentionMetricCard
+                        icon="financial-exposure"
+                        label="Product LTV"
+                        value={formatRetentionMoneyCents(summary.productLtv90Cents)}
+                        detail="90-day LTV per cohort customer"
+                        tone="teal"
+                      />
+                      <ProductRetentionMetricCard
+                        icon="product-momentum"
+                        label="Retention health"
+                        value={summary.retentionHealthScore == null ? "N/A" : `${formatInteger(summary.retentionHealthScore)}/100`}
+                        detail={summary.hasEnoughData ? "Enough data for score" : "Low confidence"}
+                        tone={summary.hasEnoughData ? "blue" : "amber"}
+                      />
+                    </div>
+                    <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
                   </div>
-                  <ProductRetentionLtvBreakdown chart={ltvChart} productTitle={detail.title} />
+                  <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
+                    <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
+                    {ltvChart.hasData && (
+                      <>
+                        <ProductRetentionLtvContributionDonut contribution={ltvChart.contribution} />
+                        <ProductRetentionLtvInsights contribution={ltvChart.contribution} summary={summary} />
+                      </>
+                    )}
+                  </aside>
                 </div>
-                <aside className="ppProductRetentionSideRail" aria-label="Retention supporting metrics">
-                  <ProductRetentionActionReadout actions={retentionActions} summary={summary} />
-                  {ltvChart.hasData && (
-                    <>
-                      <ProductRetentionLtvContributionDonut contribution={ltvChart.contribution} />
-                      <ProductRetentionLtvInsights contribution={ltvChart.contribution} summary={summary} />
-                    </>
-                  )}
-                </aside>
-              </div>
-            </>
-          )}
-        </>
-      </ProductDetailPanelCollapseRegion>
-      {hasData && <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />}
-    </section>
+              </>
+            )}
+          </>
+        </ProductDetailPanelCollapseRegion>
+        {hasData && <ProductChartAiInterpretation detail={detail} chartKey="productRetentionMetrics" />}
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -20207,9 +20385,26 @@ function ProductRiskHistoryPanel({ detail }) {
   const statCards = getProductRiskHistoryStatCards(detail, historyPoints, change, changeLabel, windowLabel);
   const milestones = getProductRiskHistoryMilestones(detail, historyPoints, chart.points, chart);
   const footerCards = getProductRiskHistoryFooterCards(historyPoints, changeLabel, windowLabel, milestones);
+  const panel = buildBetaFeedbackPanel(
+    "product.riskHistory",
+    "Product risk over time",
+    buildProductBetaFeedbackContext(detail, {}, {
+      chart: {
+        kind: "riskHistory",
+        pointCount: historyPoints.length,
+        currentRisk,
+        change,
+        changeLabel,
+        windowLabel,
+        hasSavedHistory,
+      },
+    }),
+    buildProductBetaRelatedEntity(detail),
+  );
 
   return (
-    <section className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}${collapsed ? " isCollapsed" : ""}`} aria-label="Product risk over time">
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className={`ppProductRiskHistoryPanel ppProductRiskHistoryPanel-${trendTone}${collapsed ? " isCollapsed" : ""}`} aria-label="Product risk over time">
       <div className="ppProductRiskHistoryHeader">
         <div className="ppProductRiskHistoryTitleBlock">
           <div>
@@ -20218,11 +20413,14 @@ function ProductRiskHistoryPanel({ detail }) {
             <p>Saved ProductPulse risk scores, signal changes and diagnosis milestones for this product.</p>
           </div>
         </div>
-        <ProductDetailPanelCollapseButton
-          collapsed={collapsed}
-          label="Product risk over time"
-          onToggle={() => setCollapsed((current) => !current)}
-        />
+        <div className="ppBetaFeedbackHeaderActions">
+          <BetaFeedbackPanelControls panel={panel} />
+          <ProductDetailPanelCollapseButton
+            collapsed={collapsed}
+            label="Product risk over time"
+            onToggle={() => setCollapsed((current) => !current)}
+          />
+        </div>
       </div>
       <ProductDetailPanelCollapseRegion collapsed={collapsed}>
         <>
@@ -20281,7 +20479,8 @@ function ProductRiskHistoryPanel({ detail }) {
         </>
       </ProductDetailPanelCollapseRegion>
       <ProductChartAiInterpretation detail={detail} chartKey="productRiskOverTime" />
-    </section>
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -21800,87 +21999,134 @@ function InlineBadge({ tone, icon, children }) {
 
 function DashboardPriorityProducts({ products }) {
   const rows = Array.isArray(products) ? products : [];
+  const panel = buildBetaFeedbackPanel("dashboard.priorityProducts", "Priority products", {
+    dashboard: {
+      priorityProductCount: rows.length,
+      visibleProducts: rows.slice(0, 5).map((product) => ({
+        title: product.title,
+        riskLabel: product.riskLabel,
+        marginAtRiskLabel: product.marginAtRiskLabel,
+        issueLabel: product.issueLabel,
+      })),
+    },
+  });
   return (
-    <div className="ppDashboardPanel ppPriorityProductsPanel">
-      <div className="ppDashboardPanelHeader">
-        <h2>Priority products</h2>
-        <span>Products with important open actions, ranked by priority and exposure.</span>
-      </div>
-      <div className="ppPriorityProductList">
-        {rows.length ? rows.map((product) => (
-          <Link className="ppPriorityProductItem" to={product.href || "/app/products"} key={product.id || product.title}>
-            <span className={`ppPriorityProductRank ppPriorityProductRank-${product.riskTone || "neutral"}`}>{product.rank}</span>
-            <span>
-              <strong>{product.title}</strong>
-              <small>{product.riskLabel} · {product.marginAtRiskLabel} margin at risk · {product.issueLabel}</small>
-            </span>
-            <em>{product.actionLabel}</em>
-            <s-icon type="chevron-right" size="small"></s-icon>
-          </Link>
-        )) : (
-          <div className="ppPriorityProductEmpty">
-            <s-icon type="check" size="small"></s-icon>
-            <span>No priority products with important pending actions.</span>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <div className="ppDashboardPanel ppPriorityProductsPanel">
+        <div className="ppDashboardPanelHeader">
+          <div>
+            <h2>Priority products</h2>
+            <span>Products with important open actions, ranked by priority and exposure.</span>
           </div>
-        )}
+          <BetaFeedbackPanelControls panel={panel} />
+        </div>
+        <div className="ppPriorityProductList">
+          {rows.length ? rows.map((product) => (
+            <Link className="ppPriorityProductItem" to={product.href || "/app/products"} key={product.id || product.title}>
+              <span className={`ppPriorityProductRank ppPriorityProductRank-${product.riskTone || "neutral"}`}>{product.rank}</span>
+              <span>
+                <strong>{product.title}</strong>
+                <small>{product.riskLabel} · {product.marginAtRiskLabel} margin at risk · {product.issueLabel}</small>
+              </span>
+              <em>{product.actionLabel}</em>
+              <s-icon type="chevron-right" size="small"></s-icon>
+            </Link>
+          )) : (
+            <div className="ppPriorityProductEmpty">
+              <s-icon type="check" size="small"></s-icon>
+              <span>No priority products with important pending actions.</span>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </BetaFeedbackPanelFrame>
   );
 }
 
 function DashboardActionQueue({ queue }) {
   const rows = Array.isArray(queue?.rows) ? queue.rows : [];
+  const panel = buildBetaFeedbackPanel("dashboard.actionQueue", "Action queue", {
+    dashboard: {
+      total: queue?.total,
+      detail: queue?.detail,
+      visibleRows: rows.slice(0, 5).map((row) => ({
+        label: row.label,
+        detail: row.detail,
+        valueLabel: row.valueLabel,
+      })),
+    },
+  });
   return (
-    <div className="ppDashboardPanel ppActionQueuePanel">
-      <div className="ppDashboardPanelHeader">
-        <h2>Action queue</h2>
-        <span>{queue?.detail || "Recommended actions waiting for review."}</span>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <div className="ppDashboardPanel ppActionQueuePanel">
+        <div className="ppDashboardPanelHeader">
+          <div>
+            <h2>Action queue</h2>
+            <span>{queue?.detail || "Recommended actions waiting for review."}</span>
+          </div>
+          <BetaFeedbackPanelControls panel={panel} />
+        </div>
+        <div className="ppActionQueueTotal">
+          <strong>{queue?.totalLabel || "0"}</strong>
+          <span>pending actions</span>
+        </div>
+        <div className="ppActionQueueList">
+          {rows.map((row) => (
+            <Link className="ppActionQueueItem" to={row.href || "/app/products"} key={row.label}>
+              <span className={`ppActionQueueIcon ppActionQueueIcon-${row.tone || "blue"}`}>
+                <s-icon type={row.icon || "wand"} size="small"></s-icon>
+              </span>
+              <span>
+                <strong>{row.label}</strong>
+                <small>{row.detail}</small>
+              </span>
+              <em>{row.valueLabel}</em>
+            </Link>
+          ))}
+        </div>
       </div>
-      <div className="ppActionQueueTotal">
-        <strong>{queue?.totalLabel || "0"}</strong>
-        <span>pending actions</span>
-      </div>
-      <div className="ppActionQueueList">
-        {rows.map((row) => (
-          <Link className="ppActionQueueItem" to={row.href || "/app/products"} key={row.label}>
-            <span className={`ppActionQueueIcon ppActionQueueIcon-${row.tone || "blue"}`}>
-              <s-icon type={row.icon || "wand"} size="small"></s-icon>
-            </span>
-            <span>
-              <strong>{row.label}</strong>
-              <small>{row.detail}</small>
-            </span>
-            <em>{row.valueLabel}</em>
-          </Link>
-        ))}
-      </div>
-    </div>
+    </BetaFeedbackPanelFrame>
   );
 }
 
 function DashboardTopActiveIssues({ issues }) {
   const rows = Array.isArray(issues) ? issues : [];
+  const panel = buildBetaFeedbackPanel("dashboard.topActiveIssues", "Top active issue types", {
+    dashboard: {
+      issueCount: rows.length,
+      visibleIssues: rows.slice(0, 8).map((issue) => ({
+        label: issue.label,
+        productsLabel: issue.productsLabel,
+        marginAtRiskLabel: issue.marginAtRiskLabel,
+      })),
+    },
+  });
   return (
-    <div className="ppDashboardPanel ppTopActiveIssuesPanel">
-      <div className="ppDashboardPanelHeader">
-        <h2>Top active issue types</h2>
-        <span>Ranked by affected products and margin exposure, not raw signal count.</span>
-      </div>
-      <div className="ppTopIssueTable" role="table" aria-label="Top active issue types">
-        <div role="row">
-          <span role="columnheader">Issue type</span>
-          <span role="columnheader">Products affected</span>
-          <span role="columnheader">Margin at risk</span>
-        </div>
-        {rows.map((issue) => (
-          <div role="row" key={issue.label}>
-            <strong role="cell">{issue.label}</strong>
-            <span role="cell">{issue.productsLabel}</span>
-            <em role="cell">{issue.marginAtRiskLabel}</em>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <div className="ppDashboardPanel ppTopActiveIssuesPanel">
+        <div className="ppDashboardPanelHeader">
+          <div>
+            <h2>Top active issue types</h2>
+            <span>Ranked by affected products and margin exposure, not raw signal count.</span>
           </div>
-        ))}
+          <BetaFeedbackPanelControls panel={panel} />
+        </div>
+        <div className="ppTopIssueTable" role="table" aria-label="Top active issue types">
+          <div role="row">
+            <span role="columnheader">Issue type</span>
+            <span role="columnheader">Products affected</span>
+            <span role="columnheader">Margin at risk</span>
+          </div>
+          {rows.map((issue) => (
+            <div role="row" key={issue.label}>
+              <strong role="cell">{issue.label}</strong>
+              <span role="cell">{issue.productsLabel}</span>
+              <em role="cell">{issue.marginAtRiskLabel}</em>
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -21888,47 +22134,65 @@ function DashboardCoverageSummary({ summary }) {
   const sources = Array.isArray(summary?.sources) ? summary.sources : [];
   const catalog = summary?.catalogCoverage || {};
   const productPulseCoverage = summary?.productPulseCoverage || summary?.quickScanCatalogCoverage || {};
+  const panel = buildBetaFeedbackPanel("dashboard.coverageSummary", "Data coverage / scan coverage", {
+    dashboard: {
+      statusLabel: summary?.statusLabel,
+      coverageLine: summary?.coverageLine,
+      catalogCoverage: catalog,
+      productPulseCoverage,
+      sources: sources.map((source) => ({
+        label: source.label,
+        status: source.status,
+        tone: source.tone,
+      })),
+    },
+  });
   return (
-    <div className="ppDashboardPanel ppCoverageSummaryPanel">
-      <div className="ppDashboardPanelHeader">
-        <h2>Data coverage / scan coverage</h2>
-        <span>{summary?.detail || "Coverage updates as products are scanned and sources connect."}</span>
-      </div>
-      <div className="ppCoverageSummaryGrid">
-        <div className={`ppCoverageSummaryStatus ppCoverageSummaryStatus-${summary?.tone || "blue"}`}>
-          <span className="ppCoverageStatusIcon" aria-hidden="true">
-            <s-icon type={summary?.icon || "check"} size="small"></s-icon>
-          </span>
-          <span className="ppCoverageStatusCopy">
-            <strong>{summary?.statusLabel || "No scan data"}</strong>
-            <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
-          </span>
-          <div className="ppCoverageStatusSources ppCoverageSourcePills">
-            {sources.map((source) => (
-              <DashboardCoverageSourcePill source={source} key={source.label} />
-            ))}
+    <BetaFeedbackPanelFrame panel={panel}>
+      <div className="ppDashboardPanel ppCoverageSummaryPanel">
+        <div className="ppDashboardPanelHeader">
+          <div>
+            <h2>Data coverage / scan coverage</h2>
+            <span>{summary?.detail || "Coverage updates as products are scanned and sources connect."}</span>
           </div>
+          <BetaFeedbackPanelControls panel={panel} />
         </div>
-        <DashboardCoverageMetricCard
-          metric={catalog}
-          fallbackLabel="Total catalog"
-          fallbackAriaLabel="ProductPulse coverage across the Shopify catalog"
-          fallbackDetail="Products below the QuickScan threshold may not appear in ProductPulse, but can still carry hidden risk."
-        />
-        <DashboardCoverageMetricCard
-          metric={productPulseCoverage}
-          fallbackLabel="Products in ProductPulse"
-          fallbackAriaLabel="Full diagnostics coverage inside ProductPulse"
-          fallbackDetail="QuickScan-only products have lightweight deterministic signals and still need full diagnostics for final recommendations."
-        />
+        <div className="ppCoverageSummaryGrid">
+          <div className={`ppCoverageSummaryStatus ppCoverageSummaryStatus-${summary?.tone || "blue"}`}>
+            <span className="ppCoverageStatusIcon" aria-hidden="true">
+              <s-icon type={summary?.icon || "check"} size="small"></s-icon>
+            </span>
+            <span className="ppCoverageStatusCopy">
+              <strong>{summary?.statusLabel || "No scan data"}</strong>
+              <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
+            </span>
+            <div className="ppCoverageStatusSources ppCoverageSourcePills">
+              {sources.map((source) => (
+                <DashboardCoverageSourcePill source={source} key={source.label} />
+              ))}
+            </div>
+          </div>
+          <DashboardCoverageMetricCard
+            metric={catalog}
+            fallbackLabel="Total catalog"
+            fallbackAriaLabel="ProductPulse coverage across the Shopify catalog"
+            fallbackDetail="Products below the QuickScan threshold may not appear in ProductPulse, but can still carry hidden risk."
+          />
+          <DashboardCoverageMetricCard
+            metric={productPulseCoverage}
+            fallbackLabel="Products in ProductPulse"
+            fallbackAriaLabel="Full diagnostics coverage inside ProductPulse"
+            fallbackDetail="QuickScan-only products have lightweight deterministic signals and still need full diagnostics for final recommendations."
+          />
+        </div>
+        {summary?.recommendation && (
+          <div className={`ppCoverageRecommendation ppCoverageRecommendation-${summary.recommendation.tone || "blue"}`}>
+            <s-icon type={summary.recommendation.icon || "info"} size="small"></s-icon>
+            <p>{summary.recommendation.text}</p>
+          </div>
+        )}
       </div>
-      {summary?.recommendation && (
-        <div className={`ppCoverageRecommendation ppCoverageRecommendation-${summary.recommendation.tone || "blue"}`}>
-          <s-icon type={summary.recommendation.icon || "info"} size="small"></s-icon>
-          <p>{summary.recommendation.text}</p>
-        </div>
-      )}
-    </div>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -23299,12 +23563,32 @@ function getInsightMetricIcon(title) {
 
 function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selectedEvidenceIndex, onSelectEvidence }) {
   const sources = detail.evidenceSources || [];
+  const panel = buildBetaFeedbackPanel(
+    "product.evidenceBySource",
+    "Evidence by Source",
+    buildProductBetaFeedbackContext(detail, product, {
+      evidence: {
+        sourceCount: sources.length,
+        selectedSource: selectedEvidence?.title || sources[0]?.title || "",
+        sources: sources.slice(0, 10).map((source) => ({
+          title: source.title,
+          key: source.key,
+          signalCount: source.points?.length || 0,
+          summary: source.summary,
+        })),
+      },
+    }),
+    buildProductBetaRelatedEntity(detail, product),
+  );
+
   if (!sources.length) {
     return (
-      <div className="ppProductPanel ppEvidenceObservabilityPanel">
-        <EvidenceObservabilityHeader detail={detail} />
-        <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
-      </div>
+      <BetaFeedbackPanelFrame panel={panel}>
+        <div className="ppProductPanel ppEvidenceObservabilityPanel">
+          <EvidenceObservabilityHeader detail={detail} panel={panel} />
+          <EmptyProductDetailState message="0 evidence sources stored for this product yet." />
+        </div>
+      </BetaFeedbackPanelFrame>
     );
   }
 
@@ -23315,31 +23599,33 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
   const reportHref = getProductEvidenceReportHref(product, activeSource);
 
   return (
-    <div className="ppProductPanel ppEvidenceObservabilityPanel">
-      <EvidenceObservabilityHeader detail={detail} />
+    <BetaFeedbackPanelFrame panel={panel}>
+      <div className="ppProductPanel ppEvidenceObservabilityPanel">
+        <EvidenceObservabilityHeader detail={detail} panel={panel} />
 
-      <div className="ppEvidenceTabsModern" role="tablist" aria-label="Evidence sources">
-        {sources.map((source, index) => (
-          <button
-            className={index === selectedEvidenceIndex ? "isActive" : ""}
-            type="button"
-            role="tab"
-            aria-selected={index === selectedEvidenceIndex}
-            aria-label={source.title}
-            key={`${source.key || source.id || source.title || "source"}-${index}`}
-            onClick={() => onSelectEvidence(index)}
-          >
-            <span className={`ppEvidenceTabIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
-              <ProductPulseGlyph type={source.icon} />
-            </span>
-            <span>{source.title}</span>
-            <strong>{source.points.length}</strong>
-          </button>
-        ))}
+        <div className="ppEvidenceTabsModern" role="tablist" aria-label="Evidence sources">
+          {sources.map((source, index) => (
+            <button
+              className={index === selectedEvidenceIndex ? "isActive" : ""}
+              type="button"
+              role="tab"
+              aria-selected={index === selectedEvidenceIndex}
+              aria-label={source.title}
+              key={`${source.key || source.id || source.title || "source"}-${index}`}
+              onClick={() => onSelectEvidence(index)}
+            >
+              <span className={`ppEvidenceTabIcon ppEvidenceTone-${source.tone}`} aria-hidden="true">
+                <ProductPulseGlyph type={source.icon} />
+              </span>
+              <span>{source.title}</span>
+              <strong>{source.points.length}</strong>
+            </button>
+          ))}
+        </div>
+
+        <EvidenceSourceReportPanelContent source={activeSource} product={product} reportHref={reportHref} cards={activeCards} />
       </div>
-
-      <EvidenceSourceReportPanelContent source={activeSource} product={product} reportHref={reportHref} cards={activeCards} />
-    </div>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -23439,9 +23725,12 @@ function EvidenceObservabilityHeader({ detail }) {
         <h2>Evidence by Source</h2>
         <p>Explore and review the evidence behind each detected issue.</p>
       </div>
-      <div className="ppEvidenceHeaderMeta">
-        <strong>{detail.evidenceSources.length}</strong>
-        <span>sources</span>
+      <div className="ppBetaFeedbackHeaderActions">
+        <div className="ppEvidenceHeaderMeta">
+          <strong>{detail.evidenceSources.length}</strong>
+          <span>sources</span>
+        </div>
+        <BetaFeedbackPanelControls panel={panel} />
       </div>
     </div>
   );
@@ -31270,6 +31559,47 @@ function FullWidthPage({ heading, label, className = "", children }) {
   );
 }
 
+function buildBetaFeedbackPanel(id, label, context = {}, relatedEntity = null) {
+  return {
+    id,
+    label,
+    context,
+    relatedEntity,
+  };
+}
+
+function buildProductBetaFeedbackContext(detail = {}, product = {}, extra = {}) {
+  return {
+    product: {
+      id: product.id || detail.id || "",
+      productGid: product.productGid || detail.productGid || "",
+      handle: product.handle || detail.handle || "",
+      title: detail.title || product.title || "",
+      diagnosisId: product.diagnosisId || detail.diagnosisId || "",
+      analysisDepth: detail.analysisDepth || "",
+    },
+    metrics: {
+      riskScore: detail.riskScore,
+      confidence: detail.confidence,
+      impactScore: detail.impactScore,
+      primaryIssue: detail.primaryIssue,
+      productStatus: detail.productStatusLabel,
+    },
+    ...extra,
+  };
+}
+
+function buildProductBetaRelatedEntity(detail = {}, product = {}) {
+  return {
+    type: "product",
+    id: product.productGid || detail.productGid || product.id || detail.id || product.handle || detail.handle || "",
+  };
+}
+
+function getBetaFeedbackPanelId(prefix, value) {
+  return `${prefix}.${String(value || "panel").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "panel"}`;
+}
+
 function AnalyticsKpiCard({ kpi }) {
   return (
     <article className="ppAnalyticsKpi">
@@ -31293,25 +31623,36 @@ function AnalyticsKpiCard({ kpi }) {
 
 function AnalyticsPanel({ title, subtitle, action, className = "", children }) {
   const info = getAnalyticsPanelInfo(title);
+  const panel = buildBetaFeedbackPanel(getBetaFeedbackPanelId("analytics", title), title, {
+    analytics: {
+      title,
+      subtitle,
+    },
+  });
 
   return (
-    <div className={`ppAnalyticsPanelShell ${className}`.trim()}>
-      <s-section padding="none">
-        <div className={`ppAnalyticsPanel ${className}`.trim()}>
-          <div className="ppAnalyticsPanelHeader">
-            <div>
-              <h2>
-                {title}
-                <AnalyticsInfoPopover info={info} />
-              </h2>
-              {subtitle && <p>{subtitle}</p>}
+    <BetaFeedbackPanelFrame panel={panel}>
+      <div className={`ppAnalyticsPanelShell ${className}`.trim()}>
+        <s-section padding="none">
+          <div className={`ppAnalyticsPanel ${className}`.trim()}>
+            <div className="ppAnalyticsPanelHeader">
+              <div>
+                <h2>
+                  {title}
+                  <AnalyticsInfoPopover info={info} />
+                </h2>
+                {subtitle && <p>{subtitle}</p>}
+              </div>
+              <div className="ppBetaFeedbackHeaderActions">
+                <BetaFeedbackPanelControls panel={panel} />
+                {action}
+              </div>
             </div>
-            {action}
+            {children}
           </div>
-          {children}
-        </div>
-      </s-section>
-    </div>
+        </s-section>
+      </div>
+    </BetaFeedbackPanelFrame>
   );
 }
 
