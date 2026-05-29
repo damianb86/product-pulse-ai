@@ -9,6 +9,7 @@ import {
 } from "./product-pulse-scoring";
 import { REQUIRED_SHOPIFY_SCOPES } from "./product-pulse-scopes";
 import { validateProductAction } from "./product-pulse-validation";
+import { filterDisabledProductActions } from "./product-pulse-disabled-actions";
 
 const ANALYTICS_DAY_MS = 86_400_000;
 
@@ -684,8 +685,8 @@ function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate
 function buildDashboardActionRows(productList) {
   const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
   return productList.flatMap((product) => {
-    const actions = Array.isArray(product.recommendedActions) ? product.recommendedActions : [];
-    const history = Array.isArray(product.actionHistory) ? product.actionHistory : [];
+    const actions = filterDisabledProductActions(product.recommendedActions);
+    const history = filterDisabledProductActions(product.actionHistory);
     const rows = actions.map((action) => {
       const actionId = action.id || action.label || "";
       const record = getDashboardActionHistoryRecord(action, history, product);
@@ -1304,7 +1305,7 @@ function formatDashboardReturnRateSummary(returnRate, metrics = {}) {
 function buildDashboardSuggestedFixes(productList) {
   const fixes = [];
   productList.forEach((product) => {
-    const actions = Array.isArray(product.recommendedActions) ? product.recommendedActions : [];
+    const actions = filterDisabledProductActions(product.recommendedActions);
     actions.forEach((action) => {
       fixes.push({
         icon: getDashboardActionIcon(action),
@@ -1585,10 +1586,10 @@ function getAnalyticsTotals(productList, options = {}) {
     base.reviewedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length;
     base.dismissedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length;
   } else {
-    base.openActions = productList.reduce((total, product) => total + (Array.isArray(product.recommendedActions) ? product.recommendedActions.length : 0), 0);
-    base.appliedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length : 0), 0);
-    base.reviewedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length : 0), 0);
-    base.dismissedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length : 0), 0);
+    base.openActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.recommendedActions).length, 0);
+    base.appliedActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.actionHistory).filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length, 0);
+    base.reviewedActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.actionHistory).filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length, 0);
+    base.dismissedActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.actionHistory).filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length, 0);
   }
 
   return base;

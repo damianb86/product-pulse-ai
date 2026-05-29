@@ -143,6 +143,15 @@ describe("ProductPulse AI data repositories", () => {
       issues: [{ issue: "Content issue", evidence: [longEvidence], sourceTypes: ["reviews"] }],
       evidence: [{ source: "Reviews", quote: longEvidence, points: [longEvidence] }],
       recommendations: [{
+        id: "switch-product-template",
+        label: "Switch product template",
+        type: "Product template",
+        status: "Manual approval required",
+        payload: {
+          field: "templateSuffix",
+          templateSuffix: "productpulse-guidance",
+        },
+      }, {
         id: "rewrite-product-description",
         label: "Rewrite product description",
         type: "PDP copy",
@@ -157,6 +166,13 @@ describe("ProductPulse AI data repositories", () => {
       createdAt: new Date("2026-05-18T11:00:00.000Z"),
     });
     db.productAction.findMany.mockResolvedValue([
+      {
+        id: "action-disabled",
+        actionType: "switch-product-template",
+        label: "Switch product template",
+        status: "pending",
+        payload: { templateSuffix: "productpulse-guidance" },
+      },
       {
         id: "action-1",
         actionType: "rewrite-product-description",
@@ -181,9 +197,12 @@ describe("ProductPulse AI data repositories", () => {
     expect(detail.diagnosis.evidence).toHaveLength(1);
     expect(detail.diagnosis.evidence[0].quote.length).toBeLessThanOrEqual(360);
     expect(detail.diagnosis.evidence[0].points[0].length).toBeLessThanOrEqual(260);
+    expect(detail.diagnosis.recommendations.map((recommendation) => recommendation.id)).toEqual(["rewrite-product-description"]);
+    expect(detail.actionHistory.map((action) => action.actionType)).toEqual(["rewrite-product-description"]);
     expect(detail.diagnosis.recommendations[0].draftPreview.length).toBeLessThanOrEqual(280);
     expect(JSON.stringify(detail)).not.toContain("secret-token");
     expect(JSON.stringify(detail)).not.toContain("secret-credentials");
+    expect(JSON.stringify(detail)).not.toContain("switch-product-template");
   });
 
   it("returns compact relationship and financial exposure summaries for one scoped product", async () => {

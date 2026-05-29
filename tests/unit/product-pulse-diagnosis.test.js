@@ -2485,6 +2485,76 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(faq.payload.whyThisAction).toBe("Returns and negative reviews repeat fit uncertainty, so an FAQ gives shoppers a direct answer before checkout.");
   });
 
+  it("keeps the product template switch action disabled even when template signals qualify", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 78,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Customers repeatedly ask for setup steps, specifications and product expectations." },
+      ],
+      issueSignalCounts: { product_content: 5 },
+      product: {
+        title: "GEN Guided Setup Kit",
+        description: "Short setup kit description.",
+        templateSuffix: "",
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 9,
+        returnUnits: 2,
+        refundUnits: 1,
+        negativeReviewCount: 3,
+        contentIssueCount: 2,
+        specsBlockRecommended: true,
+        templateNeedsReview: true,
+        faqNeed: {
+          shouldRecommend: true,
+          score: 7,
+          signals: 5,
+          topics: ["Setup expectations"],
+          reasons: ["Setup and specs questions repeat across customer signals."],
+          sourceTypes: ["Issue signals"],
+        },
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short description", severity: "medium", evidence: "The product page has little setup guidance." },
+            { code: "missing_specifications", label: "Missing specifications", severity: "medium", evidence: "Specs are not listed clearly." },
+          ],
+          advisories: [{ code: "template_may_need_special_layout", label: "Template could support richer guidance", severity: "low" }],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "how to set it up", count: 3, dominantSentiment: "negative" }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/template-test",
+        productTitle: "GEN Guided Setup Kit",
+      },
+      deterministic,
+      mainIssue: "product_content",
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Clarify setup steps, specs and expected product behavior before checkout.",
+            faq_items: [{
+              question: "What should I know before setup?",
+              answer: "Review setup steps and specifications before purchase.",
+            }],
+          },
+        },
+      },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("create-product-faq");
+    expect(ids).toContain("add-specs-details-block");
+    expect(ids).not.toContain("switch-product-template");
+  });
+
   it("does not recommend a FAQ when current product content already covers the AI question", () => {
     const deterministic = {
       mainIssue: "fit_sizing",

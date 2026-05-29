@@ -26,6 +26,7 @@ import type {
   AiWatchlistItemSummary,
   AiWatchlistSnapshot,
 } from "../domain/types";
+import { filterDisabledProductActions } from "../../lib/product-pulse-disabled-actions";
 
 type AiPrismaClient = Pick<
   PrismaClient,
@@ -243,7 +244,7 @@ export class ProductPulseAiRepository {
             recommendationLimit: normalizeLimit(options.recommendationLimit, 5, 10),
           })
         : null,
-      actionHistory: (actions as unknown as DbRecord[]).map(mapActionHistorySummary),
+      actionHistory: (filterDisabledProductActions(actions as unknown as DbRecord[]) as DbRecord[]).map(mapActionHistorySummary),
       riskHistory: (riskHistory as unknown as DbRecord[])
         .reverse()
         .map((row) => ({
@@ -1265,7 +1266,7 @@ function mapDiagnosisSummary(
     evidence: arrayOfRecords(diagnosis.evidence)
       .slice(0, options.evidenceLimit)
       .map((item, index) => mapEvidenceSnippet(item, index, productGid, "diagnosis", optionalText(diagnosis.id))),
-    recommendations: arrayOfRecords(diagnosis.recommendations)
+    recommendations: (filterDisabledProductActions(arrayOfRecords(diagnosis.recommendations)) as Record<string, unknown>[])
       .slice(0, options.recommendationLimit)
       .map(mapRecommendationSummary),
   };

@@ -28,6 +28,10 @@ import {
   normalizeProductPulseHtmlStyle,
 } from "./product-pulse-html-style-presets";
 import {
+  filterDisabledProductActions,
+  isDisabledProductAction,
+} from "./product-pulse-disabled-actions";
+import {
   getProductScoreHistoryForProductsForShop,
   getProductScoreHistoryForShop,
 } from "./product-pulse-history.server";
@@ -833,6 +837,9 @@ export async function searchShopifyProductsForDiagnosis(shop, admin, rawQuery) {
 export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}, admin = null) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
+  if (isDisabledProductAction(actionId)) {
+    return { status: "validation_error", message: "This recommended action is disabled." };
+  }
   const descriptionChangesOverride = normalizeDescriptionChangesOverride(payloadOverride.descriptionChangesJson || payloadOverride.descriptionChanges);
 
   const metrics = snapshot.metrics || {};
@@ -840,7 +847,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     where: { shop, productGid: snapshot.productGid, status: "Completed" },
     orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
   });
-  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : [];
+  const diagnosisRecommendations = filterDisabledProductActions(Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : []);
   let action = null;
   if (actionId === "mark-resolved") {
     action = getResolvedAction(snapshot);
@@ -4032,8 +4039,10 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
   const diagnosisReport = metrics.diagnosisReport || {};
   const diagnosisIssues = Array.isArray(latestDiagnosis?.issues) ? latestDiagnosis.issues : null;
   const diagnosisEvidence = Array.isArray(latestDiagnosis?.evidence) ? latestDiagnosis.evidence : null;
-  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : null;
-  const storedActions = actions.map(formatStoredProductAction);
+  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations)
+    ? filterDisabledProductActions(latestDiagnosis.recommendations)
+    : null;
+  const storedActions = filterDisabledProductActions(actions.map(formatStoredProductAction));
   const returnRatePrediction = adjustReturnRatePredictionForActions(metrics.returnRatePrediction, diagnosisRecommendations, storedActions);
   const resolvedAction = getActiveResolvedStoredAction(storedActions);
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
@@ -4193,7 +4202,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     },
     evidence: diagnosisEvidence || getSnapshotEvidence(snapshot, metrics),
     issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics, settings),
-    recommendedActions: hasFullDiagnosis ? (diagnosisRecommendations || getSnapshotRecommendedActions(snapshot, metrics)) : [],
+    recommendedActions: hasFullDiagnosis ? (diagnosisRecommendations || filterDisabledProductActions(getSnapshotRecommendedActions(snapshot, metrics))) : [],
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
   };

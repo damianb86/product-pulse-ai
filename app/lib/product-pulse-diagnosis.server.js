@@ -30,6 +30,10 @@ import {
   calculateProductRetentionMetrics,
   calculateProductRetentionPreview,
 } from "./product-pulse-retention.server";
+import {
+  filterDisabledProductActions,
+  isDisabledProductAction,
+} from "./product-pulse-disabled-actions";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS = 365;
@@ -4984,7 +4988,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.contextualMedia.shouldRecommend) candidates.push({ id: "add-contextual-media-recommendation", type: "Media guidance", reason: recipeSignals.contextualMedia.reason });
   if (recipeSignals.classification.shouldRecommend) candidates.push({ id: "update-product-classification", type: "Product classification", reason: recipeSignals.classification.reason });
   if (recipeSignals.structuredMetafields.shouldRecommend) candidates.push({ id: "add-structured-metafields", type: "Product metafield", reason: recipeSignals.structuredMetafields.reason });
-  if (recipeSignals.template.shouldRecommend) candidates.push({ id: "switch-product-template", type: "Product template", reason: recipeSignals.template.reason });
+  if (recipeSignals.template.shouldRecommend && !isDisabledProductAction("switch-product-template")) candidates.push({ id: "switch-product-template", type: "Product template", reason: recipeSignals.template.reason });
   if (recipeSignals.sourceMismatch.shouldRecommend) candidates.push({ id: "fix-source-review-mismatch", type: "Source integrity", reason: recipeSignals.sourceMismatch.reason });
   if (recipeSignals.missingSource.shouldRecommend) candidates.push({ id: "connect-missing-source", type: "Source connection", reason: recipeSignals.missingSource.reason });
   if (recipeSignals.monitoringCoverage.shouldRecommend) candidates.push({ id: "improve-monitoring-coverage", type: "Monitoring coverage", reason: recipeSignals.monitoringCoverage.reason });
@@ -5823,7 +5827,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (recipeSignals.template.shouldRecommend) {
+  if (recipeSignals.template.shouldRecommend && !isDisabledProductAction("switch-product-template")) {
     recommendations.push({
       id: "switch-product-template",
       label: "Switch product template",
@@ -6138,7 +6142,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   return prioritizeRecommendationActions(
-    deduplicateRecommendationActions(uniqueBy(recommendations, (item) => item.id)),
+    deduplicateRecommendationActions(uniqueBy(filterDisabledProductActions(recommendations), (item) => item.id)),
     { deterministic, mainIssue, recipeSignals },
   )
     .map((item) => attachAiActionRationale(item, actionRationales))
