@@ -26455,6 +26455,514 @@ s-page[inline-size="large-500"] {
   white-space: nowrap;
 }
 
+.ppWatchOverviewDashboard {
+  display: grid;
+  gap: 12px;
+}
+
+.ppWatchOverviewDashboardGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.ppWatchOverviewSide {
+  display: grid;
+  gap: 14px;
+}
+
+.ppWatchOverviewPanel {
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppWatchOverviewPanelHeader {
+  min-height: 44px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchOverviewPanelHeader h3 {
+  margin: 0;
+  color: var(--pp-slate-950);
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.ppWatchOverviewPanelHeader h3 span {
+  color: var(--pp-slate-500);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.ppWatchOverviewPanelHeader a {
+  color: var(--pp-pulse-blue);
+  font-size: 10.5px;
+  font-weight: 850;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ppWatchOverviewSort {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--pp-slate-600);
+  font-size: 12.5px;
+  font-weight: 850;
+}
+
+.ppWatchOverviewSort select {
+  height: 28px;
+  padding: 0 26px 0 8px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 7px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-800);
+  font-size: 12.5px;
+  font-weight: 850;
+}
+
+.ppWatchOverviewProductList {
+  display: grid;
+}
+
+.ppWatchOverviewProductRow {
+  display: grid;
+  grid-template-columns: 28px minmax(178px, 1.1fr) minmax(180px, 1.05fr) minmax(150px, 0.95fr) minmax(76px, 0.52fr) minmax(138px, 0.72fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchOverviewProductRow:last-child {
+  border-bottom: 0;
+}
+
+.ppWatchOverviewRank {
+  width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.ppWatchOverviewRank-high {
+  background: rgba(var(--pp-risk-red-rgb), 0.14);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchOverviewRank-medium {
+  background: rgba(var(--pp-warning-amber-rgb), 0.16);
+  color: color-mix(in srgb, var(--pp-warning-amber) 74%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewRank-low {
+  background: rgba(var(--pp-success-green-rgb), 0.14);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewProductIdentity {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+
+.ppWatchOverviewProductImage {
+  width: 52px;
+  height: 52px;
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-slate-50);
+}
+
+.ppWatchOverviewProductImage .ppProductArt {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.ppWatchOverviewProductImage .ppProductArt img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ppWatchOverviewProductIdentity strong,
+.ppWatchOverviewProductIdentity small,
+.ppWatchOverviewPrimaryChange strong,
+.ppWatchOverviewPrimaryChange span,
+.ppWatchOverviewRecommendation p {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchOverviewProductIdentity strong,
+.ppWatchOverviewPrimaryChange strong {
+  color: var(--pp-slate-950);
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.ppWatchOverviewProductIdentity small,
+.ppWatchOverviewPrimaryChange span {
+  margin-top: 3px;
+  color: var(--pp-slate-500);
+  font-size: 11.5px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.ppWatchOverviewRiskPill {
+  display: inline-flex;
+  margin-top: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.ppWatchOverviewRiskPill-high {
+  background: rgba(var(--pp-risk-red-rgb), 0.10);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchOverviewRiskPill-medium {
+  background: rgba(var(--pp-warning-amber-rgb), 0.12);
+  color: color-mix(in srgb, var(--pp-warning-amber) 76%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewRiskPill-low {
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewMetricPack {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ppWatchOverviewTinyMetric {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ppWatchOverviewTinyMetric b {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.ppWatchOverviewTinyMetric strong {
+  color: var(--pp-slate-800);
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.ppWatchOverviewTinyMetric-good strong,
+.ppWatchOverviewSourceDelta-good em {
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewTinyMetric-bad strong,
+.ppWatchOverviewSourceDelta-bad em {
+  color: var(--pp-risk-red);
+}
+
+.ppWatchOverviewSparkline {
+  width: 58px;
+  height: 18px;
+}
+
+.ppWatchOverviewSparkline path {
+  fill: none;
+  stroke: var(--pp-slate-400);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ppWatchOverviewSparkline-good path {
+  stroke: var(--pp-success-green);
+}
+
+.ppWatchOverviewSparkline-bad path {
+  stroke: var(--pp-risk-red);
+}
+
+.ppWatchOverviewSourceDeltas {
+  display: grid;
+  gap: 3px;
+}
+
+.ppWatchOverviewSourceDelta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ppWatchOverviewSourceDelta em {
+  color: var(--pp-slate-700);
+  font-style: normal;
+  font-weight: 950;
+}
+
+.ppWatchOverviewRecommendation {
+  display: grid;
+  gap: 4px;
+  padding: 7px;
+  border-radius: 7px;
+  background: var(--pp-slate-50);
+}
+
+.ppWatchOverviewRecommendation span {
+  color: var(--pp-success-green);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.ppWatchOverviewRecommendation p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ppWatchOverviewRecommendation a,
+.ppWatchOverviewPanelFooter a {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.ppWatchOverviewCategoryRows,
+.ppWatchOverviewEventRows {
+  display: grid;
+}
+
+.ppWatchOverviewCategoryRow {
+  border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchOverviewCategoryRow:last-child {
+  border-bottom: 0;
+}
+
+.ppWatchOverviewCategoryRow summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px 76px 76px 76px 18px;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 12px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 850;
+  list-style: none;
+  cursor: pointer;
+}
+
+.ppWatchOverviewCategoryRow summary::-webkit-details-marker {
+  display: none;
+}
+
+.ppWatchOverviewCategoryRow summary > span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.ppWatchOverviewCategoryRow .ppDashboardIcon {
+  width: 26px;
+  height: 26px;
+}
+
+.ppWatchOverviewCategoryRow strong {
+  overflow: hidden;
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchOverviewCategoryRow b {
+  color: var(--pp-slate-950);
+  font-size: 13px;
+  font-weight: 950;
+  text-align: center;
+}
+
+.ppWatchOverviewCategoryRow em {
+  justify-self: start;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.ppWatchOverviewCategoryRow .isBad {
+  background: rgba(var(--pp-risk-red-rgb), 0.08);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchOverviewCategoryRow .isGood {
+  background: rgba(var(--pp-success-green-rgb), 0.10);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewCategoryRow .isNeutral {
+  background: rgba(var(--pp-insight-violet-rgb), 0.10);
+  color: var(--pp-insight-violet);
+}
+
+.ppWatchOverviewCategoryRow p {
+  margin: 0;
+  padding: 0 12px 9px 46px;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ppWatchOverviewEventRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 44px 54px;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--pp-slate-200);
+  color: inherit;
+  text-decoration: none;
+}
+
+.ppWatchOverviewEventRow:last-child {
+  border-bottom: 0;
+}
+
+.ppWatchOverviewEventRow .ppDashboardIcon {
+  width: 28px;
+  height: 28px;
+}
+
+.ppWatchOverviewEventRow span {
+  min-width: 0;
+}
+
+.ppWatchOverviewEventRow strong,
+.ppWatchOverviewEventRow small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchOverviewEventRow strong {
+  color: var(--pp-slate-850, var(--pp-slate-800));
+  font-size: 12.5px;
+  font-weight: 900;
+}
+
+.ppWatchOverviewEventRow small,
+.ppWatchOverviewEventRow time {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppWatchOverviewSeverity {
+  justify-self: end;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-600);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.ppWatchOverviewSeverity-high {
+  background: rgba(var(--pp-risk-red-rgb), 0.10);
+  color: var(--pp-risk-red);
+}
+
+.ppWatchOverviewSeverity-medium {
+  background: rgba(var(--pp-warning-amber-rgb), 0.13);
+  color: color-mix(in srgb, var(--pp-warning-amber) 76%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewSeverity-low {
+  background: rgba(var(--pp-success-green-rgb), 0.10);
+  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
+}
+
+.ppWatchOverviewPanelFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-500);
+  font-size: 11.5px;
+  font-weight: 750;
+}
+
+.ppWatchOverviewEmpty {
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  color: var(--pp-slate-500);
+  font-size: 13px;
+  font-weight: 750;
+}
+
 .ppWatchlistTableWrap {
   overflow: hidden;
 }
@@ -26827,6 +27335,38 @@ s-page[inline-size="large-500"] {
 .ppWatchlistProductHero .ppWatchChangeReportHeaderStatus {
   position: static;
   align-self: start;
+}
+
+.ppWatchlistProductHeroPanel {
+  gap: 20px;
+}
+
+.ppWatchlistProductHeroImageWrap .ppProductArt-hero {
+  width: clamp(132px, 13vw, 178px);
+}
+
+.ppWatchlistProductHeroPanel .ppWatchChangeReportEyebrow {
+  margin-bottom: -2px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.ppWatchlistProductHeroActions {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ppWatchlistProductHeroActions .ppWatchChangeReportHeaderStatus {
+  position: static;
+  align-self: flex-end;
+}
+
+.ppWatchlistProductDetailButton {
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 850;
 }
 
 .ppWatchlistProductEmpty {
@@ -27318,22 +27858,21 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchCategoryChanges {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.10);
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.025), rgba(255, 255, 255, 0.94)),
-    var(--pp-cloud-white);
-  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.04);
+  overflow: hidden;
+  border: 1px solid rgba(var(--pp-slate-500-rgb), 0.22);
+  border-radius: 14px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 10px 28px rgba(var(--pp-shadow-rgb), 0.08);
 }
 
 .ppWatchCategoryChangesHeader {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: 38px auto 1fr;
+  gap: 10px;
+  align-items: center;
+  min-height: 56px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--pp-slate-200);
 }
 
 .ppWatchCategoryChangesHeader h3,
@@ -27341,115 +27880,153 @@ s-page[inline-size="large-500"] {
   margin: 0;
 }
 
+.ppWatchCategoryChangesHeader .ppDashboardIcon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+
 .ppWatchCategoryChangesHeader h3 {
   color: var(--pp-slate-950);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 950;
-  line-height: 1.15;
+  line-height: 1.1;
 }
 
 .ppWatchCategoryChangesHeader span {
+  justify-self: start;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--pp-slate-100);
   color: var(--pp-slate-500);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 850;
+  line-height: 1;
 }
 
-.ppWatchCategoryChangesGrid {
+.ppWatchCategoryChangesList {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 10px;
 }
 
 .ppWatchCategoryCard {
   min-width: 0;
   display: grid;
-  align-content: start;
-  gap: 12px;
-  min-height: 156px;
-  padding: 13px 12px 12px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.78)),
-    var(--pp-cloud-white);
-  box-shadow: 0 10px 24px rgba(var(--pp-shadow-rgb), 0.035);
-}
-
-.ppWatchCategoryCard-green {
-  border-color: rgba(var(--pp-success-green-rgb), 0.22);
-  background:
-    radial-gradient(circle at 4% 0%, rgba(var(--pp-success-green-rgb), 0.08), transparent 42%),
-    var(--pp-cloud-white);
-}
-
-.ppWatchCategoryCard-red {
-  border-color: rgba(var(--pp-risk-red-rgb), 0.16);
-  background:
-    radial-gradient(circle at 4% 0%, rgba(var(--pp-risk-red-rgb), 0.055), transparent 42%),
-    var(--pp-cloud-white);
-}
-
-.ppWatchCategoryCard-blue {
-  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
-  background:
-    radial-gradient(circle at 4% 0%, rgba(var(--pp-pulse-blue-rgb), 0.065), transparent 42%),
-    var(--pp-cloud-white);
-}
-
-.ppWatchCategoryCard-purple {
-  border-color: rgba(var(--pp-insight-violet-rgb), 0.18);
-  background:
-    radial-gradient(circle at 4% 0%, rgba(var(--pp-insight-violet-rgb), 0.065), transparent 42%),
-    var(--pp-cloud-white);
-}
-
-.ppWatchCategoryCard-orange {
-  border-color: rgba(var(--pp-warning-amber-rgb), 0.24);
-  background:
-    radial-gradient(circle at 4% 0%, rgba(var(--pp-warning-amber-rgb), 0.075), transparent 42%),
-    var(--pp-cloud-white);
-}
-
-.ppWatchCategoryCardHeader {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: minmax(210px, 1.2fr) minmax(250px, 2.4fr) minmax(110px, auto) minmax(150px, 0.8fr);
+  gap: 16px;
   align-items: center;
+  padding: 18px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchCategoryCard + .ppWatchCategoryCard {
+  border-top: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchCategoryCardSummary,
+.ppWatchCategoryCardFocus,
+.ppWatchCategoryCardBadges,
+.ppWatchCategoryCardUpdated {
   min-width: 0;
 }
 
-.ppWatchCategoryCardHeader .ppDashboardIcon {
-  width: 34px;
-  height: 34px;
+.ppWatchCategoryCardSummary {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
 }
 
-.ppWatchCategoryCardHeader .ppDashboardIcon s-icon,
-.ppWatchCategoryCardHeader .ppDashboardIcon svg {
-  width: 22px;
-  height: 22px;
-  transform: none;
+.ppWatchCategoryCardSummary .ppDashboardIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 11px;
 }
 
-.ppWatchCategoryCardHeader h4 {
-  min-width: 0;
+.ppWatchCategoryCardSummary h4,
+.ppWatchCategoryCardSummary p,
+.ppWatchCategoryCardFocus span,
+.ppWatchCategoryCardFocus strong,
+.ppWatchCategoryCardFocus p,
+.ppWatchCategoryCardUpdated span,
+.ppWatchCategoryCardUpdated strong {
   margin: 0;
+}
+
+.ppWatchCategoryCardSummary h4 {
+  min-width: 0;
   overflow: hidden;
-  color: var(--pp-slate-900);
-  font-size: 13.5px;
+  color: var(--pp-slate-950);
+  font-size: 14px;
   font-weight: 950;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.ppWatchCategoryCardSummary p {
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchCategoryCardFocus {
+  display: grid;
+  gap: 5px;
+  padding-left: 18px;
+  border-left: 1px solid var(--pp-slate-200);
+}
+
+.ppWatchCategoryCardFocus span {
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 10.5px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ppWatchCategoryCardFocus strong {
+  overflow: hidden;
+  color: var(--pp-slate-950);
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchCategoryCardFocus p {
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppWatchCategoryCardBadges {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+}
+
 .ppWatchCategoryBadge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  justify-self: end;
+  gap: 6px;
   min-width: 0;
-  padding: 5px 8px;
-  border-radius: 999px;
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: 9px;
   font-size: 11.5px;
   font-weight: 950;
   line-height: 1;
@@ -27480,68 +28057,196 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-600);
 }
 
-.ppWatchCategoryRows {
+.ppWatchCategoryCardUpdated {
   display: grid;
-  gap: 10px;
+  gap: 5px;
+  padding-left: 18px;
+  border-left: 1px solid var(--pp-slate-200);
 }
 
-.ppWatchCategoryRow {
-  display: grid;
-  grid-template-columns: minmax(92px, 0.9fr) minmax(76px, 0.72fr) auto;
-  gap: 8px;
-  align-items: baseline;
-  min-width: 0;
-  color: var(--pp-slate-700);
-  font-size: 12.5px;
-  font-weight: 800;
+.ppWatchCategoryCardUpdated span {
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.1;
 }
 
-.ppWatchCategoryRow span,
-.ppWatchCategoryRow strong,
-.ppWatchCategoryRow em {
-  min-width: 0;
-}
-
-.ppWatchCategoryRow span {
-  color: var(--pp-slate-600);
-}
-
-.ppWatchCategoryRow strong {
+.ppWatchCategoryCardUpdated strong {
   overflow: hidden;
   color: var(--pp-slate-800);
-  font-size: 13px;
-  font-weight: 950;
-  text-align: right;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ppWatchCategoryDelta {
+.ppWatchRecentRuns {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 9px;
+  background: var(--pp-cloud-white);
+  box-shadow: 0 6px 18px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppWatchRecentRuns h3 {
+  margin: 0;
+  color: var(--pp-slate-950);
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.ppWatchRecentRunsTrack {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  gap: 10px;
+  align-items: center;
+}
+
+.ppWatchRecentRunsArrow {
+  position: relative;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  justify-self: end;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 6px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  cursor: pointer;
+  line-height: 0;
+}
+
+.ppWatchRecentRunsArrow:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.ppWatchRecentRunsArrow s-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  display: block;
+  transform: translate(-50%, -50%) scale(0.86);
+  pointer-events: none;
+}
+
+.ppWatchRecentRunsList {
+  --pp-watch-run-gap: 20px;
+  --pp-watch-run-card-width: min(210px, calc((100% - 80px) / 5));
+  display: grid;
+  grid-template-columns: repeat(var(--pp-watch-run-count, 5), minmax(0, var(--pp-watch-run-card-width)));
+  gap: var(--pp-watch-run-gap);
+  align-items: center;
+  justify-content: start;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppWatchRecentRunsItem {
+  position: relative;
+  min-width: 0;
+}
+
+.ppWatchRecentRunsItem:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -20px;
+  width: 20px;
+  height: 1px;
+  background: var(--pp-slate-300);
+}
+
+.ppWatchRecentRunsItem:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: calc(50% - 3px);
+  right: -12px;
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--pp-slate-400);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+}
+
+.ppWatchRecentRunCard {
+  min-height: 50px;
+  width: 100%;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 7px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-800);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(var(--pp-shadow-rgb), 0.035);
+  cursor: pointer;
+}
+
+.ppWatchRecentRunCard.isSelected,
+.ppWatchRecentRunCard:hover {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.55);
+  box-shadow: 0 0 0 1px rgba(var(--pp-insight-violet-rgb), 0.18), 0 5px 14px rgba(var(--pp-shadow-rgb), 0.07);
+}
+
+.ppWatchRecentRunCard.isDisabled {
   color: var(--pp-slate-500);
+  cursor: default;
+}
+
+.ppWatchRecentRunDate {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: center;
+  color: var(--pp-slate-700);
   font-size: 12px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.ppWatchRecentRunDate em {
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.12);
+  color: var(--pp-pulse-blue);
+  font-size: 10px;
   font-style: normal;
   font-weight: 950;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ppWatchRecentRunMetrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  color: var(--pp-slate-700);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.ppWatchRecentRunMetrics strong {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 850;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.ppWatchCategoryDelta s-icon {
-  transform: scale(0.88);
-}
-
-.ppWatchCategoryDelta-good {
-  color: color-mix(in srgb, var(--pp-success-green) 74%, var(--pp-midnight-ink));
-}
-
-.ppWatchCategoryDelta-bad {
-  color: var(--pp-risk-red);
-}
-
-.ppWatchCategoryDelta-neutral {
-  color: var(--pp-slate-500);
 }
 
 .ppWatchRunTrends {
@@ -27668,165 +28373,6 @@ s-page[inline-size="large-500"] {
   fill: var(--pp-cloud-white);
   font-size: 13px;
   font-weight: 950;
-}
-
-.ppWatchRunHistory {
-  overflow: hidden;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.12);
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(var(--pp-pulse-blue-rgb), 0.035), rgba(255, 255, 255, 0.94)),
-    var(--pp-cloud-white);
-  box-shadow: 0 12px 30px rgba(var(--pp-shadow-rgb), 0.04);
-}
-
-.ppWatchRunHistoryHeader {
-  min-height: 54px;
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px 8px;
-}
-
-.ppWatchRunHistoryHeader h3 {
-  margin: 0;
-  color: var(--pp-slate-950);
-  font-size: 16px;
-  font-weight: 950;
-  line-height: 1.2;
-}
-
-.ppWatchRunHistoryScroll {
-  overflow-x: auto;
-  padding: 0 10px 10px;
-}
-
-.ppWatchRunHistoryTable {
-  width: 100%;
-  min-width: 1380px;
-  border-collapse: separate;
-  border-spacing: 0;
-  color: var(--pp-slate-700);
-}
-
-.ppWatchRunHistoryTable th,
-.ppWatchRunHistoryTable td {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--pp-slate-200);
-  text-align: left;
-  white-space: nowrap;
-}
-
-.ppWatchRunHistoryTable thead th {
-  color: var(--pp-slate-500);
-  font-size: 12.5px;
-  font-weight: 900;
-}
-
-.ppWatchRunHistoryTable tbody tr {
-  background: rgba(255, 255, 255, 0.82);
-}
-
-.ppWatchRunHistoryTable tbody tr.isCurrent {
-  background: var(--pp-cloud-white);
-}
-
-.ppWatchRunHistoryTable tbody tr.isSelected {
-  background: linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.12), rgba(255, 255, 255, 0.96) 34%);
-  box-shadow: inset 4px 0 0 var(--pp-pulse-blue);
-}
-
-.ppWatchRunHistoryTable tbody tr.isSelected th,
-.ppWatchRunHistoryTable tbody tr.isSelected td {
-  border-bottom-color: rgba(var(--pp-pulse-blue-rgb), 0.16);
-}
-
-.ppWatchRunHistoryTable tbody tr:last-child th,
-.ppWatchRunHistoryTable tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.ppWatchRunHistoryTable tbody th {
-  color: var(--pp-slate-800);
-  font-size: 14px;
-  font-weight: 950;
-}
-
-.ppWatchRunHistoryViewing {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 9px;
-  padding: 3px 7px;
-  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
-  border-radius: 999px;
-  background: rgba(var(--pp-pulse-blue-rgb), 0.10);
-  color: var(--pp-pulse-blue);
-  font-size: 11px;
-  font-weight: 950;
-  vertical-align: middle;
-}
-
-.ppWatchRunHistoryTable tbody td {
-  color: var(--pp-slate-700);
-  font-size: 14px;
-  font-weight: 850;
-}
-
-.ppWatchRunHistoryValue {
-  font-weight: 950;
-}
-
-.ppWatchRunHistoryValue-good {
-  color: color-mix(in srgb, var(--pp-success-green) 72%, var(--pp-midnight-ink));
-}
-
-.ppWatchRunHistoryValue-bad {
-  color: var(--pp-risk-red);
-}
-
-.ppWatchRunHistoryValue-strong {
-  color: var(--pp-slate-900);
-}
-
-.ppWatchRunHistoryValue-subdued,
-.ppWatchRunHistoryDash {
-  color: var(--pp-slate-400);
-}
-
-.ppWatchRunHistoryCheck {
-  width: 22px;
-  height: 22px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--pp-pulse-blue);
-  color: var(--pp-cloud-white);
-  box-shadow: 0 6px 12px rgba(var(--pp-pulse-blue-rgb), 0.22);
-}
-
-.ppWatchRunHistoryCheck s-icon {
-  transform: scale(0.86);
-}
-
-.ppWatchRunHistoryButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  padding: 7px 13px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 8px;
-  background: var(--pp-cloud-white);
-  color: var(--pp-slate-700);
-  font-size: 13px;
-  font-weight: 900;
-  text-decoration: none;
-  box-shadow: 0 6px 14px rgba(var(--pp-shadow-rgb), 0.035);
-}
-
-.ppWatchRunHistoryButton.isDisabled {
-  color: var(--pp-slate-400);
 }
 
 .ppWatchSnapshotCompare {
@@ -28079,6 +28625,16 @@ s-page[inline-size="large-500"] {
     width: max-content;
   }
 
+  .ppWatchlistProductHeroActions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .ppWatchlistProductHeroActions .ppWatchChangeReportHeaderStatus {
+    align-self: center;
+  }
+
   .ppWatchlistInsightReport {
     grid-template-columns: 1fr;
     gap: 16px;
@@ -28093,6 +28649,23 @@ s-page[inline-size="large-500"] {
 
   .ppWatchCustomerLanguageGrid {
     grid-template-columns: 1fr;
+  }
+
+  .ppWatchCategoryCard {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .ppWatchCategoryCardFocus,
+  .ppWatchCategoryCardUpdated {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .ppWatchCategoryCardBadges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .ppWatchRunTrends {
@@ -28128,6 +28701,28 @@ s-page[inline-size="large-500"] {
   .ppWatchlistProductHeroImage {
     width: 64px;
     height: 64px;
+  }
+
+  .ppWatchlistProductHeroPanel {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .ppWatchlistProductHeroImageWrap .ppProductArt-hero {
+    width: 72px;
+    border-radius: 8px;
+  }
+
+  .ppWatchlistProductHeroPanel .ppProductTitleHeading h1 {
+    font-size: 20px;
+  }
+
+  .ppWatchlistProductHeroPanel .ppProductMetaLine {
+    font-size: 11px;
+  }
+
+  .ppWatchlistProductHeroPanel > .ppProductHeaderActions {
+    grid-column: 1 / -1;
   }
 
   .ppWatchChangeReportHeaderStatus {
@@ -28205,36 +28800,52 @@ s-page[inline-size="large-500"] {
   }
 
   .ppWatchCategoryChanges {
+    border-radius: 12px;
+  }
+
+  .ppWatchCategoryChangesHeader {
+    grid-template-columns: 36px minmax(0, auto);
+    gap: 10px;
+    min-height: 0;
     padding: 12px;
   }
 
-  .ppWatchCategoryChangesGrid {
-    grid-template-columns: 1fr;
+  .ppWatchCategoryChangesHeader span {
+    grid-column: 2;
+    justify-self: start;
+    font-size: 12px;
   }
 
   .ppWatchCategoryCard {
-    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px;
   }
 
-  .ppWatchCategoryCardHeader {
-    grid-template-columns: 36px minmax(0, 1fr);
+  .ppWatchCategoryCardSummary {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .ppWatchCategoryCardSummary .ppDashboardIcon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .ppWatchCategoryCardFocus,
+  .ppWatchCategoryCardUpdated {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .ppWatchCategoryCardBadges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .ppWatchCategoryBadge {
-    grid-column: 2;
     justify-self: start;
-  }
-
-  .ppWatchCategoryRow {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .ppWatchCategoryRow strong {
-    text-align: right;
-  }
-
-  .ppWatchCategoryDelta {
-    grid-column: 2;
   }
 
   .ppWatchRunTrendCard {
@@ -28249,18 +28860,31 @@ s-page[inline-size="large-500"] {
     font-size: 11px;
   }
 
-  .ppWatchRunHistoryHeader {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 12px;
+  .ppWatchRecentRuns {
+    padding: 9px;
   }
 
-  .ppWatchRunHistoryScroll {
-    padding: 0 8px 8px;
+  .ppWatchRecentRunsTrack {
+    grid-template-columns: 20px minmax(0, 1fr) 20px;
+    gap: 6px;
   }
 
-  .ppWatchRunHistoryTable {
-    min-width: 1180px;
+  .ppWatchRecentRunsArrow {
+    width: 20px;
+    height: 20px;
+  }
+
+  .ppWatchRecentRunsList {
+    --pp-watch-run-gap: 10px;
+    grid-template-columns: repeat(var(--pp-watch-run-count, 5), 126px);
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .ppWatchRecentRunsItem:not(:last-child)::after,
+  .ppWatchRecentRunsItem:not(:last-child)::before {
+    display: none;
   }
 
 }
@@ -29039,6 +29663,20 @@ s-page[inline-size="large-500"] {
 }
 
 @media (max-width: 980px) {
+  .ppWatchOverviewDashboardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppWatchOverviewProductRow {
+    grid-template-columns: 24px minmax(180px, 1fr) minmax(170px, 1fr);
+  }
+
+  .ppWatchOverviewMetricPack,
+  .ppWatchOverviewSourceDeltas,
+  .ppWatchOverviewRecommendation {
+    grid-column: 2 / -1;
+  }
+
   .ppWatchlistBottomGrid {
     grid-template-columns: 1fr;
   }
@@ -31965,7 +32603,7 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
-.ppCreditsFooter button {
+.ppCreditsFooter .ppCreditsBuyLink {
   min-width: 138px;
   height: 34px;
   padding: 0 15px;
@@ -31977,6 +32615,7 @@ s-page[inline-size="large-500"] {
   font-size: 12px;
   font-weight: 620;
   letter-spacing: 0;
+  text-decoration: none;
   box-shadow: 0 6px 18px rgba(var(--pp-shadow-rgb), 0.07);
   cursor: pointer;
 }
@@ -31992,9 +32631,11 @@ s-page[inline-size="large-500"] {
   text-decoration: none;
 }
 
-.ppCreditsFooter button:hover,
-.ppCreditsFooter button:focus-visible {
+.ppCreditsFooter .ppCreditsBuyLink:hover,
+.ppCreditsFooter .ppCreditsBuyLink:focus-visible {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.28);
+  color: var(--pp-slate-950);
+  text-decoration: none;
   box-shadow: 0 10px 24px rgba(var(--pp-shadow-rgb), 0.1);
 }
 
@@ -34141,6 +34782,7 @@ s-page[inline-size="large-500"] {
 .ppPlansSecureNote,
 .ppPlansLowerGrid,
 .ppPlansBillingPanel,
+.ppPlansLedgerPanel,
 .ppPlansFooter {
   width: 100%;
   max-width: 1480px;
@@ -34960,6 +35602,129 @@ s-page[inline-size="large-500"] {
   margin-top: 10px;
 }
 
+.ppPlansLedgerPanel {
+  margin-bottom: 14px;
+}
+
+.ppPlansLedgerPanel header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ppPlansLedgerPanel header p {
+  max-width: 620px;
+  text-align: right;
+}
+
+.ppPlansLedgerTableWrap {
+  overflow-x: auto;
+  margin-top: 14px;
+  border: 1px solid #dce5f1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ppPlansLedgerTable {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  color: #516078;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.ppPlansLedgerTable th,
+.ppPlansLedgerTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e4ebf4;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ppPlansLedgerTable th {
+  background: #f8fafd;
+  color: #6a768e;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.ppPlansLedgerTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.ppPlansLedgerTable td:nth-child(3),
+.ppPlansLedgerTable td:nth-child(4),
+.ppPlansLedgerTable td:nth-child(5),
+.ppPlansLedgerTable th:nth-child(3),
+.ppPlansLedgerTable th:nth-child(4),
+.ppPlansLedgerTable th:nth-child(5) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ppPlansLedgerTable td:first-child {
+  width: 44%;
+}
+
+.ppPlansLedgerTable td:first-child strong,
+.ppPlansLedgerTable td:first-child span {
+  display: block;
+}
+
+.ppPlansLedgerTable td:first-child strong {
+  color: #172038;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.ppPlansLedgerTable td:first-child span {
+  margin-top: 2px;
+  color: #6b7891;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ppPlansLedgerTable .isCredit {
+  color: #168756;
+  font-weight: 950;
+}
+
+.ppPlansLedgerTable .isDebit {
+  color: #dc2626;
+  font-weight: 950;
+}
+
+.ppPlansLedgerType {
+  display: inline-flex;
+  min-width: 54px;
+  min-height: 22px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.ppPlansLedgerType-credit {
+  background: #dcfce7;
+  color: #14784b;
+}
+
+.ppPlansLedgerType-debit {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.ppPlansLedgerEmpty {
+  height: 54px;
+  color: #6b7891;
+  text-align: center !important;
+}
+
 .ppPlansFooter {
   display: flex;
   align-items: center;
@@ -35076,6 +35841,16 @@ s-page[inline-size="large-500"] {
     padding-bottom: 0;
   }
 
+  .ppPlansLedgerPanel header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ppPlansLedgerPanel header p {
+    max-width: none;
+    text-align: left;
+  }
+
   .ppPlansFooter {
     align-items: flex-start;
     flex-direction: column;
@@ -35151,6 +35926,7 @@ s-page[inline-size="large-500"] {
 .ppPlansSecureNote,
 .ppPlansLowerGrid,
 .ppPlansBillingPanel,
+.ppPlansLedgerPanel,
 .ppPlansFooter {
   max-width: none;
   margin-right: 0;

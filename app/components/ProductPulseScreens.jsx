@@ -40,7 +40,7 @@ const PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID = "product-pulse-settings-save-bar";
 const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 const DEFAULT_MOMENTUM_INCLUSION_THRESHOLD = 70;
-const WATCHLIST_MAX_PRODUCTS_DEFAULT = 50;
+const WATCHLIST_MAX_PRODUCTS_DEFAULT = 99;
 const PRODUCT_RETENTION_HEATMAP_MONTHS = 6;
 const PRODUCT_RETENTION_REPEAT_CHART_AGE_TICKS = [0, 15, 30, 45, 60, 90, 120, 180];
 const PRODUCT_RETENTION_LTV_BREAKDOWN_TICKS = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180];
@@ -1620,6 +1620,8 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const [shopifyProductSearchOpen, setShopifyProductSearchOpen] = useState(false);
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
   const [watchlistActionConfirmation, setWatchlistActionConfirmation] = useState(null);
+  const [watchOverviewSort, setWatchOverviewSort] = useState("urgency");
+  const [watchOverviewRunId, setWatchOverviewRunId] = useState("");
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const watchlist = data.watchlist || {};
   const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
@@ -1650,6 +1652,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
     : "";
   const atCapacity = watchedCount >= maxProducts;
   const hasActiveWatchlistDiagnosisJobs = rows.some((row) => getProductDiagnosisState(row));
+  const overviewDashboard = useMemo(() => buildWatchlistOverviewDashboard(rows, activities, watchOverviewSort, watchOverviewRunId), [rows, activities, watchOverviewSort, watchOverviewRunId]);
 
   useEffect(() => {
     shopifyProductSearchSubmitRef.current = shopifyProductSearchFetcher.submit;
@@ -1705,7 +1708,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
       <ScreenShell className="ppDashboard ppWatchlistScreen">
         <div className="ppWatchlistHeader">
           <div>
-            <p className="ppDashboardSubtitle">Monitor up to 50 products with automatic rescans and email alerts.</p>
+            <p className="ppDashboardSubtitle">Monitor up to {maxProducts} products with automatic rescans and email alerts.</p>
           </div>
           <div className="ppWatchlistHeaderActions">
             <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={atCapacity || pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
@@ -1731,6 +1734,13 @@ export function WatchlistScreen({ data = {}, actionData }) {
           <span>Automatic rescans run on your selected cadence. We&apos;ll email you when new issues are detected.</span>
         </div>
 
+        <WatchlistOverviewDashboard
+          overview={overviewDashboard}
+          sort={watchOverviewSort}
+          onSortChange={setWatchOverviewSort}
+          onRunSelect={(run) => setWatchOverviewRunId(run?.id || "")}
+        />
+
         <s-section padding="none">
           <div className="ppWatchlistTableWrap">
             <table className="ppWatchlistTable">
@@ -1752,7 +1762,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
                         <DashboardIcon type="binoculars" tone="watch" />
                         <div>
                           <h2>No watched products yet</h2>
-                          <p>Add up to 50 Shopify products to monitor on the watch cadence.</p>
+                          <p>Add up to {maxProducts} Shopify products to monitor on the watch cadence.</p>
                         </div>
                         <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
                           <ProductPulseGlyph type="binoculars" />
@@ -1791,7 +1801,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
           onQueryChange={setShopifyProductSearchQuery}
           title="Add watched product"
           eyebrow="Watchlist"
-          description="Search the live Shopify catalog and add one product to automatic monitoring. You can watch up to 50 products."
+          description={`Search the live Shopify catalog and add one product to automatic monitoring. You can watch up to ${maxProducts} products.`}
           actionLabel="Add to watchlist"
           actionIcon="binoculars"
           addedProductIds={watchedProductIds}
@@ -1820,6 +1830,631 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
       </div>
     </article>
   );
+}
+
+function WatchlistOverviewDashboard({ overview = {}, sort = "urgency", onSortChange, onRunSelect }) {
+  const hasRuns = Array.isArray(overview.runRows) && overview.runRows.length > 0;
+  const hasProducts = Array.isArray(overview.productRows) && overview.productRows.length > 0;
+  const hasCategories = Array.isArray(overview.categoryRows) && overview.categoryRows.length > 0;
+  const hasEvents = Array.isArray(overview.eventRows) && overview.eventRows.length > 0;
+  if (!hasRuns && !hasProducts && !hasCategories && !hasEvents) return null;
+
+  return (
+    <section className="ppWatchOverviewDashboard" aria-label="Watchlist run overview">
+      {hasRuns ? <WatchRecentRunsTimeline rows={overview.runRows} onSelectRun={onRunSelect} /> : null}
+      <div className="ppWatchOverviewDashboardGrid">
+        <WatchlistOverviewProductChanges
+          rows={overview.productRows || []}
+          windowLabel={overview.windowLabel}
+          sort={sort}
+          onSortChange={onSortChange}
+        />
+        <div className="ppWatchOverviewSide">
+          <WatchlistOverviewWhatChanged rows={overview.categoryRows || []} total={overview.totalChangeCount || 0} />
+          <WatchlistOverviewEvents rows={overview.eventRows || []} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "urgency", onSortChange }) {
+  return (
+    <section className="ppWatchOverviewPanel ppWatchOverviewChangesPanel" aria-label="Watchlist changes since previous run">
+      <header className="ppWatchOverviewPanelHeader">
+        <h3>Changes since previous run {windowLabel ? <span>{windowLabel}</span> : null}</h3>
+        <label className="ppWatchOverviewSort">
+          <span>Sort by:</span>
+          <select value={sort} onChange={(event) => onSortChange?.(event.target.value)}>
+            <option value="urgency">Urgency</option>
+            <option value="risk">Risk</option>
+            <option value="latest">Latest run</option>
+            <option value="product">Product</option>
+          </select>
+        </label>
+      </header>
+      {rows.length ? (
+        <div className="ppWatchOverviewProductList">
+          {rows.map((row, index) => <WatchlistOverviewProductChangeRow row={row} rank={index + 1} key={row.id || row.productGid || row.title} />)}
+        </div>
+      ) : (
+        <div className="ppWatchOverviewEmpty">
+          <s-icon type="check-circle" size="small"></s-icon>
+          <span>No changed products were found in the latest Watchlist run.</span>
+        </div>
+      )}
+      {rows.length ? (
+        <footer className="ppWatchOverviewPanelFooter">
+          <span>Showing 1-{rows.length} of {rows.length} changed products</span>
+        </footer>
+      ) : null}
+    </section>
+  );
+}
+
+function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
+  return (
+    <article className={`ppWatchOverviewProductRow ppWatchOverviewProductRow-${row.tone || "neutral"}`}>
+      <span className={`ppWatchOverviewRank ppWatchOverviewRank-${row.tone || "neutral"}`}>{rank}</span>
+      <Link className="ppWatchOverviewProductIdentity" to={row.watchlistHref || row.href || "/app/watchlist"}>
+        <span className="ppWatchOverviewProductImage">
+          <ProductArt
+            variant={row.variant || "shirt"}
+            label={row.title}
+            imageUrl={row.imageUrl}
+            imageAlt={row.imageAlt || row.title}
+          />
+        </span>
+        <span>
+          <strong>{row.title}</strong>
+          <small>{row.variantLabel || row.sku || row.handle || "Shopify product"}</small>
+          <em className={`ppWatchOverviewRiskPill ppWatchOverviewRiskPill-${row.tone || "neutral"}`}>{row.riskLabel || "Tracked"}</em>
+        </span>
+      </Link>
+      <div className="ppWatchOverviewPrimaryChange">
+        <strong>{row.changeTitle}</strong>
+        <span>{row.changeDetail}</span>
+      </div>
+      <div className="ppWatchOverviewMetricPack">
+        <WatchOverviewTinyMetric label="Risk" value={row.riskDeltaLabel} tone={row.riskDeltaTone} points={row.riskSparkline} />
+        <WatchOverviewTinyMetric label="Momentum" value={row.momentumDeltaLabel} tone={row.momentumDeltaTone} points={row.momentumSparkline} />
+        <WatchOverviewTinyMetric label="Margin" value={row.marginDeltaLabel} tone={row.marginDeltaTone} points={row.marginSparkline} />
+      </div>
+      <div className="ppWatchOverviewSourceDeltas" aria-label={`${row.title} source deltas`}>
+        {row.sourceDeltas.map((item) => (
+          <span className={`ppWatchOverviewSourceDelta ppWatchOverviewSourceDelta-${item.tone || "neutral"}`} key={item.id}>
+            <b>{item.label}</b>
+            <em>{item.value}</em>
+          </span>
+        ))}
+      </div>
+      <div className="ppWatchOverviewRecommendation">
+        <span>{row.recommendationLabel}</span>
+        <p>{row.recommendationDetail}</p>
+        <Link to={row.watchlistHref || row.href || "/app/watchlist"}>View product <s-icon type="chevron-right" size="small"></s-icon></Link>
+      </div>
+    </article>
+  );
+}
+
+function WatchOverviewTinyMetric({ label, value, tone = "neutral", points = [] }) {
+  return (
+    <span className={`ppWatchOverviewTinyMetric ppWatchOverviewTinyMetric-${tone}`}>
+      <b>{label}</b>
+      <strong>{value}</strong>
+      <WatchOverviewSparkline points={points} tone={tone} />
+    </span>
+  );
+}
+
+function WatchOverviewSparkline({ points = [], tone = "neutral" }) {
+  const values = points.map(Number).filter(Number.isFinite);
+  const plotted = values.length >= 2 ? values.slice(-8) : [0, 0];
+  const min = Math.min(...plotted);
+  const max = Math.max(...plotted);
+  const range = Math.max(1, max - min);
+  const width = 58;
+  const height = 18;
+  const path = plotted.map((value, index) => {
+    const x = plotted.length === 1 ? 0 : (index / (plotted.length - 1)) * width;
+    const y = height - ((value - min) / range) * height;
+    return `${index === 0 ? "M" : "L"}${formatDecimal(x, 1)} ${formatDecimal(y, 1)}`;
+  }).join(" ");
+  return (
+    <svg className={`ppWatchOverviewSparkline ppWatchOverviewSparkline-${tone}`} viewBox={`0 0 ${width} ${height}`} aria-hidden="true" focusable="false">
+      <path d={path} />
+    </svg>
+  );
+}
+
+function WatchlistOverviewWhatChanged({ rows = [], total = 0 }) {
+  return (
+    <section className="ppWatchOverviewPanel ppWatchOverviewWhatChanged" aria-label="What changed in latest Watchlist run">
+      <header className="ppWatchOverviewPanelHeader">
+        <h3>What changed <span>({formatInteger(total)})</span></h3>
+      </header>
+      <div className="ppWatchOverviewCategoryRows">
+        {rows.map((row) => (
+          <details className="ppWatchOverviewCategoryRow" key={row.id}>
+            <summary>
+              <span>
+                <DashboardIcon type={row.icon} tone={row.tone || "blue"} size="small" />
+                <strong>{row.label}</strong>
+              </span>
+              <b>{formatInteger(row.count)}</b>
+              <em className="isBad">{row.worsened ? `${formatInteger(row.worsened)} worsened` : "-"}</em>
+              <em className="isGood">{row.improved ? `${formatInteger(row.improved)} improved` : "-"}</em>
+              <em className="isNeutral">{row.changed ? `${formatInteger(row.changed)} changed` : "-"}</em>
+              <s-icon type="chevron-down" size="small"></s-icon>
+            </summary>
+            <p>{row.detail}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WatchlistOverviewEvents({ rows = [] }) {
+  return (
+    <section className="ppWatchOverviewPanel ppWatchOverviewEvents" aria-label="Events from this Watchlist run">
+      <header className="ppWatchOverviewPanelHeader">
+        <h3>Events from this run</h3>
+      </header>
+      {rows.length ? (
+        <div className="ppWatchOverviewEventRows">
+          {rows.map((row) => (
+            <Link className="ppWatchOverviewEventRow" to={row.href || "/app/watchlist/activity"} key={row.id}>
+              <DashboardIcon type={row.icon} tone={row.tone || "blue"} size="small" />
+              <span>
+                <strong>{row.title}</strong>
+                <small>{row.detail}</small>
+              </span>
+              <time>{row.timeLabel}</time>
+              <em className={`ppWatchOverviewSeverity ppWatchOverviewSeverity-${row.severityTone || "neutral"}`}>{row.severityLabel}</em>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="ppWatchOverviewEmpty">
+          <s-icon type="check-circle" size="small"></s-icon>
+          <span>No events were isolated for the latest Watchlist run.</span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function buildWatchlistOverviewDashboard(rows = [], activities = [], sort = "urgency", selectedRunId = "") {
+  const runRows = getWatchlistOverviewRunRows(rows, selectedRunId);
+  const effectiveRunId = runRows.find((row) => row.isSelected)?.id || "";
+  const productRows = getWatchlistOverviewProductRows(rows, sort, { selectedRunId: effectiveRunId });
+  const allChangedRows = getWatchlistOverviewProductRows(rows, "urgency", { limit: 99, selectedRunId: effectiveRunId });
+  const eventRows = getWatchlistOverviewEventRows(allChangedRows, effectiveRunId ? [] : activities);
+  return {
+    runRows,
+    selectedRunId: effectiveRunId,
+    productRows,
+    categoryRows: getWatchlistOverviewCategoryRows(allChangedRows),
+    eventRows,
+    totalChangeCount: allChangedRows.reduce((sum, row) => sum + Number(row.changeCount || 0), 0),
+    windowLabel: getWatchlistOverviewWindowLabel(allChangedRows),
+  };
+}
+
+function getWatchlistOverviewProductRows(rows = [], sort = "urgency", { limit = 5, selectedRunId = "" } = {}) {
+  const mapped = (Array.isArray(rows) ? rows : [])
+    .map((product) => buildWatchlistOverviewProductRow(product, { selectedRunId }))
+    .filter(Boolean);
+  const sorted = sortWatchlistOverviewRows(mapped, sort);
+  return sorted.slice(0, limit);
+}
+
+function getWatchOverviewReportForRun(product = {}, selectedRunId = "") {
+  const latestReport = product.latestChangeReport || null;
+  if (!latestReport) return null;
+  const reports = getWatchOverviewRunReports(latestReport);
+  const requestedRunId = String(selectedRunId || "");
+  if (requestedRunId) {
+    const matchedReport = reports.find((report) => getWatchOverviewReportRunMatches(report, requestedRunId));
+    if (matchedReport) return withWatchOverviewReportHistory(matchedReport, latestReport);
+    const fallbackReport = getWatchOverviewFallbackReportForRun(latestReport, requestedRunId);
+    if (fallbackReport) return fallbackReport;
+  }
+  return withWatchOverviewReportHistory(latestReport, latestReport);
+}
+
+function getWatchOverviewRunReports(report = {}) {
+  const reports = Array.isArray(report?.runReports) ? report.runReports.filter(Boolean) : [];
+  return reports.length ? reports : [report].filter(Boolean);
+}
+
+function getWatchOverviewReportRunMatches(report = {}, selectedRunId = "") {
+  const requestedRunId = String(selectedRunId || "");
+  if (!requestedRunId) return false;
+  if (String(report?.id || "") === requestedRunId) return true;
+  const timestamp = getWatchOverviewReportTimestamp(report);
+  return timestamp ? getWatchOverviewRunKey(timestamp) === requestedRunId : false;
+}
+
+function getWatchOverviewReportTimestamp(report = {}) {
+  return report?.currentRunAt || report?.createdAt || report?.current?.capturedAt || report?.capturedAt || "";
+}
+
+function withWatchOverviewReportHistory(report = {}, latestReport = {}) {
+  return {
+    ...report,
+    history: Array.isArray(latestReport?.history) ? latestReport.history : Array.isArray(report?.history) ? report.history : [],
+    runReports: Array.isArray(latestReport?.runReports) ? latestReport.runReports : Array.isArray(report?.runReports) ? report.runReports : [],
+  };
+}
+
+function getWatchOverviewFallbackReportForRun(latestReport = {}, selectedRunId = "") {
+  const historyPoints = getWatchRunHistoryPoints(latestReport);
+  const pointIndex = historyPoints.findIndex((point) => {
+    if (String(point?.id || "") === String(selectedRunId || "")) return true;
+    const timestamp = point?.currentRunAt || point?.capturedAt;
+    return timestamp ? getWatchOverviewRunKey(timestamp) === String(selectedRunId || "") : false;
+  });
+  if (pointIndex < 0) return null;
+  const point = historyPoints[pointIndex];
+  const previous = pointIndex > 0 ? historyPoints[pointIndex - 1] : null;
+  return {
+    ...latestReport,
+    id: point.id || latestReport.id,
+    status: Number(point.changeCount || 0) > 0 ? "changed" : "unchanged",
+    changeCount: Number(point.changeCount || 0),
+    sourceChangeCount: 0,
+    previousRunAt: previous?.currentRunAt || previous?.capturedAt || null,
+    currentRunAt: point.currentRunAt || point.capturedAt || null,
+    previous,
+    current: point,
+    headline: latestReport.headline || "Watchlist run selected",
+    summary: latestReport.summary || "Stored Watchlist run metrics selected from history.",
+    sourceChanges: [],
+    sourceInsights: [],
+    sections: [],
+    changes: [],
+    history: historyPoints,
+  };
+}
+
+function getWatchOverviewHistoryPointsForReport(latestReport = {}, selectedReport = {}) {
+  const points = getWatchRunHistoryPoints(latestReport || selectedReport);
+  const selectedTimestamp = getWatchOverviewReportTimestamp(selectedReport);
+  if (!selectedTimestamp || !points.length) return points;
+  const selectedTime = new Date(selectedTimestamp).getTime();
+  if (Number.isNaN(selectedTime)) return points;
+  return points.filter((point) => {
+    const timestamp = point.currentRunAt || point.capturedAt;
+    const time = new Date(timestamp).getTime();
+    return Number.isNaN(time) || time <= selectedTime;
+  });
+}
+
+function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "" } = {}) {
+  const report = getWatchOverviewReportForRun(product, selectedRunId);
+  if (!report || !watchOverviewReportHasChanges(report)) return null;
+  const previous = report.previous || {};
+  const current = report.current || {};
+  const sections = getVisibleWatchReportSections(report.sections || []);
+  const biggestChange = getWatchReportBiggestChanges(report, getWatchSourceChangeCards(report), sections)[0]
+    || getFallbackWatchOverviewChange(report);
+  const riskDelta = watchNumberDeltaValue(current.riskScore, previous.riskScore);
+  const momentumDelta = watchNumberDeltaValue(current.productMomentumScore, previous.productMomentumScore);
+  const marginDelta = watchNumberDeltaValue(current.marginAtRisk, previous.marginAtRisk);
+  const historyPoints = getWatchOverviewHistoryPointsForReport(product.latestChangeReport || report, report);
+  const riskTone = getWatchDeltaTone(riskDelta, { lowerIsGood: true });
+  const momentumTone = getWatchDeltaTone(momentumDelta, { higherIsGood: true });
+  const marginTone = getWatchDeltaTone(marginDelta, { lowerIsGood: true });
+  const sourceDeltas = getWatchOverviewSourceDeltas(previous, current);
+  const urgencyScore = getWatchOverviewUrgencyScore({ report, current, riskDelta, marginDelta, sourceDeltas });
+  const tone = getWatchOverviewProductTone({ urgencyScore, current, riskDelta, sourceDeltas });
+  const baseWatchlistHref = getWatchlistProductPageHref(product);
+  const watchlistHref = report.id ? `${baseWatchlistHref}?runId=${encodeURIComponent(report.id)}` : baseWatchlistHref;
+  return {
+    id: product.id || product.productGid || product.title,
+    productGid: product.productGid || "",
+    title: product.title || report.productTitle || "Watched product",
+    handle: product.handle || "",
+    sku: product.sku || "",
+    imageUrl: product.imageUrl,
+    imageAlt: product.imageAlt || product.title,
+    href: product.href || baseWatchlistHref,
+    watchlistHref,
+    riskLabel: current.riskLabel || product.riskLabel || "Tracked",
+    variantLabel: product.sku ? `SKU ${product.sku}` : product.handle ? `/${product.handle}` : "",
+    changeTitle: biggestChange?.label || report.headline || "Watchlist signal changed",
+    changeDetail: biggestChange?.value || biggestChange?.delta || report.summary || "Latest Watchlist run changed stored product signals.",
+    changeCount: Number(report.changeCount || 0),
+    sourceChangeCount: Number(report.sourceChangeCount || 0),
+    signalCount: Number(current.signalCount || 0),
+    actionCount: Number(current.actionCount || current.openActionCount || current.recommendedActionCount || 0),
+    timestamp: report.currentRunAt || report.createdAt || "",
+    urgencyScore,
+    tone,
+    sourceDeltas,
+    riskDeltaLabel: formatWatchOverviewDelta(riskDelta),
+    riskDeltaTone: riskTone,
+    riskSparkline: getWatchOverviewSparklineValues(historyPoints, "riskScore", current.riskScore),
+    momentumDeltaLabel: formatWatchOverviewDelta(momentumDelta),
+    momentumDeltaTone: momentumTone,
+    momentumSparkline: getWatchOverviewSparklineValues(historyPoints, "productMomentumScore", current.productMomentumScore),
+    marginDeltaLabel: formatWatchOverviewDelta(marginDelta, { formatter: formatMoney }),
+    marginDeltaTone: marginTone,
+    marginSparkline: getWatchOverviewSparklineValues(historyPoints, "marginAtRisk", current.marginAtRisk),
+    recommendationLabel: getWatchOverviewRecommendationLabel({ tone, report }),
+    recommendationDetail: getWatchOverviewRecommendationDetail({ report, biggestChange, tone }),
+    report,
+  };
+}
+
+function getFallbackWatchOverviewChange(report = {}) {
+  const source = (report.sourceChanges || [])[0];
+  if (source) {
+    return {
+      label: source.label || "Source signal changed",
+      value: [source.value, source.delta].filter(Boolean).join(" · ") || source.detail || "New source change",
+    };
+  }
+  const change = (report.changes || [])[0];
+  if (change) {
+    return {
+      label: change.label || "Calculated metric changed",
+      value: `${change.from ?? "-"} → ${change.to ?? "-"}${change.delta ? ` · ${change.delta}` : ""}`,
+    };
+  }
+  return null;
+}
+
+function sortWatchlistOverviewRows(rows = [], sort = "urgency") {
+  return rows.slice().sort((left, right) => {
+    if (sort === "product") return String(left.title || "").localeCompare(String(right.title || ""));
+    if (sort === "risk") return Number(right.report?.current?.riskScore || 0) - Number(left.report?.current?.riskScore || 0);
+    if (sort === "latest") return new Date(right.timestamp || 0).getTime() - new Date(left.timestamp || 0).getTime();
+    return Number(right.urgencyScore || 0) - Number(left.urgencyScore || 0);
+  });
+}
+
+function getWatchlistOverviewRunRows(rows = [], selectedRunId = "") {
+  const runs = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((product) => {
+    const report = product.latestChangeReport || {};
+    const points = getWatchRunHistoryPoints(report);
+    points.forEach((point) => {
+      const timestamp = point.currentRunAt || point.capturedAt || "";
+      if (!timestamp) return;
+      const key = getWatchOverviewRunKey(timestamp);
+      const current = runs.get(key) || {
+        id: key,
+        timestamp,
+        label: formatWatchRunHistoryTimestamp(timestamp),
+        timestampLabel: formatWatchRunHistoryTimestamp(timestamp),
+        href: "/app/watchlist/activity",
+        changeCount: 0,
+        signalCount: 0,
+        actionCount: 0,
+        productCount: 0,
+      };
+      current.changeCount += Number(point.changeCount || 0);
+      current.signalCount += Number(point.signalCount || 0);
+      current.actionCount += Number(point.actionCount || 0);
+      current.productCount += 1;
+      runs.set(key, current);
+    });
+  });
+  const sorted = Array.from(runs.values()).sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
+  const latestKey = sorted[0]?.id || "";
+  const requestedKey = String(selectedRunId || "");
+  const selectedKey = requestedKey && runs.has(requestedKey) ? requestedKey : latestKey;
+  return sorted.map((row) => ({
+    ...row,
+    isCurrent: row.id === latestKey,
+    isSelected: row.id === selectedKey,
+  }));
+}
+
+function getWatchOverviewRunKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "run");
+  date.setSeconds(0, 0);
+  return date.toISOString();
+}
+
+function getWatchlistOverviewWindowLabel(rows = []) {
+  const latest = rows
+    .map((row) => row.report)
+    .filter(Boolean)
+    .sort((left, right) => new Date(right.currentRunAt || right.createdAt || 0).getTime() - new Date(left.currentRunAt || left.createdAt || 0).getTime())[0];
+  const previous = formatWatchReportTimestamp(latest?.previousRunAt);
+  const current = formatWatchReportTimestamp(latest?.currentRunAt || latest?.createdAt);
+  return previous && current ? `(${previous} → ${current})` : "";
+}
+
+function getWatchlistOverviewCategoryRows(productRows = []) {
+  const definitions = [
+    { id: "commercial", label: "Commercial activity", icon: "shopify-orders", tone: "blue", matcher: (change) => /order|sold|sales|revenue|momentum|margin/.test(change.key) },
+    { id: "friction", label: "Customer friction", icon: "customer-language-analysis", tone: "orange", matcher: (change) => /return|refund|review|negative|rating/.test(change.key) },
+    { id: "quality", label: "Product quality risk", icon: "alert-triangle", tone: "red", matcher: (change) => /risk|issue|diagnosis|evidence|signal|confidence/.test(change.key) },
+    { id: "catalog", label: "Product / catalog changes", icon: "shopify-product", tone: "purple", matcher: (change) => /content|description|pdp|catalog|product-content|quality score|missing/.test(change.key) },
+    { id: "actions", label: "Actions & resolution", icon: "next-best-action", tone: "green", matcher: (change) => /action|resolution|recommend/.test(change.key) },
+  ];
+  const changes = productRows.flatMap((row) => getWatchOverviewClassifiableChanges(row));
+  return definitions.map((definition) => {
+    const matched = changes.filter(definition.matcher);
+    const fallbackActionCount = definition.id === "actions" ? productRows.filter((row) => row.recommendationLabel).length : 0;
+    const count = matched.length || fallbackActionCount;
+    return {
+      ...definition,
+      count,
+      worsened: matched.filter((item) => item.tone === "bad").length,
+      improved: matched.filter((item) => item.tone === "good").length,
+      changed: matched.filter((item) => item.tone === "neutral").length || (definition.id === "actions" ? fallbackActionCount : 0),
+      detail: getWatchOverviewCategoryDetail(definition, matched, fallbackActionCount),
+    };
+  }).filter((row) => row.count > 0);
+}
+
+function getWatchOverviewClassifiableChanges(row = {}) {
+  const report = row.report || {};
+  const sourceChanges = (report.sourceChanges || []).map((change) => ({
+    key: `${change.id || ""} ${change.source || ""} ${change.label || ""}`.toLowerCase(),
+    tone: getWatchSourceChangeDeltaTone(change),
+  }));
+  const calculatedChanges = (report.changes || []).map((change) => ({
+    key: `${change.id || ""} ${change.label || ""} ${change.sectionTitle || ""}`.toLowerCase(),
+    tone: getWatchChangeDeltaTone(change),
+  }));
+  if (row.actionCount > 0) {
+    calculatedChanges.push({ key: "recommended action resolution", tone: "neutral" });
+  }
+  return [...sourceChanges, ...calculatedChanges];
+}
+
+function getWatchOverviewCategoryDetail(definition = {}, matched = [], fallbackActionCount = 0) {
+  if (definition.id === "actions" && fallbackActionCount && !matched.length) {
+    return `${fallbackActionCount} product${fallbackActionCount === 1 ? "" : "s"} have recommended next steps from this run.`;
+  }
+  const worsened = matched.filter((item) => item.tone === "bad").length;
+  const improved = matched.filter((item) => item.tone === "good").length;
+  const neutral = matched.filter((item) => item.tone === "neutral").length;
+  return [
+    worsened ? `${worsened} worsened` : "",
+    improved ? `${improved} improved` : "",
+    neutral ? `${neutral} changed` : "",
+  ].filter(Boolean).join(" · ") || "Signals changed in the latest Watchlist run.";
+}
+
+function getWatchlistOverviewEventRows(productRows = [], activities = []) {
+  const productEvents = productRows.slice(0, 5).map((row, index) => ({
+    id: `product-event-${row.id || index}`,
+    title: `${row.changeTitle} for ${row.title}`,
+    detail: row.changeDetail,
+    href: row.watchlistHref,
+    icon: getWatchOverviewEventIcon(row),
+    tone: row.tone === "high" ? "red" : row.tone === "medium" ? "orange" : "green",
+    severityTone: row.tone || "low",
+    severityLabel: row.tone === "high" ? "High" : row.tone === "medium" ? "Medium" : "Low",
+    timeLabel: formatWatchOverviewRelativeTime(row.timestamp),
+  }));
+  if (productEvents.length) return productEvents.slice(0, 4);
+  return (Array.isArray(activities) ? activities : []).slice(0, 4).map((activity) => ({
+    id: activity.id || `${activity.title}-${activity.createdAt}`,
+    title: activity.title || "Watchlist event",
+    detail: activity.detail || "Stored Watchlist activity",
+    href: "/app/watchlist/activity",
+    icon: activity.icon || "refresh",
+    tone: activity.tone || "blue",
+    severityTone: activity.tone === "red" || activity.tone === "orange" ? "medium" : "low",
+    severityLabel: activity.tone === "red" || activity.tone === "orange" ? "Medium" : "Low",
+    timeLabel: activity.time || formatWatchOverviewRelativeTime(activity.createdAt),
+  }));
+}
+
+function getWatchOverviewEventIcon(row = {}) {
+  const text = `${row.changeTitle || ""} ${row.changeDetail || ""}`.toLowerCase();
+  if (text.includes("return")) return "shopify-returns";
+  if (text.includes("refund")) return "shopify-refunds";
+  if (text.includes("review")) return "star";
+  if (text.includes("order") || text.includes("revenue")) return "shopify-orders";
+  if (text.includes("content") || text.includes("description")) return "shopify-product";
+  return "alert-triangle";
+}
+
+function getWatchOverviewSourceDeltas(previous = {}, current = {}) {
+  return [
+    watchOverviewDeltaItem({ id: "orders", label: "Orders", previous, current, field: "orderCount", higherIsGood: true }),
+    watchOverviewDeltaItem({ id: "returns", label: "Returns", previous, current, field: "returnUnits", lowerIsGood: true }),
+    watchOverviewDeltaItem({ id: "refunds", label: "Refunds", previous, current, field: "refundAmount", formatter: formatMoney, lowerIsGood: true }),
+    watchOverviewDeltaItem({ id: "reviews", label: "Reviews", previous, current, field: "negativeReviewCount", lowerIsGood: true }),
+  ];
+}
+
+function watchOverviewDeltaItem({ id, label, previous = {}, current = {}, field, formatter = null, lowerIsGood = false, higherIsGood = false }) {
+  const delta = watchNumberDeltaValue(current?.[field], previous?.[field]);
+  const tone = getWatchDeltaTone(delta, { lowerIsGood, higherIsGood });
+  const value = Number.isFinite(delta)
+    ? formatWatchOverviewDelta(delta, { formatter })
+    : "-";
+  return { id, label, value, delta, tone };
+}
+
+function getWatchOverviewUrgencyScore({ report = {}, current = {}, riskDelta = 0, marginDelta = 0, sourceDeltas = [] } = {}) {
+  const badSourceScore = sourceDeltas.filter((item) => item.tone === "bad").reduce((sum, item) => sum + Math.abs(Number(item.delta || 0)), 0);
+  return Number(current.riskScore || 0)
+    + Math.max(0, Number(riskDelta || 0)) * 3
+    + Math.max(0, Number(marginDelta || 0)) / 15
+    + badSourceScore * 2
+    + Number(report.changeCount || 0);
+}
+
+function getWatchOverviewProductTone({ urgencyScore = 0, current = {}, riskDelta = 0, sourceDeltas = [] } = {}) {
+  if (Number(current.riskScore || 0) >= 70 || riskDelta >= 8 || urgencyScore >= 90) return "high";
+  if (Number(current.riskScore || 0) >= 50 || riskDelta > 0 || sourceDeltas.some((item) => item.tone === "bad")) return "medium";
+  return "low";
+}
+
+function getWatchOverviewRecommendationLabel({ tone = "low" } = {}) {
+  if (tone === "high") return "Recommended action";
+  if (tone === "medium") return "Recommended action";
+  return "Recommended action";
+}
+
+function getWatchOverviewRecommendationDetail({ report = {}, biggestChange = {}, tone = "low" } = {}) {
+  if (tone === "low") return "Continue monitoring; no urgent action needed.";
+  const issue = report.current?.primaryIssue && report.current.primaryIssue !== "No primary issue"
+    ? report.current.primaryIssue
+    : biggestChange?.label || "the changed signal";
+  if (tone === "high") return `Review evidence and prioritize ${issue}.`;
+  return `Check whether ${issue} needs a product or workflow update.`;
+}
+
+function watchOverviewReportHasChanges(report = {}) {
+  return Number(report.changeCount || 0) > 0
+    || Number(report.sourceChangeCount || 0) > 0
+    || (Array.isArray(report.sourceChanges) && report.sourceChanges.length > 0)
+    || (Array.isArray(report.changes) && report.changes.length > 0);
+}
+
+function getWatchOverviewSparklineValues(history = [], key = "", currentValue = null) {
+  const values = (Array.isArray(history) ? history : []).map((point) => Number(point?.[key])).filter(Number.isFinite);
+  const current = Number(currentValue);
+  if (Number.isFinite(current) && values[values.length - 1] !== current) values.push(current);
+  return values;
+}
+
+function watchNumberDeltaValue(current, previous) {
+  const currentNumber = Number(current);
+  const previousNumber = Number(previous);
+  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) return NaN;
+  return currentNumber - previousNumber;
+}
+
+function getWatchDeltaTone(delta, { lowerIsGood = false, higherIsGood = false } = {}) {
+  if (!Number.isFinite(Number(delta)) || Math.abs(Number(delta)) < 0.0001) return "neutral";
+  if (lowerIsGood) return Number(delta) > 0 ? "bad" : "good";
+  if (higherIsGood) return Number(delta) > 0 ? "good" : "bad";
+  return Number(delta) > 0 ? "good" : "bad";
+}
+
+function formatWatchOverviewDelta(delta, { formatter = null } = {}) {
+  const number = Number(delta);
+  if (!Number.isFinite(number)) return "-";
+  const sign = number > 0 ? "+" : number < 0 ? "-" : "";
+  const absolute = Math.abs(number);
+  const value = formatter ? formatter(absolute) : formatInteger(absolute);
+  return `${sign}${value}`;
+}
+
+function formatWatchOverviewRelativeTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  if (minutes < 60) return `${minutes || 1}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 function WatchlistProductRow({ product, onRequestAction, pending = false }) {
@@ -1974,30 +2609,65 @@ export function WatchlistProductScreen({ product }) {
       : "unchanged";
   const statusTone = getWatchReportStatusTone(effectiveStatus);
   const statusLabel = getWatchReportStatusLabel(effectiveStatus);
+  const changeCount = Number(report.changeCount || 0);
+  const changeCountLabel = effectiveStatus === "baseline"
+    ? "Baseline captured"
+    : changeCount > 0
+      ? `${formatInteger(changeCount)} ${changeCount === 1 ? "change" : "changes"} tracked`
+      : "No product changes";
+  const currentRunLabel = formatWatchReportTimestamp(report.currentRunAt || report.current?.capturedAt || report.createdAt);
+  const watchlistMetaItems = [
+    ["Status", product.status || "Watching"],
+    ["Latest run", currentRunLabel || "Latest scan"],
+    ["Changes", changeCountLabel],
+  ];
+  const productDetailHref = getProductDetailHref(product);
 
   return (
     <FullWidthPage heading="Product Watchlist">
       <ScreenShell className="ppDashboard ppWatchlistProductPage">
         <Link className="ppProductBackButton ppProductBackButtonStandalone" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
 
-        <section className="ppWatchlistProductHero" aria-labelledby="watchlist-product-title">
-          <span className="ppWatchlistProductHeroImage">
+        <section className="ppProductDetailHeroPanel ppWatchlistProductHeroPanel" aria-labelledby="watchlist-product-title">
+          <span className="ppProductHeroImageWrap ppWatchlistProductHeroImageWrap">
             <ProductArt
               variant={product.variant || "shirt"}
               label={product.title}
+              size="hero"
               imageUrl={product.imageUrl}
               imageAlt={product.imageAlt}
             />
           </span>
-          <div>
+          <div className="ppProductDetailHeroCopy">
             <span className="ppWatchChangeReportEyebrow">Watchlist</span>
-            <h2 id="watchlist-product-title">{product.title || "Watched product"}</h2>
-            <p>Your baseline is captured. Watchlist will monitor key signals and compare future scans to surface changes, trends, and risks over time.</p>
+            <div className="ppProductTitleHeading">
+              <h1 id="watchlist-product-title">{product.title || "Watched product"}</h1>
+            </div>
+            <div className="ppProductDetailStatusRow">
+              <span className="ppProductStatusPill ppProductStatusPill-analysis">Watchlist run</span>
+              <span className={`ppProductStatusPill ${effectiveStatus === "unchanged" ? "ppProductStatusPill-success" : effectiveStatus === "baseline" ? "ppProductStatusPill-info" : "ppProductStatusPill-warning"}`}>
+                {changeCountLabel}
+              </span>
+            </div>
+            <dl className="ppProductMetaLine">
+              {watchlistMetaItems.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}:</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
-          <strong className={`ppWatchChangeReportHeaderStatus ppWatchChangeReportHeaderStatus-${statusTone}`}>
-            <span aria-hidden="true" />
-            {statusLabel}
-          </strong>
+          <div className="ppProductHeaderActions ppWatchlistProductHeroActions">
+            <strong className={`ppWatchChangeReportHeaderStatus ppWatchChangeReportHeaderStatus-${statusTone}`}>
+              <span aria-hidden="true" />
+              {statusLabel}
+            </strong>
+            <Link className="ppSecondaryButton ppWatchlistProductDetailButton" to={productDetailHref}>
+              <s-icon type="external" size="small"></s-icon>
+              Open product detail
+            </Link>
+          </div>
         </section>
 
         <WatchChangeReportContent product={product} report={report} />
@@ -2018,11 +2688,11 @@ function WatchChangeReportContent({ product, report }) {
   const snapshotRows = isBaselineReport ? [] : getWatchSnapshotComparisonRows(report);
   const categoryCards = isBaselineReport ? [] : getWatchCategoryChangeCards(report, sourceChanges);
   const trendCharts = isBaselineReport ? [] : getWatchRunTrendCharts(report);
-  const runHistoryRows = getWatchRunHistoryTableRows(report, product);
-  const hasVisibleChanges = sourceChanges.length > 0 || visibleSections.length > 0 || categoryCards.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
+  const recentRunRows = getWatchRecentRunRows(report, product);
+  const hasVisibleChanges = sourceChanges.length > 0 || visibleSections.length > 0 || categoryCards.length > 0 || trendCharts.length > 0 || recentRunRows.length > 0;
   const effectiveStatus = isBaselineReport ? "baseline" : (!hasVisibleChanges ? "unchanged" : report?.status);
   const statusTone = getWatchReportStatusTone(effectiveStatus);
-  const hasReportContent = biggestChanges.length > 0 || showCustomerLanguagePanel || categoryCards.length > 0 || snapshotRows.length > 0 || trendCharts.length > 0 || runHistoryRows.length > 0;
+  const hasReportContent = biggestChanges.length > 0 || showCustomerLanguagePanel || categoryCards.length > 0 || snapshotRows.length > 0 || trendCharts.length > 0 || recentRunRows.length > 0;
 
   if (!hasReportContent) {
     return <WatchlistProductEmptyState product={product} report={report} />;
@@ -2031,11 +2701,11 @@ function WatchChangeReportContent({ product, report }) {
   return (
     <>
       <WatchlistInsightReport report={report} statusTone={statusTone} biggestChanges={biggestChanges} />
+      {recentRunRows.length ? <WatchRecentRunsTimeline rows={recentRunRows} /> : null}
       {showCustomerLanguagePanel ? <WatchCustomerLanguageChangePanel cards={customerLanguageCards} report={report} /> : null}
-      {categoryCards.length ? <WatchCategoryChangeCards cards={categoryCards} /> : null}
+      {categoryCards.length ? <WatchCategoryChangeCards cards={categoryCards} report={report} /> : null}
       {snapshotRows.length ? <WatchSnapshotComparisonTable report={report} rows={snapshotRows} /> : null}
       {trendCharts.length ? <WatchRunTrendCharts charts={trendCharts} /> : null}
-      {runHistoryRows.length ? <WatchRunHistoryTable rows={runHistoryRows} /> : null}
     </>
   );
 }
@@ -2058,48 +2728,206 @@ function WatchlistProductEmptyState({ product }) {
   );
 }
 
-function WatchCategoryChangeCards({ cards = [] }) {
+function WatchCategoryChangeCards({ cards = [], report = {} }) {
+  const updatedLabel = formatWatchReportTimestamp(report?.currentRunAt || report?.current?.capturedAt || report?.createdAt);
   return (
     <section className="ppWatchCategoryChanges" aria-label="Watchlist changes by category">
       <div className="ppWatchCategoryChangesHeader">
+        <DashboardIcon type="chart-line" tone="purple" size="small" />
         <h3>Changes by category</h3>
-        <span>(Compared to previous run)</span>
+        <span>Compared to previous run</span>
       </div>
-      <div className="ppWatchCategoryChangesGrid">
-        {cards.map((card) => <WatchCategoryChangeCard card={card} key={card.id} />)}
+      <div className="ppWatchCategoryChangesList">
+        {cards.map((card) => <WatchCategoryChangeCard card={card} key={card.id} updatedLabel={updatedLabel} />)}
       </div>
     </section>
   );
 }
 
-function WatchCategoryChangeCard({ card }) {
+function WatchCategoryChangeCard({ card, updatedLabel = "" }) {
   const badgeIcon = card.badgeIcon || (card.badgeDirection === "down" ? "arrow-down" : card.badgeDirection === "up" ? "arrow-up" : "info");
+  const focus = getWatchCategoryCardFocus(card);
+  const secondaryBadge = getWatchCategorySecondaryBadge(card, focus);
   return (
     <article className={`ppWatchCategoryCard ppWatchCategoryCard-${card.tone || "blue"}`}>
-      <div className="ppWatchCategoryCardHeader">
+      <div className="ppWatchCategoryCardSummary">
         <DashboardIcon type={card.icon || "info"} tone={card.iconTone || card.tone || "blue"} size="small" />
-        <h4>{card.title}</h4>
+        <span>
+          <h4>{card.title}</h4>
+          <p>{getWatchCategoryCardSubtitle(card, focus)}</p>
+        </span>
+      </div>
+      <div className="ppWatchCategoryCardFocus">
+        <span>{focus.label}</span>
+        <strong>{focus.value}</strong>
+        <p>{focus.detail}</p>
+      </div>
+      <div className="ppWatchCategoryCardBadges">
         <span className={`ppWatchCategoryBadge ppWatchCategoryBadge-${card.badgeTone || "neutral"}`}>
           <s-icon type={badgeIcon} size="small"></s-icon>
           {card.badgeLabel || "Updated"}
         </span>
+        {secondaryBadge ? (
+          <span className={`ppWatchCategoryBadge ppWatchCategoryBadge-${secondaryBadge.tone || "neutral"}`}>
+            <s-icon type={secondaryBadge.icon} size="small"></s-icon>
+            {secondaryBadge.label}
+          </span>
+        ) : null}
       </div>
-      <div className="ppWatchCategoryRows">
-        {card.rows.map((row) => (
-          <div className="ppWatchCategoryRow" key={row.id || row.label}>
-            <span>{row.label}</span>
-            <strong>{row.value}</strong>
-            {row.deltaLabel ? (
-              <em className={`ppWatchCategoryDelta ppWatchCategoryDelta-${row.tone || "neutral"}`}>
-                <s-icon type={row.direction === "down" ? "arrow-down" : row.direction === "up" ? "arrow-up" : "info"} size="small"></s-icon>
-                {row.deltaLabel}
-              </em>
-            ) : null}
-          </div>
-        ))}
+      <div className="ppWatchCategoryCardUpdated">
+        <span>Last updated</span>
+        <strong>{updatedLabel || "Latest run"}</strong>
       </div>
     </article>
   );
+}
+
+function getWatchCategoryCardFocus(card = {}) {
+  const rows = Array.isArray(card.rows) ? card.rows.filter(Boolean) : [];
+  const changedRows = rows.filter((row) => row.hasChanged);
+  const preferredRow = rows.find((row) => /diagnosis|issue|reason|theme|sentiment|negative|content|missing/i.test(`${row.id || ""} ${row.label || ""}`))
+    || changedRows[0]
+    || rows[0]
+    || {};
+  return {
+    id: preferredRow.id || "",
+    label: preferredRow.label || "Latest change",
+    value: preferredRow.value || card.title || "Updated",
+    detail: getWatchCategoryFocusDetail(preferredRow, rows),
+    direction: preferredRow.direction || "neutral",
+    tone: preferredRow.tone || "neutral",
+    deltaLabel: preferredRow.deltaLabel || "",
+  };
+}
+
+function getWatchCategoryCardSubtitle(card = {}, focus = {}) {
+  const rows = Array.isArray(card.rows) ? card.rows.filter(Boolean) : [];
+  const changedCount = rows.filter((row) => row.hasChanged).length;
+  if (focus.id === "top-diagnosis" || /diagnosis/i.test(card.title || "")) return "Primary category updated";
+  if (focus.id === "product-content") return "Product content updated";
+  if (changedCount > 1) return `${changedCount} signals updated`;
+  if (focus.label) return `${focus.label} updated`;
+  return "Category updated";
+}
+
+function getWatchCategoryFocusDetail(row = {}, rows = []) {
+  if (row.id === "top-diagnosis") return "Evidence interpretation changed";
+  if (row.id === "product-content") return "Product content changed";
+  if (!row.deltaLabel) return "Context carried from the latest run";
+  const label = String(row.label || "Metric").toLowerCase();
+  if (row.deltaLabel === "Changed") return `${row.label || "Value"} changed`;
+  if (row.direction === "up") return `${label} increased by ${row.deltaLabel}`;
+  if (row.direction === "down") return `${label} decreased by ${row.deltaLabel}`;
+  const related = rows.find((candidate) => candidate !== row && candidate?.hasChanged);
+  if (related?.label) return `${related.label} also changed`;
+  return `${row.label || "Value"} updated`;
+}
+
+function getWatchCategorySecondaryBadge(card = {}, focus = {}) {
+  const rows = Array.isArray(card.rows) ? card.rows.filter(Boolean) : [];
+  const changedRows = rows.filter((row) => row.hasChanged);
+  const row = changedRows.find((candidate) => candidate.id !== focus.id) || changedRows[0] || null;
+  if (!row?.deltaLabel) return null;
+  return {
+    label: row.deltaLabel === "Changed" ? "Changed" : row.deltaLabel,
+    tone: row.tone === "good" ? "good" : row.tone === "bad" ? "bad" : "blue",
+    icon: row.direction === "down" ? "arrow-down" : row.direction === "up" ? "arrow-up" : "info",
+  };
+}
+
+function WatchRecentRunsTimeline({ rows = [], onSelectRun = null }) {
+  const orderedRows = useMemo(() => rows.slice().reverse(), [rows]);
+  const windowSize = 5;
+  const maxStart = Math.max(0, orderedRows.length - windowSize);
+  const selectedIndex = orderedRows.findIndex((row) => row?.isSelected);
+  const defaultStart = selectedIndex >= 0
+    ? Math.min(maxStart, Math.max(0, selectedIndex - windowSize + 1))
+    : maxStart;
+  const [windowStart, setWindowStart] = useState(defaultStart);
+
+  useEffect(() => {
+    setWindowStart(defaultStart);
+  }, [defaultStart]);
+
+  const visibleRows = orderedRows.slice(windowStart, windowStart + windowSize);
+  const canGoOlder = windowStart > 0;
+  const canGoNewer = windowStart < maxStart;
+
+  return (
+    <section className="ppWatchRecentRuns" aria-label="Recent Watchlist runs">
+      <h3>Recent runs</h3>
+      <div className="ppWatchRecentRunsTrack">
+        <button
+          className="ppWatchRecentRunsArrow"
+          type="button"
+          disabled={!canGoOlder}
+          aria-label="Show older Watchlist runs"
+          onClick={() => setWindowStart((current) => Math.max(0, current - 1))}
+        >
+          <s-icon type="chevron-left" size="small"></s-icon>
+        </button>
+        <ol className="ppWatchRecentRunsList" style={{ "--pp-watch-run-count": String(Math.max(1, visibleRows.length)) }}>
+          {visibleRows.map((row) => (
+            <li className="ppWatchRecentRunsItem" key={row.id || row.label}>
+              <WatchRecentRunCard row={row} onSelectRun={onSelectRun} />
+            </li>
+          ))}
+        </ol>
+        <button
+          className="ppWatchRecentRunsArrow"
+          type="button"
+          disabled={!canGoNewer}
+          aria-label="Show newer Watchlist runs"
+          onClick={() => setWindowStart((current) => Math.min(maxStart, current + 1))}
+        >
+          <s-icon type="chevron-right" size="small"></s-icon>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function WatchRecentRunCard({ row = {}, onSelectRun = null }) {
+  const className = [
+    "ppWatchRecentRunCard",
+    row.isSelected ? "isSelected" : "",
+    row.isCurrent ? "isLatest" : "",
+  ].filter(Boolean).join(" ");
+  const content = (
+    <>
+      <span className="ppWatchRecentRunDate">
+        {row.timestampLabel || row.label}
+        {row.isCurrent ? <em>Latest</em> : null}
+      </span>
+      <span className="ppWatchRecentRunMetrics">
+        <strong>{formatCompactRunCount(row.changeCount, "changed")}</strong>
+        <strong>{formatCompactRunCount(row.signalCount, "signal")}</strong>
+        <strong>{formatCompactRunCount(row.actionCount, "action")}</strong>
+      </span>
+    </>
+  );
+  if (onSelectRun) {
+    return (
+      <button className={className} type="button" onClick={() => onSelectRun(row)} aria-label={`Select Watchlist run ${row.timestampLabel || row.label}`}>
+        {content}
+      </button>
+    );
+  }
+  return row.href ? (
+    <Link className={className} to={row.href} aria-label={`View Watchlist run ${row.timestampLabel || row.label}`}>
+      {content}
+    </Link>
+  ) : (
+    <span className={`${className} isDisabled`}>
+      {content}
+    </span>
+  );
+}
+
+function formatCompactRunCount(value, label) {
+  const number = Number(value || 0);
+  const safeNumber = Number.isFinite(number) ? number : 0;
+  return `${formatInteger(safeNumber)} ${label}${safeNumber === 1 || label === "changed" ? "" : "s"}`;
 }
 
 function WatchRunTrendCharts({ charts = [] }) {
@@ -2180,65 +3008,6 @@ function WatchRunTrendChart({ chart }) {
         ))}
       </svg>
     </article>
-  );
-}
-
-function WatchRunHistoryTable({ rows = [] }) {
-  return (
-    <section className="ppWatchRunHistory" aria-label="Watchlist run history">
-      <div className="ppWatchRunHistoryHeader">
-        <h3>Run history</h3>
-      </div>
-      <div className="ppWatchRunHistoryScroll">
-        <table className="ppWatchRunHistoryTable">
-          <thead>
-            <tr>
-              <th aria-label="Run"></th>
-              <th>Risk score</th>
-              <th>Return rate</th>
-              <th>Refund rate</th>
-              <th>Evidence signals</th>
-              <th>Momentum</th>
-              <th>New units</th>
-              <th>Returned units</th>
-              <th>Refunded units</th>
-              <th>Revenue</th>
-              <th>Content updates</th>
-              <th aria-label="Action"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr className={[row.isCurrent ? "isCurrent" : "", row.isSelected ? "isSelected" : ""].filter(Boolean).join(" ")} key={row.id || row.label}>
-                <th scope="row">
-                  {row.label}
-                  {row.isSelected ? <span className="ppWatchRunHistoryViewing">Viewing</span> : null}
-                </th>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.riskTone}`}>{row.riskScore}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.returnTone}`}>{row.returnRate}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.refundTone}`}>{row.refundRate}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.signalTone}`}>{row.evidenceSignals}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.momentumTone}`}>{row.momentum}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.newUnitsTone}`}>{row.newUnits}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.returnedUnitsTone}`}>{row.returnedUnits}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.refundedUnitsTone}`}>{row.refundedUnits}</span></td>
-                <td><span className={`ppWatchRunHistoryValue ppWatchRunHistoryValue-${row.revenueTone}`}>{row.revenue}</span></td>
-                <td>
-                  {row.contentUpdated ? (
-                    <span className="ppWatchRunHistoryCheck" aria-label="Content updated"><s-icon type="check" size="small"></s-icon></span>
-                  ) : (
-                    <span className="ppWatchRunHistoryDash">-</span>
-                  )}
-                </td>
-                <td>
-                  {row.href ? <Link className="ppWatchRunHistoryButton" to={row.href}>View run</Link> : <span className="ppWatchRunHistoryButton isDisabled">View run</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
 
@@ -2515,7 +3284,9 @@ function getWatchRunTrendPoints(report = {}) {
 }
 
 function getWatchRunHistoryPoints(report = {}) {
-  const history = Array.isArray(report?.history) ? report.history : [];
+  const explicitHistory = Array.isArray(report?.history) ? report.history : [];
+  const runReports = Array.isArray(report?.runReports) ? report.runReports : [];
+  const history = explicitHistory.length ? explicitHistory : runReports;
   const normalizedHistory = history
     .map((entry, index) => normalizeWatchTrendPoint(entry, entry?.currentRunAt || entry?.capturedAt || entry?.createdAt || `${index}`))
     .filter(Boolean);
@@ -2540,7 +3311,7 @@ function getWatchRunHistoryPoints(report = {}) {
     }));
 }
 
-function getWatchRunHistoryTableRows(report = {}, product = {}) {
+function getWatchRecentRunRows(report = {}, product = {}) {
   const points = getWatchRunHistoryPoints(report);
   if (!points.length) return [];
   const selectedRunId = String(report?.id || "");
@@ -2548,38 +3319,21 @@ function getWatchRunHistoryTableRows(report = {}, product = {}) {
   const watchlistHref = product.watchlistHref || getWatchlistProductPageHref(product);
   return points
     .map((point, index) => {
-      const previous = index > 0 ? points[index - 1] : null;
       const isCurrent = point.id ? String(point.id) === latestRunId : index === points.length - 1;
+      const timestampLabel = formatWatchRunHistoryTimestamp(point.currentRunAt || point.capturedAt);
       const rowLabel = isCurrent
-        ? `Current (${formatWatchRunHistoryTimestamp(point.currentRunAt || point.capturedAt)})`
-        : formatWatchRunHistoryTimestamp(point.currentRunAt || point.capturedAt);
-      const newUnits = getWatchRunDeltaValue(point.soldUnits, previous?.soldUnits);
-      const revenue = getWatchRunDeltaValue(point.salesAmount, previous?.salesAmount);
+        ? `Current (${timestampLabel})`
+        : timestampLabel;
       return {
         id: point.id || `${point.currentRunAt || point.capturedAt}-${index}`,
         isCurrent,
         isSelected: selectedRunId && point.id ? String(point.id) === selectedRunId : isCurrent,
         label: rowLabel,
+        timestampLabel,
         href: point.id && watchlistHref ? `${watchlistHref}?runId=${encodeURIComponent(point.id)}` : "",
-        riskScore: formatWatchRunTableNumber(point.riskScore),
-        riskTone: getWatchRunTableTone(point.riskScore, previous?.riskScore, { lowerIsGood: true }),
-        returnRate: formatWatchRunTablePercent(point.returnRatePercent),
-        returnTone: getWatchRunTableTone(point.returnRatePercent, previous?.returnRatePercent, { lowerIsGood: true }),
-        refundRate: formatWatchRunTablePercent(point.refundRatePercent),
-        refundTone: getWatchRunTableTone(point.refundRatePercent, previous?.refundRatePercent, { lowerIsGood: true }),
-        evidenceSignals: formatWatchRunTableNumber(point.signalCount),
-        signalTone: getWatchRunTableTone(point.signalCount, previous?.signalCount, { higherIsGood: true }),
-        momentum: formatWatchRunTableNumber(point.productMomentumScore),
-        momentumTone: getWatchRunTableTone(point.productMomentumScore, previous?.productMomentumScore, { higherIsGood: true }),
-        newUnits: Number.isFinite(newUnits) ? formatInteger(Math.max(0, newUnits)) : "-",
-        newUnitsTone: Number.isFinite(newUnits) && newUnits > 0 ? "good" : "subdued",
-        returnedUnits: formatWatchRunTableNumber(point.returnUnits),
-        returnedUnitsTone: getWatchRunTableTone(point.returnUnits, previous?.returnUnits, { lowerIsGood: true }),
-        refundedUnits: formatWatchRunTableNumber(point.refundUnits),
-        refundedUnitsTone: getWatchRunTableTone(point.refundUnits, previous?.refundUnits, { lowerIsGood: true }),
-        revenue: Number.isFinite(revenue) ? formatMoney(Math.max(0, revenue)) : "-",
-        revenueTone: Number.isFinite(revenue) && revenue > 0 ? "good" : "subdued",
-        contentUpdated: Boolean(point.contentUpdated),
+        changeCount: Number.isFinite(Number(point.changeCount)) ? Number(point.changeCount) : 0,
+        signalCount: Number.isFinite(Number(point.signalCount)) ? Number(point.signalCount) : 0,
+        actionCount: Number.isFinite(Number(point.actionCount)) ? Number(point.actionCount) : 0,
       };
     })
     .reverse();
@@ -2720,6 +3474,8 @@ function normalizeWatchTrendPoint(entry = {}, fallbackTimestamp = "") {
     id: entry?.id || source.id || "",
     currentRunAt: timestamp,
     capturedAt: source.capturedAt || timestamp,
+    changeCount: getWatchTrendMetricValue(entry, ["changeCount"]),
+    actionCount: getWatchTrendMetricValue(source, ["actionCount", "actionsCount", "openActionCount", "recommendedActionCount", "recommendationCount"]),
     riskScore: getWatchTrendMetricValue(source, ["riskScore"]),
     returnRatePercent: getWatchTrendMetricValue(source, ["returnRatePercent"]),
     refundRatePercent: getWatchTrendMetricValue(source, ["refundRatePercent"]),
@@ -2729,39 +3485,13 @@ function normalizeWatchTrendPoint(entry = {}, fallbackTimestamp = "") {
     returnUnits: getWatchTrendMetricValue(source, ["returnUnits", "evidenceDetails.returns.totalUnits"]),
     refundUnits: getWatchTrendMetricValue(source, ["refundUnits", "evidenceDetails.refunds.totalUnits"]),
     salesAmount: getWatchTrendMetricValue(source, ["salesAmount", "evidenceDetails.orders.totalRevenue"]),
+    marginAtRisk: getWatchTrendMetricValue(source, ["marginAtRisk"]),
     refundAmount: getWatchTrendMetricValue(source, ["refundAmount", "evidenceDetails.refunds.amount"]),
     signalCount: getWatchTrendMetricValue(source, ["signalCount"]),
     contentUpdated: Boolean(entry?.contentUpdated || source.contentUpdated || (Array.isArray(entry?.sourceChanges) && entry.sourceChanges.some((change) => String(change?.source || change?.id || "").toLowerCase().includes("content")))),
   };
   const hasMetric = Object.entries(point).some(([key, value]) => !["id", "currentRunAt", "capturedAt"].includes(key) && Number.isFinite(value));
   return hasMetric ? point : null;
-}
-
-function getWatchRunDeltaValue(current, previous) {
-  const currentNumber = Number(current);
-  const previousNumber = Number(previous);
-  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) return NaN;
-  return currentNumber - previousNumber;
-}
-
-function getWatchRunTableTone(current, previous, { lowerIsGood = false, higherIsGood = false } = {}) {
-  const currentNumber = Number(current);
-  const previousNumber = Number(previous);
-  if (!Number.isFinite(currentNumber)) return "subdued";
-  if (!Number.isFinite(previousNumber) || Math.abs(currentNumber - previousNumber) < 0.0001) return "strong";
-  if (lowerIsGood) return currentNumber < previousNumber ? "good" : "bad";
-  if (higherIsGood) return currentNumber > previousNumber ? "good" : "bad";
-  return "strong";
-}
-
-function formatWatchRunTableNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? formatInteger(number) : "-";
-}
-
-function formatWatchRunTablePercent(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? formatPercent(number) : "-";
 }
 
 function formatWatchRunHistoryTimestamp(value) {
@@ -4426,6 +5156,7 @@ const PLANS_CREDIT_PLANS = [
       aiAssistant: "Limited",
       analyticsDashboard: true,
       metricTimeline: { base: "30 days", beta: "360 days" },
+      watchlistProducts: { base: "1 product", beta: "5 products" },
       exports: null,
       support: "Email",
       extraCredits: true,
@@ -4442,6 +5173,7 @@ const PLANS_CREDIT_PLANS = [
       aiAssistant: true,
       analyticsDashboard: true,
       metricTimeline: { base: "90 days", beta: "360 days" },
+      watchlistProducts: { base: "5 products", beta: "10 products" },
       exports: null,
       support: "Priority email",
       extraCredits: true,
@@ -4461,6 +5193,7 @@ const PLANS_CREDIT_PLANS = [
       aiAssistant: true,
       analyticsDashboard: true,
       metricTimeline: "360 days",
+      watchlistProducts: "25 products",
       exports: "CSV",
       support: "Priority + Chat",
       extraCredits: true,
@@ -4478,6 +5211,7 @@ const PLANS_CREDIT_PLANS = [
       aiAssistant: true,
       analyticsDashboard: true,
       metricTimeline: "360 days",
+      watchlistProducts: "50 products",
       exports: "CSV, PDF",
       support: "Priority + Chat",
       extraCredits: true,
@@ -4497,6 +5231,7 @@ const PLANS_CREDIT_PLANS = [
       aiAssistant: true,
       analyticsDashboard: true,
       metricTimeline: "360 days",
+      watchlistProducts: "99 products",
       exports: "CSV, PDF, Excel",
       support: "Dedicated",
       extraCredits: true,
@@ -4505,10 +5240,11 @@ const PLANS_CREDIT_PLANS = [
 ];
 
 const PLANS_CREDIT_FEATURES = [
-  { icon: "spark", label: "Deep diagnostics", info: true, getValue: (plan) => plan.limits.deepDiagnostics },
+  { label: "Deep diagnostics", info: true, getValue: (plan) => plan.limits.deepDiagnostics },
   { icon: "assistant", label: "AI assistant", getValue: (plan) => plan.limits.aiAssistant },
   { icon: "chart", label: "Analytics dashboard", getValue: (plan) => plan.limits.analyticsDashboard },
   { icon: "timeline", label: "Metric timeline", getValue: (plan) => plan.limits.metricTimeline },
+  { icon: "binoculars", label: "Products monitored in Watchlist", getValue: (plan) => plan.limits.watchlistProducts },
   { icon: "export", label: "Exports", getValue: (plan) => plan.limits.exports },
   { icon: "support", label: "Support level", getValue: (plan) => plan.limits.support },
   { icon: "shield", label: "Can buy extra credits", getValue: (plan) => plan.limits.extraCredits },
@@ -4566,11 +5302,43 @@ function getPlansCreditPlanCta(plan, currentPlanKey) {
   return `Choose ${plan.name}`;
 }
 
+function getPlansCreditPointSummary(data = {}) {
+  return data?.billing?.pointSummary || data?.pointSummary || null;
+}
+
+function getPlansCreditActivityRows(pointSummary) {
+  const entries = Array.isArray(pointSummary?.activity) ? pointSummary.activity : [];
+  return entries.slice(0, 10).map((entry) => {
+    const direction = entry?.direction === "debit" ? "debit" : "credit";
+    return {
+      id: entry?.id || `${entry?.title || "credit"}-${entry?.createdAtIso || entry?.timeLabel || ""}`,
+      title: entry?.title || (direction === "debit" ? "Credit usage" : "Credit added"),
+      detail: entry?.detail || entry?.reason || "",
+      direction,
+      typeLabel: direction === "debit" ? "Spent" : "Earned",
+      amountLabel: entry?.amountLabel || formatPlansCreditSignedAmount(entry?.amount || 0),
+      balanceLabel: entry?.balanceAfterLabel ? `${entry.balanceAfterLabel} left` : "-",
+      timeLabel: entry?.timeLabel || "",
+    };
+  });
+}
+
+function formatPlansCreditSignedAmount(value = 0) {
+  const number = Number(value || 0);
+  const sign = number < 0 ? "-" : "+";
+  return `${sign}${formatInteger(Math.abs(number))}`;
+}
+
 export function PlansCreditsScreen({ data = {} }) {
   const currentPlanKey = getPlansCreditCurrentPlanKey(data);
   const currentPlan = PLANS_CREDIT_PLANS.find((plan) => plan.key === currentPlanKey) || PLANS_CREDIT_PLANS[0];
-  const usedCredits = Number(data?.billing?.usedCredits ?? data?.billing?.creditsUsed ?? data?.credits?.used ?? 0);
-  const remainingCredits = Math.max(0, Number(currentPlan.monthlyCredits || 0) - usedCredits);
+  const pointSummary = getPlansCreditPointSummary(data);
+  const usedCredits = Number(pointSummary?.usage?.used ?? data?.billing?.usedCredits ?? data?.billing?.creditsUsed ?? data?.credits?.used ?? 0);
+  const remainingCredits = Math.max(
+    0,
+    Number(pointSummary?.balance?.available ?? Number(currentPlan.monthlyCredits || 0) - usedCredits),
+  );
+  const pointActivityRows = getPlansCreditActivityRows(pointSummary);
   return (
     <FullWidthPage label="Plans & Credits" className="ppPlansPage">
       <ScreenShell className="ppDashboard ppPlansScreen">
@@ -4743,6 +5511,44 @@ export function PlansCreditsScreen({ data = {} }) {
         </div>
       </section>
 
+      <section className="ppPlansPanel ppPlansLedgerPanel" aria-label="Credit activity">
+        <header>
+          <h2>Credit activity</h2>
+          <p>Latest credits earned and spent across free grants, monthly plan allowances, credit packs, diagnostics and AI usage.</p>
+        </header>
+        <div className="ppPlansLedgerTableWrap">
+          <table className="ppPlansLedgerTable">
+            <thead>
+              <tr>
+                <th scope="col">Event</th>
+                <th scope="col">Type</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Balance</th>
+                <th scope="col">When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pointActivityRows.length ? pointActivityRows.map((entry) => (
+                <tr key={entry.id}>
+                  <td>
+                    <strong>{entry.title}</strong>
+                    {entry.detail ? <span>{entry.detail}</span> : null}
+                  </td>
+                  <td><span className={`ppPlansLedgerType ppPlansLedgerType-${entry.direction}`}>{entry.typeLabel}</span></td>
+                  <td className={entry.direction === "debit" ? "isDebit" : "isCredit"}>{entry.amountLabel}</td>
+                  <td>{entry.balanceLabel}</td>
+                  <td>{entry.timeLabel || "-"}</td>
+                </tr>
+              )) : (
+                <tr>
+                  <td className="ppPlansLedgerEmpty" colSpan={5}>No credit activity yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <footer className="ppPlansFooter">
         <span><PlansCreditsIcon type="lock" /> Secure checkout. Your data is encrypted and never shared.</span>
         <span>Questions? <Link to="/app/help">Contact support <span aria-hidden="true">-&gt;</span></Link></span>
@@ -4756,7 +5562,7 @@ function PlanFeatureRow({ feature, plans = PLANS_CREDIT_PLANS }) {
   return (
     <>
       <div className="ppPlansFeatureCell">
-        <PlansCreditsIcon type={feature.icon} />
+        {feature.icon ? <PlansCreditsIcon type={feature.icon} /> : null}
         <strong>{feature.label}</strong>
         {feature.info && <span className="ppPlansInfoDot" aria-hidden="true">i</span>}
       </div>
@@ -4831,6 +5637,9 @@ function PlansCreditsIcon({ type }) {
   }
   if (type === "timeline" || type === "pulse") {
     return <svg {...common}><path d="M4 13h3l2-5 4 9 2.5-6H20" /></svg>;
+  }
+  if (type === "binoculars") {
+    return <svg {...common}><path d="M6.5 10.5 8.5 6h2l.8 4.5" /><path d="M17.5 10.5 15.5 6h-2l-.8 4.5" /><circle cx="8" cy="14" r="3.5" /><circle cx="16" cy="14" r="3.5" /><path d="M11.5 14h1" /><path d="M10.6 8.5h2.8" /></svg>;
   }
   if (type === "export") {
     return <svg {...common}><path d="M12 4v10" /><path d="m8 10 4 4 4-4" /><path d="M5 17.5h14" /></svg>;
@@ -5447,7 +6256,7 @@ function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
           <p>
             {removing
               ? "You can add this product back later from the product detail page or the Products table."
-              : "The Watchlist supports up to 50 products. If it is full, ProductPulse will ask you to remove one first."}
+              : "The Watchlist limit depends on the current plan. If it is full, ProductPulse will ask you to remove one first."}
           </p>
         </div>
 
@@ -17311,7 +18120,6 @@ function ProductRetentionLtvBreakdown({ chart, productTitle }) {
             <p>Where LTV comes from after the first purchase of this product.</p>
           </div>
         </div>
-        <span className="ppRetentionBreakdownMetric">Metric: LTV contribution <span aria-hidden="true">⌄</span></span>
       </div>
       {chart.hasData ? (
         <>

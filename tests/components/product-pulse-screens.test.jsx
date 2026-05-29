@@ -332,6 +332,14 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("30 days")).toBeInTheDocument();
     expect(screen.getByText("90 days")).toBeInTheDocument();
     expect(screen.getAllByText("360 days")).toHaveLength(5);
+    expect(screen.getByText("Products monitored in Watchlist")).toBeInTheDocument();
+    expect(screen.getByText("1 product")).toBeInTheDocument();
+    expect(screen.getAllByText("5 products")).toHaveLength(2);
+    expect(screen.getByText("10 products")).toBeInTheDocument();
+    expect(screen.getByText("25 products")).toBeInTheDocument();
+    expect(screen.getByText("50 products")).toBeInTheDocument();
+    expect(screen.getByText("99 products")).toBeInTheDocument();
+    expect(screen.getByText("Deep diagnostics").closest(".ppPlansFeatureCell").querySelector(".ppPlansIcon")).not.toBeInTheDocument();
     expect(screen.getByText("Exports")).toBeInTheDocument();
     expect(screen.getByText("CSV")).toBeInTheDocument();
     expect(screen.getByText("CSV, PDF")).toBeInTheDocument();
@@ -365,6 +373,49 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Billing information")).toBeInTheDocument();
     expect(screen.getByText("Payment methods")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Manage billing/ })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(screen.getByText("Credit activity")).toBeInTheDocument();
+    expect(screen.getByText(/Latest credits earned and spent/)).toBeInTheDocument();
+    expect(screen.getByText("No credit activity yet.")).toBeInTheDocument();
+  });
+
+  it("renders Plans & Credits ledger activity from point history", () => {
+    renderWithRouter(<PlansCreditsScreen data={{
+      pointSummary: {
+        balance: { available: 85 },
+        usage: { used: 4 },
+        activity: [
+          {
+            id: "pack-1",
+            title: "Extra credit pack",
+            detail: "25 beta credits",
+            direction: "credit",
+            amountLabel: "+25 credits",
+            balanceAfterLabel: "85",
+            timeLabel: "2m ago",
+          },
+          {
+            id: "diagnosis-1",
+            title: "Deep diagnosis",
+            detail: "GEN QuietDesk Mini Fan",
+            direction: "debit",
+            amountLabel: "-1 credit",
+            balanceAfterLabel: "60",
+            timeLabel: "1h ago",
+          },
+        ],
+      },
+    }} />);
+
+    expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Used\s*4/);
+    expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Left\s*85/);
+    expect(screen.getByText("Extra credit pack")).toBeInTheDocument();
+    expect(screen.getByText("25 beta credits")).toBeInTheDocument();
+    expect(screen.getByText("+25 credits")).toHaveClass("isCredit");
+    expect(screen.getByText("Deep diagnosis")).toBeInTheDocument();
+    expect(screen.getByText("GEN QuietDesk Mini Fan")).toBeInTheDocument();
+    expect(screen.getByText("-1 credit")).toHaveClass("isDebit");
+    expect(screen.getByText("85 left")).toBeInTheDocument();
+    expect(screen.getByText("60 left")).toBeInTheDocument();
   });
 
   it("renders dashboard KPIs and start-here product", () => {
@@ -582,9 +633,9 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<WatchlistScreen
       data={{
         watchlist: {
-          maxProducts: 50,
+          maxProducts: 99,
           watchedCount: 2,
-          slotsAvailable: 48,
+          slotsAvailable: 97,
           rows: [
             {
               id: "watch-1",
@@ -656,6 +707,73 @@ describe("ProductPulse screens", () => {
                   summary: "2 new return text signals were captured since the previous Watchlist report.",
                   bullets: ["New return sentiment: 2 negative, 0 neutral, 0 positive."],
                 }],
+                runReports: [
+                  {
+                    id: "overview-run-older",
+                    status: "changed",
+                    title: "Watchlist changes detected",
+                    headline: "New orders: 1 order · +2 units.",
+                    summary: "1 concrete source change since the previous Watchlist run.",
+                    changeCount: 2,
+                    sourceChangeCount: 1,
+                    previousRunAt: "2026-05-15T10:00:00.000Z",
+                    currentRunAt: "2026-05-16T10:00:00.000Z",
+                    previous: { riskScore: 52, productMomentumScore: 61, marginAtRisk: 90, orderCount: 8, returnUnits: 1, refundAmount: 60, negativeReviewCount: 2 },
+                    current: { riskLabel: "Medium", riskScore: 58, productMomentumScore: 66, marginAtRisk: 110, orderCount: 9, returnUnits: 1, refundAmount: 60, negativeReviewCount: 2, primaryIssue: "Demand shift" },
+                    sourceChanges: [{
+                      id: "new-orders",
+                      source: "orders",
+                      label: "New orders",
+                      value: "1 order",
+                      delta: "+2 units",
+                      direction: "up",
+                      tone: "green",
+                      icon: "shopify-orders",
+                    }],
+                    sections: [],
+                    changes: [],
+                    sourceInsights: [],
+                  },
+                  {
+                    id: "overview-run-latest",
+                    status: "changed",
+                    title: "Watchlist changes detected",
+                    headline: "New returns: 2 returned units · +2 return signals.",
+                    summary: "2 meaningful changes since the previous Watchlist run. Product risk increased from 58 to 63.",
+                    changeCount: 3,
+                    sourceChangeCount: 1,
+                    previousRunAt: "2026-05-16T10:00:00.000Z",
+                    currentRunAt: "2026-05-17T10:00:00.000Z",
+                    previous: { riskScore: 58, productMomentumScore: 66, marginAtRisk: 110, orderCount: 9, returnUnits: 1, refundAmount: 60, negativeReviewCount: 2 },
+                    current: { riskLabel: "Medium", riskScore: 63, productMomentumScore: 74, marginAtRisk: 210, orderCount: 11, returnUnits: 3, refundAmount: 120, negativeReviewCount: 5, primaryIssue: "Product quality" },
+                    sourceChanges: [{
+                      id: "new-returns",
+                      source: "returns",
+                      label: "New returns",
+                      value: "2 returned units",
+                      delta: "+2 return signals",
+                      direction: "up",
+                      tone: "orange",
+                      icon: "shopify-returns",
+                      detail: "New return text sentiment: 2 negative, 0 neutral, 0 positive.",
+                    }],
+                    sections: [{
+                      id: "risk",
+                      title: "Risk and diagnosis",
+                      tone: "purple",
+                      changes: [{
+                        id: "risk-score",
+                        label: "Product risk",
+                        from: "58",
+                        to: "63",
+                        delta: "+5",
+                        direction: "up",
+                      }],
+                    }],
+                    changes: [{ id: "risk-score", label: "Product risk", sectionTitle: "Risk and diagnosis", direction: "up", delta: "+5" }],
+                    sourceInsights: [],
+                  },
+                ],
               },
             },
             {
@@ -771,7 +889,7 @@ describe("ProductPulse screens", () => {
     />);
 
     expect(screen.getByText("Watched products")).toBeInTheDocument();
-    expect(screen.getByText("2 / 50")).toBeInTheDocument();
+    expect(screen.getByText("2 / 99")).toBeInTheDocument();
     expect(screen.getAllByText("Nintendo New 3DS XL").length).toBeGreaterThan(0);
     expect(screen.getByText("Recent watch activity")).toBeInTheDocument();
     expect(screen.getByText("Product added to watchlist")).toBeInTheDocument();
@@ -795,6 +913,20 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Watch signal captured")).not.toBeInTheDocument();
     expect(screen.getByText("Paused · automatic scans disabled")).toBeInTheDocument();
     expect(screen.queryByText("This product will be checked on the next watch run.")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recent runs" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Changes since previous run/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /What changed/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Events from this run" })).toBeInTheDocument();
+    expect(screen.getAllByText("New returns").length).toBeGreaterThan(0);
+    expect(screen.queryByText("New orders")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /View all changed/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /View all signals/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /View all events/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Select Watchlist run May 16/i }));
+    expect(screen.getAllByText("New orders").length).toBeGreaterThan(0);
+    expect(screen.queryByText("New returns")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "product" } });
+    expect(screen.getByRole("combobox")).toHaveValue("product");
     expect(screen.queryByRole("link", { name: /learn more/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Nintendo New 3DS XL" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Move Nintendo New 3DS XL/ })).not.toBeInTheDocument();
@@ -957,13 +1089,23 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Product Watchlist" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Back to Watchlist/i })).toHaveClass("ppProductBackButton");
     expect(screen.getByRole("heading", { name: "Nintendo New 3DS XL" })).toBeInTheDocument();
-    expect(screen.getByText(/Your baseline is captured/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open product detail/i })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
+    expect(screen.getByText("Changes detected")).toBeInTheDocument();
+    expect(screen.getAllByText("3 changes tracked").length).toBeGreaterThan(0);
+    expect(screen.getByText("Watchlist run")).toBeInTheDocument();
     expect(screen.getByText("AI Watchlist insight")).toBeInTheDocument();
     expect(screen.getByText("Biggest changes")).toBeInTheDocument();
     expect(screen.getByText("Customer Language Analysis changes")).toBeInTheDocument();
     expect(screen.getByText("Returns language")).toBeInTheDocument();
     expect(screen.getByText("2 new return text signals were captured since the previous Watchlist report.")).toBeInTheDocument();
     expect(screen.getByText(/hinge still feels loose/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recent runs" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /View Watchlist run May 17/ })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl?runId=run-6");
+    expect(screen.getByRole("button", { name: "Show older Watchlist runs" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Show newer Watchlist runs" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Show older Watchlist runs" }));
+    expect(screen.getByRole("link", { name: /View Watchlist run May 12/ })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl?runId=run-1");
+    expect(screen.getByRole("button", { name: "Show newer Watchlist runs" })).not.toBeDisabled();
     expect(screen.getByText("Changes by category")).toBeInTheDocument();
     expect(screen.getByText("Demand & orders")).toBeInTheDocument();
     expect(screen.getByText("Customer friction")).toBeInTheDocument();
@@ -978,12 +1120,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Across last 6 watchlist runs")).toHaveLength(2);
     expect(screen.getByText("Risk score (0-100)")).toBeInTheDocument();
     expect(screen.getByText("Refund amount ($)")).toBeInTheDocument();
-    expect(screen.getByText("Run history")).toBeInTheDocument();
-    expect(screen.getByText("Content updates")).toBeInTheDocument();
-    expect(screen.getByText(/^Current \(May 17,/)).toBeInTheDocument();
-    expect(screen.getByText("Viewing")).toBeInTheDocument();
-    expect(screen.getByText(/^May 11,/)).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "View run" })[0]).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl?runId=run-6");
+    expect(screen.queryByText("Run history")).not.toBeInTheDocument();
+    expect(screen.queryByText("Content updates")).not.toBeInTheDocument();
+    expect(screen.queryByText("Viewing")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View run" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /View full history/i })).not.toBeInTheDocument();
     expect(screen.getAllByText("Risk score").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Evidence signals").length).toBeGreaterThan(0);
@@ -1039,9 +1179,9 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<WatchlistActivityScreen
       data={{
         watchlist: {
-          maxProducts: 50,
+          maxProducts: 99,
           watchedCount: 1,
-          slotsAvailable: 49,
+          slotsAvailable: 98,
           rows: [{ status: "Watching" }],
           activities: [
             { id: "a1", eventType: "product_added", icon: "plus", tone: "blue", title: "Product added to watchlist", detail: "Nintendo New 3DS XL", timestamp: "May 15, 10:20 AM" },
@@ -2612,7 +2752,6 @@ describe("ProductPulse screens", () => {
     expect(retentionMain).toContainElement(ltvCard);
     expect([...retentionMain.children].indexOf(retentionMetricGrid)).toBeLessThan([...retentionMain.children].indexOf(ltvCard));
     expect(ltvCard).toHaveClass("ppRetentionLtvBreakdownCard");
-    expect(within(ltvCard).getByText("Metric: LTV contribution")).toBeInTheDocument();
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as cumulative dollars" })).toHaveClass("isActive");
     expect(within(ltvCard).getByRole("button", { name: "Show LTV breakdown as share" })).toBeInTheDocument();
     expect(within(ltvCard).queryByText("Initial product (1st purchase)")).not.toBeInTheDocument();
