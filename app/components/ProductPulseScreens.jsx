@@ -4918,36 +4918,71 @@ export function SettingsScreen({ data = {}, actionData }) {
         <Form ref={formRef} method="post" className="ppSettingsForm">
           <input type="hidden" name="_action" value="save-settings" />
 
-          <section className="ppSettingsCard ppSettingsRiskCard" aria-labelledby="settings-risk-title">
-            <div className="ppSettingsCardHeader">
-              <DashboardIcon type="target" tone="blue" />
-              <div>
-                <span>Risk scoring</span>
-                <h2 id="settings-risk-title">Product risk thresholds</h2>
-                <p>
-                  Control which products ProductPulse keeps after QuickScan and where low, medium and high risk start.
-                </p>
+          <section className="ppSettingsStepCard ppSettingsRiskCard" aria-labelledby="settings-risk-title">
+            <span className="ppSettingsStepNumber ppSettingsStepNumber-purple">1</span>
+            <DashboardIcon type="shield" tone="purple" />
+            <div className="ppSettingsStepBody">
+              <div className="ppSettingsStepHeader">
+                <div className="ppSettingsStepCopy">
+                  <h2 id="settings-risk-title">
+                    Product risk thresholds <span className="ppSettingsInfoDot" aria-hidden="true">i</span>
+                  </h2>
+                  <p>
+                    Set the cutoffs between ignored, low, medium, and high risk. If your minimum risk threshold is too high, some products may stay out of ProductPulse. If it's too low, too many products may enter as candidates and create noise.
+                  </p>
+                </div>
+                <div className="ppSettingsStepTip">
+                  <DashboardIcon type="spark" tone="purple" size="small" />
+                  <p>
+                    These thresholds control how many products are kept after QuickScan and move forward for analysis.
+                  </p>
+                </div>
               </div>
+              <RiskThresholdSlider thresholds={riskThresholds} onChange={setRiskThresholds} />
             </div>
-
-            <RiskThresholdSlider thresholds={riskThresholds} onChange={setRiskThresholds} />
-
-            <MomentumInclusionSlider value={momentumThreshold} onChange={setMomentumThreshold} />
           </section>
 
-          <section className="ppSettingsCard ppSettingsWindowCard" aria-labelledby="settings-window-title">
-            <div className="ppSettingsCardHeader">
-              <DashboardIcon type="clock" tone="cyan" />
-              <div>
-                <span>Analysis window</span>
-                <h2 id="settings-window-title">Evidence lookback</h2>
-                <p>
-                  Choose how far back ProductPulse reads orders, returns, refunds and connected reviews during QuickScan and full product diagnostics.
-                </p>
+          <section className="ppSettingsStepCard ppSettingsMomentumCard" aria-labelledby="settings-momentum-title">
+            <span className="ppSettingsStepNumber ppSettingsStepNumber-green">2</span>
+            <DashboardIcon type="product-momentum" tone="green" />
+            <div className="ppSettingsStepBody">
+              <div className="ppSettingsStepHeader">
+                <div className="ppSettingsStepCopy">
+                  <h2 id="settings-momentum-title">
+                    Product Momentum inclusion <span className="ppSettingsInfoDot" aria-hidden="true">i</span>
+                  </h2>
+                  <p>
+                    Product Momentum reflects how commercially important a product is right now.
+                    <br />
+                    Products selling strongly can still be included even if risk is low.
+                    <br />
+                    Lower thresholds include more trending products. Higher thresholds keep the list tighter and more selective.
+                  </p>
+                </div>
+                <div className="ppSettingsStepValuePill ppSettingsStepValuePill-green">{momentumThreshold}+</div>
               </div>
+              <MomentumInclusionSlider value={momentumThreshold} onChange={setMomentumThreshold} />
             </div>
+          </section>
 
-            <AnalysisLookbackSlider value={lookbackDays} onChange={setLookbackDays} />
+          <section className="ppSettingsStepCard ppSettingsLookbackCard" aria-labelledby="settings-window-title">
+            <span className="ppSettingsStepNumber ppSettingsStepNumber-blue">3</span>
+            <DashboardIcon type="clock" tone="blue" />
+            <div className="ppSettingsStepBody">
+              <div className="ppSettingsStepHeader ppSettingsStepHeader-lookback">
+                <div className="ppSettingsStepCopy">
+                  <h2 id="settings-window-title">
+                    Evidence lookback <span className="ppSettingsInfoDot" aria-hidden="true">i</span>
+                  </h2>
+                  <p>
+                    Controls how far back ProductPulse reads orders, returns, refunds, and connected reviews for QuickScan and deep product diagnostics.
+                    <br />
+                    Shorter windows focus on fresher risk signals. Longer windows provide more volume but may dilute recent changes.
+                  </p>
+                </div>
+              </div>
+              <AnalysisLookbackSlider value={lookbackDays} onChange={setLookbackDays} />
+            </div>
           </section>
 
           <section className="ppSettingsCard ppSettingsHtmlStyleCard" aria-labelledby="settings-html-style-title">
@@ -5797,29 +5832,11 @@ function MomentumInclusionSlider({ value, onChange }) {
       }}
     >
       <input type="hidden" name="momentumMinimumScore" value={normalizedValue} />
-      <div className="ppSettingsMomentumHeader">
-        <div>
-          <strong>Product Momentum inclusion</strong>
-          <p>
-            QuickScan keeps products at or above this Product Momentum even when Product Risk is below the minimum risk threshold.
-          </p>
-        </div>
-        <span>{normalizedValue}+</span>
-      </div>
       <div className="ppSettingsMomentumSliderRow">
         <input
           type="range"
           aria-label="Minimum Product Momentum score"
           min="0"
-          max="100"
-          step="1"
-          value={normalizedValue}
-          onChange={handleChange}
-        />
-        <input
-          type="number"
-          aria-label="Minimum Product Momentum exact value"
-          min={PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD}
           max="100"
           step="1"
           value={normalizedValue}
@@ -5839,6 +5856,15 @@ function MomentumInclusionSlider({ value, onChange }) {
 function AnalysisLookbackSlider({ value, onChange }) {
   const normalizedValue = normalizeClientLookbackDays(value);
   const percentage = ((normalizedValue - PRODUCT_PULSE_MIN_LOOKBACK_DAYS) / (PRODUCT_PULSE_MAX_LOOKBACK_DAYS - PRODUCT_PULSE_MIN_LOOKBACK_DAYS)) * 100;
+  const ticks = [
+    { label: "10d", value: PRODUCT_PULSE_MIN_LOOKBACK_DAYS, align: "start" },
+    { label: "60d (default)", value: 60, align: "center" },
+    { label: "180d", value: 180, align: "center" },
+    { label: "365d", value: PRODUCT_PULSE_MAX_LOOKBACK_DAYS, align: "end" },
+  ].map((tick) => ({
+    ...tick,
+    position: `${((tick.value - PRODUCT_PULSE_MIN_LOOKBACK_DAYS) / (PRODUCT_PULSE_MAX_LOOKBACK_DAYS - PRODUCT_PULSE_MIN_LOOKBACK_DAYS)) * 100}%`,
+  }));
   const handleChange = (event) => {
     onChange(normalizeClientLookbackDays(event.target.value));
   };
@@ -5846,9 +5872,23 @@ function AnalysisLookbackSlider({ value, onChange }) {
   return (
     <div className="ppSettingsLookbackControl" style={{ "--pp-lookback-progress": `${percentage}%` }}>
       <input type="hidden" name="analysisLookbackDays" value={normalizedValue} />
-      <div className="ppSettingsLookbackValue">
-        <strong>{normalizedValue}</strong>
-        <span>days back</span>
+      <div className="ppSettingsLookbackSummary">
+        <div className="ppSettingsLookbackValue">
+          <strong>{normalizedValue}</strong>
+          <span>days back</span>
+        </div>
+        <label className="ppSettingsLookbackExactField">
+          <input
+            type="number"
+            aria-label="Analysis lookback days exact value"
+            min={PRODUCT_PULSE_MIN_LOOKBACK_DAYS}
+            max={PRODUCT_PULSE_MAX_LOOKBACK_DAYS}
+            step="1"
+            value={normalizedValue}
+            onChange={handleChange}
+          />
+          <span>days</span>
+        </label>
       </div>
       <div className="ppSettingsLookbackSliderRow">
         <input
@@ -5860,25 +5900,18 @@ function AnalysisLookbackSlider({ value, onChange }) {
           value={normalizedValue}
           onChange={handleChange}
         />
-        <input
-          type="number"
-          aria-label="Analysis lookback days exact value"
-          min={PRODUCT_PULSE_MIN_LOOKBACK_DAYS}
-          max={PRODUCT_PULSE_MAX_LOOKBACK_DAYS}
-          step="1"
-          value={normalizedValue}
-          onChange={handleChange}
-        />
       </div>
       <div className="ppSettingsLookbackTicks" aria-hidden="true">
-        <span>10d</span>
-        <span>60d default</span>
-        <span>180d</span>
-        <span>365d</span>
+        {ticks.map((tick) => (
+          <span
+            key={tick.label}
+            className={`ppSettingsLookbackTick ppSettingsLookbackTick-${tick.align}`}
+            style={{ "--pp-lookback-tick": tick.position }}
+          >
+            {tick.label}
+          </span>
+        ))}
       </div>
-      <p>
-        Older orders, returns, refunds and reviews are ignored for scoring. Use a shorter window for fresh risk, or a longer one when volume is low.
-      </p>
     </div>
   );
 }

@@ -1477,16 +1477,13 @@ describe("ProductPulse screens", () => {
     expect(container.querySelector(".ppSettingsRiskHandleLabels")).not.toBeInTheDocument();
     expect(screen.getByText("Product Momentum inclusion")).toBeInTheDocument();
     const minimumMomentumScore = screen.getByLabelText("Minimum Product Momentum score");
-    const minimumMomentumExactValue = screen.getByLabelText("Minimum Product Momentum exact value");
     expect(minimumMomentumScore).toHaveValue("72");
     expect(minimumMomentumScore).toHaveAttribute("min", "0");
-    expect(minimumMomentumExactValue).toHaveAttribute("min", "50");
     fireEvent.change(minimumQuickScanScore, { target: { value: "3" } });
     expect(minimumQuickScanScore).toHaveValue("10");
     fireEvent.change(minimumMomentumScore, { target: { value: "20" } });
     expect(minimumMomentumScore).toHaveValue("50");
-    fireEvent.change(minimumMomentumExactValue, { target: { value: "20" } });
-    expect(minimumMomentumExactValue).toHaveValue(50);
+    expect(screen.queryByLabelText("Minimum Product Momentum exact value")).not.toBeInTheDocument();
     expect(screen.queryByText("Table defaults")).not.toBeInTheDocument();
     expect(screen.queryByText("Queue limits")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max diagnoses queued at once")).not.toBeInTheDocument();
