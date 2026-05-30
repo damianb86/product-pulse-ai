@@ -5753,7 +5753,30 @@ s-page[inline-size="large-500"] {
 }
 
 .ppMetricTimelineLockedDot {
-  filter: drop-shadow(0 0 0 rgba(var(--pp-pulse-blue-rgb), 0.7)) drop-shadow(0 8px 16px rgba(var(--pp-shadow-rgb), 0.26));
+  color: var(--pp-metric-timeline-locked-color, var(--pp-pulse-blue));
+  filter:
+    drop-shadow(0 0 8px color-mix(in srgb, currentColor 38%, transparent))
+    drop-shadow(0 8px 16px rgba(var(--pp-shadow-rgb), 0.3));
+}
+
+.ppMetricTimelineLockedDotHalo {
+  fill: color-mix(in srgb, currentColor 25%, transparent);
+}
+
+.ppMetricTimelineLockedDotCircle {
+  fill: currentColor;
+  stroke: var(--pp-cloud-white);
+  stroke-width: 3;
+}
+
+.ppMetricTimelineLockedDotLock,
+.ppMetricTimelineEventMarkerLock {
+  fill: none;
+  stroke: var(--pp-cloud-white);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
+  vector-effect: non-scaling-stroke;
 }
 
 .ppMetricTimelineEventMarker {
@@ -5771,6 +5794,10 @@ s-page[inline-size="large-500"] {
 
 .ppMetricTimelineEventMarker.isLocked .ppMetricTimelineEventMarkerCircle {
   stroke-width: 3.2;
+}
+
+.ppMetricTimelineEventMarker.isOverflow .ppMetricTimelineEventMarkerCircle {
+  fill: var(--pp-slate-800);
 }
 
 .ppMetricTimelineEventMarkerHalo {
@@ -5796,6 +5823,16 @@ s-page[inline-size="large-500"] {
 .ppMetricTimelineEventMarkerIconFill {
   fill: var(--pp-cloud-white);
   stroke: none;
+}
+
+.ppMetricTimelineEventMarkerMoreText {
+  fill: var(--pp-cloud-white);
+  font-size: 7px;
+  font-weight: 950;
+  letter-spacing: 0;
+  pointer-events: none;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
 .ppMetricTimelineTooltip {

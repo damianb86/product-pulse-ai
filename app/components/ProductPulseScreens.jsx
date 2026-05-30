@@ -59,7 +59,9 @@ const PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY = "productPulse.metricTimelines.
 const PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY = "productPulse.productDetail.collapsedPanels.v1";
 const PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES = 5;
 const PRODUCT_METRIC_TIMELINE_EVENT_MIN_SPACING_DAYS = 7;
-const PRODUCT_METRIC_TIMELINE_EVENT_MIN_VISUAL_SPACING_DAYS = 4;
+const PRODUCT_METRIC_TIMELINE_EVENT_VISIBLE_PER_DAY = 4;
+const PRODUCT_METRIC_TIMELINE_SYNC_MAX_DISTANCE_DAYS = 15;
+const PRODUCT_METRIC_TIMELINE_EVENT_OVERFLOW_LABEL_MAX = 99;
 const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
   width: 1200,
   height: 216,
@@ -14117,13 +14119,13 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
                 ))}
                 {lockedTooltipPoint && (
                   <ReferenceDot
-                    className="ppMetricTimelineLockedDot"
                     x={lockedTooltipPoint.time}
                     y={lockedTooltipPoint.value}
-                    r={7}
+                    r={11}
                     fill={chart.color}
                     stroke="var(--pp-cloud-white)"
                     strokeWidth={3}
+                    shape={(props) => <ProductMetricTimelineLockedDotShape {...props} color={chart.color} />}
                     ifOverflow="visible"
                     isFront
                   />
@@ -14200,13 +14202,13 @@ function ProductMetricTimelineOrderActivityChart({ chart, lockedTooltipIndex = u
       {lockedTooltipPoint && (
         <ReferenceDot
           yAxisId="volume"
-          className="ppMetricTimelineLockedDot"
           x={lockedTooltipPoint.time}
           y={Number(lockedTooltipPoint.orders || 0)}
-          r={7}
+          r={11}
           fill="var(--pp-pulse-blue)"
           stroke="var(--pp-cloud-white)"
           strokeWidth={3}
+          shape={(props) => <ProductMetricTimelineLockedDotShape {...props} color="var(--pp-pulse-blue)" />}
           ifOverflow="visible"
           isFront
         />
@@ -14280,17 +14282,54 @@ function ProductMetricTimelineEventMarker(props = {}) {
   const event = props.payload || {};
   if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
   const color = event.color || getProductMetricTimelineEventColor(event);
+  const locked = Boolean(props.locked);
   return (
     <g
-      className={`ppMetricTimelineEventMarker ppMetricTimelineEventMarker-${event.tone || "slate"}${props.locked ? " isLocked" : ""}`}
+      className={`ppMetricTimelineEventMarker ppMetricTimelineEventMarker-${event.tone || "slate"}${locked ? " isLocked" : ""}${event.isOverflowMarker ? " isOverflow" : ""}`}
       transform={`translate(${cx} ${cy})`}
       style={{ "--pp-metric-timeline-event-color": color }}
     >
-      <circle className="ppMetricTimelineEventMarkerHalo" r="12" />
-      <circle className="ppMetricTimelineEventMarkerCircle" r="8" />
-      {renderProductMetricTimelineEventMarkerIcon(event)}
+      <circle className="ppMetricTimelineEventMarkerHalo" r={locked ? 16 : 12} />
+      <circle className="ppMetricTimelineEventMarkerCircle" r={locked ? 10 : 8} />
+      {locked ? renderProductMetricTimelineLockGlyph("ppMetricTimelineEventMarkerLock") : event.isOverflowMarker ? (
+        <text className="ppMetricTimelineEventMarkerMoreText" x="0" y="0">
+          {formatProductMetricTimelineEventOverflowLabel(event.overflowCount)}
+        </text>
+      ) : renderProductMetricTimelineEventMarkerIcon(event)}
     </g>
   );
+}
+
+function ProductMetricTimelineLockedDotShape(props = {}) {
+  const cx = Number(props.cx);
+  const cy = Number(props.cy);
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+  return (
+    <g
+      className="ppMetricTimelineLockedDot"
+      transform={`translate(${cx} ${cy})`}
+      style={{ "--pp-metric-timeline-locked-color": props.color || props.fill || "var(--pp-pulse-blue)" }}
+    >
+      <circle className="ppMetricTimelineLockedDotHalo" r="17" />
+      <circle className="ppMetricTimelineLockedDotCircle" r="11" />
+      {renderProductMetricTimelineLockGlyph("ppMetricTimelineLockedDotLock")}
+    </g>
+  );
+}
+
+function renderProductMetricTimelineLockGlyph(className = "ppMetricTimelineLockGlyph") {
+  return (
+    <>
+      <rect className={className} x="-4.7" y="-0.8" width="9.4" height="6.6" rx="1.8" />
+      <path className={className} d="M-3.1 -0.8V-2.9C-3.1 -4.9 -1.8 -6.1 0 -6.1C1.8 -6.1 3.1 -4.9 3.1 -2.9V-0.8" />
+      <path className={className} d="M0 1.6V3.4" />
+    </>
+  );
+}
+
+function formatProductMetricTimelineEventOverflowLabel(count) {
+  const value = Math.max(1, Math.min(PRODUCT_METRIC_TIMELINE_EVENT_OVERFLOW_LABEL_MAX, Math.round(Number(count) || 0)));
+  return `+${value}`;
 }
 
 function renderProductMetricTimelineEventMarkerIcon(event = {}) {
@@ -14477,6 +14516,58 @@ function getProductMetricTimelineEventsWithDayGroups(points = []) {
   }));
 }
 
+function getProductMetricTimelineVisibleEventMarkers(points = []) {
+  const dayMap = new Map();
+  points.forEach((point) => {
+    const key = getProductMetricTimelineEventDayKey(point);
+    if (!key) return;
+    const events = dayMap.get(key) || [];
+    events.push(point);
+    dayMap.set(key, events);
+  });
+
+  const markers = [];
+  dayMap.forEach((events, key) => {
+    const sortedEvents = [...events].sort((left, right) => left.time - right.time);
+    if (sortedEvents.length <= PRODUCT_METRIC_TIMELINE_EVENT_VISIBLE_PER_DAY) {
+      markers.push(...sortedEvents);
+      return;
+    }
+
+    const visibleEvents = sortedEvents.slice(0, PRODUCT_METRIC_TIMELINE_EVENT_VISIBLE_PER_DAY);
+    const overflowEvents = sortedEvents.slice(PRODUCT_METRIC_TIMELINE_EVENT_VISIBLE_PER_DAY);
+    const overflowBase = overflowEvents[0] || sortedEvents[0];
+    const overflowLane = Math.min(
+      PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES,
+      Math.max(
+        PRODUCT_METRIC_TIMELINE_EVENT_VISIBLE_PER_DAY + 1,
+        Number(overflowBase.lane || overflowBase.value || 1),
+      ),
+    );
+    markers.push(...visibleEvents);
+    markers.push({
+      ...overflowBase,
+      id: `${key}-overflow-${overflowEvents.length}`,
+      title: `${formatInteger(overflowEvents.length)} more events`,
+      summary: `${formatInteger(sortedEvents.length)} events occurred on ${overflowBase.dayLabel || overflowBase.dateLabel || overflowBase.label || "this day"}.`,
+      eventType: "timeline_event_overflow",
+      isOverflowMarker: true,
+      overflowCount: overflowEvents.length,
+      dayEvents: sortedEvents,
+      dayEventGroups: getProductMetricTimelineEventTooltipGroups(sortedEvents),
+      dayEventCount: sortedEvents.length,
+      dayLabel: overflowBase.dayLabel || getProductMetricTimelineEventDayLabel(overflowBase),
+      lane: overflowLane,
+      value: overflowLane,
+      color: "var(--pp-slate-700)",
+      icon: "plus",
+      tone: "slate",
+    });
+  });
+
+  return markers.sort((left, right) => left.time - right.time || Number(left.lane || 0) - Number(right.lane || 0));
+}
+
 function getProductMetricTimelineEventTooltipGroups(events = []) {
   const groupMap = new Map();
   events.forEach((event) => {
@@ -14603,7 +14694,8 @@ function getProductMetricTimelineNearestSyncIndex(ticks = [], active = {}) {
       nearestIndex = index;
     }
   });
-  return nearestIndex;
+  const maxDistance = PRODUCT_METRIC_TIMELINE_SYNC_MAX_DISTANCE_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS;
+  return nearestDistance <= maxDistance ? nearestIndex : undefined;
 }
 
 function getProductMetricTimelineSyncTime(value) {
@@ -14677,6 +14769,7 @@ function isProductMetricTimelinePinnedChart(chart = {}) {
 
 export const __productPulseScreensTestHooks = {
   assignProductMetricTimelineEventPlotTimes,
+  getProductMetricTimelineVisibleEventMarkers,
   getProductMetricTimelineEventTooltipItems,
   getProductMetricTimelineClickTime,
   getProductMetricTimelineLockedTooltipIndex,
@@ -15303,8 +15396,9 @@ function buildProductMetricTimelineChart(series, domain, xTicks) {
 
 function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
   const { width, height, plot } = PRODUCT_METRIC_TIMELINE_CHART;
+  const sourcePoints = getProductMetricTimelineEventsWithDayGroups(series.points);
   const points = assignProductMetricTimelineEventPlotTimes(
-    getProductMetricTimelineEventsWithDayGroups(series.points),
+    getProductMetricTimelineVisibleEventMarkers(sourcePoints),
     domain,
   );
   const laneCount = Math.max(1, ...points.map((point) => Number(point.lane || point.value || 0)).filter(Number.isFinite));
@@ -15316,7 +15410,7 @@ function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
   }));
   const mappedXTicks = getProductMetricTimelineMappedXTicks(xTicks, domain, plot);
   const categoryMap = new Map();
-  points.forEach((point) => {
+  sourcePoints.forEach((point) => {
     const key = point.category || "timeline";
     if (!categoryMap.has(key)) {
       categoryMap.set(key, {
@@ -15330,6 +15424,7 @@ function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
     }
   });
   const categoryCount = categoryMap.size;
+  const eventCount = sourcePoints.length;
   return {
     ...series,
     width,
@@ -15338,8 +15433,8 @@ function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
     points,
     data: points,
     color: series.color || "var(--pp-slate-900)",
-    currentLabel: `${formatInteger(points.length)} ${points.length === 1 ? "event" : "events"}`,
-    deltaLabel: points.length
+    currentLabel: `${formatInteger(eventCount)} ${eventCount === 1 ? "event" : "events"}`,
+    deltaLabel: eventCount
       ? `${formatInteger(categoryCount)} ${categoryCount === 1 ? "group" : "groups"} · ${getProductMetricTimelineRangeLabel(domain)}`
       : "Timeline will build from new activity",
     deltaTone: "neutral",
@@ -15355,44 +15450,12 @@ function buildProductMetricTimelineEventsChart(series, domain, xTicks) {
 
 function assignProductMetricTimelineEventPlotTimes(points = [], domain = {}) {
   const sortedPoints = [...points].sort((left, right) => left.time - right.time);
-  const minSpacing = PRODUCT_METRIC_TIMELINE_EVENT_MIN_VISUAL_SPACING_DAYS * PRODUCT_METRIC_TIMELINE_DAY_MS;
-  if (!sortedPoints.length || !Number.isFinite(minSpacing) || minSpacing <= 0) {
-    return sortedPoints.map((point) => ({ ...point, plotTime: point.time }));
-  }
-
   const minTime = Number.isFinite(domain.minTime) ? domain.minTime : sortedPoints[0].time;
   const maxTime = Number.isFinite(domain.maxTime) ? domain.maxTime : sortedPoints[sortedPoints.length - 1].time;
-  const plottedTimes = sortedPoints.map((point) => clampNumber(point.time, minTime, maxTime));
 
-  for (let index = 1; index < plottedTimes.length; index += 1) {
-    if (plottedTimes[index] - plottedTimes[index - 1] < minSpacing) {
-      plottedTimes[index] = plottedTimes[index - 1] + minSpacing;
-    }
-  }
-
-  const overflow = plottedTimes[plottedTimes.length - 1] - maxTime;
-  if (overflow > 0) {
-    for (let index = 0; index < plottedTimes.length; index += 1) {
-      plottedTimes[index] -= overflow;
-    }
-  }
-
-  const underflow = minTime - plottedTimes[0];
-  if (underflow > 0) {
-    for (let index = 0; index < plottedTimes.length; index += 1) {
-      plottedTimes[index] += underflow;
-    }
-  }
-
-  for (let index = 1; index < plottedTimes.length; index += 1) {
-    if (plottedTimes[index] - plottedTimes[index - 1] < minSpacing) {
-      plottedTimes[index] = plottedTimes[index - 1] + minSpacing;
-    }
-  }
-
-  return sortedPoints.map((point, index) => ({
+  return sortedPoints.map((point) => ({
     ...point,
-    plotTime: clampNumber(plottedTimes[index], minTime, maxTime),
+    plotTime: clampNumber(point.time, minTime, maxTime),
   }));
 }
 

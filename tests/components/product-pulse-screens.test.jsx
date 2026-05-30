@@ -1938,6 +1938,7 @@ describe("ProductPulse screens", () => {
     const {
       assignProductMetricTimelineEventPlotTimes,
       getProductMetricTimelineEventTooltipItems,
+      getProductMetricTimelineVisibleEventMarkers,
       getProductMetricTimelineClickTime,
       getProductMetricTimelineLockedTooltipIndex,
       getProductMetricTimelineLockedTooltipPoint,
@@ -1945,7 +1946,6 @@ describe("ProductPulse screens", () => {
       getProductMetricTimelineTooltipLockProps,
     } = __productPulseScreensTestHooks;
     const time = (value) => new Date(value).getTime();
-    const dayMs = 24 * 60 * 60 * 1000;
     const ticks = [
       { value: time("2026-02-01T00:00:00.000Z"), index: 0 },
       { value: time("2026-03-01T00:00:00.000Z"), index: 1 },
@@ -1955,6 +1955,7 @@ describe("ProductPulse screens", () => {
     expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: String(time("2026-02-20T00:00:00.000Z")) })).toBe(1);
     expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: time("2026-04-20T00:00:00.000Z") })).toBe(2);
     expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: "2026-02-10T00:00:00.000Z" })).toBe(0);
+    expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: time("2026-08-01T00:00:00.000Z") })).toBeUndefined();
     expect(getProductMetricTimelineNearestSyncIndex(ticks, { activeLabel: "", activeTooltipIndex: 9 })).toBe(2);
 
     const sparseChart = {
@@ -1964,6 +1965,7 @@ describe("ProductPulse screens", () => {
       ],
     };
     expect(getProductMetricTimelineLockedTooltipIndex(sparseChart, time("2026-04-20T00:00:00.000Z"))).toBe(1);
+    expect(getProductMetricTimelineLockedTooltipIndex(sparseChart, time("2026-03-20T00:00:00.000Z"))).toBeUndefined();
     expect(getProductMetricTimelineLockedTooltipPoint(sparseChart, 1)).toMatchObject({ value: 30 });
     expect(getProductMetricTimelineClickTime(sparseChart, { activeLabel: time("2026-05-01T00:00:00.000Z") })).toBe(time("2026-05-01T00:00:00.000Z"));
     expect(getProductMetricTimelineClickTime(sparseChart, { activeTooltipIndex: 0 })).toBe(time("2026-02-01T00:00:00.000Z"));
@@ -1986,12 +1988,28 @@ describe("ProductPulse screens", () => {
       time("2025-08-02T00:00:00.000Z"),
       time("2025-08-03T00:00:00.000Z"),
     ]);
-    expect(closeEvents[1].plotTime - closeEvents[0].plotTime).toBeGreaterThanOrEqual(4 * dayMs);
-    expect(closeEvents[2].plotTime - closeEvents[1].plotTime).toBeGreaterThanOrEqual(4 * dayMs);
+    expect(closeEvents.map((event) => event.plotTime)).toEqual(closeEvents.map((event) => event.time));
     expect(getProductMetricTimelineClickTime(
       { kind: "events", data: closeEvents },
       { activeLabel: closeEvents[1].plotTime, activeTooltipIndex: 1 },
     )).toBe(time("2025-08-02T00:00:00.000Z"));
+
+    const denseDayMarkers = getProductMetricTimelineVisibleEventMarkers(
+      Array.from({ length: 8 }, (_, index) => ({
+        id: `event-${index}`,
+        title: `Event ${index + 1}`,
+        category: "watchlist",
+        eventType: "watch_event",
+        time: time("2025-08-03T10:00:00.000Z"),
+        dayKey: "2025-08-03",
+        dayLabel: "Aug 3",
+        lane: Math.min(index + 1, 5),
+        value: Math.min(index + 1, 5),
+      })),
+    );
+    expect(denseDayMarkers).toHaveLength(5);
+    expect(denseDayMarkers.at(-1)).toMatchObject({ isOverflowMarker: true, overflowCount: 4, value: 5 });
+    expect(denseDayMarkers.every((event) => event.time === time("2025-08-03T10:00:00.000Z"))).toBe(true);
 
     expect(getProductMetricTimelineEventTooltipItems({
       dayEvents: [
