@@ -53,36 +53,6 @@ export async function connectJudgeMeReviews(shop, privateApiToken) {
   return { status: "success", message: "Connected to Judge.me.", providerKey: "judgemeReviews" };
 }
 
-export async function connectChatMeReviews(shop, privateApiToken) {
-  const token = String(privateApiToken || "").trim();
-  if (!token) {
-    return { status: "validation_error", message: "Enter the ChatMe private API token before connecting." };
-  }
-  if (token.length < 8) {
-    return { status: "validation_error", message: "The ChatMe private API token looks too short." };
-  }
-
-  const now = new Date();
-  await upsertSource(shop, "chatmeReviews", {
-    connected: true,
-    active: true,
-    ignored: false,
-    available: true,
-    health: "connected",
-    credentials: { privateApiToken: token },
-    config: {
-      tokenLast4: token.slice(-4),
-      connectedBy: "manual",
-      provider: "ChatMe Reviews",
-    },
-    connectedAt: now,
-    disabledAt: null,
-    lastSyncedAt: now,
-  });
-
-  return { status: "success", message: "Connected to ChatMe.", providerKey: "chatmeReviews" };
-}
-
 export async function previewCsvReviews(shop, file, { admin } = {}) {
   const fileName = CSV_REVIEW_IMPORT_DISPLAY_NAME;
   try {

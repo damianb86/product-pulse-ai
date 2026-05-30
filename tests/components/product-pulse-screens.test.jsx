@@ -444,11 +444,12 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ConnectScreen data={defaultView} />);
     expect(screen.getByRole("heading", { name: "Connect your sources" })).toBeInTheDocument();
     expect(screen.getByText("Judge.me Reviews")).toBeInTheDocument();
+    expect(screen.getByText("Loox Reviews")).toBeInTheDocument();
     expect(screen.getByText("Yotpo Reviews")).toBeInTheDocument();
+    expect(screen.getByText("Stamped Reviews")).toBeInTheDocument();
     expect(screen.getByText("Shopify Returns & Refunds")).toBeInTheDocument();
-    const chatMeRow = screen.getByText("ChatMe Reviews").closest("tr");
-    expect(within(chatMeRow).getByRole("button", { name: "Manage" })).toBeEnabled();
-    expect(chatMeRow).toHaveAttribute("data-pp-connect-source-row", "chatmeReviews");
+    expect(within(screen.getByText("Loox Reviews").closest("tr")).getByRole("button", { name: "Coming soon" })).toBeDisabled();
+    expect(within(screen.getByText("Stamped Reviews").closest("tr")).getByRole("button", { name: "Coming soon" })).toBeDisabled();
     expect(screen.getAllByText("Coming soon").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Always on").length).toBeGreaterThan(0);
     expect(screen.getByText("Data coverage")).toBeInTheDocument();

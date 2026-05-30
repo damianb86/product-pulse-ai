@@ -3,7 +3,6 @@ export const SOURCE_WEIGHTS = {
   shopifyOrders: 18,
   shopifyReturns: 18,
   judgemeReviews: 14,
-  chatmeReviews: 10,
   csvReviews: 8,
   supportTickets: 8,
   pdpQuestions: 6,

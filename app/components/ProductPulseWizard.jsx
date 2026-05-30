@@ -110,15 +110,10 @@ const modalCopy = {
     title: "Connect Judge.me reviews",
     body: "Paste the Judge.me private API token here. ProductPulse uses it to read review signals for QuickScan and deep product diagnostics.",
   },
-  chatme: {
-    eyebrow: "ChatMe connection",
-    title: "Add your ChatMe credentials",
-    body: "Paste the private API token from ChatMe. ProductPulse uses it to read review and Q&A signals for QuickScan and deep product diagnostics.",
-  },
   csv: {
     eyebrow: "CSV upload",
     title: "Import review data",
-    body: "Choose a review CSV with product identifiers and ratings. This is the fallback for ChatMe, Judge.me, Yotpo, Loox or any provider that can export reviews.",
+    body: "Choose a review CSV with product identifiers and ratings. This is the fallback for Judge.me, Yotpo, Loox, Stamped or any provider that can export reviews.",
   },
   csvPreview: {
     eyebrow: "CSV preview",
@@ -1068,7 +1063,6 @@ function useOpenWizardModal(enabled) {
 function getOpenWizardModal() {
   const candidates = [
     { kind: "judgeme", selector: "#judgeme-connect-title" },
-    { kind: "chatme", selector: "#chatme-connect-title" },
     { kind: "csv", selector: "#csv-upload-title" },
     { kind: "csvPreview", selector: "#csv-preview-title" },
     { kind: "quickScanCsv", selector: "#quick-scan-csv-title" },
@@ -1140,7 +1134,6 @@ function getWizardControlLabels(step, productsState, deepScanStarted, quickScanS
 
 function getConnectCompletionMessage(provider) {
   if (provider === "judgemeReviews") return "Judge.me was connected. When you are ready, click Next to configure Settings.";
-  if (provider === "chatmeReviews") return "ChatMe was connected. When you are ready, click Next to configure Settings.";
   if (provider === "csvReviews") return "CSV reviews were saved. When you are ready, click Next to configure Settings.";
   return "Source saved. When you are ready, click Next to configure Settings.";
 }

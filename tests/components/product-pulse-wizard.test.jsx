@@ -22,7 +22,6 @@ describe("ProductPulseWizard", () => {
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
     expect(await screen.findByRole("dialog", { name: "Connect Judge.me Reviews" })).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Upload reviews by CSV" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Connect ChatMe Reviews" })).not.toBeInTheDocument();
   });
 
   it("does not start after completion is stored", () => {

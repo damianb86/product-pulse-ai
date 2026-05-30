@@ -18,7 +18,6 @@ import {
 } from "recharts";
 import {
   buildConnectViewData,
-  chatMeConnectionLinks,
   CSV_REVIEW_IMPORT_DISPLAY_NAME,
   judgeMeConnectionLinks,
   upsertLocalConnectionRecord,
@@ -346,9 +345,6 @@ export function ConnectScreen({ data, actionData }) {
   const judgeMeSource = connectView.signalCategories
     .flatMap((category) => category.sources)
     .find((source) => source.key === "judgemeReviews");
-  const chatMeSource = connectView.signalCategories
-    .flatMap((category) => category.sources)
-    .find((source) => source.key === "chatmeReviews");
   const csvSource = connectView.signalCategories
     .flatMap((category) => category.sources)
     .find((source) => source.key === "csvReviews");
@@ -399,34 +395,6 @@ export function ConnectScreen({ data, actionData }) {
       setActiveModal(null);
       setLocalToast({ status: "success", message: "Connected to Judge.me." });
       dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "judgemeReviews" });
-    }, 450);
-  };
-
-  const handleLocalChatMeConnect = (event) => {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const token = String(formData.get("privateApiToken") || "").trim();
-    if (!token) {
-      setLocalToast({ status: "validation_error", message: "Enter the ChatMe private API token before connecting." });
-      return;
-    }
-
-    setLocalConnecting(true);
-    window.setTimeout(() => {
-      setRecords((current) => upsertLocalConnectionRecord(current, "chatmeReviews", {
-        connected: true,
-        active: true,
-        ignored: false,
-        available: true,
-        health: "connected",
-        config: { tokenLast4: token.slice(-4), provider: "ChatMe Reviews" },
-        connectedAt: new Date().toISOString(),
-        lastSyncedAt: new Date().toISOString(),
-      }));
-      setLocalConnecting(false);
-      setActiveModal(null);
-      setLocalToast({ status: "success", message: "Connected to ChatMe." });
-      dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "chatmeReviews" });
     }, 450);
   };
 
@@ -531,7 +499,6 @@ export function ConnectScreen({ data, actionData }) {
                 key={category.id}
                 category={category}
                 onOpenJudgeMe={() => setActiveModal("judgeme")}
-                onOpenChatMe={() => setActiveModal("chatme")}
                 onOpenCsv={() => setActiveModal("csv")}
                 onLocalActiveChange={handleLocalActiveChange}
                 persistConnectState={persistConnectState}
@@ -605,16 +572,6 @@ export function ConnectScreen({ data, actionData }) {
             isConnecting={pendingAction === "connect-judgeme" || localConnecting}
             onCancel={() => setActiveModal(null)}
             onLocalSubmit={handleLocalJudgeMeConnect}
-          />
-        )}
-
-        {activeModal === "chatme" && (
-          <ChatMeConnectionModal
-            source={chatMeSource}
-            persistConnectState={persistConnectState}
-            isConnecting={pendingAction === "connect-chatme" || localConnecting}
-            onCancel={() => setActiveModal(null)}
-            onLocalSubmit={handleLocalChatMeConnect}
           />
         )}
 
@@ -7592,19 +7549,15 @@ function getProductDetailModel(product) {
   const totalReviewStats = asPlainObject(reviewSourceStats.total);
   const providerReviewCount = maxFiniteMetricNumber(
     Number(metrics.csvReviewRatingCount || metrics.csvReviewCount || 0)
-      + Number(metrics.judgeMeReviewCount || 0)
-      + Number(metrics.chatMeReviewCount || 0),
+      + Number(metrics.judgeMeReviewCount || 0),
     Number(asPlainObject(reviewSourceStats.csv).reviewCount || 0)
-      + Number(asPlainObject(reviewSourceStats.judgeMe).reviewCount || 0)
-      + Number(asPlainObject(reviewSourceStats.chatMe).reviewCount || 0),
+      + Number(asPlainObject(reviewSourceStats.judgeMe).reviewCount || 0),
   );
   const providerNegativeReviewCount = maxFiniteMetricNumber(
     Number(metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || 0)
-      + Number(metrics.judgeMeNegativeReviewCount || 0)
-      + Number(metrics.chatMeNegativeReviewCount || 0),
+      + Number(metrics.judgeMeNegativeReviewCount || 0),
     Number(asPlainObject(reviewSourceStats.csv).negativeReviewCount || 0)
-      + Number(asPlainObject(reviewSourceStats.judgeMe).negativeReviewCount || 0)
-      + Number(asPlainObject(reviewSourceStats.chatMe).negativeReviewCount || 0),
+      + Number(asPlainObject(reviewSourceStats.judgeMe).negativeReviewCount || 0),
   );
   const reviewCount = maxFiniteMetricNumber(metrics.reviewCount, totalReviewStats.reviewCount, providerReviewCount);
   const negativeReviewCount = maxFiniteMetricNumber(metrics.negativeReviewCount, totalReviewStats.negativeReviewCount, providerNegativeReviewCount);
@@ -9989,17 +9942,12 @@ function getProductAverageRating(metrics = {}) {
       rating: firstPositiveMetricNumber(asPlainObject(stats.judgeMe).avgRating, metrics.judgeMeAverageRating),
       count: maxFiniteMetricNumber(asPlainObject(stats.judgeMe).reviewCount, metrics.judgeMeReviewCount),
     },
-    {
-      rating: firstPositiveMetricNumber(asPlainObject(stats.chatMe).avgRating, metrics.chatMeAverageRating),
-      count: maxFiniteMetricNumber(asPlainObject(stats.chatMe).reviewCount, metrics.chatMeReviewCount),
-    },
   ]);
   if (providerRating > 0) return providerRating;
 
   const values = [
     metrics.csvAverageRating,
     metrics.judgeMeAverageRating,
-    metrics.chatMeAverageRating,
   ];
   const match = values
     .map((value) => Number(value))
@@ -13031,28 +12979,23 @@ function getReviewEvidenceCheckedItem(metrics = {}, sources = []) {
   const totalStats = asPlainObject(reviewSourceStats.total);
   const csvStats = asPlainObject(reviewSourceStats.csv);
   const judgeStats = asPlainObject(reviewSourceStats.judgeMe || reviewSourceStats.judgeme);
-  const chatMeStats = asPlainObject(reviewSourceStats.chatMe || reviewSourceStats.chatme);
   const csvCount = maxFiniteMetricNumber(metrics.csvReviewCount, metrics.csvReviewRatingCount, csvStats.reviewCount);
   const judgeCount = maxFiniteMetricNumber(metrics.judgeMeReviewCount, metrics.judgemeReviewCount, judgeStats.reviewCount);
-  const chatMeCount = maxFiniteMetricNumber(metrics.chatMeReviewCount, metrics.chatmeReviewCount, chatMeStats.reviewCount);
-  const providerReviewCount = csvCount + judgeCount + chatMeCount;
+  const providerReviewCount = csvCount + judgeCount;
   const reviewCount = maxFiniteMetricNumber(metrics.reviewCount, totalStats.reviewCount, providerReviewCount);
   const csvNegativeCount = maxFiniteMetricNumber(metrics.csvNegativeReviewCount, metrics.csvLowRatingCount, csvStats.negativeReviewCount);
   const judgeNegativeCount = maxFiniteMetricNumber(metrics.judgeMeNegativeReviewCount, metrics.judgemeNegativeReviewCount, judgeStats.negativeReviewCount);
-  const chatMeNegativeCount = maxFiniteMetricNumber(metrics.chatMeNegativeReviewCount, metrics.chatmeNegativeReviewCount, chatMeStats.negativeReviewCount);
-  const providerNegativeCount = csvNegativeCount + judgeNegativeCount + chatMeNegativeCount;
+  const providerNegativeCount = csvNegativeCount + judgeNegativeCount;
   const negativeReviewCount = maxFiniteMetricNumber(metrics.negativeReviewCount, totalStats.negativeReviewCount, providerNegativeCount);
   const hasCsvReviews = sourceText.includes("csv") || csvCount > 0;
   const hasJudgeMeReviews = sourceText.includes("judge") || judgeCount > 0;
-  const hasChatMeReviews = sourceText.includes("chat") || chatMeCount > 0;
   const hasGenericReviewEvidence = sourceText.includes("review") || reviewCount > 0;
 
-  if (!hasCsvReviews && !hasJudgeMeReviews && !hasChatMeReviews && !hasGenericReviewEvidence) return null;
+  if (!hasCsvReviews && !hasJudgeMeReviews && !hasGenericReviewEvidence) return null;
 
   const providerLabels = [
     hasCsvReviews ? "CSV reviews" : null,
     hasJudgeMeReviews ? "Judge.me reviews" : null,
-    hasChatMeReviews ? "ChatMe reviews" : null,
   ].filter(Boolean);
   const label = providerLabels.length === 1
     ? providerLabels[0]
@@ -13064,10 +13007,8 @@ function getReviewEvidenceCheckedItem(metrics = {}, sources = []) {
     totalStats,
     csvStats,
     judgeStats,
-    chatMeStats,
     hasCsvReviews,
     hasJudgeMeReviews,
-    hasChatMeReviews,
   });
 
   return {
@@ -13082,19 +13023,14 @@ function getReviewEvidenceAverageRating(metrics = {}, {
   totalStats = {},
   csvStats = {},
   judgeStats = {},
-  chatMeStats = {},
   hasCsvReviews = false,
   hasJudgeMeReviews = false,
-  hasChatMeReviews = false,
 } = {}) {
-  if (hasCsvReviews && !hasJudgeMeReviews && !hasChatMeReviews) {
+  if (hasCsvReviews && !hasJudgeMeReviews) {
     return firstFiniteMetricNumber(metrics.csvAverageRating, metrics.csvReviewRating, csvStats.avgRating, csvStats.averageRating, metrics.avgRating, metrics.reviewRating);
   }
-  if (hasJudgeMeReviews && !hasCsvReviews && !hasChatMeReviews) {
+  if (hasJudgeMeReviews && !hasCsvReviews) {
     return firstFiniteMetricNumber(metrics.judgeMeAverageRating, metrics.judgemeAverageRating, judgeStats.avgRating, judgeStats.averageRating, metrics.avgRating, metrics.reviewRating);
-  }
-  if (hasChatMeReviews && !hasCsvReviews && !hasJudgeMeReviews) {
-    return firstFiniteMetricNumber(metrics.chatMeAverageRating, metrics.chatmeAverageRating, chatMeStats.avgRating, chatMeStats.averageRating, metrics.avgRating, metrics.reviewRating);
   }
   return firstFiniteMetricNumber(totalStats.avgRating, totalStats.averageRating, metrics.avgRating, metrics.reviewRating);
 }
@@ -25292,7 +25228,6 @@ function normalizeEvidenceProviderKey(value = "") {
   if (!normalized) return "";
   if (normalized.includes("csv")) return "csv_reviews";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme_reviews";
-  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatme_reviews";
   if (normalized.includes("review")) return normalized;
   return normalized;
 }
@@ -25946,14 +25881,13 @@ function isReviewScopedEvidenceItem(item = {}) {
 
 function isSpecificReviewSource(sourceTitle = "") {
   const normalized = normalizeEvidenceProviderKey(sourceTitle);
-  return ["csv_reviews", "judgeme_reviews", "chatme_reviews"].includes(normalized);
+  return ["csv_reviews", "judgeme_reviews"].includes(normalized);
 }
 
 function getReviewStatsKey(sourceTitle = "") {
   const normalized = normalizeEvidenceProviderKey(sourceTitle);
   if (normalized === "csv_reviews") return "csv";
   if (normalized === "judgeme_reviews") return "judgeMe";
-  if (normalized === "chatme_reviews") return "chatMe";
   return "total";
 }
 
@@ -26097,7 +26031,6 @@ function getReviewRepeatedLanguage(textInsights = {}, sourceTitle = "") {
       const sources = getEvidenceList(item.sources).join(" ").toLowerCase();
       if (sourceKey === "csv_reviews") return sources.includes("csv");
       if (sourceKey === "judgeme_reviews") return sources.includes("judgeme") || sources.includes("judge");
-      if (sourceKey === "chatme_reviews") return sources.includes("chatme");
       return sources.includes("review");
     }),
   ].map((item) => ({
@@ -31403,7 +31336,6 @@ function ConnectCategoryCard({
   category,
   locked = false,
   onOpenJudgeMe,
-  onOpenChatMe,
   onOpenCsv,
   onLocalActiveChange,
   persistConnectState = false,
@@ -31474,7 +31406,6 @@ function ConnectCategoryCard({
                       persistConnectState={persistConnectState}
                       pending={pendingSourceKey === source.key}
                       onOpenJudgeMe={onOpenJudgeMe}
-                      onOpenChatMe={onOpenChatMe}
                       onOpenCsv={onOpenCsv}
                       onLocalActiveChange={onLocalActiveChange}
                     />
@@ -31494,7 +31425,6 @@ function ConnectSourceActions({
   persistConnectState,
   pending,
   onOpenJudgeMe,
-  onOpenChatMe,
   onOpenCsv,
   onLocalActiveChange,
 }) {
@@ -31531,22 +31461,6 @@ function ConnectSourceActions({
     return (
       <div className="ppConnectActions">
         <button className="ppConnectSmallButton" type="button" onClick={onOpenJudgeMe}>
-          {source.connected ? "Manage" : "Manage"}
-        </button>
-        {activeButton}
-      </div>
-    );
-  }
-
-  if (source.actionKind === "chatme") {
-    return (
-      <div className="ppConnectActions">
-        <button
-          className="ppConnectSmallButton"
-          data-pp-connect-source-action={source.key}
-          type="button"
-          onClick={onOpenChatMe}
-        >
           {source.connected ? "Manage" : "Manage"}
         </button>
         {activeButton}
@@ -31670,55 +31584,6 @@ function JudgeMeConnectionModal({ source, persistConnectState, isConnecting, onC
               Judge.me API documentation
               <s-icon type="external" size="small"></s-icon>
             </a>
-          </div>
-
-          <div className="ppConnectionModalFooter">
-            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel}>
-              Cancel
-            </button>
-            <button className="ppPrimaryButton" type="submit" disabled={isConnecting}>
-              {isConnecting ? "Connecting..." : "Connect"}
-            </button>
-          </div>
-        </Form>
-      </section>
-    </div>
-  );
-}
-
-function ChatMeConnectionModal({ source, persistConnectState, isConnecting, onCancel, onLocalSubmit }) {
-  const formProps = persistConnectState ? { method: "post" } : { onSubmit: onLocalSubmit };
-  return (
-    <div className="ppConnectionModalOverlay" role="presentation">
-      <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="chatme-connect-title">
-        <div className="ppConnectionModalHeader">
-          <ConnectSourceLogo source={source} />
-          <div>
-            <span>ChatMe</span>
-            <h2 id="chatme-connect-title">ChatMe Reviews</h2>
-            <p>Enter your credentials to connect ProductPulse AI.</p>
-          </div>
-        </div>
-
-        <Form {...formProps} className="ppConnectionForm">
-          <input type="hidden" name="_action" value="connect-chatme" />
-          <label className="ppConnectionField">
-            <span>Private API token</span>
-            <input
-              name="privateApiToken"
-              type="password"
-              autoComplete="off"
-              placeholder="Paste your private API token"
-              required
-            />
-          </label>
-          <p className="ppConnectionHint">
-            ProductPulse tests the token before saving it and stores the connection for future syncs.
-          </p>
-
-          <div className="ppConnectionLinkRow">
-            <a href={chatMeConnectionLinks.app} target="_blank" rel="noreferrer">Open ChatMe</a>
-            <a href={chatMeConnectionLinks.docs} target="_blank" rel="noreferrer">Where to find the API token</a>
           </div>
 
           <div className="ppConnectionModalFooter">

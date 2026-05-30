@@ -10301,7 +10301,6 @@ function normalizeAiEvidenceProviderKey(value = "") {
   if (!normalized) return "";
   if (normalized.includes("csv")) return "csv_reviews";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme_reviews";
-  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatme_reviews";
   if (normalized.includes("review")) return normalized;
   return normalized;
 }
@@ -10883,13 +10882,12 @@ function buildReviewSourceStats(reviews = []) {
   const stats = {
     judgeMe: { ...empty },
     csv: { ...empty },
-    chatMe: { ...empty },
     total: { ...empty },
   };
 
   reviews.forEach((review) => {
     const sourceType = String(review.sourceType || "").toLowerCase();
-    const key = sourceType.includes("csv") ? "csv" : sourceType.includes("chatme") || sourceType.includes("chat_me") ? "chatMe" : "judgeMe";
+    const key = sourceType.includes("csv") ? "csv" : "judgeMe";
     addReviewToStats(stats[key], review);
     addReviewToStats(stats.total, review);
   });
@@ -11462,7 +11460,6 @@ function getReviewSourceGroupKey(source = "", sourceLabel = "") {
   const normalized = `${source} ${sourceLabel}`.toLowerCase();
   if (normalized.includes("csv")) return "csv";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeMe";
-  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatMe";
   if (normalized.includes("review")) return normalizeText(sourceLabel || source).replace(/[^a-z0-9]+/g, "_") || "reviews";
   return "";
 }
@@ -11470,7 +11467,6 @@ function getReviewSourceGroupKey(source = "", sourceLabel = "") {
 function getReviewSourceLabelForKey(key = "") {
   if (key === "csv") return "CSV reviews";
   if (key === "judgeMe") return "Judge.me reviews";
-  if (key === "chatMe") return "ChatMe reviews";
   return "Reviews";
 }
 

@@ -267,10 +267,6 @@
   opacity: 1;
 }
 
-.ppWizardConnectActive [data-pp-connect-source-row="chatmeReviews"] {
-  display: none;
-}
-
 .ppSettingsStepCard.ppWizardSpotlightTarget {
   background: var(--pp-cloud-white);
   box-shadow:
