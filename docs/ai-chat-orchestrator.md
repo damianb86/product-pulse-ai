@@ -78,6 +78,8 @@ Environment variables:
 - `AI_CHAT_MODEL`: default chat model. Fallback: `OPENAI_CHAT_MODEL`, then `gpt-5.4-mini`.
 - `AI_CHAT_STRONG_MODEL`: optional stronger model. Fallback: `OPENAI_PREMIUM_MODEL`, then `gpt-5.4`.
 - `AI_CHAT_CHEAP_MODEL`: optional cheaper model. Fallback: `OPENAI_BASIC_MODEL`, then the default model.
+- `AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT`: successful monthly chat responses that use `AI_CHAT_MODEL` before switching to `AI_CHAT_CHEAP_MODEL`. Default: 30.
+- `AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT`: successful monthly chat responses allowed on `AI_CHAT_CHEAP_MODEL` before chat is blocked for the rest of the billing month. Default: 100.
 - `AI_CHAT_MAX_TOOL_CALLS_PER_TURN`: default 5.
 - `AI_CHAT_MAX_RECENT_MESSAGES`: default 8.
 - `AI_CHAT_MAX_TOOL_RESULT_CHARACTERS`: default 6000.

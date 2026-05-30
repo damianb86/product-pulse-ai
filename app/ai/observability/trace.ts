@@ -33,6 +33,16 @@ export interface AiChatTrace {
     maxOutputTokens: number | null;
     maxActionProposalsPerTurn: number;
   };
+  chatQuota?: {
+    tier: string;
+    requestContext: string;
+    totalMessageCount: number;
+    cheapMessageCount: number;
+    standardMonthlyMessageLimit: number;
+    cheapMonthlyMessageLimit: number;
+    periodStart: string;
+    periodEnd: string;
+  } | null;
   pageContext: AiPageContext;
   durationMs: number;
   errorStatus: string | null;

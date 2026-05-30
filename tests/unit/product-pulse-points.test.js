@@ -4,11 +4,8 @@ import {
   debitStorePointsForShop,
   getStorePointBalanceForShop,
   getStorePointSummaryForShop,
-  getConfiguredChatMessagesPerPoint,
   recordExtraCreditPackForShop,
   recordPlanMonthlyPointGrantForShop,
-  recordChatMessagePointDebitForShop,
-  validateChatMessagePointsForShop,
 } from "../../app/lib/product-pulse-points.server";
 
 describe("ProductPulse store points", () => {
@@ -171,90 +168,6 @@ describe("ProductPulse store points", () => {
     expect(db.state.entries.find((entry) => entry.reason.includes("Manual adjustment")).idempotencyKey).toBe("adjustment-1");
   });
 
-  it("charges chat points only after ten successful assistant responses by default", async () => {
-    const db = createPointTestDb({
-      messages: buildAssistantMessages(9),
-    });
-    await getStorePointBalanceForShop("test-shop.myshopify.com", {
-      db,
-      env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "5" },
-    });
-
-    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
-      status: "no_charge",
-      charged: false,
-    });
-
-    db.state.messages = buildAssistantMessages(10);
-    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
-      status: "success",
-      charged: true,
-      amount: 1,
-      balance: { available: 4 },
-    });
-
-    db.state.messages = buildAssistantMessages(19);
-    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
-      status: "no_charge",
-      charged: false,
-    });
-
-    db.state.messages = buildAssistantMessages(20);
-    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db })).toMatchObject({
-      status: "success",
-      charged: true,
-      amount: 1,
-      balance: { available: 3 },
-    });
-  });
-
-  it("uses PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT to configure chat credit cadence", async () => {
-    const db = createPointTestDb({
-      messages: buildAssistantMessages(2),
-    });
-    const env = {
-      PRODUCT_PULSE_INITIAL_STORE_POINTS: "5",
-      PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT: "3",
-    };
-    await getStorePointBalanceForShop("test-shop.myshopify.com", { db, env });
-
-    expect(getConfiguredChatMessagesPerPoint(env)).toBe(3);
-    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db, env })).toMatchObject({
-      status: "no_charge",
-      charged: false,
-    });
-
-    db.state.messages = buildAssistantMessages(3);
-    expect(await recordChatMessagePointDebitForShop("test-shop.myshopify.com", { db, env })).toMatchObject({
-      status: "success",
-      charged: true,
-      amount: 1,
-      balance: { available: 4 },
-    });
-    expect(db.state.entries.at(-1).metadata).toMatchObject({
-      source: "chat",
-      messagesPerPoint: 3,
-      successfulAssistantMessageCount: 3,
-    });
-  });
-
-  it("blocks chat turns when the next successful response would exceed available credits", async () => {
-    const db = createPointTestDb({
-      messages: buildAssistantMessages(9),
-    });
-    await getStorePointBalanceForShop("test-shop.myshopify.com", {
-      db,
-      env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "0" },
-    });
-
-    expect(await validateChatMessagePointsForShop("test-shop.myshopify.com", { db })).toMatchObject({
-      valid: false,
-      status: "validation_error",
-      requestedAmount: 1,
-      balance: { available: 0 },
-    });
-  });
-
   it("summarizes real usage across the full ledger with recent activity only", async () => {
     const db = createPointTestDb();
     await getStorePointBalanceForShop("test-shop.myshopify.com", {
@@ -275,21 +188,13 @@ describe("ProductPulse store points", () => {
       idempotencyKey: "product-diagnosis:job-2",
       metadata: { source: "product_diagnosis", productTitle: "Core Linen Trouser" },
     });
-    await debitStorePointsForShop("test-shop.myshopify.com", {
-      db,
-      amount: 1,
-      reason: "Chat messages point debit chat-messages:test-shop.myshopify.com:1",
-      idempotencyKey: "chat-messages:test-shop.myshopify.com:1",
-      metadata: { source: "chat", successfulAssistantMessageCount: 5, messagesPerPoint: 5 },
-    });
-
     const summary = await getStorePointSummaryForShop("test-shop.myshopify.com", {
       db,
       env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "100" },
       limit: 2,
     });
 
-    expect(summary.balance).toMatchObject({ available: 96, label: "96.0" });
+    expect(summary.balance).toMatchObject({ available: 97, label: "97.0" });
     expect(summary.plan).toMatchObject({
       name: "Free plan",
       renewalLabel: "Does not renew",
@@ -297,24 +202,24 @@ describe("ProductPulse store points", () => {
       allowanceLabel: "100",
     });
     expect(summary.usage).toMatchObject({
-      used: 4,
+      used: 3,
       total: 100,
-      usedLabel: "4",
+      usedLabel: "3",
       totalLabel: "100",
-      percent: 4,
-      percentLabel: "4% used",
-      progressPercent: 4,
+      percent: 3,
+      percentLabel: "3% used",
+      progressPercent: 3,
     });
     expect(summary.activity).toHaveLength(2);
     expect(summary.activity[0]).toMatchObject({
-      title: "AI chat messages",
-      detail: "5 messages",
-      amountLabel: "-1 credit",
-    });
-    expect(summary.activity[1]).toMatchObject({
       title: "Deep diagnosis",
       detail: "Core Linen Trouser",
       amountLabel: "-2 credits",
+    });
+    expect(summary.activity[1]).toMatchObject({
+      title: "QuickScan",
+      detail: "60-day scan window",
+      amountLabel: "-1 credit",
     });
   });
 });
@@ -387,13 +292,4 @@ function sortLedgerEntries(entries) {
     if (byDate) return byDate;
     return String(b.id || "").localeCompare(String(a.id || ""));
   });
-}
-
-function buildAssistantMessages(count) {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `assistant-message-${index + 1}`,
-    shop: "test-shop.myshopify.com",
-    role: "assistant",
-    openAiResponseId: `response-${index + 1}`,
-  }));
 }

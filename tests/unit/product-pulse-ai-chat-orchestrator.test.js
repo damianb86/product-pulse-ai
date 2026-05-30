@@ -270,6 +270,60 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(firstRequest.instructions).toContain("type=product");
   });
 
+  it("uses the cheap chat model when the monthly chat quota moves to cheap tier", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn().mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+      assistantText: "Using the cheaper chat model for this response.",
+    })));
+    const chatQuotaResolver = vi.fn().mockResolvedValue(chatQuotaFixture({
+      model: "gpt-test-cheap",
+      tier: "cheap",
+      requestContext: "chat_quota_cheap",
+      totalMessageCount: 30,
+      cheapMessageCount: 0,
+    }));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate, chatQuotaResolver });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Use chat.",
+    });
+
+    expect(openAiCreate.mock.calls[0][0].model).toBe("gpt-test-cheap");
+    expect(result.metadata.model).toBe("gpt-test-cheap");
+    expect(result.metadata.trace.chatQuota).toMatchObject({
+      tier: "cheap",
+      requestContext: "chat_quota_cheap",
+      totalMessageCount: 30,
+      cheapMessageCount: 0,
+    });
+  });
+
+  it("blocks chat without calling OpenAI after the monthly cheap chat quota is exhausted", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn();
+    const chatQuotaResolver = vi.fn().mockResolvedValue(chatQuotaFixture({
+      allowed: false,
+      status: "monthly_quota_exceeded",
+      model: "gpt-test-cheap",
+      tier: "cheap",
+      requestContext: "chat_quota_cheap",
+      totalMessageCount: 130,
+      cheapMessageCount: 100,
+      message: "No podés usar más el chat este mes porque superaste la cuota mensual de chat.",
+    }));
+    const orchestrator = createTestOrchestrator({ store, openAiCreate, chatQuotaResolver });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Use chat.",
+    });
+
+    expect(openAiCreate).not.toHaveBeenCalled();
+    expect(result.assistantText).toContain("superaste la cuota mensual de chat");
+    expect(result.metadata.model).toBe("gpt-test-cheap");
+    expect(result.metadata.trace.errorStatus).toBe("monthly_chat_quota_exceeded");
+    expect(store.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+  });
+
   it("lets the model create internal action proposals but not execute actions", async () => {
     const store = new InMemoryConversationStore();
     const proposal = actionProposalFixture();
@@ -650,7 +704,7 @@ describe("ProductPulse AI chat orchestrator", () => {
   });
 });
 
-function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry, store, openAiCreate, config = {}, supportContactExecutor } = {}) {
+function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry, store, openAiCreate, config = {}, supportContactExecutor, chatQuotaResolver } = {}) {
   return new AiChatOrchestrator({
     toolRegistry: registry || createRegistryWithRepositories(),
     actionRegistry,
@@ -662,6 +716,7 @@ function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry,
       },
     },
     supportContactExecutor,
+    chatQuotaResolver,
     env: {
       OPENAI_API_KEY: "test-key",
       AI_MODEL_PRICING_JSON: JSON.stringify({
@@ -672,6 +727,8 @@ function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry,
       defaultModel: "gpt-test",
       strongModel: "gpt-test-strong",
       cheapModel: "gpt-test-cheap",
+      standardMonthlyMessageLimit: 30,
+      cheapMonthlyMessageLimit: 100,
       maxToolCallsPerTurn: 5,
       maxRecentMessages: 8,
       maxToolResultCharacters: 2000,
@@ -685,6 +742,28 @@ function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry,
       ...config,
     },
   });
+}
+
+function chatQuotaFixture(overrides = {}) {
+  const tier = overrides.tier || "standard";
+  return {
+    allowed: overrides.allowed ?? true,
+    status: overrides.status || "allowed",
+    message: overrides.message || "Chat quota available.",
+    model: overrides.model || (tier === "cheap" ? "gpt-test-cheap" : "gpt-test"),
+    tier,
+    requestContext: overrides.requestContext || (tier === "cheap" ? "chat_quota_cheap" : "chat_quota_standard"),
+    usage: {
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      totalMessageCount: overrides.totalMessageCount ?? 0,
+      cheapMessageCount: overrides.cheapMessageCount ?? 0,
+      standardMonthlyMessageLimit: 30,
+      cheapMonthlyMessageLimit: 100,
+      periodStart: "2026-05-01T00:00:00.000Z",
+      periodEnd: "2026-06-01T00:00:00.000Z",
+    },
+  };
 }
 
 function createRegistryWithRepositories(overrides = {}) {

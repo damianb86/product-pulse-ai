@@ -37,6 +37,8 @@ The language model runs on OpenAI through the server-side OpenAI SDK. Model sele
 - `AI_CHAT_MODEL`
 - `AI_CHAT_STRONG_MODEL`
 - `AI_CHAT_CHEAP_MODEL`
+- `AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT`
+- `AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT`
 - `AI_CHATKIT_DOMAIN_KEY`: public ChatKit domain allowlist key, currently `domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da`
 
 The browser never receives the OpenAI API key.

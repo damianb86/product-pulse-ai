@@ -37,6 +37,9 @@ Server environment variables:
 
 - `OPENAI_API_KEY`: required for server-side OpenAI model calls.
 - `AI_CHAT_MODEL`: optional default chat model. Fallback is handled by the Phase 2 chat config.
+- `AI_CHAT_CHEAP_MODEL`: optional cheaper model used after the monthly standard chat quota.
+- `AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT`: default 30.
+- `AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT`: default 100.
 - `AI_CHATKIT_ENABLED`: set to `false`, `0`, `off`, or `disabled` to disable the ChatKit UI.
 - `AI_CHATKIT_API_URL`: optional custom endpoint. Defaults to `/api/ai/chatkit/message`.
 - `AI_CHATKIT_DOMAIN_KEY`: required public ChatKit domain key from the OpenAI domain allowlist. Current Cloudflare tunnel key: `domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da`.

@@ -34,6 +34,9 @@ OPENAI_PREMIUM_MODEL=gpt-5.4
 GEMINI_API_KEY=
 GEMINI_MODEL=
 AI_CHAT_MODEL=gpt-5.4-mini
+AI_CHAT_CHEAP_MODEL=gpt-5.4-nano
+AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT=30
+AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT=100
 AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 ```
 
@@ -108,7 +111,9 @@ Relevant env vars:
 OPENAI_API_KEY=
 AI_ASSISTANT_ENABLED=true
 AI_CHAT_MODEL=gpt-5.4-mini
-PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT=10
+AI_CHAT_CHEAP_MODEL=gpt-5.4-nano
+AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT=30
+AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT=100
 AI_CHAT_MAX_TOOL_CALLS_PER_TURN=5
 AI_CHAT_MAX_OUTPUT_TOKENS=1600
 AI_RATE_LIMIT_ENABLED=true
@@ -128,7 +133,7 @@ AI_ACTION_CONFIRMATIONS_ENABLED=true
 The browser receives only safe ChatKit config, including the public ChatKit domain key from OpenAI's domain allowlist. OpenAI inference runs server-side through the existing `/api/ai/chatkit/message` adapter and `AiChatOrchestrator`.
 
 `AI_ASSISTANT_ENABLED=false` disables all assistant endpoints. `AI_INTERNAL_ACTIONS_ENABLED=false` keeps read-only chat available while blocking internal app action proposals and confirmations. `AI_CHATKIT_WORKFLOW_ID` is intentionally not required for the default custom-backend architecture.
-`PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT` controls how many successful assistant responses consume 1 ProductPulse credit; the default is `10`.
+Chat usage does not consume Diagnosis Credits. `AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT` controls how many successful monthly chat responses use `AI_CHAT_MODEL` before the chat switches to `AI_CHAT_CHEAP_MODEL`; `AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT` controls the monthly cheap-model quota before chat is blocked for the rest of the billing month.
 
 AI cost/eval tooling:
 

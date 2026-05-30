@@ -2,6 +2,8 @@ import { Outlet, useLoaderData, useLocation, useRouteError } from "react-router"
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
+import { getAiChatConfig } from "../ai/chat/config.server";
+import { getAiChatMonthlyQuotaForShop } from "../ai/chat/quota.server";
 import { getAiChatKitClientConfig } from "../ai/chatkit/config.server";
 import { isAiCostDashboardEnabled } from "../ai/observability/usageEvents.server";
 import { BetaFeedbackProvider } from "../components/beta-feedback/BetaFeedbackLayer";
@@ -15,6 +17,14 @@ import { getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const developmentMode = isProductPulseDevelopment();
+  const aiChatConfig = getAiChatConfig();
+  const chatQuota = await getAiChatMonthlyQuotaForShop(session.shop, {
+    userId: session.userId,
+    defaultModel: aiChatConfig.defaultModel,
+    cheapModel: aiChatConfig.cheapModel,
+    standardMonthlyMessageLimit: aiChatConfig.standardMonthlyMessageLimit,
+    cheapMonthlyMessageLimit: aiChatConfig.cheapMonthlyMessageLimit,
+  });
   // eslint-disable-next-line no-undef
   const apiKey = process.env.SHOPIFY_API_KEY || "";
 
@@ -23,13 +33,14 @@ export const loader = async ({ request }) => {
     developmentMode,
     aiCostDashboardEnabled: isAiCostDashboardEnabled(),
     chatKit: getAiChatKitClientConfig(),
+    chatQuota: serializeChatQuotaForClient(chatQuota),
     jobMonitor: await getJobMonitorForShop(session.shop),
     betaFeedback: getBetaFeedbackClientConfig({ session }),
   };
 };
 
 export default function App() {
-  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, jobMonitor, betaFeedback } = useLoaderData();
+  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, chatQuota, jobMonitor, betaFeedback } = useLoaderData();
   const location = useLocation();
   const activeSection = getActiveNavSection(location.pathname);
   const aiPageContext = getAiPageContext(location);
@@ -53,11 +64,24 @@ export default function App() {
           <s-link href="/app/help" data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
         </s-app-nav>
         <Outlet />
-        <ProductPulseChatKitAssistant config={chatKit} pageContext={aiPageContext} />
+        <ProductPulseChatKitAssistant config={chatKit} quota={chatQuota} pageContext={aiPageContext} />
         <ProductPulseWizard />
       </BetaFeedbackProvider>
     </AppProvider>
   );
+}
+
+function serializeChatQuotaForClient(quota) {
+  return {
+    allowed: Boolean(quota?.allowed),
+    message: quota?.message || "",
+    tier: quota?.tier || "standard",
+    totalMessageCount: quota?.usage?.totalMessageCount || 0,
+    cheapMessageCount: quota?.usage?.cheapMessageCount || 0,
+    standardMonthlyMessageLimit: quota?.usage?.standardMonthlyMessageLimit || 30,
+    cheapMonthlyMessageLimit: quota?.usage?.cheapMonthlyMessageLimit || 100,
+    periodEnd: quota?.usage?.periodEnd || null,
+  };
 }
 
 function getActiveNavSection(pathname) {

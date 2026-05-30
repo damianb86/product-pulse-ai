@@ -53,10 +53,7 @@ import {
   executeAiSupportContactTool,
   type ExecuteAiSupportContactToolInput,
 } from "../support/supportContactTool.server";
-import {
-  recordChatMessagePointDebitForShop,
-  validateChatMessagePointsForShop,
-} from "../../lib/product-pulse-points.server";
+import { getAiChatMonthlyQuotaForShop, type AiChatMonthlyQuota } from "./quota.server";
 
 const MAX_USER_MESSAGE_LENGTH = 3000;
 
@@ -106,6 +103,7 @@ export interface AiChatOrchestratorDependencies {
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   supportContactExecutor?: (input: ExecuteAiSupportContactToolInput) => Promise<AiToolExecutionResult>;
+  chatQuotaResolver?: typeof getAiChatMonthlyQuotaForShop;
 }
 
 interface ToolCallExecutionSummary {
@@ -135,6 +133,7 @@ export class AiChatOrchestrator {
   private env: NodeJS.ProcessEnv;
   private now: () => Date;
   private supportContactExecutor: (input: ExecuteAiSupportContactToolInput) => Promise<AiToolExecutionResult>;
+  private chatQuotaResolver: typeof getAiChatMonthlyQuotaForShop;
 
   constructor(dependencies: AiChatOrchestratorDependencies = {}) {
     this.openAiClient = dependencies.openAiClient;
@@ -146,6 +145,7 @@ export class AiChatOrchestrator {
     this.env = dependencies.env || process.env;
     this.now = dependencies.now || (() => new Date());
     this.supportContactExecutor = dependencies.supportContactExecutor || executeAiSupportContactTool;
+    this.chatQuotaResolver = dependencies.chatQuotaResolver || getAiChatMonthlyQuotaForShop;
   }
 
   async runAiChatTurn(input: RunAiChatTurnInput): Promise<AiChatTurnResult> {
@@ -272,14 +272,19 @@ export class AiChatOrchestrator {
       });
     }
 
-    const chatPointCheck = await validateChatMessagePointsForShop(chatContext.shop, {
-      messageId: userMessage.id,
-      conversationId: conversation.id,
+    const chatQuota = await this.chatQuotaResolver(chatContext.shop, {
+      userId: chatContext.userId,
       env: this.env,
+      now: this.now(),
+      defaultModel: this.config.defaultModel,
+      cheapModel: this.config.cheapModel,
+      standardMonthlyMessageLimit: this.config.standardMonthlyMessageLimit,
+      cheapMonthlyMessageLimit: this.config.cheapMonthlyMessageLimit,
     });
-    if (!chatPointCheck.valid) {
-      const fallback = createFallbackAssistantResponse("No tenés créditos disponibles para seguir usando el chat. Revisá tus créditos en [Plans & Credits](/app/plans-and-credits).", [
-        chatPointCheck.message || "ProductPulse chat credits are unavailable.",
+    const selectedModel = chatQuota.model || this.config.defaultModel;
+    if (!chatQuota.allowed) {
+      const fallback = createFallbackAssistantResponse(chatQuota.message, [
+        "Monthly AI chat quota exceeded.",
       ]);
       const assistantMessageId = createMessageId("ai_msg", this.now);
       const trace = buildAiChatTrace({
@@ -287,7 +292,7 @@ export class AiChatOrchestrator {
         conversationId: conversation.id,
         messageId: assistantMessageId,
         userMessageId: userMessage.id,
-        model: this.config.defaultModel,
+        model: selectedModel,
         openAiResponseIds: [],
         openAiCallCount: 0,
         usage: null,
@@ -298,9 +303,10 @@ export class AiChatOrchestrator {
         validation: { valid: true, retryCount: 0, fallbackUsed: true },
         pageContext,
         config: this.config,
+        chatQuota,
         recentMessagesSent: 0,
         durationMs: Date.now() - turnStartedAt,
-        errorStatus: "insufficient_productpulse_points",
+        errorStatus: "monthly_chat_quota_exceeded",
         now: this.now,
       });
       const assistantMessage = await this.persistAssistantMessage(chatContext, conversation.id, fallback, null, trace);
@@ -309,7 +315,7 @@ export class AiChatOrchestrator {
         conversationId: conversation.id,
         userMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
-        model: this.config.defaultModel,
+        model: selectedModel,
         pageContext,
         toolCallCount: 0,
         blockedToolCallCount: 0,
@@ -368,17 +374,19 @@ export class AiChatOrchestrator {
           ...(appMutationDefinitions.length ? [appMutationProposalTool] : []),
         ],
         openAiNameToInternalName,
+        model: selectedModel,
       });
       const parseResult = await this.parseOrRecoverAssistantResponse({
         client,
         instructions,
         inputItems: runResult.inputItems,
         rawResponse: runResult.response,
+        model: selectedModel,
       });
       const openAiResponses = [...runResult.responses, ...parseResult.extraOpenAiResponses];
       const usage = combineOpenAiTokenUsage(openAiResponses.map((response) => response.usage));
       const estimatedCost = this.config.costTrackingEnabled
-        ? estimateAiTurnCost({ model: this.config.defaultModel, usage, env: this.env })
+        ? estimateAiTurnCost({ model: selectedModel, usage, env: this.env })
         : null;
       const actionProposalCount = runResult.toolCallSummaries
         .filter((summary) => summary.internalToolName === AI_ACTION_PROPOSAL_TOOL_NAME && summary.status === "success")
@@ -389,7 +397,7 @@ export class AiChatOrchestrator {
         conversationId: conversation.id,
         messageId: assistantMessageId,
         userMessageId: userMessage.id,
-        model: this.config.defaultModel,
+        model: selectedModel,
         openAiResponseIds: openAiResponses.map((response) => String(response.id || "")).filter(Boolean),
         openAiCallCount: openAiResponses.length,
         usage,
@@ -400,6 +408,7 @@ export class AiChatOrchestrator {
         validation: parseResult.validation,
         pageContext,
         config: this.config,
+        chatQuota,
         recentMessagesSent: recentMessages.length,
         durationMs: Date.now() - turnStartedAt,
         errorStatus: null,
@@ -419,8 +428,9 @@ export class AiChatOrchestrator {
         source: "chat",
         operation: "chat_turn",
         provider: "openai",
-        model: this.config.defaultModel,
+        model: selectedModel,
         task: "chat_turn",
+        requestContext: chatQuota.requestContext,
         conversationId: conversation.id,
         messageId: assistantMessage.id,
         entityType: usageEntity.entityType,
@@ -428,25 +438,13 @@ export class AiChatOrchestrator {
         usage,
         estimatedCost,
       });
-      await recordChatMessagePointDebitForShop(chatContext.shop, {
-        messageId: assistantMessage.id,
-        conversationId: conversation.id,
-        env: this.env,
-      }).catch((error) => {
-        console.warn("[ProductPulse AI] Could not record chat credit debit.", {
-          shop: chatContext.shop,
-          conversationId: conversation.id,
-          messageId: assistantMessage.id,
-          error: error instanceof Error ? error.message : String(error || "unknown_error"),
-        });
-      });
 
       return buildTurnResult({
         response: parseResult.response,
         conversationId: conversation.id,
         userMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
-        model: this.config.defaultModel,
+        model: selectedModel,
         pageContext,
         toolCallCount: runResult.executedToolCalls,
         blockedToolCallCount: runResult.blockedToolCalls,
@@ -465,7 +463,7 @@ export class AiChatOrchestrator {
         conversationId: conversation.id,
         messageId: assistantMessageId,
         userMessageId: userMessage.id,
-        model: this.config.defaultModel,
+        model: selectedModel,
         openAiResponseIds: [],
         openAiCallCount: 0,
         usage: null,
@@ -476,6 +474,7 @@ export class AiChatOrchestrator {
         validation: { valid: false, retryCount: 0, fallbackUsed: true },
         pageContext,
         config: this.config,
+        chatQuota,
         recentMessagesSent: recentMessages.length,
         durationMs: Date.now() - turnStartedAt,
         errorStatus: getSafeOpenAiErrorCode(error),
@@ -487,7 +486,7 @@ export class AiChatOrchestrator {
         conversationId: conversation.id,
         userMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
-        model: this.config.defaultModel,
+        model: selectedModel,
         pageContext,
         toolCallCount: 0,
         blockedToolCallCount: 0,
@@ -509,6 +508,7 @@ export class AiChatOrchestrator {
     pageContext: AiPageContext;
     tools: unknown[];
     openAiNameToInternalName: Map<string, string>;
+    model: string;
   }): Promise<{
     response: OpenAiResponseLike;
     responses: OpenAiResponseLike[];
@@ -518,7 +518,7 @@ export class AiChatOrchestrator {
     toolCallSummaries: ToolCallExecutionSummary[];
   }> {
     const inputItems = [...input.inputItems];
-    let response = await this.createOpenAiResponse(input.client, input.instructions, inputItems, input.tools);
+    let response = await this.createOpenAiResponse(input.client, input.instructions, inputItems, input.tools, input.model);
     const responses = [response];
     const toolCallSummaries: ToolCallExecutionSummary[] = [];
     let executedToolCalls = 0;
@@ -554,7 +554,7 @@ export class AiChatOrchestrator {
       }
 
       const toolsForNextTurn = blockedToolCalls ? [] : input.tools;
-      response = await this.createOpenAiResponse(input.client, input.instructions, inputItems, toolsForNextTurn);
+      response = await this.createOpenAiResponse(input.client, input.instructions, inputItems, toolsForNextTurn, input.model);
       responses.push(response);
       if (blockedToolCalls) {
         return { response, responses, inputItems, executedToolCalls, blockedToolCalls, toolCallSummaries };
@@ -763,9 +763,10 @@ export class AiChatOrchestrator {
     instructions: string,
     inputItems: Array<Record<string, unknown>>,
     tools: unknown[],
+    model: string,
   ): Promise<OpenAiResponseLike> {
     const request: Record<string, unknown> = {
-      model: this.config.defaultModel,
+      model: model || this.config.defaultModel,
       instructions,
       input: inputItems,
       text: {
@@ -792,6 +793,7 @@ export class AiChatOrchestrator {
     instructions: string;
     inputItems: Array<Record<string, unknown>>;
     rawResponse: OpenAiResponseLike;
+    model: string;
   }): Promise<{
     response: AiAssistantResponse;
     extraOpenAiResponses: OpenAiResponseLike[];
@@ -816,7 +818,7 @@ export class AiChatOrchestrator {
           content: "Return the previous answer again as valid JSON that matches the required ProductPulse assistant response schema.",
         },
       ];
-      const retry = await this.createOpenAiResponse(input.client, input.instructions, retryInput, []);
+      const retry = await this.createOpenAiResponse(input.client, input.instructions, retryInput, [], input.model);
       retries.push(retry);
       const retryParsed = parseAiAssistantResponse(extractStructuredResponseValue(retry));
       if (retryParsed) {
@@ -1104,6 +1106,7 @@ function buildAiChatTrace(input: {
   validation: StructuredResponseValidationSummary;
   pageContext: AiPageContext;
   config: AiChatConfig;
+  chatQuota?: AiChatMonthlyQuota | null;
   recentMessagesSent: number;
   durationMs: number;
   errorStatus: string | null;
@@ -1138,6 +1141,16 @@ function buildAiChatTrace(input: {
       maxOutputTokens: input.config.maxOutputTokens || null,
       maxActionProposalsPerTurn: input.config.maxActionProposalsPerTurn,
     },
+    chatQuota: input.chatQuota ? {
+      tier: input.chatQuota.tier,
+      requestContext: input.chatQuota.requestContext,
+      totalMessageCount: input.chatQuota.usage.totalMessageCount,
+      cheapMessageCount: input.chatQuota.usage.cheapMessageCount,
+      standardMonthlyMessageLimit: input.chatQuota.usage.standardMonthlyMessageLimit,
+      cheapMonthlyMessageLimit: input.chatQuota.usage.cheapMonthlyMessageLimit,
+      periodStart: input.chatQuota.usage.periodStart,
+      periodEnd: input.chatQuota.usage.periodEnd,
+    } : null,
     pageContext: input.pageContext,
     durationMs: Math.max(0, Math.round(input.durationMs)),
     errorStatus: input.errorStatus,

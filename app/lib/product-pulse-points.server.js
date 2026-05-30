@@ -3,11 +3,6 @@ import prisma from "../db.server";
 export const PRODUCT_PULSE_INITIAL_STORE_POINTS_ENV = "PRODUCT_PULSE_INITIAL_STORE_POINTS";
 export const PRODUCT_PULSE_LEGACY_INITIAL_POINTS_ENV = "PRODUCT_PULSE_INITIAL_POINTS";
 export const PRODUCT_PULSE_DEFAULT_INITIAL_STORE_POINTS = 100;
-export const PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT_ENV = "PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT";
-export const PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT = 10;
-export const PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT = PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT;
-export const PRODUCT_PULSE_CHAT_MESSAGE_POINT_COST = 1 / PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT;
-export const PRODUCT_PULSE_CHAT_POINT_REASON_PREFIX = "Chat messages point debit";
 
 const POINT_DECIMAL_PLACES = 1;
 const POINT_ROUND_FACTOR = 10 ** POINT_DECIMAL_PLACES;
@@ -19,16 +14,6 @@ export function getConfiguredInitialStorePoints(env = process.env) {
     env?.[PRODUCT_PULSE_INITIAL_STORE_POINTS_ENV] ?? env?.[PRODUCT_PULSE_LEGACY_INITIAL_POINTS_ENV],
     PRODUCT_PULSE_DEFAULT_INITIAL_STORE_POINTS,
   );
-}
-
-export function getConfiguredChatMessagesPerPoint(env = process.env) {
-  const number = Number(env?.[PRODUCT_PULSE_CHAT_MESSAGES_PER_POINT_ENV]);
-  if (!Number.isFinite(number) || number < 1) return PRODUCT_PULSE_DEFAULT_CHAT_MESSAGES_PER_POINT;
-  return Math.floor(number);
-}
-
-function getConfiguredChatMessagePointCost(env = process.env) {
-  return roundPointAmount(1 / getConfiguredChatMessagesPerPoint(env));
 }
 
 export function normalizePointAmount(value, fallback = 0) {
@@ -297,126 +282,6 @@ export async function recordExtraCreditPackForShop(shop, input = {}) {
   });
 }
 
-export async function validateChatMessagePointsForShop(shop, input = {}) {
-  const db = input.db || prisma;
-  const normalizedShop = normalizeShop(shop);
-  const env = input.env || process.env;
-  const messagesPerPoint = getConfiguredChatMessagesPerPoint(env);
-  const chatMessagePointCost = getConfiguredChatMessagePointCost(env);
-  if (!normalizedShop) {
-    return {
-      valid: false,
-      status: "validation_error",
-      message: "A valid shop is required.",
-      requestedAmount: chatMessagePointCost,
-    };
-  }
-  if (
-    typeof db.aiConversationMessage?.count !== "function"
-    || typeof db.creditLedgerEntry?.findMany !== "function"
-    || typeof db.creditLedgerEntry?.findFirst !== "function"
-  ) {
-    return {
-      valid: true,
-      status: "no_point_ledger",
-      message: "Point ledger is not available in this runtime.",
-      requestedAmount: chatMessagePointCost,
-    };
-  }
-
-  const [balance, successfulAssistantMessageCount, chatPointDebits] = await Promise.all([
-    getStorePointBalanceForShop(normalizedShop, { db, env }),
-    countBillableChatAssistantMessages(db, normalizedShop),
-    getChatPointDebitEntries(db, normalizedShop),
-  ]);
-  const chargedPoints = sumPointAmounts(chatPointDebits);
-  const duePointsAfterNextSuccessfulResponse = Math.floor(
-    (Number(successfulAssistantMessageCount || 0) + 1) / messagesPerPoint,
-  );
-  const amountDueAfterNextSuccessfulResponse = roundPointAmount(duePointsAfterNextSuccessfulResponse - chargedPoints);
-  const requestedAmount = amountDueAfterNextSuccessfulResponse > 0
-    ? amountDueAfterNextSuccessfulResponse
-    : chatMessagePointCost;
-
-  if (balance.available + POINT_EPSILON < requestedAmount) {
-    return {
-      valid: false,
-      status: "validation_error",
-      message: `This chat turn needs ${formatPointAmount(requestedAmount)} credit${requestedAmount === 1 ? "" : "s"}, but only ${balance.label} are available.`,
-      requestedAmount,
-      balance,
-      successfulAssistantMessageCount,
-      chargedPoints,
-    };
-  }
-
-  return {
-    valid: true,
-    status: "success",
-    message: "Chat credits available.",
-    requestedAmount,
-    balance,
-    successfulAssistantMessageCount,
-    chargedPoints,
-  };
-}
-
-export async function recordChatMessagePointDebitForShop(shop, input = {}) {
-  const db = input.db || prisma;
-  const normalizedShop = normalizeShop(shop);
-  const env = input.env || process.env;
-  const messagesPerPoint = getConfiguredChatMessagesPerPoint(env);
-  if (!normalizedShop) {
-    return { status: "validation_error", charged: false, message: "A valid shop is required." };
-  }
-  if (
-    typeof db.aiConversationMessage?.count !== "function"
-    || typeof db.creditLedgerEntry?.findMany !== "function"
-  ) {
-    return {
-      status: "no_charge",
-      charged: false,
-      message: "Point ledger is not available in this runtime.",
-    };
-  }
-
-  const [successfulAssistantMessageCount, chatPointDebits] = await Promise.all([
-    countBillableChatAssistantMessages(db, normalizedShop),
-    getChatPointDebitEntries(db, normalizedShop),
-  ]);
-  const duePoints = Math.floor(Number(successfulAssistantMessageCount || 0) / messagesPerPoint);
-  const chargedPoints = sumPointAmounts(chatPointDebits);
-  const amountToCharge = roundPointAmount(duePoints - chargedPoints);
-
-  if (amountToCharge <= 0) {
-    return {
-      status: "no_charge",
-      charged: false,
-      successfulAssistantMessageCount,
-      duePoints,
-      chargedPoints,
-    };
-  }
-
-  return debitStorePointsForShop(normalizedShop, {
-    db,
-    env,
-    amount: amountToCharge,
-    reason: `${PRODUCT_PULSE_CHAT_POINT_REASON_PREFIX} chat-messages:${normalizedShop}:${duePoints} - ${duePoints} credit${duePoints === 1 ? "" : "s"} due after ${successfulAssistantMessageCount} successful chat responses`,
-    idempotencyKey: `chat-messages:${normalizedShop}:${duePoints}`,
-    metadata: {
-      source: "chat",
-      successfulAssistantMessageCount,
-      chatMessageCount: successfulAssistantMessageCount,
-      messagesPerPoint,
-      duePoints,
-      chargedPoints,
-      messageId: input.messageId || null,
-      conversationId: input.conversationId || null,
-    },
-  });
-}
-
 async function ensureStorePointBalanceForShopInTransaction(tx, shop, env) {
   const latest = await getLatestLedgerEntry(tx, shop);
   if (latest) return buildPointBalance(shop, latest.balanceAfter, latest);
@@ -443,33 +308,6 @@ async function getLatestLedgerEntry(db, shop) {
     where: { shop },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
-}
-
-async function countBillableChatAssistantMessages(db, shop) {
-  return db.aiConversationMessage.count({
-    where: {
-      shop,
-      role: "assistant",
-      openAiResponseId: { not: null },
-    },
-  });
-}
-
-async function getChatPointDebitEntries(db, shop) {
-  return db.creditLedgerEntry.findMany({
-    where: {
-      shop,
-      direction: "debit",
-      reason: { startsWith: PRODUCT_PULSE_CHAT_POINT_REASON_PREFIX },
-    },
-    select: { amount: true },
-  });
-}
-
-function sumPointAmounts(entries = []) {
-  return roundPointAmount(
-    entries.reduce((total, entry) => total + normalizePointAmount(entry.amount), 0),
-  );
 }
 
 async function findLedgerEntryByIdempotencyKey(db, shop, idempotencyKey) {

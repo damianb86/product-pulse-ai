@@ -8,6 +8,8 @@ export interface AiChatConfig {
   defaultModel: string;
   strongModel: string;
   cheapModel: string;
+  standardMonthlyMessageLimit: number;
+  cheapMonthlyMessageLimit: number;
   maxToolCallsPerTurn: number;
   maxRecentMessages: number;
   maxToolResultCharacters: number;
@@ -31,6 +33,8 @@ export function getAiChatConfig(env: NodeJS.ProcessEnv = process.env): AiChatCon
     defaultModel,
     strongModel: stringEnv(env.AI_CHAT_STRONG_MODEL) || stringEnv(env.OPENAI_PREMIUM_MODEL) || "gpt-5.4",
     cheapModel: stringEnv(env.AI_CHAT_CHEAP_MODEL) || stringEnv(env.OPENAI_BASIC_MODEL) || defaultModel,
+    standardMonthlyMessageLimit: integerEnv(env.AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT, 0, 100_000, 30),
+    cheapMonthlyMessageLimit: integerEnv(env.AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT, 0, 100_000, 100),
     maxToolCallsPerTurn: integerEnv(env.AI_CHAT_MAX_TOOL_CALLS_PER_TURN, 1, 10, 5),
     maxRecentMessages: integerEnv(env.AI_CHAT_MAX_RECENT_MESSAGES, 1, 24, 8),
     maxToolResultCharacters: integerEnv(env.AI_CHAT_MAX_TOOL_RESULT_CHARACTERS, 1000, 16000, 6000),

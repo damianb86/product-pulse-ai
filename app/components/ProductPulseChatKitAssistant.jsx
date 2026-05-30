@@ -8,7 +8,7 @@ const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v2";
 const CHATKIT_ASSISTANT_NAME = "Pulse Guide";
 let chatKitBrowserScriptPromise;
 
-export function ProductPulseChatKitAssistant({ config, pageContext }) {
+export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -24,6 +24,9 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   const normalizedPageContext = useMemo(() => pageContext || { type: "unknown" }, [pageContext]);
   const pageContextKey = useMemo(() => JSON.stringify(normalizedPageContext), [normalizedPageContext]);
   const enabled = Boolean(config?.enabled);
+  const quotaExceededMessage = quota && quota.allowed === false
+    ? quota.message || "No podés usar más el chat este mes porque superaste la cuota mensual de chat."
+    : "";
   const isDarkTheme = themeMode === "dark";
   const chatKitControlsReady = enabled && isMounted && chatKitScriptReady;
 
@@ -60,8 +63,8 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   useEffect(() => {
     pageContextRef.current = normalizedPageContext;
     backendSessionRef.current = null;
-    setStatusMessage("");
-  }, [normalizedPageContext, pageContextKey]);
+    setStatusMessage(isOpen && quotaExceededMessage ? quotaExceededMessage : "");
+  }, [normalizedPageContext, pageContextKey, isOpen, quotaExceededMessage]);
 
   const ensureBackendSession = useCallback(async () => {
     const requestedConversationId = conversationIdRef.current || undefined;
@@ -176,10 +179,11 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
 
   const openAssistant = useCallback(() => {
     setIsOpen(true);
+    if (quotaExceededMessage) setStatusMessage(quotaExceededMessage);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail: { type: "chat-opened" } }));
     }
-  }, []);
+  }, [quotaExceededMessage]);
 
   const chatKit = useChatKit({
     api: {
@@ -245,10 +249,6 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   useEffect(() => {
     chatKitMethodsRef.current = chatKit;
   }, [chatKit]);
-
-  useEffect(() => {
-    setStatusMessage("");
-  }, [pageContextKey]);
 
   const assistantClassName = [
     "ppChatKitAssistant",
