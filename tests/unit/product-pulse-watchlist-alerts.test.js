@@ -136,7 +136,6 @@ describe("ProductPulse watchlist alert helpers", () => {
     const decision = __productPulseWatchlistAlertsTestHooks.buildWatchlistAlertDecision({
       settings: {
         ...baseSettings,
-        alertsEnabled: false,
         summarySchedule: "none",
         triggerRule: "new_issue_only",
       },
@@ -153,6 +152,20 @@ describe("ProductPulse watchlist alert helpers", () => {
 
     expect(decision.shouldSend).toBe(true);
     expect(decision.reason).toBe("manual_watchlist_run");
+  });
+
+  it("does not send forced manual scan emails when email alerts are disabled", () => {
+    const decision = __productPulseWatchlistAlertsTestHooks.buildWatchlistAlertDecision({
+      settings: {
+        ...baseSettings,
+        alertsEnabled: false,
+      },
+      metadata: { forceEmail: true, triggeredBy: "watchlist-manual-run" },
+      reports: [],
+    });
+
+    expect(decision.shouldSend).toBe(false);
+    expect(decision.reason).toBe("watchlist_alerts_disabled");
   });
 
   it("still requires a recipient for forced manual scan emails", () => {

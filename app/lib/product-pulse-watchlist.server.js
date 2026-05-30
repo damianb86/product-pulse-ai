@@ -216,26 +216,58 @@ export async function getWatchlistProductForShop(shop, productId, { runId = "" }
   };
 }
 
-export async function getWatchSettingsForShop(shop) {
+export async function getDefaultWatchAlertRecipientsForShop(shop, options = {}) {
+  const explicitRecipients = normalizeDefaultAlertRecipients(options.defaultAlertRecipients);
+  if (explicitRecipients.length) return explicitRecipients.slice(0, 1);
+
+  const db = options.db || prisma;
+  if (!shop || typeof db?.session?.findMany !== "function") return [];
+
+  try {
+    const sessions = await db.session.findMany({
+      where: { shop },
+      select: { email: true, accountOwner: true, isOnline: true },
+      take: 20,
+    });
+    const sortedSessions = [...(Array.isArray(sessions) ? sessions : [])].sort((left, right) => {
+      const ownerDelta = Number(Boolean(right.accountOwner)) - Number(Boolean(left.accountOwner));
+      if (ownerDelta) return ownerDelta;
+      return Number(Boolean(right.isOnline)) - Number(Boolean(left.isOnline));
+    });
+    return normalizeDefaultAlertRecipients(sortedSessions.map((session) => session.email)).slice(0, 1);
+  } catch {
+    return [];
+  }
+}
+
+export async function getWatchSettingsForShop(shop, options = {}) {
+  const defaultAlertRecipients = await getDefaultWatchAlertRecipientsForShop(shop, options);
   const settings = await prisma.productWatchSettings.upsert({
     where: { shop },
     create: {
       shop,
       scanCadenceDays: DEFAULT_WATCH_SETTINGS.scanCadenceDays,
-      alertRecipients: DEFAULT_WATCH_SETTINGS.alertRecipients,
+      alertRecipients: defaultAlertRecipients.length ? defaultAlertRecipients : DEFAULT_WATCH_SETTINGS.alertRecipients,
       triggerRule: DEFAULT_WATCH_SETTINGS.triggerRule,
       summarySchedule: DEFAULT_WATCH_SETTINGS.summarySchedule,
       alertsEnabled: DEFAULT_WATCH_SETTINGS.alertsEnabled,
     },
     update: {},
   });
+  if (!normalizeRecipientList(settings.alertRecipients).length && defaultAlertRecipients.length) {
+    const updatedSettings = await prisma.productWatchSettings.update({
+      where: { shop },
+      data: { alertRecipients: defaultAlertRecipients },
+    });
+    return formatWatchSettings(updatedSettings);
+  }
   return formatWatchSettings(settings);
 }
 
-export async function updateWatchSettingsForShop(shop, formData) {
+export async function updateWatchSettingsForShop(shop, formData, options = {}) {
   const scanCadenceDays = normalizeCadenceDays(formData.get("scanCadenceDays"));
   const triggerRule = normalizeOptionValue(formData.get("triggerRule"), WATCH_TRIGGER_RULE_OPTIONS, DEFAULT_WATCH_SETTINGS.triggerRule);
-  const summarySchedule = normalizeOptionValue(formData.get("summarySchedule"), WATCH_SUMMARY_OPTIONS, DEFAULT_WATCH_SETTINGS.summarySchedule);
+  const summarySchedule = DEFAULT_WATCH_SETTINGS.summarySchedule;
   const alertsEnabled = String(formData.get("alertsEnabled") || "") === "on";
   const recipients = parseAlertRecipients(String(formData.get("alertRecipients") || ""));
   if (recipients.invalid.length) {
@@ -244,20 +276,22 @@ export async function updateWatchSettingsForShop(shop, formData) {
       message: `Invalid alert recipient${recipients.invalid.length === 1 ? "" : "s"}: ${recipients.invalid.join(", ")}`,
     };
   }
+  const defaultAlertRecipients = await getDefaultWatchAlertRecipientsForShop(shop, options);
+  const alertRecipients = recipients.valid.length ? recipients.valid : defaultAlertRecipients;
 
   const settings = await prisma.productWatchSettings.upsert({
     where: { shop },
     create: {
       shop,
       scanCadenceDays,
-      alertRecipients: recipients.valid,
+      alertRecipients,
       triggerRule,
       summarySchedule,
       alertsEnabled,
     },
     update: {
       scanCadenceDays,
-      alertRecipients: recipients.valid,
+      alertRecipients,
       triggerRule,
       summarySchedule,
       alertsEnabled,
@@ -267,7 +301,7 @@ export async function updateWatchSettingsForShop(shop, formData) {
     eventType: "settings_changed",
     title: "Watch settings updated",
     detail: `${getCadenceLabel(scanCadenceDays)} · ${getTriggerRuleLabel(triggerRule)}`,
-    metadata: { scanCadenceDays, triggerRule, summarySchedule, alertsEnabled, recipients: recipients.valid.length },
+    metadata: { scanCadenceDays, triggerRule, alertsEnabled, recipients: alertRecipients.length },
   });
 
   return {
@@ -278,22 +312,28 @@ export async function updateWatchSettingsForShop(shop, formData) {
   };
 }
 
-export async function toggleWatchAlertsForShop(shop) {
+export async function toggleWatchAlertsForShop(shop, options = {}) {
+  const defaultAlertRecipients = await getDefaultWatchAlertRecipientsForShop(shop, options);
   const current = await prisma.productWatchSettings.upsert({
     where: { shop },
     create: {
       shop,
       scanCadenceDays: DEFAULT_WATCH_SETTINGS.scanCadenceDays,
-      alertRecipients: DEFAULT_WATCH_SETTINGS.alertRecipients,
+      alertRecipients: defaultAlertRecipients.length ? defaultAlertRecipients : DEFAULT_WATCH_SETTINGS.alertRecipients,
       triggerRule: DEFAULT_WATCH_SETTINGS.triggerRule,
       summarySchedule: DEFAULT_WATCH_SETTINGS.summarySchedule,
       alertsEnabled: DEFAULT_WATCH_SETTINGS.alertsEnabled,
     },
     update: {},
   });
+  const nextAlertsEnabled = !current.alertsEnabled;
+  const updateData = { alertsEnabled: nextAlertsEnabled };
+  if (nextAlertsEnabled && !normalizeRecipientList(current.alertRecipients).length && defaultAlertRecipients.length) {
+    updateData.alertRecipients = defaultAlertRecipients;
+  }
   const settings = await prisma.productWatchSettings.update({
     where: { shop },
-    data: { alertsEnabled: !current.alertsEnabled },
+    data: updateData,
   });
   await recordWatchActivityForShop(shop, {
     eventType: "settings_changed",
@@ -2109,6 +2149,11 @@ function normalizeOptionValue(value, options, fallback) {
 function normalizeRecipientList(value) {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
   return [];
+}
+
+function normalizeDefaultAlertRecipients(value) {
+  const rawRecipients = Array.isArray(value) ? value.join(",") : String(value || "");
+  return parseAlertRecipients(rawRecipients).valid;
 }
 
 function parseAlertRecipients(value) {

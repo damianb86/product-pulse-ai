@@ -3,6 +3,7 @@ import {
   WATCHLIST_MAX_PRODUCTS,
   __productPulseWatchlistTestHooks,
   enforceWatchlistPlanLimitForShop,
+  getDefaultWatchAlertRecipientsForShop,
   getWatchlistLimitContext,
   getWatchlistProductLimitForPlan,
   isProductPulseBetaActive,
@@ -32,6 +33,19 @@ describe("ProductPulse watchlist helpers", () => {
       betaActive: false,
       maxProducts: 5,
     });
+  });
+
+  it("uses the shop session email as the default Watchlist alert recipient", async () => {
+    const db = {
+      session: {
+        findMany: async () => [
+          { email: "member@example.com", accountOwner: false, isOnline: true },
+          { email: "owner@example.com", accountOwner: true, isOnline: false },
+        ],
+      },
+    };
+
+    await expect(getDefaultWatchAlertRecipientsForShop("test-shop.myshopify.com", { db })).resolves.toEqual(["owner@example.com"]);
   });
 
   it("removes products beyond the active plan limit and keeps the oldest items", async () => {

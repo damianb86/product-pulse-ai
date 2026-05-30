@@ -896,6 +896,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Nintendo New 3DS XL").length).toBeGreaterThan(0);
     expect(screen.getByText("Recent watch activity")).toBeInTheDocument();
     expect(screen.getByText("Product added to watchlist")).toBeInTheDocument();
+    expect(screen.queryByText("Digest / summary")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Summary")).not.toBeInTheDocument();
     expect(screen.getByText("Watchlist trend (risk activity)")).toBeInTheDocument();
     expect(screen.getByText("63 · Medium")).toBeInTheDocument();
     expect(screen.getByText("46 · Low")).toBeInTheDocument();

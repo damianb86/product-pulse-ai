@@ -34,7 +34,7 @@ export const loader = async ({ request }) => {
   const selectedRunId = String(url.searchParams.get("runId") || "");
   return {
     data: {
-      watchlist: await getWatchlistForShop(session.shop, { selectedRunId }),
+      watchlist: await getWatchlistForShop(session.shop, { selectedRunId, defaultAlertRecipients: [session.email] }),
     },
   };
 };
@@ -72,11 +72,11 @@ export const action = async ({ request }) => {
   }
 
   if (actionType === "update-watch-settings") {
-    return updateWatchSettingsForShop(session.shop, formData);
+    return updateWatchSettingsForShop(session.shop, formData, { defaultAlertRecipients: [session.email] });
   }
 
   if (actionType === "toggle-watch-alerts") {
-    return toggleWatchAlertsForShop(session.shop);
+    return toggleWatchAlertsForShop(session.shop, { defaultAlertRecipients: [session.email] });
   }
 
   if (actionType === "pause-all-watches") {
@@ -160,7 +160,7 @@ export const action = async ({ request }) => {
       ...result,
       action: { id: "run-watch-scan" },
       message: result?.status === "success"
-        ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued. A confirmation email will be sent when the run finishes.`
+        ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued. A confirmation email will be sent when email alerts are enabled.`
         : result?.message || "Watch diagnostics could not be queued.",
       suppressBanner: result?.status === "success",
     };

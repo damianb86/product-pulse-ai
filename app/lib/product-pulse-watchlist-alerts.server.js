@@ -307,6 +307,9 @@ async function getLatestWatchReportsForQueuedRun(shop, queuedActivity = {}, { jo
 }
 
 function buildWatchlistAlertDecision({ settings = {}, reports = [], jobs = [], metadata = {} } = {}) {
+  if (settings.alertsEnabled === false) {
+    return { shouldSend: false, reason: "watchlist_alerts_disabled", label: "Watchlist alerts are disabled" };
+  }
   if (!Array.isArray(settings.alertRecipients) || !settings.alertRecipients.length) {
     return { shouldSend: false, reason: "no_watchlist_alert_recipients", label: "No Watchlist alert recipients configured" };
   }
@@ -316,12 +319,6 @@ function buildWatchlistAlertDecision({ settings = {}, reports = [], jobs = [], m
       reason: metadata.creditExhausted ? "manual_watchlist_credit_exhausted" : "manual_watchlist_run",
       label: metadata.creditExhausted ? "Manual Watchlist run blocked by credits" : "Manual Watchlist run completed",
     };
-  }
-  if (!settings.alertsEnabled) {
-    return { shouldSend: false, reason: "watchlist_alerts_disabled", label: "Watchlist alerts are disabled" };
-  }
-  if (settings.summarySchedule === "none") {
-    return { shouldSend: false, reason: "watchlist_summary_email_disabled", label: "Watchlist summary email is disabled" };
   }
 
   if (metadata.creditExhausted || uniqueStrings(metadata.skippedForCredits).length) {

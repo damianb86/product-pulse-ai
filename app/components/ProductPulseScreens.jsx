@@ -4849,17 +4849,10 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
     { value: "medium_or_high_risk", label: "Medium or high risk detected" },
     { value: "any_watch_change", label: "Any watched product change" },
   ];
-  const summaryOptions = settingsOptions.summaries || [
-    { value: "daily_digest_8am", label: "Daily digest at 8:00 AM" },
-    { value: "weekly_monday_8am", label: "Weekly summary Monday at 8:00 AM" },
-    { value: "immediate_only", label: "Immediate alerts only" },
-    { value: "none", label: "No summary email" },
-  ];
   const rows = [
     ["clock", "Scan cadence", settings.scanCadenceLabel || "Every 3 days"],
     ["profile", "Alert recipients", `${settings.alertRecipientCount || 0} recipient${Number(settings.alertRecipientCount || 0) === 1 ? "" : "s"}`],
     ["email", "Trigger rule", settings.triggerRuleLabel || "Notify on new issues or rising risk"],
-    ["email", "Digest / summary", settings.summaryScheduleLabel || "Daily digest at 8:00 AM"],
   ];
 
   useEffect(() => {
@@ -4892,12 +4885,6 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
             <span>Trigger rule</span>
             <select name="triggerRule" defaultValue={settings.triggerRule || "new_or_rising_risk"}>
               {triggerRuleOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
-          <label>
-            <span>Summary</span>
-            <select name="summarySchedule" defaultValue={settings.summarySchedule || "daily_digest_8am"}>
-              {summaryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label className="ppWatchSettingsCheckbox">
