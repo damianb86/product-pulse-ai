@@ -1,7 +1,7 @@
 /* eslint-env node */
 
 export function isBetaFeedbackEnabled(env = process.env) {
-  return booleanEnv(env.BETA_FEEDBACK_ENABLED, false);
+  return booleanEnv(env.BETA_FEEDBACK_ENABLED, String(env.NODE_ENV || "").toLowerCase() === "development");
 }
 
 export function getBetaFeedbackClientConfig({ session } = {}, env = process.env) {

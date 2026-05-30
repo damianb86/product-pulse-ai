@@ -29,6 +29,7 @@ export const BETA_FEEDBACK_HIDE_REASONS = Object.freeze([
   "duplicate_information",
   "only_need_sometimes",
   "other",
+  "skipped",
 ]);
 
 const SENSITIVE_KEY_PATTERN = /(token|secret|password|credential|authorization|cookie|session|access|refresh|api[_-]?key|payment|card|cvv|private)/i;
@@ -374,6 +375,7 @@ function getHideReasonLabel(reason) {
     duplicate_information: "I already get this information elsewhere",
     only_need_sometimes: "I only need it sometimes",
     other: "Other",
+    skipped: "Skipped",
   };
   return labels[reason] || labels.other;
 }
@@ -387,7 +389,7 @@ function queueBetaFeedbackEmail(report, { request } = {}) {
 }
 
 async function sendBetaFeedbackEmail(report, { request } = {}) {
-  const recipient = process.env.BETA_FEEDBACK_RECIPIENT || process.env.CONTACT_EMAIL;
+  const recipients = getBetaFeedbackEmailRecipients();
   const context = report.context && typeof report.context === "object" ? report.context : {};
   const pageUrl = getFeedbackPageUrl(context, request);
   const contextSummary = getEmailContextSummary(context);
@@ -416,9 +418,16 @@ async function sendBetaFeedbackEmail(report, { request } = {}) {
     html: buildBetaFeedbackEmailHtml(report, message, pageUrl),
     replyEmail: report.userEmail || undefined,
     shop: report.shop,
-    to: recipient,
-    requiredRecipientEnv: "BETA_FEEDBACK_RECIPIENT or CONTACT_EMAIL",
+    to: recipients,
+    requiredRecipientEnv: "BETA_FEEDBACK_RECIPIENT and/or CONTACT_EMAIL",
   });
+}
+
+function getBetaFeedbackEmailRecipients(env = process.env) {
+  return [
+    env.BETA_FEEDBACK_RECIPIENT,
+    env.CONTACT_EMAIL,
+  ].filter(Boolean).join(",");
 }
 
 function getFeedbackPageUrl(context = {}, request) {

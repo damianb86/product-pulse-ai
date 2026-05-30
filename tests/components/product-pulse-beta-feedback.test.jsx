@@ -130,18 +130,18 @@ describe("BetaFeedbackProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide Risk panel" }));
     expect(await screen.findByRole("dialog", { name: "Hide Risk panel?" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText("The data looks wrong"));
-    fireEvent.change(screen.getByLabelText("Comment (optional)"), { target: { value: "Risk score is duplicated elsewhere." } });
+    fireEvent.click(screen.getByLabelText("Other"));
+    fireEvent.change(screen.getByLabelText("Tell us why"), { target: { value: "Risk score is duplicated elsewhere." } });
     fireEvent.click(screen.getByRole("button", { name: "Hide panel" }));
 
-    expect(await screen.findByText("Risk panel hidden")).toBeInTheDocument();
+    const restoreButton = await screen.findByRole("button", { name: "Restore Risk panel" });
     expect(requests.find((item) => item.body.intent === "hide-panel")?.body).toMatchObject({
       panelId: "product.riskHistory",
-      reason: "data_looks_wrong",
+      reason: "other",
       reasonMessage: "Risk score is duplicated elsewhere.",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Risk panel hidden" }));
+    fireEvent.click(restoreButton);
 
     await waitFor(() => {
       expect(requests.some((item) => item.body.intent === "set-panel-visibility" && item.body.hidden === false)).toBe(true);

@@ -5084,6 +5084,524 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(__productPulseDiagnosisTestHooks.classifyIssueText(
       "The page technically explains the flip option, but I missed the control-button tradeoff until install; not broken, just an expectation mismatch.",
     )).toBe("setup_expectation");
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(
+      "Auto shutoff looked defective because I boiled below the MIN line; support pointed to the minimum-fill setup rule.",
+    )).toBe("setup_expectation");
+  });
+
+  it("keeps targeted description edits product-specific for appliance setup gaps", () => {
+    const currentDescription = [
+      "GEN VoltNest is a compact electric kettle with a folding silicone body, stainless heated base, and locking travel lid.",
+      "This model is 120 V only for North American outlets.",
+      "Fill above the MIN line before boiling and keep the steam vent facing into open space.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "missing_specifications", label: "Missing capacity and wattage", severity: "high", evidence: "The description explains minimum-fill behavior but does not state capacity, wattage, cord length, or counter clearance." },
+      { code: "missing_care", label: "Missing descaling guidance", severity: "medium", evidence: "The description does not explain how to descale mineral buildup or clean the silicone body, lid, and steam vent." },
+    ];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/voltnest",
+        productTitle: "GEN VoltNest Foldaway Steam Kettle",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        confidence: 82,
+        issueSignalCounts: { setup_expectation: 5 },
+        evidenceSnippets: [
+          { text: "Auto shutoff looked defective because the buyer boiled below the MIN line; support pointed to setup guidance." },
+        ],
+        product: {
+          title: "GEN VoltNest Foldaway Steam Kettle",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Kitchen Appliances",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 7,
+          contentIssueCount: contentIssues.length,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          topReturnReasons: ["Minimum-fill setup missed"],
+          topReturnReasonDetails: [{ label: "Minimum-fill setup missed", count: 3 }],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: {
+            sentiment: { total: 5, negative: 4, negativeRatio: 0.8 },
+            repeatedLanguage: [{ term: "MIN line setup missed", count: 3 }],
+          },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const descriptionUpdate = recommendations.find((item) => item.id === "correct-product-description");
+    expect(descriptionUpdate).toBeTruthy();
+    expect(descriptionUpdate.payload.changeStrategy).toBe("targeted-enhancement");
+    expect(descriptionUpdate.payload.draftText).toContain("kettle capacity");
+    expect(descriptionUpdate.payload.draftText).toContain("MIN fill line");
+    expect(descriptionUpdate.payload.draftText).toContain("descale");
+    expect(descriptionUpdate.payload.draftText).not.toContain("rail and diffuser");
+    expect(recommendations.map((item) => item.id)).not.toContain("set-product-draft");
+  });
+
+  it("does not reuse kettle care language for photo panel power/spec gaps", () => {
+    const currentDescription = [
+      "GEN PrismHue is a low-profile wall or shelf panel that holds one 5 x 7 in print behind a magnetic clear face.",
+      "The box includes the panel, magnetic face, USB-C cable, adhesive wall tabs, and a tabletop foot.",
+      "Printed photos and art cards are not included.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "missing_specifications", label: "Missing panel and power specifications", severity: "high", evidence: "The description does not state panel dimensions, card thickness, USB power adapter needs, voltage/wattage, or surface compatibility for adhesive tabs." },
+    ];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/prismhue",
+        productTitle: "GEN PrismHue Magnetic Photo Light Panel",
+      },
+      deterministic: {
+        mainIssue: "product_content",
+        riskScore: 82,
+        confidence: 78,
+        issueSignalCounts: { product_content: 4 },
+        evidenceSnippets: [
+          { text: "The light panel needs clearer media/spec context before purchase." },
+        ],
+        product: {
+          title: "GEN PrismHue Magnetic Photo Light Panel",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Home Decor",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssueCount: contentIssues.length,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 2,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          topReturnReasons: ["Missing panel and power specifications"],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "product_content",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const serialized = JSON.stringify(recommendations);
+    expect(serialized).not.toContain("powered base");
+    expect(serialized).not.toContain("descale");
+    expect(serialized).not.toContain("silicone body");
+    expect(serialized).not.toContain("rail and diffuser");
+    expect(serialized).not.toContain("garment measurements");
+    expect(serialized).not.toContain("cold wash");
+  });
+
+  it("does not treat apparel steam-care wording as kettle context", () => {
+    const currentDescription = [
+      "GEN DriftWeave is a packable overshirt with finished garment checkpoints.",
+      "Use the body-size chart first, then compare shoulder, chest, sleeve, and upper-arm measurements.",
+      "Machine wash cold, close the snaps, hang dry, and steam lightly if the pocket fold leaves a crease.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "incoherent_copy", label: "Variant coverage does not match Size option list", severity: "high", evidence: "Options list S, M, L, XL, but some color/size combinations are unavailable." },
+    ];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/driftweave",
+        productTitle: "GEN DriftWeave Packable Overshirt",
+      },
+      deterministic: {
+        mainIssue: "fit_sizing",
+        riskScore: 88,
+        confidence: 82,
+        issueSignalCounts: { fit_sizing: 6 },
+        evidenceSnippets: [
+          { text: "Upper-arm and sweatshirt layering decisions repeat in returns and reviews." },
+        ],
+        product: {
+          title: "GEN DriftWeave Packable Overshirt",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Apparel",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 6,
+          signalCount: 8,
+          contentIssueCount: contentIssues.length,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 4,
+          reviewCount: 9,
+          topReturnReasons: ["Too Small"],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: {
+            sentiment: { total: 6, negative: 5, negativeRatio: 0.83 },
+            repeatedLanguage: [{ term: "upper arm", count: 3, issueCode: "fit_sizing" }],
+          },
+        },
+      },
+      mainIssue: "fit_sizing",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const serialized = JSON.stringify(recommendations);
+    expect(serialized).not.toContain("capacity, wattage");
+    expect(serialized).not.toContain("cord length");
+    expect(serialized).not.toContain("safety markings");
+    expect(serialized).toContain("color and size combinations");
+  });
+
+  it("prefers fit sizing over product quality when apparel evidence is dominated by fit language", () => {
+    const issue = __productPulseDiagnosisTestHooks.getEvidencePreferredMainIssue({
+      mainIssue: "quality_defect",
+      riskScore: 92,
+      issueSignalCounts: { quality_defect: 2 },
+      product: {
+        title: "GEN DriftWeave Packable Overshirt",
+        productType: "Apparel",
+        tags: ["overshirt", "fit-sizing"],
+      },
+      metrics: {
+        refundInsights: {
+          issueCounts: [{ label: "fit_sizing", count: 3 }],
+          examples: [{ text: "Customer says the upper arm felt tight after warm drying.", issueCode: "fit_sizing" }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "shoulder", count: 7, issueCode: "fit_sizing" },
+            { term: "upper arm", count: 4, issueCode: "fit_sizing" },
+          ],
+        },
+        topReturnReasonDetails: [{
+          label: "Too Small",
+          subReasons: [{ label: "Body fits, shoulder is tolerable, upper arm is the blocker." }],
+        }],
+      },
+    }, "quality_defect");
+
+    expect(issue).toBe("fit_sizing");
+  });
+
+  it("does not propose unrelated taxonomy categories without product-specific token overlap", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/driftweave",
+        productTitle: "GEN DriftWeave Packable Overshirt",
+      },
+      deterministic: {
+        mainIssue: "fit_sizing",
+        riskScore: 84,
+        issueSignalCounts: { fit_sizing: 5 },
+        product: {
+          title: "GEN DriftWeave Packable Overshirt",
+          description: "Packable overshirt for travel layers.",
+          descriptionHtml: "<p>Packable overshirt for travel layers.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Apparel",
+          category: null,
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/ap-1",
+            name: "Pet Shoes",
+            fullName: "Animals & Pet Supplies > Pet Supplies > Pet Apparel > Pet Shoes",
+            level: 4,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Apparel"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 0,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "fit_sizing",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("does not treat generic kitchen taxonomy overlap as a product-specific kettle category", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/voltnest",
+        productTitle: "GEN VoltNest Foldaway Steam Kettle",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        issueSignalCounts: { setup_expectation: 5 },
+        product: {
+          title: "GEN VoltNest Foldaway Steam Kettle",
+          description: "Compact electric kettle for small kitchens with a MIN fill line and steam vent.",
+          descriptionHtml: "<p>Compact electric kettle for small kitchens with a MIN fill line and steam vent.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Kitchen Appliances",
+          category: null,
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/hg-11-8-41-5-2",
+            name: "Kitchen Utensil Racks",
+            fullName: "Home & Garden > Kitchen & Dining > Kitchen Tools & Utensils > Kitchen Organizers > Kitchen Utensil Holders & Racks > Kitchen Utensil Racks",
+            level: 6,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Kitchen Appliances"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("does not classify a kettle as furniture from incidental cabinet wording", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/voltnest",
+        productTitle: "GEN VoltNest Foldaway Steam Kettle",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        issueSignalCounts: { setup_expectation: 5 },
+        product: {
+          title: "GEN VoltNest Foldaway Steam Kettle",
+          description: "Compact electric kettle for small kitchens. Keep the steam vent clear of upper cabinets.",
+          descriptionHtml: "<p>Compact electric kettle for small kitchens. Keep the steam vent clear of upper cabinets.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Kitchen Appliances",
+          category: null,
+          tags: ["travel-kettle", "kitchen-appliance", "steam-safety"],
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/fr-4-3-9",
+            name: "Kitchen Hutches",
+            fullName: "Furniture > Cabinets & Storage > China Cabinets & Hutches > Kitchen Hutches",
+            level: 4,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Kitchen Appliances"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("does not classify a photo light panel as posters from description-only print wording", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/prismhue",
+        productTitle: "GEN PrismHue Magnetic Photo Light Panel",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        issueSignalCounts: { setup_expectation: 5 },
+        product: {
+          title: "GEN PrismHue Magnetic Photo Light Panel",
+          description: "Magnetic panel for displaying your own 5x7 prints. Printed photos are not included.",
+          descriptionHtml: "<p>Magnetic panel for displaying your own 5x7 prints. Printed photos are not included.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Home Decor",
+          category: null,
+          tags: ["photo-panel", "magnetic-frame", "mounting-surface"],
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/hg-3-4-2-1",
+            name: "Posters",
+            fullName: "Home & Garden > Decor > Artwork > Posters, Prints, & Visual Artwork > Posters",
+            level: 5,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Home Decor"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("keeps CSV review cache keys stable when row numbers change", () => {
+    const baseReview = {
+      sourceType: "csv_review",
+      productId: "judge-me-product-123",
+      sourceProductId: "source-product-abc",
+      handle: "gen-voltnest-foldaway-steam-kettle",
+      rating: 2,
+      title: "Graphite needs a MIN line closeup",
+      body: "The fill mark still disappears in my kitchenette light.",
+      createdAt: "2026-05-29T20:30:00.000Z",
+      reviewerName: "Mock Reviewer Volt",
+    };
+
+    const firstKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({ ...baseReview, sourceRow: 40 });
+    const secondKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({ ...baseReview, sourceRow: 56 });
+    const sameDayDifferentTimeKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({
+      ...baseReview,
+      sourceRow: 57,
+      createdAt: "2026-05-29T22:30:00.000Z",
+    });
+    const differentKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({ ...baseReview, body: "A different review body.", sourceRow: 56 });
+
+    expect(firstKey).toBe(secondKey);
+    expect(sameDayDifferentTimeKey).toBe(firstKey);
+    expect(differentKey).not.toBe(firstKey);
+  });
+
+  it("does not use apparel measurement guidance for photo panel description gaps", () => {
+    const guidance = __productPulseDiagnosisTestHooks.buildCustomerFacingDescriptionAddendum({
+      title: "GEN PrismHue Magnetic Photo Light Panel",
+      contentIssues: [
+        {
+          label: "Missing setup and fit dimensions",
+          evidence: "Customers need mounting surface fit, visible print area, and room-light context before purchase.",
+          code: "missing_specs",
+        },
+      ],
+    });
+
+    expect(guidance).toContain("panel outer dimensions");
+    expect(guidance).toContain("mounting surface compatibility");
+    expect(guidance).not.toContain("garment measurements");
+    expect(guidance).not.toContain("selected size");
+  });
+
+  it("prefers photo panel description enhancements over incidental rail language", () => {
+    const sentences = __productPulseDiagnosisTestHooks.buildTargetedDescriptionEnhancementSentences({
+      product: {
+        title: "GEN PrismHue Magnetic Photo Light Panel",
+        productType: "Home Decor",
+      },
+      currentDescription: "Backlit magnetic panel for 5 x 7 prints with adhesive wall tabs and a tabletop foot.",
+      contentIssues: [
+        {
+          label: "Missing dimensions and diffuser context",
+          evidence: "Customers need panel dimensions, visible print area, and surface compatibility; avoid rail-style guidance.",
+        },
+      ],
+    });
+
+    const joined = sentences.join(" ");
+    expect(joined).toContain("panel outer dimensions");
+    expect(joined).toContain("visible 5 x 7 print area");
+    expect(joined).not.toContain("rail width");
+    expect(joined).not.toContain("diffuser dimensions");
   });
 
   it("keeps repeated setup language out of product-quality issue buckets", () => {

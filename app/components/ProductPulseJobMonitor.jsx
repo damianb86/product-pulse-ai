@@ -6,6 +6,7 @@ const JOB_STATUS_IDLE_POLL_MS = 15_000;
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
+  const cancelFetcher = useFetcher();
   const searchFetcher = useFetcher();
   const revalidator = useRevalidator();
   const location = useLocation();
@@ -30,6 +31,9 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const pointSummary = monitor.pointSummary || initialMonitor?.pointSummary || null;
   const pointBalance = pointSummary?.balance || monitor.pointBalance || initialMonitor?.pointBalance || null;
   const hasActiveJobs = activeJobs.length > 0;
+  const pendingCancelJobId = cancelFetcher.state !== "idle"
+    ? String(cancelFetcher.formData?.get("jobId") || "")
+    : "";
   const failureNotice = failedJobNotice ? (
     <JobFailureNotice
       job={failedJobNotice}
@@ -109,13 +113,39 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     if (!completedJobNotice) return undefined;
+    if (completedJobNotice.kind === "product-diagnosis" && document.body.classList.contains("ppWizardActive")) {
+      return undefined;
+    }
     const timeout = window.setTimeout(() => setCompletedJobNotice(null), 10_000);
     return () => window.clearTimeout(timeout);
   }, [completedJobNotice]);
 
   useEffect(() => {
+    if (cancelFetcher.state !== "idle" || cancelFetcher.data?.status !== "success") return;
+    fetcher.load("/app/job-status");
+    revalidator.revalidate();
+  }, [cancelFetcher.data, cancelFetcher.state, fetcher, revalidator]);
+
+  useEffect(() => {
+    if (completedJobNotice?.kind !== "product-diagnosis") return;
+    dispatchProductPulseWizardJobEvent({
+      type: "deep-scan-completed",
+      job: completedJobNotice,
+    });
+  }, [completedJobNotice]);
+
+  useEffect(() => {
     setActivePopover(null);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    const handleWizardOpenBackgroundProcesses = () => {
+      setActivePopover("jobs");
+    };
+
+    window.addEventListener("productpulse:wizard-open-background-processes", handleWizardOpenBackgroundProcesses);
+    return () => window.removeEventListener("productpulse:wizard-open-background-processes", handleWizardOpenBackgroundProcesses);
+  }, []);
 
   useEffect(() => {
     if (!activePopover) return undefined;
@@ -214,6 +244,18 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       pointBalance={pointBalance}
       pointSummary={pointSummary}
       now={now}
+      pendingCancelJobId={pendingCancelJobId}
+      onCancelJob={(job) => {
+        if (!job?.id) return;
+        const confirmed = window.confirm(
+          `Cancel ${getJobTitle(job)}?\n\nThis will stop tracking this queued or running background process. If points were already consumed for this job, they will not be automatically refunded.`,
+        );
+        if (!confirmed) return;
+        const formData = new FormData();
+        formData.set("_action", "cancel-background-job");
+        formData.set("jobId", job.id);
+        cancelFetcher.submit(formData, { method: "post", action: "/app/job-status" });
+      }}
     />
   );
 
@@ -334,6 +376,8 @@ function ProductPulseGlobalTopbar({
   pointBalance,
   pointSummary,
   now,
+  pendingCancelJobId,
+  onCancelJob,
 }) {
   const activeCount = activeJobs.length;
   const isSearchOpen = activePopover === "search";
@@ -370,6 +414,7 @@ function ProductPulseGlobalTopbar({
         <div className="ppGlobalTopbarAction">
           <button
             className={`ppGlobalTopbarIconButton ppGlobalTopbarJobsButton${isJobsOpen ? " isActive" : ""}${hasActiveJobs ? " isRunning" : ""}`}
+            data-pp-background-process-button
             type="button"
             aria-label={activeCount ? `Background processes, ${activeCount} active` : "Background processes"}
             aria-expanded={isJobsOpen}
@@ -388,6 +433,8 @@ function ProductPulseGlobalTopbar({
               recentJobs={recentJobs}
               now={now}
               onClose={() => setActivePopover(null)}
+              pendingCancelJobId={pendingCancelJobId}
+              onCancelJob={onCancelJob}
             />
           ) : null}
         </div>
@@ -469,9 +516,9 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
       </section>
 
       <footer className="ppCreditsFooter">
-        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">Buy more credits</Link>
+        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">Review credits</Link>
         <Link to="/app/plans-and-credits">
-          View billing
+          View credits
           <s-icon type="chevron-right" size="small"></s-icon>
         </Link>
       </footer>
@@ -625,7 +672,7 @@ function getProductSearchSubtitle(product) {
   return parts.join(" \u00B7 ") || "ProductPulse product";
 }
 
-function JobsPopover({ id, activeJobs, recentJobs, now, onClose }) {
+function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJobId, onCancelJob }) {
   const activeJobIds = useMemo(() => new Set(activeJobs.map((job) => job.id)), [activeJobs]);
   const pastJobs = useMemo(
     () => recentJobs.filter((job) => !activeJobIds.has(job.id)),
@@ -639,13 +686,28 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose }) {
   ].filter(Boolean).join(" / ");
 
   return (
-    <div className="ppGlobalTopbarPopover ppGlobalTopbarJobsPopover" id={id} role="dialog" aria-label="Background processes">
+    <div
+      className="ppGlobalTopbarPopover ppGlobalTopbarJobsPopover"
+      data-pp-background-process-popover
+      id={id}
+      role="dialog"
+      aria-label="Background processes"
+    >
       <header className="ppGlobalTopbarPopoverHeader">
         <strong>Background processes</strong>
         <span>{summary || "No active jobs"}</span>
       </header>
 
-      <JobPopoverSection title="Current" jobs={activeJobs} emptyText="No active background processes." now={now} onClose={onClose} current />
+      <JobPopoverSection
+        title="Current"
+        jobs={activeJobs}
+        emptyText="No active background processes."
+        now={now}
+        onClose={onClose}
+        pendingCancelJobId={pendingCancelJobId}
+        onCancelJob={onCancelJob}
+        current
+      />
       <JobPopoverSection title="History" jobs={pastJobs} emptyText="No recent jobs yet." now={now} onClose={onClose} />
       <Link className="ppGlobalTopbarJobsFooter" to="/app/background-processes" onClick={onClose}>
         <span aria-hidden="true" className="ppGlobalTopbarJobsFooterIcon">
@@ -660,7 +722,7 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose }) {
   );
 }
 
-function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = false }) {
+function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = false, pendingCancelJobId = "", onCancelJob }) {
   return (
     <section className={`ppGlobalTopbarJobSection${current ? " isCurrent" : " isHistory"}`}>
       <h2>{title}</h2>
@@ -668,7 +730,14 @@ function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = fal
         <ul>
           {jobs.map((job) => (
             <li key={job.id}>
-              <JobPopoverItem job={job} now={now} current={current} onClose={onClose} />
+              <JobPopoverItem
+                job={job}
+                now={now}
+                current={current}
+                onClose={onClose}
+                cancelPending={pendingCancelJobId === job.id}
+                onCancelJob={onCancelJob}
+              />
             </li>
           ))}
         </ul>
@@ -679,9 +748,10 @@ function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = fal
   );
 }
 
-function JobPopoverItem({ job, now, current = false, onClose }) {
+function JobPopoverItem({ job, now, current = false, onClose, cancelPending = false, onCancelJob }) {
   const statusKey = getJobStatusKey(job);
   const metaItems = getJobMetaItems(job, now, current);
+  const canCancel = current && isActiveJobStatus(job.status) && typeof onCancelJob === "function";
 
   return (
     <article className={`ppGlobalTopbarJobItem ppGlobalTopbarJobItem-${statusKey}${current ? " isCurrent" : ""}`}>
@@ -703,11 +773,25 @@ function JobPopoverItem({ job, now, current = false, onClose }) {
           ))}
         </div>
       </div>
-      {job.productHref ? (
-        <Link className="ppGlobalTopbarJobOpenButton" to={job.productHref} onClick={onClose} aria-label={`Open product for ${getJobTitle(job)}`}>
-          <s-icon type="external" size="small"></s-icon>
-        </Link>
-      ) : null}
+      <div className="ppGlobalTopbarJobItemActions">
+        {canCancel ? (
+          <button
+            className="ppGlobalTopbarJobCancelButton"
+            type="button"
+            aria-label={`Cancel ${getJobTitle(job)}`}
+            title="Cancel job"
+            disabled={cancelPending}
+            onClick={() => onCancelJob(job)}
+          >
+            <s-icon type="x" size="small"></s-icon>
+          </button>
+        ) : null}
+        {job.productHref ? (
+          <Link className="ppGlobalTopbarJobOpenButton" to={job.productHref} onClick={onClose} aria-label={`Open product for ${getJobTitle(job)}`}>
+            <s-icon type="external" size="small"></s-icon>
+          </Link>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -820,12 +904,25 @@ function JobFailureNotice({ job, onDismiss }) {
 function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismiss }) {
   const action = getJobNoticeAction(job);
   const isSuccess = tone === "success";
+  const isProductDiagnosisCompletion = isSuccess && job?.kind === "product-diagnosis";
+  const handleActionClick = () => {
+    if (isProductDiagnosisCompletion) {
+      dispatchProductPulseWizardJobEvent({
+        type: "deep-scan-product-opened",
+        job,
+        href: action.href,
+      });
+    }
+    onDismiss();
+  };
 
   return (
     <aside
       className={`ppJobNotice ppJobNotice-${tone} ${isSuccess ? "ppJobCompletionNotice" : "ppJobFailureNotice"}`}
       role={role}
       aria-live={ariaLive}
+      data-pp-job-completion-notice={isSuccess ? job?.kind : undefined}
+      data-pp-job-product-href={isProductDiagnosisCompletion ? action.href : undefined}
     >
       <JobNoticeMedia job={job} tone={tone} />
       <span className="ppJobNoticeStatusIcon" aria-hidden="true">
@@ -836,7 +933,12 @@ function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismis
         <p>{message}</p>
         {detail && <p className="ppJobNoticeDetail">{detail}</p>}
       </div>
-      <Link className="ppJobNoticeAction" to={action.href} onClick={onDismiss}>
+      <Link
+        className="ppJobNoticeAction"
+        to={action.href}
+        onClick={handleActionClick}
+        data-pp-job-completion-open-product={isProductDiagnosisCompletion ? "true" : undefined}
+      >
         {action.label}
         <s-icon type="chevron-right" size="base"></s-icon>
       </Link>
@@ -845,6 +947,11 @@ function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismis
       </button>
     </aside>
   );
+}
+
+function dispatchProductPulseWizardJobEvent(detail) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail }));
 }
 
 function JobNoticeMedia({ job, tone }) {

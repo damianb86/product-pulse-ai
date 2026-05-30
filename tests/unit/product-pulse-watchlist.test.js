@@ -319,6 +319,151 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.sourceInsights.find((insight) => insight.id === "review-evidence").bullets.join(" ")).toContain("Representative review");
   });
 
+  it("does not overcount stale zero-amount derived sales as new watchlist orders", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-29T21:00:00.000Z",
+      riskScore: 70,
+      orderCount: 7,
+      soldUnits: 7,
+      salesAmount: 343,
+      evidenceDetails: {
+        orders: {
+          totalOrders: 7,
+          totalUnits: 7,
+          totalRevenue: 343,
+          items: [
+            { key: "sale:old-1", orderId: "order-old-1", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-20T10:00:00.000Z" },
+          ],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 75,
+        metrics: {
+          orderCount: 11,
+          soldUnits: 11,
+          salesAmount: 539,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [
+                  { key: "sale:old-1", id: "old-1", orderId: "order-old-1", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-20T10:00:00.000Z" },
+                  { key: "sale:derived-sale:old-zero", id: "derived-sale:old-zero", orderId: "order-old-zero", sku: "SKU-A", quantity: 1, amount: 0, createdAt: "2026-05-02T10:00:00.000Z" },
+                  { key: "sale:new-1", id: "new-1", orderId: "order-new-1", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-28T10:00:00.000Z" },
+                  { key: "sale:new-2", id: "new-2", orderId: "order-new-2", sku: "SKU-B", quantity: 1, amount: 49, createdAt: "2026-05-28T11:00:00.000Z" },
+                  { key: "sale:new-3", id: "new-3", orderId: "order-new-3", sku: "SKU-B", quantity: 1, amount: 49, createdAt: "2026-05-28T12:00:00.000Z" },
+                  { key: "sale:new-4", id: "new-4", orderId: "order-new-4", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-28T13:00:00.000Z" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-29T22:00:00.000Z"),
+    });
+
+    const sourceChange = report.sourceChanges.find((change) => change.id === "new-orders");
+
+    expect(sourceChange.value).toBe("4 orders");
+    expect(sourceChange.delta).toBe("+4 units");
+    expect(sourceChange.items.map((item) => item.key)).not.toContain("sale:derived-sale:old-zero");
+  });
+
+  it("does not count rewritten CSV review rows as new watchlist reviews", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-29T21:00:00.000Z",
+      riskScore: 70,
+      reviewCount: 2,
+      negativeReviewCount: 1,
+      evidenceDetails: {
+        reviews: {
+          total: 2,
+          negative: 1,
+          items: [
+            {
+              key: "csv_review:csv-review-40",
+              source: "csv_review",
+              text: "MIN line needs a closeup - The fill mark disappears in dim light.",
+              sentiment: "negative",
+              rating: 2,
+              issueCode: "setup_expectation",
+              createdAt: "2026-05-29T20:30:00.000Z",
+            },
+            {
+              key: "csv_review:csv-review-41",
+              source: "csv_review",
+              text: "Works when the constraints fit - Normal outlet and clear steam path.",
+              sentiment: "positive",
+              rating: 5,
+              issueCode: "setup_expectation",
+              createdAt: "2026-05-29T20:31:00.000Z",
+            },
+          ],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 75,
+        metrics: {
+          reviewCount: 3,
+          negativeReviewCount: 2,
+          incrementalDiagnosis: {
+            cache: {
+              customerText: {
+                reviewItems: [
+                  {
+                    key: "csv_review:csv-review-55",
+                    source: "csv_review",
+                    text: "MIN line needs a closeup - The fill mark disappears in dim light.",
+                    analysisText: "MIN line needs a closeup - The fill mark disappears in dim light.",
+                    sentiment: "negative",
+                    rating: 2,
+                    issueCode: "setup_expectation",
+                    createdAt: "2026-05-29T20:30:00.000Z",
+                  },
+                  {
+                    key: "csv_review:csv-review-56",
+                    source: "csv_review",
+                    text: "Works when the constraints fit - Normal outlet and clear steam path.",
+                    analysisText: "Works when the constraints fit - Normal outlet and clear steam path.",
+                    sentiment: "positive",
+                    rating: 5,
+                    issueCode: "setup_expectation",
+                    createdAt: "2026-05-29T20:31:00.000Z",
+                  },
+                  {
+                    key: "csv_review:csv-review-57",
+                    source: "csv_review",
+                    text: "Graphite still needs visual proof - The same MIN line problem remains.",
+                    analysisText: "Graphite still needs visual proof - The same MIN line problem remains.",
+                    sentiment: "negative",
+                    rating: 2,
+                    issueCode: "setup_expectation",
+                    createdAt: "2026-05-29T21:30:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-29T22:00:00.000Z"),
+    });
+
+    const sourceChange = report.sourceChanges.find((change) => change.id === "new-reviews");
+
+    expect(sourceChange.value).toBe("1 review");
+    expect(sourceChange.items.map((item) => item.key)).toEqual(["csv_review:csv-review-57"]);
+  });
+
   it("does not surface low-information Shopify refund defaults as reason language", () => {
     const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
       previousSummary: {

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
 const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v2";
+const CHATKIT_ASSISTANT_NAME = "Pulse Guide";
 let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, pageContext }) {
@@ -173,6 +174,13 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
     }
   }, []);
 
+  const openAssistant = useCallback(() => {
+    setIsOpen(true);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail: { type: "chat-opened" } }));
+    }
+  }, []);
+
   const chatKit = useChatKit({
     api: {
       url: config?.apiUrl || "/api/ai/chatkit/message",
@@ -250,19 +258,19 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
   ].filter(Boolean).join(" ");
 
   return (
-    <aside className={assistantClassName} aria-label="ProductPulse AI assistant">
+    <aside className={assistantClassName} aria-label={`${CHATKIT_ASSISTANT_NAME} assistant`} data-pp-chat-assistant={isOpen ? "open" : "closed"}>
       {isOpen ? (
-        <div className="ppChatKitPanel" role="dialog" aria-modal="false" aria-label="AI Assistant">
+        <div className="ppChatKitPanel" role="dialog" aria-modal="false" aria-label={CHATKIT_ASSISTANT_NAME} data-pp-chat-panel>
           <div className="ppChatKitPanelHeader">
             <div className="ppChatKitPanelActions">
               <div className="ppChatKitPanelActionsLeft">
-                <div className="ppChatKitThemeControl" aria-label="AI Assistant theme">
+                <div className="ppChatKitThemeControl" aria-label={`${CHATKIT_ASSISTANT_NAME} theme`}>
                   <button
                     type="button"
                     className="ppChatKitThemeSwitch"
                     role="switch"
                     aria-checked={isDarkTheme}
-                    aria-label={isDarkTheme ? "Use light AI Assistant theme" : "Use dark AI Assistant theme"}
+                    aria-label={isDarkTheme ? `Use light ${CHATKIT_ASSISTANT_NAME} theme` : `Use dark ${CHATKIT_ASSISTANT_NAME} theme`}
                     onClick={toggleThemeMode}
                   >
                     <span className="ppChatKitThemeSwitchTrack" aria-hidden="true">
@@ -276,7 +284,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
                   type="button"
                   className="ppChatKitIconButton"
                   onClick={startNewChat}
-                  aria-label="Start a new AI Assistant chat"
+                  aria-label={`Start a new ${CHATKIT_ASSISTANT_NAME} chat`}
                   title="New chat"
                   disabled={!chatKitControlsReady}
                 >
@@ -286,7 +294,7 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
                   type="button"
                   className="ppChatKitIconButton"
                   onClick={openChatHistory}
-                  aria-label="Open AI Assistant chat history"
+                  aria-label={`Open ${CHATKIT_ASSISTANT_NAME} chat history`}
                   title="History"
                   disabled={!chatKitControlsReady}
                 >
@@ -297,12 +305,12 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
                   className="ppChatKitIconButton"
                   onClick={() => setIsExpanded((current) => !current)}
                   aria-pressed={isExpanded}
-                  aria-label={isExpanded ? "Use default AI Assistant width" : "Expand AI Assistant width"}
+                  aria-label={isExpanded ? `Use default ${CHATKIT_ASSISTANT_NAME} width` : `Expand ${CHATKIT_ASSISTANT_NAME} width`}
                   title={isExpanded ? "Default size" : "Wide size"}
                 >
                   <ChatKitHeaderIcon type={isExpanded ? "collapse" : "expand"} />
                 </button>
-                <button type="button" className="ppChatKitIconButton" onClick={() => setIsOpen(false)} aria-label="Close AI Assistant" title="Close">
+                <button type="button" className="ppChatKitIconButton" onClick={() => setIsOpen(false)} aria-label={`Close ${CHATKIT_ASSISTANT_NAME}`} title="Close">
                   <ChatKitHeaderIcon type="close" />
                 </button>
               </div>
@@ -324,9 +332,11 @@ export function ProductPulseChatKitAssistant({ config, pageContext }) {
         <button
           type="button"
           className="ppChatKitLauncher"
-          onClick={() => setIsOpen(true)}
+          onClick={openAssistant}
           aria-expanded="false"
-          aria-label="Open AI Assistant"
+          aria-label={`Open ${CHATKIT_ASSISTANT_NAME}`}
+          title={`Open ${CHATKIT_ASSISTANT_NAME}`}
+          data-pp-chat-launcher
         >
           <span className="ppChatKitLauncherIcon" aria-hidden="true">
             <img

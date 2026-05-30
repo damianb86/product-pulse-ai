@@ -57,6 +57,7 @@ const PRODUCT_METRIC_TIMELINE_DAY_MS = 86_400_000;
 const PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS = 365;
 const PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY = "productPulse.metricTimelines.chartOrder.v1";
 const PRODUCT_WATCH_RECENT_RUNS_WINDOW_STORAGE_KEY = "productPulse.watchlist.recentRuns.window.v1";
+const PRODUCT_WATCH_OVERVIEW_RUN_GROUP_WINDOW_MS = 2 * 60 * 60 * 1000;
 const PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY = "productPulse.productDetail.collapsedPanels.v1";
 const PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES = 5;
 const PRODUCT_METRIC_TIMELINE_EVENT_MIN_SPACING_DAYS = 7;
@@ -69,6 +70,8 @@ const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
   plot: { left: 46, right: 1194, top: 28, bottom: 176 },
 });
 const useProductPulseIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+const PRODUCT_PULSE_WIZARD_STORAGE_KEY = "productPulse.onboardingWizard.completed.v1";
+const PRODUCT_PULSE_WIZARD_START_ROUTE = "/app/dashboard";
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -115,6 +118,26 @@ const PRODUCT_NOT_FOUND_TOAST = {
 function dispatchProductPulseWizardEvent(detail) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail }));
+}
+
+function dispatchProductPulseWizardStart() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(PRODUCT_PULSE_WIZARD_STORAGE_KEY);
+  } catch {
+    // The wizard still listens to the event and can restart for the current session.
+  }
+  window.dispatchEvent(new CustomEvent("productpulse:wizard-start"));
+}
+
+function dispatchProductPulseSettingsDirtyState(dirty) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:settings-dirty-state", { detail: { dirty } }));
+}
+
+function dispatchProductPulseWizardSettingsLeaveAllowed() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:wizard-settings-leave-allowed"));
 }
 
 export function DashboardScreen({ data, actionData }) {
@@ -681,6 +704,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const candidateRows = useMemo(() => candidateTableRows || [], [candidateTableRows]);
   const resolvedRows = useMemo(() => resolvedTableRows || [], [resolvedTableRows]);
+  const fastScanJobActiveRef = useRef(false);
   const allVisibleRows = useMemo(() => {
     const rowsByKey = new Map();
     [...productRows, ...candidateRows, ...resolvedRows].forEach((product) => {
@@ -724,6 +748,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const pendingDeleteAnalysis = navigation.state === "submitting" && navigation.formData?.get("_action") === "delete-product-analysis";
   const pendingAnalyzeIds = pendingBulkAnalyze ? Array.from(navigation.formData?.getAll("productId") || []).map(String) : [];
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
+  const fastScanJobActive = Boolean(activeScanJob) || localFastScan;
   const quickScanCsvAvailable = isQuickScanCsvReviewSourceAvailable(data);
   const sortConfig = localSortConfig || (filters.sort ? { key: filters.sort, direction: filters.direction || "desc" } : null);
   const [localCandidateSortConfig, setLocalCandidateSortConfig] = useState(null);
@@ -769,6 +794,17 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     const interval = window.setInterval(() => revalidator.revalidate(), PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
   }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, revalidator]);
+
+  useEffect(() => {
+    const wasActive = fastScanJobActiveRef.current;
+    if (fastScanJobActive && !wasActive) {
+      dispatchProductPulseWizardEvent({ type: "quick-scan-job-started" });
+    }
+    if (!fastScanJobActive && wasActive) {
+      dispatchProductPulseWizardEvent({ type: "quick-scan-job-finished" });
+    }
+    fastScanJobActiveRef.current = fastScanJobActive;
+  }, [fastScanJobActive]);
 
   useEffect(() => {
     setLocalSortConfig(null);
@@ -1153,6 +1189,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const handleConfirmAnalysis = () => {
     if (!analysisConfirmation?.products?.length || pendingBulkAnalyze) return;
     dispatchProductPulseWizardEvent({ type: "deep-scan-started" });
+    setAnalysisConfirmation(null);
     const formData = new FormData();
     formData.set("_action", "bulk-diagnose");
     analysisConfirmation.products.forEach((productId) => formData.append("productId", productId));
@@ -1239,79 +1276,99 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   }) => {
     const selectionState = getRowsSelectionState(rows);
     const productLabel = getProductTableLabel(table);
+    const tableFilters = table === "candidates" ? candidateFilters : table === "resolved" ? resolvedFilters : filters;
+    const panel = buildBetaFeedbackPanel(getBetaFeedbackPanelId("products", table), `${title} product table`, {
+      productList: {
+        table,
+        activeTab: activeProductsTab,
+        title,
+        rowCount: rows.length,
+        totalCount: count,
+        totalStoredCount: totalAll,
+        currentPage,
+        pageSize,
+        totalPages: pages,
+        selectedCount: selectionState.selectedCount,
+        filters: summarizeProductTableFilters(tableFilters),
+        sort: tableSortConfig,
+        visibleRows: rows.slice(0, 8).map(summarizeProductTableRow),
+      },
+    });
 
     return (
-      <s-section
-        className={`ppProductsTableSection ${table === "candidates" ? "ppProductsCandidatesSection" : table === "resolved" ? "ppProductsResolvedSection" : ""}`.trim()}
-        data-pp-products-table={table}
-        padding="none"
-      >
-        <div className="ppProductsTableHeading">
-          <div>
-            <h2>{title}</h2>
-            <p>{description}</p>
-          </div>
-        </div>
-        <div className="ppProductsTableStatus">
-          {selectionState.selectedCount > 0 && rows.length > 0 && (
-            <div className="ppSelectionPill">
-              <span>{selectionState.selectedCount}</span>
-              selected
-              <button type="button" aria-label={`Clear selected ${productLabel}`} onClick={() => setSelectedProducts(new Set())}>
-                <s-icon type="x" size="small"></s-icon>
-              </button>
+      <BetaFeedbackPanelFrame panel={panel}>
+        <s-section
+          className={`ppProductsTableSection ${table === "candidates" ? "ppProductsCandidatesSection" : table === "resolved" ? "ppProductsResolvedSection" : ""}`.trim()}
+          data-pp-products-table={table}
+          padding="none"
+        >
+          <div className="ppProductsTableHeading">
+            <div>
+              <h2>{title}</h2>
+              <p>{description}</p>
             </div>
-          )}
-          <span>
-            {rows.length > 0
-              ? `${rows.length} of ${count} ${productLabel}${totalAll !== count ? ` (${totalAll} stored)` : ""}`
-              : table === "candidates" ? "No candidates in this view" : "No full diagnostics in this view"}
-          </span>
-          <div className="ppProductsTableTools">
-            {showFindProduct && (
-              <button
-                className="ppTableFindProductButton"
-                type="button"
-                onClick={() => setShopifyProductSearchOpen(true)}
-              >
-                <span className="ppShopifyTinyIcon" aria-hidden="true">S</span>
-                Find Shopify product
-              </button>
-            )}
-            {!searchState.open && (
-              <button
-                className="ppTableSearchButton"
-                type="button"
-                aria-label={`Search ${productLabel}`}
-                aria-expanded={searchState.open}
-                onClick={() => searchState.setOpen(true)}
-              >
-                <s-icon type="search" size="small"></s-icon>
-              </button>
-            )}
-            {searchState.open && (
-              <div className="ppTableSearchControl">
-                <s-icon type="search" size="small"></s-icon>
-                <input
-                  ref={searchState.inputRef}
-                  aria-label={`Search ${productLabel}`}
-                  value={searchState.value}
-                  onChange={(event) => searchState.setValue(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") searchState.setOpen(false);
-                  }}
-                  placeholder={`Search ${productLabel}`}
-                  type="search"
-                />
-                <button type="button" aria-label={`Close ${productLabel} search`} onClick={() => searchState.setOpen(false)}>
+            <BetaFeedbackPanelControls panel={panel} allowHide={false} />
+          </div>
+          <div className="ppProductsTableStatus">
+            {selectionState.selectedCount > 0 && rows.length > 0 && (
+              <div className="ppSelectionPill">
+                <span>{selectionState.selectedCount}</span>
+                selected
+                <button type="button" aria-label={`Clear selected ${productLabel}`} onClick={() => setSelectedProducts(new Set())}>
                   <s-icon type="x" size="small"></s-icon>
                 </button>
               </div>
             )}
+            <span>
+              {rows.length > 0
+                ? `${rows.length} of ${count} ${productLabel}${totalAll !== count ? ` (${totalAll} stored)` : ""}`
+                : table === "candidates" ? "No candidates in this view" : "No full diagnostics in this view"}
+            </span>
+            <div className="ppProductsTableTools">
+              {showFindProduct && (
+                <button
+                  className="ppTableFindProductButton"
+                  type="button"
+                  onClick={() => setShopifyProductSearchOpen(true)}
+                >
+                  <span className="ppShopifyTinyIcon" aria-hidden="true">S</span>
+                  Find Shopify product
+                </button>
+              )}
+              {!searchState.open && (
+                <button
+                  className="ppTableSearchButton"
+                  type="button"
+                  aria-label={`Search ${productLabel}`}
+                  aria-expanded={searchState.open}
+                  onClick={() => searchState.setOpen(true)}
+                >
+                  <s-icon type="search" size="small"></s-icon>
+                </button>
+              )}
+              {searchState.open && (
+                <div className="ppTableSearchControl">
+                  <s-icon type="search" size="small"></s-icon>
+                  <input
+                    ref={searchState.inputRef}
+                    aria-label={`Search ${productLabel}`}
+                    value={searchState.value}
+                    onChange={(event) => searchState.setValue(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") searchState.setOpen(false);
+                    }}
+                    placeholder={`Search ${productLabel}`}
+                    type="search"
+                  />
+                  <button type="button" aria-label={`Close ${productLabel} search`} onClick={() => searchState.setOpen(false)}>
+                    <s-icon type="x" size="small"></s-icon>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="ppProductsTableWrap">
-          <table className="ppProductsTable" data-pp-products-candidates-table={table === "candidates" ? "true" : undefined} data-testid={tableTestId}>
+          <div className="ppProductsTableWrap">
+            <table className="ppProductsTable" data-pp-products-candidates-table={table === "candidates" ? "true" : undefined} data-testid={tableTestId}>
             <thead>
               <tr>
                 <th aria-label={`Select ${productLabel}`}>
@@ -1459,49 +1516,50 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 );
               })}
             </tbody>
-          </table>
-        </div>
-        {rows.length > 0 && (
-          <div className="ppProductsPagination">
-            <label className="ppRowsSelect">
-              Rows per page
-              <select value={pageSize} onChange={(event) => submitProductFilters({ rows: event.target.value, page: "1" }, table)}>
-                <option value="25">25</option>
-                <option value="50">50</option>
-              </select>
-            </label>
-            <div className="ppPageControls" aria-label={`${title} pagination`}>
-              {currentPage > 1 ? (
-                <Link to={buildProductFilterHref(filters, { rows: pageSize, page: currentPage - 1 }, table)} aria-label="Previous page">
-                  <s-icon type="chevron-left" size="small"></s-icon>
-                </Link>
-              ) : (
-                <button type="button" aria-label="Previous page" disabled>
-                  <s-icon type="chevron-left" size="small"></s-icon>
-                </button>
-              )}
-              {getVisiblePages(currentPage, pages).map((pageNumber) => (
-                <Link
-                  className={pageNumber === currentPage ? "isActive" : ""}
-                  to={buildProductFilterHref(filters, { rows: pageSize, page: pageNumber }, table)}
-                  key={pageNumber}
-                >
-                  {pageNumber}
-                </Link>
-              ))}
-              {currentPage < pages ? (
-                <Link to={buildProductFilterHref(filters, { rows: pageSize, page: currentPage + 1 }, table)} aria-label="Next page">
-                  <s-icon type="chevron-right" size="small"></s-icon>
-                </Link>
-              ) : (
-                <button type="button" aria-label="Next page" disabled>
-                  <s-icon type="chevron-right" size="small"></s-icon>
-                </button>
-              )}
-            </div>
+            </table>
           </div>
-        )}
-      </s-section>
+          {rows.length > 0 && (
+            <div className="ppProductsPagination">
+              <label className="ppRowsSelect">
+                Rows per page
+                <select value={pageSize} onChange={(event) => submitProductFilters({ rows: event.target.value, page: "1" }, table)}>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                </select>
+              </label>
+              <div className="ppPageControls" aria-label={`${title} pagination`}>
+                {currentPage > 1 ? (
+                  <Link to={buildProductFilterHref(filters, { rows: pageSize, page: currentPage - 1 }, table)} aria-label="Previous page">
+                    <s-icon type="chevron-left" size="small"></s-icon>
+                  </Link>
+                ) : (
+                  <button type="button" aria-label="Previous page" disabled>
+                    <s-icon type="chevron-left" size="small"></s-icon>
+                  </button>
+                )}
+                {getVisiblePages(currentPage, pages).map((pageNumber) => (
+                  <Link
+                    className={pageNumber === currentPage ? "isActive" : ""}
+                    to={buildProductFilterHref(filters, { rows: pageSize, page: pageNumber }, table)}
+                    key={pageNumber}
+                  >
+                    {pageNumber}
+                  </Link>
+                ))}
+                {currentPage < pages ? (
+                  <Link to={buildProductFilterHref(filters, { rows: pageSize, page: currentPage + 1 }, table)} aria-label="Next page">
+                    <s-icon type="chevron-right" size="small"></s-icon>
+                  </Link>
+                ) : (
+                  <button type="button" aria-label="Next page" disabled>
+                    <s-icon type="chevron-right" size="small"></s-icon>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </s-section>
+      </BetaFeedbackPanelFrame>
     );
   };
 
@@ -1662,6 +1720,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const watchlist = data.watchlist || {};
   const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
   const activities = Array.isArray(watchlist.activities) ? watchlist.activities : [];
+  const runActivities = Array.isArray(watchlist.runActivities) ? watchlist.runActivities : activities;
   const trend = watchlist.trend || {};
   const selectedRunId = String(watchlist.selectedRunId || "");
   const settings = watchlist.settings || {};
@@ -1689,7 +1748,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
     : "";
   const atCapacity = watchedCount >= maxProducts;
   const hasActiveWatchlistDiagnosisJobs = rows.some((row) => getProductDiagnosisState(row));
-  const overviewDashboard = useMemo(() => buildWatchlistOverviewDashboard(rows, activities, watchOverviewSort, selectedRunId), [rows, activities, watchOverviewSort, selectedRunId]);
+  const overviewDashboard = useMemo(() => buildWatchlistOverviewDashboard(rows, runActivities, watchOverviewSort, selectedRunId), [rows, runActivities, watchOverviewSort, selectedRunId]);
 
   useEffect(() => {
     shopifyProductSearchSubmitRef.current = shopifyProductSearchFetcher.submit;
@@ -2085,10 +2144,11 @@ function WatchlistOverviewEvents({ rows = [] }) {
 }
 
 function buildWatchlistOverviewDashboard(rows = [], activities = [], sort = "urgency", selectedRunId = "") {
-  const runRows = getWatchlistOverviewRunRows(rows, selectedRunId);
-  const effectiveRunId = runRows.find((row) => row.isSelected)?.id || "";
-  const productRows = getWatchlistOverviewProductRows(rows, sort, { selectedRunId: effectiveRunId });
-  const allChangedRows = getWatchlistOverviewProductRows(rows, "urgency", { limit: 99, selectedRunId: effectiveRunId });
+  const runContext = buildWatchOverviewRunContext(rows, activities, selectedRunId);
+  const runRows = runContext.runRows;
+  const effectiveRunId = runContext.selectedRunId;
+  const productRows = getWatchlistOverviewProductRows(rows, sort, { selectedRunId: effectiveRunId, runContext });
+  const allChangedRows = getWatchlistOverviewProductRows(rows, "urgency", { limit: 99, selectedRunId: effectiveRunId, runContext });
   const eventRows = getWatchlistOverviewEventRows(allChangedRows, effectiveRunId ? [] : activities);
   return {
     runRows,
@@ -2101,21 +2161,21 @@ function buildWatchlistOverviewDashboard(rows = [], activities = [], sort = "urg
   };
 }
 
-function getWatchlistOverviewProductRows(rows = [], sort = "urgency", { limit = 5, selectedRunId = "" } = {}) {
+function getWatchlistOverviewProductRows(rows = [], sort = "urgency", { limit = 5, selectedRunId = "", runContext = null } = {}) {
   const mapped = (Array.isArray(rows) ? rows : [])
-    .map((product) => buildWatchlistOverviewProductRow(product, { selectedRunId }))
+    .map((product) => buildWatchlistOverviewProductRow(product, { selectedRunId, runContext }))
     .filter(Boolean);
   const sorted = sortWatchlistOverviewRows(mapped, sort);
   return sorted.slice(0, limit);
 }
 
-function getWatchOverviewReportForRun(product = {}, selectedRunId = "") {
+function getWatchOverviewReportForRun(product = {}, selectedRunId = "", runContext = null) {
   const latestReport = product.latestChangeReport || null;
   if (!latestReport) return null;
   const reports = getWatchOverviewRunReports(latestReport);
   const requestedRunId = String(selectedRunId || "");
   if (requestedRunId) {
-    const matchedReport = reports.find((report) => getWatchOverviewReportRunMatches(report, requestedRunId));
+    const matchedReport = reports.find((report) => getWatchOverviewReportRunMatches(report, requestedRunId, runContext));
     if (matchedReport) return withWatchOverviewReportHistory(matchedReport, latestReport);
     const fallbackReport = getWatchOverviewFallbackReportForRun(latestReport, requestedRunId);
     if (fallbackReport) return fallbackReport;
@@ -2128,10 +2188,12 @@ function getWatchOverviewRunReports(report = {}) {
   return reports.length ? reports : [report].filter(Boolean);
 }
 
-function getWatchOverviewReportRunMatches(report = {}, selectedRunId = "") {
+function getWatchOverviewReportRunMatches(report = {}, selectedRunId = "", runContext = null) {
   const requestedRunId = String(selectedRunId || "");
   if (!requestedRunId) return false;
   if (String(report?.id || "") === requestedRunId) return true;
+  const reportGroupId = getWatchOverviewReportGroupId(report, runContext);
+  if (reportGroupId && reportGroupId === requestedRunId) return true;
   const timestamp = getWatchOverviewReportTimestamp(report);
   return timestamp ? getWatchOverviewRunKey(timestamp) === requestedRunId : false;
 }
@@ -2178,8 +2240,8 @@ function getWatchOverviewFallbackReportForRun(latestReport = {}, selectedRunId =
   };
 }
 
-function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "" } = {}) {
-  const report = getWatchOverviewReportForRun(product, selectedRunId);
+function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "", runContext = null } = {}) {
+  const report = getWatchOverviewReportForRun(product, selectedRunId, runContext);
   if (!report || !watchOverviewReportHasChanges(report)) return null;
   const previous = report.previous || {};
   const current = report.current || {};
@@ -2258,42 +2320,166 @@ function sortWatchlistOverviewRows(rows = [], sort = "urgency") {
   });
 }
 
-function getWatchlistOverviewRunRows(rows = [], selectedRunId = "") {
-  const runs = new Map();
+function buildWatchOverviewRunContext(rows = [], activities = [], selectedRunId = "") {
+  const queuedRuns = getWatchOverviewQueuedRunLookup(activities);
+  const reportEntries = getWatchOverviewReportEntries(rows);
+  const groups = [];
+  const groupById = new Map();
+  const reportGroupIdByReportId = new Map();
+
+  reportEntries
+    .sort((left, right) => left.time - right.time)
+    .forEach((entry) => {
+      const queuedRun = entry.jobId ? queuedRuns.byJobId.get(entry.jobId) : null;
+      const group = queuedRun
+        ? getOrCreateWatchOverviewRunGroup(groupById, groups, {
+          id: queuedRun.id,
+          timestamp: queuedRun.timestamp || entry.timestamp,
+          source: "activity",
+        })
+        : getOrCreateFallbackWatchOverviewRunGroup(groupById, groups, entry);
+      addWatchOverviewReportEntryToGroup(group, entry);
+      if (entry.reportId) reportGroupIdByReportId.set(entry.reportId, group.id);
+    });
+
+  const sortedGroups = groups.sort((left, right) => right.time - left.time);
+  const latestKey = sortedGroups[0]?.id || "";
+  const requestedKey = String(selectedRunId || "");
+  const selectedKey = resolveWatchOverviewSelectedRunId(requestedKey, {
+    latestKey,
+    groupById,
+    reportGroupIdByReportId,
+  });
+
+  return {
+    selectedRunId: selectedKey,
+    runRows: sortedGroups.map((group) => ({
+      id: group.id,
+      timestamp: group.timestamp,
+      label: formatWatchRunHistoryTimestamp(group.timestamp),
+      timestampLabel: formatWatchRunHistoryTimestamp(group.timestamp),
+      href: `/app/watchlist?runId=${encodeURIComponent(group.id)}`,
+      changeCount: group.changeCount,
+      signalCount: group.signalCount,
+      actionCount: group.actionCount,
+      productCount: group.productIds.size,
+      isCurrent: group.id === latestKey,
+      isSelected: group.id === selectedKey,
+    })),
+    reportGroupIdByReportId,
+  };
+}
+
+function getWatchOverviewQueuedRunLookup(activities = []) {
+  const byJobId = new Map();
+  (Array.isArray(activities) ? activities : []).forEach((activity) => {
+    if (!["watch_scan_queued", "watch_manual_scan_queued"].includes(String(activity?.eventType || ""))) return;
+    const jobIds = Array.isArray(activity?.metadata?.jobIds) ? activity.metadata.jobIds.map(String).filter(Boolean) : [];
+    if (!jobIds.length) return;
+    const timestamp = activity.createdAt || activity.timestamp || activity.time || "";
+    const run = {
+      id: String(activity.id || getWatchOverviewRunKey(timestamp || new Date().toISOString())),
+      timestamp,
+    };
+    jobIds.forEach((jobId) => byJobId.set(jobId, run));
+  });
+  return { byJobId };
+}
+
+function getWatchOverviewReportEntries(rows = []) {
+  const entries = [];
   (Array.isArray(rows) ? rows : []).forEach((product) => {
-    const report = product.latestChangeReport || {};
-    const points = getWatchRunHistoryPoints(report);
-    points.forEach((point) => {
-      const timestamp = point.currentRunAt || point.capturedAt || "";
-      if (!timestamp) return;
-      const key = getWatchOverviewRunKey(timestamp);
-      const current = runs.get(key) || {
-        id: key,
+    const latestReport = product.latestChangeReport || null;
+    const reports = getWatchOverviewRunReports(latestReport);
+    reports.forEach((report) => {
+      const timestamp = getWatchOverviewReportTimestamp(report);
+      const time = getWatchOverviewTimestampMs(timestamp);
+      if (!timestamp || !Number.isFinite(time)) return;
+      entries.push({
+        productId: String(product?.productGid || product?.id || product?.title || ""),
+        reportId: String(report?.id || ""),
+        jobId: String(report?.jobId || ""),
         timestamp,
-        label: formatWatchRunHistoryTimestamp(timestamp),
-        timestampLabel: formatWatchRunHistoryTimestamp(timestamp),
-        href: `/app/watchlist?runId=${encodeURIComponent(key)}`,
-        changeCount: 0,
-        signalCount: 0,
-        actionCount: 0,
-        productCount: 0,
-      };
-      current.changeCount += Number(point.changeCount || 0);
-      current.signalCount += Number(point.signalCount || 0);
-      current.actionCount += Number(point.actionCount || 0);
-      current.productCount += 1;
-      runs.set(key, current);
+        time,
+        changeCount: Number(report?.changeCount || 0),
+        signalCount: firstFiniteWatchOverviewNumber(report?.current?.signalCount, report?.signalCount),
+        actionCount: firstFiniteWatchOverviewNumber(report?.current?.actionCount, report?.current?.openActionCount, report?.current?.recommendedActionCount, report?.actionCount),
+      });
     });
   });
-  const sorted = Array.from(runs.values()).sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
-  const latestKey = sorted[0]?.id || "";
-  const requestedKey = String(selectedRunId || "");
-  const selectedKey = requestedKey && runs.has(requestedKey) ? requestedKey : latestKey;
-  return sorted.map((row) => ({
-    ...row,
-    isCurrent: row.id === latestKey,
-    isSelected: row.id === selectedKey,
-  }));
+  return entries;
+}
+
+function getOrCreateWatchOverviewRunGroup(groupById, groups, { id, timestamp, source = "time" } = {}) {
+  const safeTimestamp = timestamp || new Date().toISOString();
+  const safeId = String(id || getWatchOverviewRunKey(safeTimestamp));
+  if (groupById.has(safeId)) return groupById.get(safeId);
+  const group = {
+    id: safeId,
+    timestamp: safeTimestamp,
+    time: getWatchOverviewTimestampMs(safeTimestamp),
+    source,
+    productIds: new Set(),
+    reportIds: new Set(),
+    changeCount: 0,
+    signalCount: 0,
+    actionCount: 0,
+  };
+  groups.push(group);
+  groupById.set(safeId, group);
+  return group;
+}
+
+function getOrCreateFallbackWatchOverviewRunGroup(groupById, groups, entry = {}) {
+  const matched = groups
+    .filter((group) => group.source !== "activity")
+    .find((group) => Math.abs(Number(group.time || 0) - Number(entry.time || 0)) <= PRODUCT_WATCH_OVERVIEW_RUN_GROUP_WINDOW_MS);
+  if (matched) return matched;
+  return getOrCreateWatchOverviewRunGroup(groupById, groups, {
+    id: getWatchOverviewRunKey(entry.timestamp),
+    timestamp: entry.timestamp,
+    source: "time",
+  });
+}
+
+function addWatchOverviewReportEntryToGroup(group, entry = {}) {
+  if (!group) return;
+  const reportKey = entry.reportId || `${entry.productId}:${entry.timestamp}`;
+  if (group.reportIds.has(reportKey)) return;
+  group.reportIds.add(reportKey);
+  if (entry.productId) group.productIds.add(entry.productId);
+  group.changeCount += Number(entry.changeCount || 0);
+  group.signalCount += Number(entry.signalCount || 0);
+  group.actionCount += Number(entry.actionCount || 0);
+}
+
+function resolveWatchOverviewSelectedRunId(requestedKey = "", { latestKey = "", groupById = new Map(), reportGroupIdByReportId = new Map() } = {}) {
+  if (!requestedKey) return latestKey;
+  if (groupById.has(requestedKey)) return requestedKey;
+  if (reportGroupIdByReportId.has(requestedKey)) return reportGroupIdByReportId.get(requestedKey);
+  return latestKey;
+}
+
+function getWatchOverviewReportGroupId(report = {}, runContext = null) {
+  if (!runContext) return "";
+  const reportId = String(report?.id || "");
+  if (reportId && runContext.reportGroupIdByReportId?.has(reportId)) {
+    return runContext.reportGroupIdByReportId.get(reportId);
+  }
+  return "";
+}
+
+function getWatchOverviewTimestampMs(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? NaN : date.getTime();
+}
+
+function firstFiniteWatchOverviewNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
 }
 
 function getWatchOverviewRunKey(value) {
@@ -4957,6 +5143,7 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
 
 export function SettingsScreen({ data = {}, actionData }) {
   const navigation = useNavigation();
+  const navigate = useNavigate();
   const submit = useSubmit();
   const formRef = useRef(null);
   const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
@@ -5005,6 +5192,33 @@ export function SettingsScreen({ data = {}, actionData }) {
     return undefined;
   }, [settingsDirty]);
 
+  useEffect(() => {
+    dispatchProductPulseSettingsDirtyState(settingsDirty);
+    return () => dispatchProductPulseSettingsDirtyState(false);
+  }, [settingsDirty]);
+
+  useEffect(() => {
+    const handleWizardSettingsLeaveRequest = () => {
+      if (!settingsDirty) {
+        dispatchProductPulseWizardSettingsLeaveAllowed();
+        return;
+      }
+
+      const saveBar = getShopifySaveBarApi();
+      if (saveBar?.leaveConfirmation) {
+        saveBar.leaveConfirmation()
+          .then(() => dispatchProductPulseWizardSettingsLeaveAllowed())
+          .catch(() => {});
+        return;
+      }
+
+      saveBar?.show?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
+    };
+
+    window.addEventListener("productpulse:wizard-request-settings-leave", handleWizardSettingsLeaveRequest);
+    return () => window.removeEventListener("productpulse:wizard-request-settings-leave", handleWizardSettingsLeaveRequest);
+  }, [settingsDirty]);
+
   useEffect(() => () => {
     getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
   }, []);
@@ -5034,6 +5248,11 @@ export function SettingsScreen({ data = {}, actionData }) {
     setHtmlStylePreset(normalizedHtmlStyle.preset);
     setHtmlStyleCustomTemplate(normalizedHtmlStyle.customTemplate);
     getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
+  };
+
+  const handleStartWizard = () => {
+    dispatchProductPulseWizardStart();
+    navigate(PRODUCT_PULSE_WIZARD_START_ROUTE);
   };
 
   return (
@@ -5078,7 +5297,7 @@ export function SettingsScreen({ data = {}, actionData }) {
                     Product risk thresholds <span className="ppSettingsInfoDot" aria-hidden="true">i</span>
                   </h2>
                   <p>
-                    Set the cutoffs between ignored, low, medium, and high risk. If your minimum risk threshold is too high, some products may stay out of ProductPulse. If it's too low, too many products may enter as candidates and create noise.
+                    Set the cutoffs between ignored, low, medium, and high risk. If your minimum risk threshold is too high, some products may stay out of ProductPulse. If it is too low, too many products may enter as candidates and create noise.
                   </p>
                 </div>
                 <div className="ppSettingsStepTip">
@@ -5160,6 +5379,28 @@ export function SettingsScreen({ data = {}, actionData }) {
 
         {developmentMode ? (
           <div className="ppSettingsForm">
+            <section className="ppSettingsCard ppSettingsWizardDevCard" aria-labelledby="settings-wizard-dev-title">
+              <div className="ppSettingsCardHeader">
+                <DashboardIcon type="spark" tone="purple" />
+                <div>
+                  <span>Development wizard</span>
+                  <h2 id="settings-wizard-dev-title">Start onboarding wizard</h2>
+                  <p>
+                    Restart the guided onboarding from the welcome screen and test the full overlay flow from scratch.
+                  </p>
+                </div>
+              </div>
+              <div className="ppSettingsWizardDevActions">
+                <p>
+                  Clears the local completion flag, moves to the dashboard, and opens the first wizard step.
+                </p>
+                <button className="ppPrimaryButton ppSettingsWizardDevButton" type="button" onClick={handleStartWizard}>
+                  <s-icon type="play" size="small"></s-icon>
+                  Start wizard
+                </button>
+              </div>
+            </section>
+
             <section className="ppSettingsCard ppSettingsMockDatasetCard" aria-labelledby="settings-mock-dataset-title">
               <div className="ppSettingsCardHeader">
                 <DashboardIcon type="product" tone="purple" />
@@ -5276,7 +5517,6 @@ export function SettingsScreen({ data = {}, actionData }) {
   );
 }
 
-const PLANS_CREDIT_BETA_DISCOUNT_PERCENT = 50;
 const PLANS_CREDIT_CURRENT_PLAN_KEY = "free";
 
 const PLANS_CREDIT_PLANS = [
@@ -5300,7 +5540,6 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "starter",
     name: "Starter",
-    basePriceCents: 1900,
     credits: "50 credits /mo",
     monthlyCredits: 50,
     limits: {
@@ -5317,7 +5556,6 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "growth",
     name: "Growth",
-    basePriceCents: 4900,
     credits: "150 credits /mo",
     monthlyCredits: 150,
     badge: "Recommended",
@@ -5337,7 +5575,6 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "pro",
     name: "Pro",
-    basePriceCents: 9900,
     credits: "400 credits /mo",
     monthlyCredits: 400,
     unavailable: true,
@@ -5355,7 +5592,6 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "premium",
     name: "Premium",
-    basePriceCents: 19900,
     credits: "1,000 credits /mo",
     monthlyCredits: 1000,
     badge: "Best value",
@@ -5386,11 +5622,11 @@ const PLANS_CREDIT_FEATURES = [
 ];
 
 const EXTRA_CREDIT_PACKS = [
-  { credits: 10, basePriceCents: 800 },
-  { credits: 25, basePriceCents: 1500 },
-  { credits: 50, basePriceCents: 2900 },
-  { credits: 100, basePriceCents: 5500 },
-  { credits: 250, basePriceCents: 12500 },
+  { credits: 10 },
+  { credits: 25 },
+  { credits: 50 },
+  { credits: 100 },
+  { credits: 250 },
 ];
 
 const PLAN_USAGE_OPTIONS = [
@@ -5417,22 +5653,17 @@ const PLAN_USAGE_OPTIONS = [
   },
 ];
 
-function getPlansCreditBetaPriceCents(basePriceCents = 0) {
-  return Math.round(Number(basePriceCents || 0) * (100 - PLANS_CREDIT_BETA_DISCOUNT_PERCENT) / 100);
-}
-
-function formatPlansCreditMoney(cents = 0) {
-  const value = Number(cents || 0) / 100;
-  const hasCents = Math.round(value) !== value;
-  return `$${value.toLocaleString("en-US", { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 })}`;
-}
-
 function getPlansCreditCurrentPlanKey(data = {}) {
   return data?.billing?.planKey || data?.billing?.currentPlanKey || data?.subscription?.planKey || PLANS_CREDIT_CURRENT_PLAN_KEY;
 }
 
-function getPlansCreditPlanCta(plan, currentPlanKey) {
-  if (plan.key === currentPlanKey) return "Current plan";
+function isPlansCreditBillingEnabled(data = {}) {
+  return Boolean(data?.billing?.shopifyBillingEnabled || data?.billing?.billingEnabled);
+}
+
+function getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled) {
+  if (plan.key === currentPlanKey) return "Current free plan";
+  if (!billingEnabled) return "Billing disabled";
   if (plan.unavailable) return "Coming soon";
   return `Choose ${plan.name}`;
 }
@@ -5467,6 +5698,7 @@ function formatPlansCreditSignedAmount(value = 0) {
 export function PlansCreditsScreen({ data = {} }) {
   const currentPlanKey = getPlansCreditCurrentPlanKey(data);
   const currentPlan = PLANS_CREDIT_PLANS.find((plan) => plan.key === currentPlanKey) || PLANS_CREDIT_PLANS[0];
+  const billingEnabled = isPlansCreditBillingEnabled(data);
   const pointSummary = getPlansCreditPointSummary(data);
   const usedCredits = Number(pointSummary?.usage?.used ?? data?.billing?.usedCredits ?? data?.billing?.creditsUsed ?? data?.credits?.used ?? 0);
   const remainingCredits = Math.max(
@@ -5474,22 +5706,68 @@ export function PlansCreditsScreen({ data = {} }) {
     Number(pointSummary?.balance?.available ?? Number(currentPlan.monthlyCredits || 0) - usedCredits),
   );
   const pointActivityRows = getPlansCreditActivityRows(pointSummary);
+  const plansFeedbackContext = {
+    plansAndCredits: {
+      currentPlanKey,
+      currentPlanName: currentPlan.name,
+      monthlyCredits: currentPlan.monthlyCredits,
+      usedCredits,
+      remainingCredits,
+      billingEnabled,
+    },
+  };
+  const planComparisonFeedbackPanel = buildBetaFeedbackPanel("plans.planComparison", "Plan comparison", {
+    ...plansFeedbackContext,
+    planComparison: {
+      planCount: PLANS_CREDIT_PLANS.length,
+      currentPlanKey,
+      plans: PLANS_CREDIT_PLANS.map((plan) => ({
+        key: plan.key,
+        name: plan.name,
+        monthlyCredits: plan.monthlyCredits,
+        unavailable: Boolean(plan.unavailable),
+        billingEnabled,
+      })),
+    },
+  });
+  const creditPacksFeedbackPanel = buildBetaFeedbackPanel("plans.extraCreditPacks", "Extra credit packs", {
+    ...plansFeedbackContext,
+    extraCreditPacks: EXTRA_CREDIT_PACKS.map((pack) => ({
+      credits: pack.credits,
+      billingEnabled,
+    })),
+  });
+  const billingFeedbackPanel = buildBetaFeedbackPanel("plans.billingInformation", "Billing information", plansFeedbackContext);
+  const creditActivityFeedbackPanel = buildBetaFeedbackPanel("plans.creditActivity", "Credit activity", {
+    ...plansFeedbackContext,
+    creditActivity: {
+      rowCount: pointActivityRows.length,
+      visibleRows: pointActivityRows.slice(0, 8).map((entry) => ({
+        title: entry.title,
+        direction: entry.direction,
+        amountLabel: entry.amountLabel,
+        balanceLabel: entry.balanceLabel,
+        timeLabel: entry.timeLabel,
+      })),
+    },
+  });
+
   return (
     <FullWidthPage label="Plans & Credits" className="ppPlansPage">
       <ScreenShell className="ppDashboard ppPlansScreen">
         <div className="ppPlansTopbar">
           <div>
             <h1>Plans &amp; Credits</h1>
-            <p>Scale ProductPulse diagnostics with monthly credits, then top up with extra credits when needed.</p>
+            <p>Track ProductPulse credits for diagnostics and AI usage. Paid upgrades are disabled until Shopify Billing is configured.</p>
           </div>
         </div>
 
         <section className="ppPlansStatusGrid">
-          <aside className="ppPlansBetaBanner" aria-label="Beta pricing">
-            <span>Beta</span>
+          <aside className="ppPlansBetaBanner" aria-label="Billing status">
+            <span>Free</span>
             <div>
-              <strong>Beta pricing is active: plans and extra credit packs are 50% off.</strong>
-              <p>The beta period is open-ended while ProductPulse is still in active rollout. Beta limits are shown directly in the plan matrix.</p>
+              <strong>ProductPulse is running without paid billing in this build.</strong>
+              <p>Plan changes and credit-pack purchases remain unavailable until they are implemented through Shopify Billing or Shopify App Pricing.</p>
             </div>
           </aside>
 
@@ -5516,77 +5794,77 @@ export function PlansCreditsScreen({ data = {} }) {
           </aside>
         </section>
 
-      <section className="ppPlansMatrixCard" id="plans-comparison" aria-label="Plan comparison">
-        <div className="ppPlansMatrix">
-          <div className="ppPlansFeatureHeading">Features</div>
-          {PLANS_CREDIT_PLANS.map((plan) => (
-            <div
-              className={`ppPlansPlanHead ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedTop" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
-              key={plan.key}
-            >
-              {plan.badge && <span className={`ppPlansPlanBadge ppPlansPlanBadge-${plan.premium ? "green" : "purple"}`}>{plan.badge}</span>}
-              {plan.key === currentPlanKey && <span className="ppPlansCurrentBadge">Current</span>}
-              <h2>{plan.name}</h2>
-              <div className="ppPlansPriceBlock">
-                {plan.basePriceCents > 0 && <span className="ppPlansOriginalPrice">{formatPlansCreditMoney(plan.basePriceCents)}</span>}
-                <strong>{formatPlansCreditMoney(getPlansCreditBetaPriceCents(plan.basePriceCents))}{plan.basePriceCents > 0 && <small>/mo</small>}</strong>
-                {plan.basePriceCents > 0 && <em>Beta price</em>}
-              </div>
-              <p>{plan.credits}</p>
-            </div>
-          ))}
-
-          {PLANS_CREDIT_FEATURES.map((feature) => (
-            <PlanFeatureRow feature={feature} plans={PLANS_CREDIT_PLANS} key={feature.label} />
-          ))}
-
-          <div className="ppPlansFeatureCell ppPlansActionsSpacer" aria-hidden="true" />
-          {PLANS_CREDIT_PLANS.map((plan) => (
-            <div
-              className={`ppPlansActionCell ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedBottom" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
-              key={`${plan.key}-action`}
-            >
-              <button
-                className={`ppPlansChooseButton${plan.featured ? " isPrimary" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`}
-                disabled={plan.key === currentPlanKey || plan.unavailable ? true : undefined}
-                type="button"
+      <BetaFeedbackPanelFrame panel={planComparisonFeedbackPanel}>
+        <section className="ppPlansMatrixCard" id="plans-comparison" aria-label="Plan comparison">
+          <div className="ppPlansBetaFeedbackCorner">
+            <BetaFeedbackPanelControls panel={planComparisonFeedbackPanel} />
+          </div>
+          <div className="ppPlansMatrix">
+            <div className="ppPlansFeatureHeading">Features</div>
+            {PLANS_CREDIT_PLANS.map((plan) => (
+              <div
+                className={`ppPlansPlanHead ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedTop" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
+                key={plan.key}
               >
-                {getPlansCreditPlanCta(plan, currentPlanKey)}
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
+                {plan.badge && <span className={`ppPlansPlanBadge ppPlansPlanBadge-${plan.premium ? "green" : "purple"}`}>{plan.badge}</span>}
+                {plan.key === currentPlanKey && <span className="ppPlansCurrentBadge">Current</span>}
+                <h2>{plan.name}</h2>
+                <div className="ppPlansPriceBlock">
+                  <strong>{plan.key === currentPlanKey ? "Included" : "Unavailable"}</strong>
+                  {plan.key !== currentPlanKey && <em>Shopify Billing not enabled</em>}
+                </div>
+                <p>{plan.credits}</p>
+              </div>
+            ))}
+
+            {PLANS_CREDIT_FEATURES.map((feature) => (
+              <PlanFeatureRow feature={feature} plans={PLANS_CREDIT_PLANS} key={feature.label} />
+            ))}
+
+            <div className="ppPlansFeatureCell ppPlansActionsSpacer" aria-hidden="true" />
+            {PLANS_CREDIT_PLANS.map((plan) => (
+              <div
+                className={`ppPlansActionCell ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedBottom" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
+                key={`${plan.key}-action`}
+              >
+                <button
+                  className={`ppPlansChooseButton${plan.featured ? " isPrimary" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`}
+                  disabled={plan.key === currentPlanKey || plan.unavailable || !billingEnabled ? true : undefined}
+                  type="button"
+                >
+                  {getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled)}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      </BetaFeedbackPanelFrame>
 
       <p className="ppPlansSecureNote">
         <PlansCreditsIcon type="shield" />
-        Secure, cancel anytime. Upgrade or downgrade at any time&mdash;changes apply next billing cycle.
+        Paid upgrades and purchasable credit packs will be enabled only through Shopify Billing.
       </p>
 
       <section className="ppPlansLowerGrid">
-        <div className="ppPlansPanel ppPlansCreditPacks">
-          <header>
-            <h2>Extra credit packs</h2>
-            <p>Need more? Top up anytime. Pack credits never expire.</p>
-          </header>
-          <div className="ppPlansPackGrid">
-            {EXTRA_CREDIT_PACKS.map((pack) => (
-              <article className="ppPlansPackCard" key={pack.credits}>
-                <span className="ppPlansPackIcon" aria-hidden="true"><PlansCreditsIcon type="wallet" /></span>
-                <strong>{pack.credits}</strong>
-                <small>credits</small>
-                <span className="ppPlansPackOriginalPrice">{formatPlansCreditMoney(pack.basePriceCents)}</span>
-                <b>{formatPlansCreditMoney(getPlansCreditBetaPriceCents(pack.basePriceCents))}</b>
-                <em>{formatPlansCreditMoney(Math.round(getPlansCreditBetaPriceCents(pack.basePriceCents) / pack.credits))} / credit · Beta</em>
-                <button type="button">Buy {pack.credits} credits</button>
-              </article>
-            ))}
+        <BetaFeedbackPanelFrame panel={creditPacksFeedbackPanel}>
+          <div className="ppPlansPanel ppPlansCreditPacks">
+            <header>
+              <div>
+                <h2>Extra credit packs</h2>
+                <p>Credit-pack purchases are not available in this build.</p>
+              </div>
+              <BetaFeedbackPanelControls panel={creditPacksFeedbackPanel} />
+            </header>
+            <p className="ppPlansPackFootnote">
+              <PlansCreditsIcon type="info" />
+              Extra credits can be added here after Shopify Billing or Shopify App Pricing is configured for the app.
+            </p>
+            <p className="ppPlansPackFootnote">
+              <PlansCreditsIcon type="info" />
+              The current free credit balance is managed inside ProductPulse and is not a merchant charge.
+            </p>
           </div>
-          <p className="ppPlansPackFootnote">
-            <PlansCreditsIcon type="info" />
-            Pack credits are more expensive than credits included in your monthly plan.
-          </p>
-        </div>
+        </BetaFeedbackPanelFrame>
 
         <div className="ppPlansPanel ppPlansFitPanel">
           <header>
@@ -5612,77 +5890,81 @@ export function PlansCreditsScreen({ data = {} }) {
         </div>
       </section>
 
-      <section className="ppPlansBillingPanel" aria-label="Billing information">
-        <h2>Billing information</h2>
-        <div className="ppPlansBillingGrid">
-          <article>
-            <span className="ppPlansBillingIcon ppPlansBillingIcon-green" aria-hidden="true"><PlansCreditsIcon type="rollover" /></span>
-            <div>
-              <strong>Rollover policy</strong>
-              <p>Monthly plan credits reset every cycle; extra credits do not expire.</p>
-            </div>
-          </article>
-          <article>
-            <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="card" /></span>
-            <div>
-              <strong>Payment methods</strong>
-              <p>We accept all major credit cards.</p>
-              <div className="ppPlansPaymentLogos" aria-label="Accepted cards">
-                <span>VISA</span>
-                <span>MC</span>
-                <span>AMEX</span>
-                <span>DISCOVER</span>
+      <BetaFeedbackPanelFrame panel={billingFeedbackPanel}>
+        <section className="ppPlansBillingPanel" aria-label="Billing information">
+          <div className="ppPlansBillingHeader">
+            <h2>Billing information</h2>
+            <BetaFeedbackPanelControls panel={billingFeedbackPanel} />
+          </div>
+          <div className="ppPlansBillingGrid">
+            <article>
+              <span className="ppPlansBillingIcon ppPlansBillingIcon-green" aria-hidden="true"><PlansCreditsIcon type="rollover" /></span>
+              <div>
+                <strong>Rollover policy</strong>
+                <p>Free ProductPulse credits reset according to ProductPulse internal credit rules.</p>
               </div>
-            </div>
-          </article>
-          <article>
-            <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="gear" /></span>
-            <div>
-              <strong>Manage billing</strong>
-              <p>Update payment method, view invoices, or cancel your plan.</p>
-              <Link to="/app/plans-and-credits">Manage billing <span aria-hidden="true">-&gt;</span></Link>
-            </div>
-          </article>
-        </div>
-      </section>
+            </article>
+            <article>
+              <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="card" /></span>
+              <div>
+                <strong>Shopify Billing required</strong>
+                <p>No payment method is collected by ProductPulse. Any future charges must be approved through Shopify.</p>
+              </div>
+            </article>
+            <article>
+              <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="gear" /></span>
+              <div>
+                <strong>Manage credits</strong>
+                <p>Plan changes, invoices and cancellation flows are disabled until Shopify Billing is connected.</p>
+                <Link to="/app/plans-and-credits">View credits <span aria-hidden="true">-&gt;</span></Link>
+              </div>
+            </article>
+          </div>
+        </section>
+      </BetaFeedbackPanelFrame>
 
-      <section className="ppPlansPanel ppPlansLedgerPanel" aria-label="Credit activity">
-        <header>
-          <h2>Credit activity</h2>
-          <p>Latest credits earned and spent across free grants, monthly plan allowances, credit packs, diagnostics and AI usage.</p>
-        </header>
-        <div className="ppPlansLedgerTableWrap">
-          <table className="ppPlansLedgerTable">
-            <thead>
-              <tr>
-                <th scope="col">Event</th>
-                <th scope="col">Type</th>
-                <th scope="col">Amount</th>
-                <th scope="col">Balance</th>
-                <th scope="col">When</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pointActivityRows.length ? pointActivityRows.map((entry) => (
-                <tr key={entry.id}>
-                  <td>
-                    <strong>{entry.title}</strong>
-                    {entry.detail ? <span>{entry.detail}</span> : null}
-                  </td>
-                  <td><span className={`ppPlansLedgerType ppPlansLedgerType-${entry.direction}`}>{entry.typeLabel}</span></td>
-                  <td className={entry.direction === "debit" ? "isDebit" : "isCredit"}>{entry.amountLabel}</td>
-                  <td>{entry.balanceLabel}</td>
-                  <td>{entry.timeLabel || "-"}</td>
-                </tr>
-              )) : (
+      <BetaFeedbackPanelFrame panel={creditActivityFeedbackPanel}>
+        <section className="ppPlansPanel ppPlansLedgerPanel" aria-label="Credit activity">
+          <header>
+            <div>
+              <h2>Credit activity</h2>
+              <p>Latest credits earned and spent across free grants, diagnostics and AI usage.</p>
+            </div>
+            <BetaFeedbackPanelControls panel={creditActivityFeedbackPanel} />
+          </header>
+          <div className="ppPlansLedgerTableWrap">
+            <table className="ppPlansLedgerTable">
+              <thead>
                 <tr>
-                  <td className="ppPlansLedgerEmpty" colSpan={5}>No credit activity yet.</td>
+                  <th scope="col">Event</th>
+                  <th scope="col">Type</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Balance</th>
+                  <th scope="col">When</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {pointActivityRows.length ? pointActivityRows.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>
+                      <strong>{entry.title}</strong>
+                      {entry.detail ? <span>{entry.detail}</span> : null}
+                    </td>
+                    <td><span className={`ppPlansLedgerType ppPlansLedgerType-${entry.direction}`}>{entry.typeLabel}</span></td>
+                    <td className={entry.direction === "debit" ? "isDebit" : "isCredit"}>{entry.amountLabel}</td>
+                    <td>{entry.balanceLabel}</td>
+                    <td>{entry.timeLabel || "-"}</td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td className="ppPlansLedgerEmpty" colSpan={5}>No credit activity yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </BetaFeedbackPanelFrame>
 
       <footer className="ppPlansFooter">
         <span><PlansCreditsIcon type="lock" /> Secure checkout. Your data is encrypted and never shared.</span>
@@ -7001,6 +7283,36 @@ function getProductTableLabel(table = "main") {
   if (table === "candidates") return "candidates";
   if (table === "resolved") return "resolved products";
   return "products";
+}
+
+function summarizeProductTableFilters(values = {}) {
+  const summary = {};
+  ["query", "risk", "status", "issue", "vendor", "collection", "page", "rows", "sort", "direction"].forEach((key) => {
+    const fallback = PRODUCT_FILTER_DEFAULTS[key] ?? "";
+    const value = values?.[key];
+    if (value === undefined || value === null) return;
+    const normalized = String(value).trim();
+    if (!normalized || normalized === String(fallback) || normalized === "all") return;
+    summary[key] = normalized;
+  });
+  return summary;
+}
+
+function summarizeProductTableRow(product = {}) {
+  return {
+    key: getProductActionKey(product),
+    title: product.title || "",
+    handle: product.handle || "",
+    productGid: product.productGid || "",
+    risk: product.risk || "",
+    riskScore: product.riskScore,
+    momentum: product.momentumLabel || product.momentum || "",
+    evidenceLabel: product.evidenceLabel || product.signalsLabel || "",
+    issue: product.issue || "",
+    sourceCount: Array.isArray(product.sources) ? product.sources.length : 0,
+    lastAnalysis: product.lastAnalysis || "",
+    actionLabel: product.actionLabel || "",
+  };
 }
 
 function normalizeProductsTab(value) {
@@ -9801,12 +10113,6 @@ function getBadgeToneFromRiskTone(tone) {
   return "warning";
 }
 
-function getBadgeToneFromTrendTone(tone) {
-  if (tone === "red") return "critical";
-  if (tone === "green") return "success";
-  return "warning";
-}
-
 function getBadgeToneFromSeverity(severity, fallbackTone = "warning") {
   const normalized = String(severity || "").toLowerCase();
   if (normalized.includes("high") || normalized.includes("critical")) return "critical";
@@ -10377,7 +10683,7 @@ function rankRecommendedActionsForDisplay(actions = [], product = {}) {
   return moveRelationshipDescriptionFixAheadOfEvidenceReview(ranked, product);
 }
 
-function moveRelationshipDescriptionFixAheadOfEvidenceReview(actions = [], product = {}) {
+function moveRelationshipDescriptionFixAheadOfEvidenceReview(actions = []) {
   const pairingIndex = actions.findIndex(isPairingExpectationDisplayAction);
   const descriptionIndex = actions.findIndex(isRelationshipExpectationDescriptionAction);
   if (pairingIndex < 0 || descriptionIndex < 0 || descriptionIndex < pairingIndex) return actions;
@@ -12058,7 +12364,7 @@ function isRetentionRecommendedAction(action = {}) {
     || normalized.includes("campaign");
 }
 
-function getRetentionRecommendedActionApplication(action = {}, product = {}) {
+function getRetentionRecommendedActionApplication(action = {}) {
   const payload = action.payload || {};
   const plan = payload.campaignPlan || {};
   const isDropReview = String(payload.recommendationKind || payload.retentionActionKind || action.id || "").toLowerCase().includes("drop");
@@ -13420,7 +13726,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const overviewPanel = (
     <BetaFeedbackPanelFrame panel={overviewFeedbackPanel}>
-      <div className="ppMainFindingCard ppProductDetailOverviewFinding">
+      <div
+        className="ppMainFindingCard ppProductDetailOverviewFinding"
+        data-pp-product-detail-analysis-panel="ai-interpretation"
+      >
         <div className="ppBetaFeedbackCardCorner">
           <BetaFeedbackPanelControls panel={overviewFeedbackPanel} />
         </div>
@@ -13440,7 +13749,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   const recommendedActionsPanel = (
     <BetaFeedbackPanelFrame panel={recommendedActionsFeedbackPanel}>
-      <div className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}>
+      <div
+        className={`ppProductPanel ppRecommendedActionsPanel ppRecommendedActionsFull${recommendedActionsCollapsed ? " isCollapsed" : ""}`}
+        data-pp-product-detail-analysis-panel="recommended-actions"
+      >
         <div className="ppRecommendedActionsHeader">
           <div>
             <span className="ppRecommendedActionsTitle">
@@ -13593,8 +13905,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           Back to products
         </button>
 
-        <section className="ppProductDetailHeroPanel" aria-label="Product overview">
-          <span className="ppProductHeroImageWrap">
+        <section className="ppProductDetailHeroPanel" aria-label="Product overview" data-pp-product-detail-overview="hero">
+          <span className="ppProductHeroImageWrap" data-pp-product-detail-overview="image">
             <ProductArt
               variant={detail.variant}
               label={detail.title}
@@ -13604,7 +13916,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             />
             <ProductAnalysisStatusBadge product={product} showLabel={false} titleIcon completionOnly={detail.hasFullDiagnosis} />
           </span>
-          <div className="ppProductDetailHeroCopy">
+          <div className="ppProductDetailHeroCopy" data-pp-product-detail-overview="summary">
             <div className="ppProductTitleHeading">
               <h1>{detail.title}</h1>
               {resolved && (
@@ -13614,11 +13926,11 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                 </span>
               )}
             </div>
-            <div className="ppProductDetailStatusRow">
+            <div className="ppProductDetailStatusRow" data-pp-product-detail-overview="status">
               {!resolved && <span className={`ppProductStatusPill ppProductStatusPill-${productStatusTone}`}>{productStatusLabel}</span>}
               <span className="ppProductStatusPill ppProductStatusPill-analysis">{analysisPillLabel}</span>
             </div>
-            <dl className="ppProductMetaLine">
+            <dl className="ppProductMetaLine" data-pp-product-detail-overview="meta">
               {productMetaItems.map(([label, value]) => (
                 <div key={label}>
                   <dt>{label}:</dt>
@@ -13627,7 +13939,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               ))}
             </dl>
           </div>
-          <div className="ppProductHeaderActions">
+          <div className="ppProductHeaderActions" data-pp-product-detail-overview="actions">
             {detail.diagnosisInProgress ? (
               <span className="ppProductDiagnosisRunning">
                 <span className="ppMiniSpinner" aria-hidden="true" />
@@ -15889,74 +16201,97 @@ function ProductBasketContextPanel({ detail }) {
   const strongestCoPurchase = getBasketContextStrongestCoPurchase(detail, context);
   const strongestHref = strongestCoPurchase ? getBasketContextProductHref(strongestCoPurchase) : "";
   const interpretation = firstNonEmptyString(context.interpretation);
+  const panel = buildBetaFeedbackPanel(
+    "product.basketContext",
+    "Basket context",
+    buildProductBetaFeedbackContext(detail, {}, {
+      basketContext: {
+        available: hasData,
+        totalOrdersContainingProduct: context.totalOrdersContainingProduct,
+        soloPurchaseRatePercent: context.soloPurchaseRatePercent,
+        multiProductBasketRatePercent: context.multiProductBasketRatePercent,
+        avgProductQuantityPerOrder: context.avgProductQuantityPerOrder,
+        multiVariantOrderRatePercent: context.multiVariantOrderRatePercent,
+        strongestCoPurchase: strongestCoPurchase ? {
+          title: strongestCoPurchase.title,
+          handle: strongestCoPurchase.handle,
+          productId: strongestCoPurchase.productId || strongestCoPurchase.id,
+        } : null,
+      },
+    }),
+    buildProductBetaRelatedEntity(detail),
+  );
 
   return (
-    <section className={`ppProductPanel ppBasketContextPanel${hasData ? "" : " isUnavailable"}`} aria-label="Basket context">
-      <header className="ppBasketContextHeader">
-        <div>
-          <span>Purchase context</span>
-          <h2>
-            <PurchaseContextInfoLabel
-              label="Basket context"
-              help="Compact summary of how this product appears in Shopify orders: solo purchases, baskets with other products, multi-unit orders, variant comparison behavior, and strongest co-purchase."
-            />
-          </h2>
-          <p>Compact summary of how this product appears in Shopify orders.</p>
-        </div>
-      </header>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className={`ppProductPanel ppBasketContextPanel${hasData ? "" : " isUnavailable"}`} aria-label="Basket context">
+        <header className="ppBasketContextHeader">
+          <div>
+            <span>Purchase context</span>
+            <h2>
+              <PurchaseContextInfoLabel
+                label="Basket context"
+                help="Compact summary of how this product appears in Shopify orders: solo purchases, baskets with other products, multi-unit orders, variant comparison behavior, and strongest co-purchase."
+              />
+            </h2>
+            <p>Compact summary of how this product appears in Shopify orders.</p>
+          </div>
+          <BetaFeedbackPanelControls panel={panel} />
+        </header>
 
-      {!hasData ? (
-        <EmptyProductDetailState message="Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available." />
-      ) : (
-        <>
-          <div className="ppBasketContextBody">
-            <div className="ppBasketContextMetricGrid" aria-label="Basket context primary metrics">
-              <BasketContextMetric value={formatPercent(context.soloPurchaseRatePercent)} label="Solo purchase rate" tone="green" />
-              <BasketContextMetric value={formatPercent(context.multiProductBasketRatePercent)} label="Bought with other products" tone="blue" />
-              <BasketContextMetric value={formatDecimal(context.avgProductQuantityPerOrder, 1)} label="Avg qty / order" tone="slate" />
-              <BasketContextMetric value={formatPercent(context.multiVariantOrderRatePercent)} label="Multi-variant rate" tone="purple" />
-            </div>
-
-            <div className="ppBasketContextDetailColumn">
-              <div className="ppBasketContextBars" aria-label="Basket context mix">
-                {rows.map((row) => (
-                  <BasketContextBarRow row={row} key={row.key} />
-                ))}
+        {!hasData ? (
+          <EmptyProductDetailState message="Purchase context not calculated yet. Run diagnosis after Shopify order evidence is available." />
+        ) : (
+          <>
+            <div className="ppBasketContextBody">
+              <div className="ppBasketContextMetricGrid" aria-label="Basket context primary metrics">
+                <BasketContextMetric value={formatPercent(context.soloPurchaseRatePercent)} label="Solo purchase rate" tone="green" />
+                <BasketContextMetric value={formatPercent(context.multiProductBasketRatePercent)} label="Bought with other products" tone="blue" />
+                <BasketContextMetric value={formatDecimal(context.avgProductQuantityPerOrder, 1)} label="Avg qty / order" tone="slate" />
+                <BasketContextMetric value={formatPercent(context.multiVariantOrderRatePercent)} label="Multi-variant rate" tone="purple" />
               </div>
 
-              <div className="ppBasketContextCoPurchase">
-                <span aria-hidden="true"><ProductPulseGlyph type="shopify-product" /></span>
-                <div>
-                  <strong>Strongest co-purchase</strong>
-                  {strongestCoPurchase ? (
-                    strongestHref ? (
-                      <Link to={strongestHref}>
-                        {strongestCoPurchase.title}
-                        <s-icon type="external" size="small"></s-icon>
-                      </Link>
+              <div className="ppBasketContextDetailColumn">
+                <div className="ppBasketContextBars" aria-label="Basket context mix">
+                  {rows.map((row) => (
+                    <BasketContextBarRow row={row} key={row.key} />
+                  ))}
+                </div>
+
+                <div className="ppBasketContextCoPurchase">
+                  <span aria-hidden="true"><ProductPulseGlyph type="shopify-product" /></span>
+                  <div>
+                    <strong>Strongest co-purchase</strong>
+                    {strongestCoPurchase ? (
+                      strongestHref ? (
+                        <Link to={strongestHref}>
+                          {strongestCoPurchase.title}
+                          <s-icon type="external" size="small"></s-icon>
+                        </Link>
+                      ) : (
+                        <em>{strongestCoPurchase.title}</em>
+                      )
                     ) : (
-                      <em>{strongestCoPurchase.title}</em>
-                    )
-                  ) : (
-                    <em>No reliable co-purchase yet</em>
-                  )}
+                      <em>No reliable co-purchase yet</em>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {interpretation ? (
-            <div className="ppBasketContextInterpretation">
-              <span>
-                <ProductPulseGlyph type="ai-evidence-synthesis" />
-                <strong>AI interpretation</strong>
-              </span>
-              <p>{renderAnalysisText(interpretation)}</p>
-            </div>
-          ) : null}
-        </>
-      )}
-    </section>
+            {interpretation ? (
+              <div className="ppBasketContextInterpretation">
+                <span>
+                  <ProductPulseGlyph type="ai-evidence-synthesis" />
+                  <strong>AI interpretation</strong>
+                </span>
+                <p>{renderAnalysisText(interpretation)}</p>
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -15967,7 +16302,6 @@ function BasketContextBarRow({ row }) {
   return (
     <div
       className={`ppBasketContextBarRow ppBasketContextBarRow-${row.tone}${row.value <= 0 ? " isZero" : ""}`}
-      tabIndex={0}
       aria-describedby={tooltipId}
       aria-label={`${row.label}: ${formatPercent(row.value)}`}
     >
@@ -16383,15 +16717,36 @@ function ProductRelationshipsPanel({ detail }) {
   const relationship = detail.productRelationshipIntelligence || normalizeProductRelationshipIntelligence(null);
   const hasData = relationship.available;
   const emptyMessage = getProductRelationshipEmptyMessage(relationship);
+  const panel = buildBetaFeedbackPanel(
+    "product.relationshipTimeline",
+    "Product relationship timeline",
+    buildProductBetaFeedbackContext(detail, {}, {
+      relationshipTimeline: {
+        available: hasData,
+        topBoughtTogetherCount: relationship.topBoughtTogether?.length || 0,
+        topBoughtBeforeCount: relationship.topBoughtBefore?.length || 0,
+        topBoughtAfterCount: relationship.topBoughtAfter?.length || 0,
+        strongestRelationshipCount: relationship.strongestRelationships?.length || 0,
+        confidenceLabel: relationship.confidenceLabel,
+        interpretation: relationship.interpretation,
+      },
+    }),
+    buildProductBetaRelatedEntity(detail),
+  );
 
   return (
-    <section className={`ppProductPanel ppProductRelationshipsPanel${hasData ? "" : " isUnavailable"}`} aria-label="Product relationships">
-      {!hasData ? (
-        <EmptyProductDetailState message={emptyMessage} />
-      ) : (
-        <ProductRelationshipTimelineCard detail={detail} relationship={relationship} />
-      )}
-    </section>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className={`ppProductPanel ppProductRelationshipsPanel${hasData ? "" : " isUnavailable"}`} aria-label="Product relationships">
+        {!hasData ? (
+          <div className="ppProductRelationshipUnavailableHeader">
+            <BetaFeedbackPanelControls panel={panel} />
+            <EmptyProductDetailState message={emptyMessage} />
+          </div>
+        ) : (
+          <ProductRelationshipTimelineCard detail={detail} relationship={relationship} panel={panel} />
+        )}
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -16444,7 +16799,6 @@ function ProductResolutionBreakdownCard({ detail }) {
             <div
               className={`ppResolutionBreakdownBarItem ppResolutionBreakdownBarItem-${bucket.tone}`}
               key={bucket.key}
-              tabIndex={0}
               aria-label={`${bucket.label}: ${formatPercent(bucket.percent)}`}
             >
               <strong>{formatPercent(Math.round(bucket.percent))}</strong>
@@ -16663,7 +17017,7 @@ function getProductRelationshipSignalTopRelated({ boughtTogether = [], boughtAft
     || null;
 }
 
-function ProductRelationshipTimelineCard({ detail, relationship }) {
+function ProductRelationshipTimelineCard({ detail, relationship, panel }) {
   const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("productRelationshipTimeline");
   const currentIdentity = getProductRelationshipCurrentIdentity(detail, relationship);
   const boughtTogether = getProductRelationshipTimelineItems(relationship.topBoughtTogether, currentIdentity, "together");
@@ -16679,11 +17033,14 @@ function ProductRelationshipTimelineCard({ detail, relationship }) {
           </h2>
           <p>Products customers buy before, together, and after your main product.</p>
         </div>
-        <ProductDetailPanelCollapseButton
-          collapsed={collapsed}
-          label="Product relationship timeline"
-          onToggle={() => setCollapsed((current) => !current)}
-        />
+        <div className="ppBetaFeedbackHeaderActions">
+          <BetaFeedbackPanelControls panel={panel} />
+          <ProductDetailPanelCollapseButton
+            collapsed={collapsed}
+            label="Product relationship timeline"
+            onToggle={() => setCollapsed((current) => !current)}
+          />
+        </div>
       </div>
       <ProductDetailPanelCollapseRegion collapsed={collapsed}>
         <div className="ppProductRelationshipTimelineStage">
@@ -17187,6 +17544,7 @@ function getProductRelationshipDiagnosticHref(item = {}) {
   return "/app/products";
 }
 
+/* eslint-disable no-unused-vars */
 function ProductRelationshipCalendarGlyph() {
   return (
     <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-calendar" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
@@ -17384,6 +17742,7 @@ function ProductRelationshipDetailsPanel({ activeView, rows, onChangeView }) {
               key={key}
               type="button"
               className={activeView === key ? "isActive" : ""}
+              role="tab"
               aria-selected={activeView === key}
               onClick={() => onChangeView(key)}
             >
@@ -17548,6 +17907,7 @@ function getProductRelationshipTableRows(relationship = {}, activeView = "togeth
   if (activeView === "risk") return relationship.relationshipsWithReturnRiskImpact || [];
   return relationship.topBoughtTogether || [];
 }
+/* eslint-enable no-unused-vars */
 
 function getProductRelationshipEmptyMessage(relationship = {}) {
   if (!relationship.available) return "Not enough order history to detect product relationships yet.";
@@ -19432,6 +19792,7 @@ function getProductRetentionRangeLabel(run = null, summary = {}) {
   return `${formatProductAnalysisDate(start)} - ${formatProductAnalysisDate(end)}`;
 }
 
+// eslint-disable-next-line no-unused-vars
 function getProductRetentionWarningLabel(summary = {}, run = null) {
   if (run?.status === "failed") return "Calculation failed";
   if (summary.errorMessage) return "Calculation failed";
@@ -19456,6 +19817,7 @@ function formatProductRetentionStatus(status = "") {
   return humanizeRetentionLabel(status);
 }
 
+// eslint-disable-next-line no-unused-vars
 function getProductRetentionStatusTone(status = "") {
   const normalized = String(status || "").toLowerCase();
   if (normalized === "completed") return "success";
@@ -19466,25 +19828,49 @@ function getProductRetentionStatusTone(status = "") {
 function ProductMomentumPanel({ detail }) {
   const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("productMomentum");
   const momentum = detail.productMomentum;
+  const panel = buildBetaFeedbackPanel(
+    "product.momentum",
+    "Product Momentum",
+    buildProductBetaFeedbackContext(detail, {}, {
+      momentum: momentum ? {
+        score: momentum.score,
+        label: momentum.display?.label,
+        trendLabel: momentum.display?.trendLabel,
+        confidence: momentum.confidence,
+        confidenceLabel: momentum.confidenceLabel,
+        unitsLast30Days: momentum.inputs?.unitsLast30Days,
+        revenueLast30Days: momentum.inputs?.revenueLast30Days,
+        components: momentum.components,
+      } : {
+        available: false,
+      },
+    }),
+    buildProductBetaRelatedEntity(detail),
+  );
   if (!momentum) {
     return (
-      <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
-        <div className="ppProductMomentumHeader">
-          <div>
-            <span>Commercial signal</span>
-            <h2>Product Momentum</h2>
-            <p>Commercial strength is calculated from recent Shopify order velocity, growth and catalog position.</p>
+      <BetaFeedbackPanelFrame panel={panel}>
+        <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
+          <div className="ppProductMomentumHeader">
+            <div>
+              <span>Commercial signal</span>
+              <h2>Product Momentum</h2>
+              <p>Commercial strength is calculated from recent Shopify order velocity, growth and catalog position.</p>
+            </div>
+            <div className="ppBetaFeedbackHeaderActions">
+              <BetaFeedbackPanelControls panel={panel} />
+              <ProductDetailPanelCollapseButton
+                collapsed={collapsed}
+                label="Product Momentum"
+                onToggle={() => setCollapsed((current) => !current)}
+              />
+            </div>
           </div>
-          <ProductDetailPanelCollapseButton
-            collapsed={collapsed}
-            label="Product Momentum"
-            onToggle={() => setCollapsed((current) => !current)}
-          />
-        </div>
-        <ProductDetailPanelCollapseRegion collapsed={collapsed}>
-          <EmptyProductDetailState message="Run product diagnosis to calculate Product Momentum for this product." />
-        </ProductDetailPanelCollapseRegion>
-      </section>
+          <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+            <EmptyProductDetailState message="Run product diagnosis to calculate Product Momentum for this product." />
+          </ProductDetailPanelCollapseRegion>
+        </section>
+      </BetaFeedbackPanelFrame>
     );
   }
 
@@ -19498,50 +19884,55 @@ function ProductMomentumPanel({ detail }) {
   const trendCallout = getProductMomentumTrendInsight(momentum.inputs?.weeklyUnitsLast4Weeks, momentum.display?.trendLabel);
 
   return (
-    <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
-      <div className="ppProductMomentumHeader">
-        <div>
-          <span>Commercial signal</span>
-          <h2>Product Momentum</h2>
-          <p>This score answers whether the product matters commercially right now. It is separate from Product Risk.</p>
+    <BetaFeedbackPanelFrame panel={panel}>
+      <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
+        <div className="ppProductMomentumHeader">
+          <div>
+            <span>Commercial signal</span>
+            <h2>Product Momentum</h2>
+            <p>This score answers whether the product matters commercially right now. It is separate from Product Risk.</p>
+          </div>
+          <div className="ppBetaFeedbackHeaderActions">
+            <BetaFeedbackPanelControls panel={panel} />
+            <ProductDetailPanelCollapseButton
+              collapsed={collapsed}
+              label="Product Momentum"
+              onToggle={() => setCollapsed((current) => !current)}
+            />
+          </div>
         </div>
-        <ProductDetailPanelCollapseButton
-          collapsed={collapsed}
-          label="Product Momentum"
-          onToggle={() => setCollapsed((current) => !current)}
-        />
-      </div>
-      <ProductDetailPanelCollapseRegion collapsed={collapsed}>
-        <>
-          <div className="ppProductMomentumBody">
-            <ProductMomentumGauge momentum={momentum} />
-            <ProductMomentumWeeklyChart momentum={momentum} />
-          </div>
-          <div className={`ppProductMomentumTrendCallout ppProductMomentumTrendCallout-${trendCallout.tone}`}>
-            <span>
-              <ProductMomentumComponentIcon type={trendCallout.icon} />
-            </span>
-            <strong>{trendCallout.label}</strong>
-          </div>
-          <div className="ppProductMomentumBreakdown">
-            {componentRows.map(({ key, label, value }) => (
-              <ProductMomentumComponentMetric
-                componentKey={key}
-                key={key}
-                label={label}
-                momentum={momentum}
-                value={value}
-              />
-            ))}
-          </div>
-          <div className="ppProductMomentumMeta">
-            <span><b>{momentum.confidenceLabel}</b> · {formatInteger(momentum.confidence)}/100</span>
-            <span>{formatInteger(momentum.inputs.unitsLast30Days)} units · {formatMoney(momentum.inputs.revenueLast30Days)} revenue in the last 30 days</span>
-          </div>
-        </>
-      </ProductDetailPanelCollapseRegion>
-      <ProductChartAiInterpretation detail={detail} chartKey="productMomentum" />
-    </section>
+        <ProductDetailPanelCollapseRegion collapsed={collapsed}>
+          <>
+            <div className="ppProductMomentumBody">
+              <ProductMomentumGauge momentum={momentum} />
+              <ProductMomentumWeeklyChart momentum={momentum} />
+            </div>
+            <div className={`ppProductMomentumTrendCallout ppProductMomentumTrendCallout-${trendCallout.tone}`}>
+              <span>
+                <ProductMomentumComponentIcon type={trendCallout.icon} />
+              </span>
+              <strong>{trendCallout.label}</strong>
+            </div>
+            <div className="ppProductMomentumBreakdown">
+              {componentRows.map(({ key, label, value }) => (
+                <ProductMomentumComponentMetric
+                  componentKey={key}
+                  key={key}
+                  label={label}
+                  momentum={momentum}
+                  value={value}
+                />
+              ))}
+            </div>
+            <div className="ppProductMomentumMeta">
+              <span><b>{momentum.confidenceLabel}</b> · {formatInteger(momentum.confidence)}/100</span>
+              <span>{formatInteger(momentum.inputs.unitsLast30Days)} units · {formatMoney(momentum.inputs.revenueLast30Days)} revenue in the last 30 days</span>
+            </div>
+          </>
+        </ProductDetailPanelCollapseRegion>
+        <ProductChartAiInterpretation detail={detail} chartKey="productMomentum" />
+      </section>
+    </BetaFeedbackPanelFrame>
   );
 }
 
@@ -20045,6 +20436,7 @@ function getReturnRatePredictionActionCopy(adjustment = null) {
   };
 }
 
+// eslint-disable-next-line no-unused-vars
 function getReturnRatePredictionConfidenceTone(confidence) {
   const normalized = String(confidence || "").toLowerCase();
   if (normalized.includes("high")) return "success";
@@ -21330,6 +21722,7 @@ function getProductRiskHistoryLargestJump(historyPoints = []) {
   return largest;
 }
 
+// eslint-disable-next-line no-unused-vars
 function getProductRiskHistoryTrendLabel(historyPoints = []) {
   const first = historyPoints[0];
   const last = historyPoints[historyPoints.length - 1];
@@ -23807,7 +24200,7 @@ function isAiEvidenceSynthesisSource(source = "") {
   return String(source || "").toLowerCase().includes("ai evidence synthesis");
 }
 
-function EvidenceObservabilityHeader({ detail }) {
+function EvidenceObservabilityHeader({ detail, panel }) {
   return (
     <div className="ppEvidenceObservabilityHeader">
       <div>
@@ -25089,7 +25482,7 @@ function getVariantTemporalChartData(metrics = {}) {
   return { months, series };
 }
 
-function getVariantTemporalPoints(insight = null, variant = {}) {
+function getVariantTemporalPoints(insight = null) {
   const pointsByMonth = new Map();
   const addPoint = (dateValue, values = {}) => {
     const month = getVariantTemporalMonth(dateValue);
@@ -26883,30 +27276,18 @@ function EvidenceFinding({ point, index }) {
 }
 
 export function ProductEvidenceReportScreen({ product, source = "" }) {
-  if (!product) {
-    return (
-      <FullWidthPage heading="Evidence report not found">
-        <ScreenShell>
-          <ProductPulseToast actionData={PRODUCT_NOT_FOUND_TOAST} />
-          <p className="ppDashboardSubtitle">Return to Products and choose another item.</p>
-          <Link className="ppPrimaryButton" to="/app/products">Back to Products</Link>
-        </ScreenShell>
-      </FullWidthPage>
-    );
-  }
-
-  const detail = getProductDetailModel(product);
+  const detail = product ? getProductDetailModel(product) : null;
   const selectedSourceName = source || "All sources";
-  const reportGeneratedAt = product.metrics?.lastDetailedDiagnosisAt || product.lastAnalysis;
-  const scoreModel = getEvidenceReportScoreModel(product, detail);
-  const checkInsights = getEvidenceReportCheckInsights(detail, product);
-  const sourceSections = detail.evidenceSources.map((sourceItem, index) => ({
+  const reportGeneratedAt = product?.metrics?.lastDetailedDiagnosisAt || product?.lastAnalysis;
+  const scoreModel = product && detail ? getEvidenceReportScoreModel(product, detail) : null;
+  const checkInsights = product && detail ? getEvidenceReportCheckInsights(detail, product) : [];
+  const sourceSections = detail ? detail.evidenceSources.map((sourceItem, index) => ({
     key: `source-${getEvidenceReportSectionSlug(sourceItem.title || `source-${index + 1}`)}`,
     id: `evidence-source-${getEvidenceReportSectionSlug(sourceItem.title || `source-${index + 1}`)}`,
     sourceItem,
     cards: sourceItem.cards?.length ? sourceItem.cards : getEvidenceSourceCards(sourceItem.title, sourceItem.points, product),
     reportHref: getProductEvidenceReportHref(product, sourceItem),
-  }));
+  })) : [];
   const sourceTarget = getEvidenceReportSourceTarget(source, sourceSections);
   const [expandedSections, setExpandedSections] = useState(() => {
     const initial = new Set();
@@ -26947,6 +27328,18 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
       return next;
     });
   };
+
+  if (!product || !detail) {
+    return (
+      <FullWidthPage heading="Evidence report not found">
+        <ScreenShell>
+          <ProductPulseToast actionData={PRODUCT_NOT_FOUND_TOAST} />
+          <p className="ppDashboardSubtitle">Return to Products and choose another item.</p>
+          <Link className="ppPrimaryButton" to="/app/products">Back to Products</Link>
+        </ScreenShell>
+      </FullWidthPage>
+    );
+  }
 
   return (
     <FullWidthPage heading="Full Evidence Report">
@@ -27274,7 +27667,7 @@ function getEvidenceReportCheckInsights(detail = {}, product = {}) {
   const checks = Array.isArray(detail.checkedItems) ? detail.checkedItems : [];
   return checks.map((item, index) => {
     const kind = getEvidenceReportCheckKind(item);
-    const context = getEvidenceReportCheckContext(kind, item, detail, product);
+    const context = getEvidenceReportCheckContext(kind, item, product);
     return {
       id: `${kind}-${index}-${normalizeEvidenceReportTarget(item.label || "check")}`,
       icon: item.icon,
@@ -27284,7 +27677,7 @@ function getEvidenceReportCheckInsights(detail = {}, product = {}) {
       ...context,
       relatedActions: getEvidenceReportRelatedActionsForCheck(kind, detail.recommendedActions, product),
       facts: getEvidenceReportCheckFacts(kind, item, detail, product),
-      meters: getEvidenceReportCheckMeters(kind, item, detail, product),
+      meters: getEvidenceReportCheckMeters(kind, detail, product),
     };
   });
 }
@@ -27302,7 +27695,7 @@ function getEvidenceReportCheckKind(item = {}) {
   return "source";
 }
 
-function getEvidenceReportCheckContext(kind, item = {}, detail = {}, product = {}) {
+function getEvidenceReportCheckContext(kind, item = {}, product = {}) {
   const metrics = product.metrics || {};
   const itemValue = item.value || "Checked";
   const itemDetail = item.detail || "Stored diagnostic evidence";
@@ -27422,7 +27815,7 @@ function getEvidenceReportCheckFacts(kind, item = {}, detail = {}, product = {})
   return facts.filter(Boolean).slice(0, 4);
 }
 
-function getEvidenceReportCheckMeters(kind, item = {}, detail = {}, product = {}) {
+function getEvidenceReportCheckMeters(kind, detail = {}, product = {}) {
   const metrics = product.metrics || {};
   const signalCount = Number(metrics.signalCount || detail.signalCount || 0);
   const sourceCount = Number(detail.sourceCount || product.sourceCoverage?.length || 0);
@@ -28141,6 +28534,7 @@ function getEvidenceFindingTitle(point) {
   return "Supporting finding";
 }
 
+// eslint-disable-next-line no-unused-vars
 function getEvidenceReportMetricRows(metrics = {}) {
   const rows = [];
   const visit = (value, path) => {
@@ -29721,6 +30115,7 @@ function RecommendedActionDescriptionChangeGroup({
           <article className={`ppDescriptionChangeItem ${selected ? "isSelected" : "isUnselected"}`.trim()} key={change.id}>
             <label className="ppDescriptionChangeItemHeader">
               <input
+                aria-label={`Select description change ${change.title}`}
                 type="checkbox"
                 checked={selected}
                 onChange={(event) => onSelectedChange?.(change.id, event.target instanceof HTMLInputElement ? event.target.checked : false)}
@@ -29762,6 +30157,7 @@ function RecommendedActionDescriptionChangeEditors({
           <article className={`ppDescriptionChangeEditorItem ${selected ? "isSelected" : "isUnselected"}`.trim()} key={change.id}>
             <label className="ppDescriptionChangeEditorHeader">
               <input
+                aria-label={`Select description change ${change.title}`}
                 type="checkbox"
                 checked={selected}
                 onChange={(event) => onSelectedChange?.(change.id, event.target instanceof HTMLInputElement ? event.target.checked : false)}

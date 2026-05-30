@@ -278,7 +278,7 @@ export class AiChatOrchestrator {
       env: this.env,
     });
     if (!chatPointCheck.valid) {
-      const fallback = createFallbackAssistantResponse("No tenés créditos disponibles para seguir usando el chat. Cargá más créditos en [Plans & Credits](/app/plans-and-credits).", [
+      const fallback = createFallbackAssistantResponse("No tenés créditos disponibles para seguir usando el chat. Revisá tus créditos en [Plans & Credits](/app/plans-and-credits).", [
         chatPointCheck.message || "ProductPulse chat credits are unavailable.",
       ]);
       const assistantMessageId = createMessageId("ai_msg", this.now);

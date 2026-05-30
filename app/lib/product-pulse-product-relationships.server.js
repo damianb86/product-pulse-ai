@@ -454,7 +454,6 @@ function finalizeProductRelationshipSummary({
 function buildSameOrderRelationships({
   productId,
   productIndex,
-  orderState,
   knownBasketOrders,
   sourceKnownBasketOrders,
   impactEvents,
@@ -604,7 +603,6 @@ function buildSequenceRelationships({
   customerOrders,
   sourceCustomers,
   allCustomers,
-  impactEvents,
   sourceMonthlyOrderCounts,
 }) {
   if (!customerOrders.length || !sourceCustomers.size) return { previous: [], next: [] };
@@ -971,7 +969,6 @@ function strengthLevel(score, sampleSize) {
 function calculateRelationshipConfidence({
   relationshipType,
   sampleSize = 0,
-  customerCount = 0,
   customerOrderCounts = new Map(),
   monthCount = 0,
   lift = null,
@@ -1010,7 +1007,7 @@ function calculateRelationshipConfidence({
   };
 }
 
-function calculateSummaryConfidence({ sourceOrders = 0, knownBasketOrders = 0, sourceCustomers = 0, customerSequenceAvailable = false, relationships = [], warnings = new Set() } = {}) {
+function calculateSummaryConfidence({ sourceOrders = 0, knownBasketOrders = 0, customerSequenceAvailable = false, relationships = [], warnings = new Set() } = {}) {
   const orderVolumeScore = Math.min(25, sourceOrders * 5);
   const basketCompletenessScore = sourceOrders ? Math.min(25, (knownBasketOrders / sourceOrders) * 25) : 0;
   const customerIdentityScore = customerSequenceAvailable ? 20 : 4;

@@ -6,6 +6,7 @@ import { serializeCsvRows } from "../../app/lib/product-pulse-csv.server";
 import { buildProductPurchaseContextSummary } from "../../app/lib/product-pulse-purchase-context.server";
 import { buildProductRelationshipSummary } from "../../app/lib/product-pulse-product-relationships.server";
 import { buildReturnRefundRelationshipSummary } from "../../app/lib/product-pulse-return-refund-relationship.server";
+import { getConfiguredShopifyScopes } from "../../app/lib/product-pulse-scopes";
 import {
   SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS,
   SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
@@ -129,7 +130,7 @@ function buildReltestOutcomeEvents(plans) {
 }
 
 describe("Shopify mock dataset scopes", () => {
-  it("keeps every Shopify CLI config aligned with mock dataset scopes", () => {
+  it("keeps Shopify CLI configs review-scoped and adds mock dataset scopes only in development runtime", () => {
     for (const fileName of ["shopify.app.toml", "shopify.app.product-pulse-ia.toml"]) {
       const config = readFileSync(join(cwd(), fileName), "utf8");
       const scopeLine = config.match(/scopes\s*=\s*"([^"]+)"/);
@@ -138,9 +139,14 @@ describe("Shopify mock dataset scopes", () => {
       const configuredScopes = scopeLine[1].split(",").map((scope) => scope.trim());
       expect(
         getMissingShopifyMockDatasetScopes(configuredScopes.join(",")),
-        `${fileName} is missing mock dataset scopes`,
-      ).toEqual([]);
+        `${fileName} should not include development-only mock dataset write scopes`,
+      ).toEqual(["write_orders", "write_customers", "write_returns"]);
     }
+
+    expect(
+      getMissingShopifyMockDatasetScopes(getConfiguredShopifyScopes("", { includeDevelopmentScopes: true }).join(",")),
+      "runtime development scopes should keep the mock dataset generator usable",
+    ).toEqual([]);
   });
 
   it("treats write scopes as satisfying equivalent read scopes", () => {

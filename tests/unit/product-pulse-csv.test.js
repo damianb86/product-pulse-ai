@@ -1,5 +1,5 @@
 /* eslint-env node */
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -169,5 +169,35 @@ describe("ProductPulse CSV review import", () => {
     });
 
     await expect(getNormalizedCsvReviewsForShop("Test-Shop.myshopify.com")).resolves.toEqual([]);
+  });
+
+  it("keeps normalized CSV review ids stable when source rows move", async () => {
+    const filePath = path.join(tempDir, "stable.normalized.csv");
+    vi.spyOn(prisma.productPulseSource, "findUnique").mockResolvedValue({
+      connected: true,
+      active: true,
+      config: { normalizedFilePath: filePath },
+    });
+    const header = "source_row,product_handle,shopify_product_id,rating,review_title,review_body,review_date,reviewer_name,review_status,source_product_id";
+
+    await writeFile(filePath, [
+      header,
+      "2,gen-voltnest,,2,MIN line,The fill mark disappears,2026-05-29,Ana,published,voltnest-v2",
+      "3,other-product,,5,Other,Other review,2026-05-29,Leo,published,other-v1",
+    ].join("\n"), "utf8");
+    const first = await getNormalizedCsvReviewsForShop("Test-Shop.myshopify.com");
+
+    await writeFile(filePath, [
+      header,
+      "2,other-product,,5,Other,Other review,2026-05-29,Leo,published,other-v1",
+      "3,gen-voltnest,,2,MIN line,The fill mark disappears,2026-05-29,Ana,published,voltnest-v2",
+    ].join("\n"), "utf8");
+    const second = await getNormalizedCsvReviewsForShop("Test-Shop.myshopify.com");
+
+    const firstReview = first.find((row) => row.productHandle === "gen-voltnest");
+    const secondReview = second.find((row) => row.productHandle === "gen-voltnest");
+    expect(firstReview.sourceRow).toBe(2);
+    expect(secondReview.sourceRow).toBe(3);
+    expect(secondReview.id).toBe(firstReview.id);
   });
 });

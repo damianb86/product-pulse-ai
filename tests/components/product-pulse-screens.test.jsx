@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { createMemoryRouter, RouterProvider, useActionData } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,14 +20,19 @@ import {
 } from "../../app/components/ProductPulseScreens";
 import { defaultView } from "../fixtures/product-pulse-fixtures";
 
+const WIZARD_STORAGE_KEY = "productPulse.onboardingWizard.completed.v1";
+
 afterEach(() => {
   vi.restoreAllMocks();
   window.localStorage.removeItem(__productPulseScreensTestHooks.productDetailPanelCollapseStorageKey);
+  window.localStorage.removeItem(__productPulseScreensTestHooks.watchRecentRunsWindowStorageKey);
+  window.localStorage.removeItem(WIZARD_STORAGE_KEY);
+  delete window.shopify;
 });
 
-function renderWithRouter(element) {
-  const router = createMemoryRouter([{ path: "/", element }], { initialEntries: ["/"] });
-  return render(<RouterProvider router={router} />);
+function renderWithRouter(element, initialEntries = ["/"]) {
+  const router = createMemoryRouter([{ path: "*", element }], { initialEntries });
+  return { ...render(<RouterProvider router={router} />), router };
 }
 
 function renderWithAction(element, action) {
@@ -312,7 +317,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Plans & Credits" })).toBeInTheDocument();
     expect(screen.queryByText("Monthly billing")).not.toBeInTheDocument();
     expect(screen.queryByText("1 credit = 1 deep diagnosis")).not.toBeInTheDocument();
-    expect(screen.getByText(/Beta pricing is active/)).toBeInTheDocument();
+    expect(screen.getByText(/running without paid billing/)).toBeInTheDocument();
     expect(screen.getByLabelText("Current usage")).toHaveTextContent("Free");
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Monthly credits\s*10/);
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Used\s*0/);
@@ -324,10 +329,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Premium" })).toBeInTheDocument();
     expect(screen.getByText("Recommended")).toBeInTheDocument();
     expect(screen.getByText("Best value")).toBeInTheDocument();
-    expect(screen.getByText("$19")).toBeInTheDocument();
-    expect(screen.getByText("$9.50")).toBeInTheDocument();
-    expect(screen.getByText("$49")).toBeInTheDocument();
-    expect(screen.getByText("$24.50")).toBeInTheDocument();
+    expect(screen.getByText("Included")).toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable")).toHaveLength(4);
+    expect(screen.getAllByText("Shopify Billing not enabled")).toHaveLength(4);
     expect(screen.getByText("Metric timeline")).toBeInTheDocument();
     expect(screen.getByText("30 days")).toBeInTheDocument();
     expect(screen.getByText("90 days")).toBeInTheDocument();
@@ -353,17 +357,11 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Seats")).not.toBeInTheDocument();
     expect(screen.queryByText("Watched products")).not.toBeInTheDocument();
     expect(screen.getByText("Extra credit packs")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Buy 10 credits" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Buy 25 credits" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Buy 250 credits" })).toBeInTheDocument();
-    expect(screen.getByText("$8")).toBeInTheDocument();
-    expect(screen.getByText("$4")).toBeInTheDocument();
-    expect(screen.getByText("$7.50")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Buy 500 credits" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Current plan" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Choose Starter" })).not.toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Coming soon" })).toHaveLength(3);
-    screen.getAllByRole("button", { name: "Coming soon" }).forEach((button) => {
+    expect(screen.getByText(/Credit-pack purchases are not available/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Buy .* credits/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Current free plan" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Billing disabled" })).toHaveLength(4);
+    screen.getAllByRole("button", { name: "Billing disabled" }).forEach((button) => {
       expect(button).toBeDisabled();
     });
     expect(screen.getByText("Which option fits best?")).toBeInTheDocument();
@@ -371,8 +369,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Growing usage")).toBeInTheDocument();
     expect(screen.getByText("Heavy usage")).toBeInTheDocument();
     expect(screen.getByText("Billing information")).toBeInTheDocument();
-    expect(screen.getByText("Payment methods")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Manage billing/ })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(screen.getByText("Shopify Billing required")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /View credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
     expect(screen.getByText("Credit activity")).toBeInTheDocument();
     expect(screen.getByText(/Latest credits earned and spent/)).toBeInTheDocument();
     expect(screen.getByText("No credit activity yet.")).toBeInTheDocument();
@@ -956,6 +954,138 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText(/add one product to automatic monitoring/i)).toBeInTheDocument();
   });
 
+  it("groups product-level reports under the same Watchlist run in the overview timeline", () => {
+    const makeReport = ({ id, jobId, title, currentRunAt, changeLabel, productRisk }) => ({
+      id,
+      jobId,
+      status: "changed",
+      title: "Watchlist changes detected",
+      headline: `${changeLabel}.`,
+      summary: `${changeLabel} since the previous Watchlist run.`,
+      changeCount: 2,
+      sourceChangeCount: 1,
+      previousRunAt: "2026-05-17T08:00:00.000Z",
+      currentRunAt,
+      previous: { riskScore: productRisk - 3, productMomentumScore: 50, marginAtRisk: 90, orderCount: 4, returnUnits: 0, refundAmount: 0, negativeReviewCount: 1 },
+      current: { riskLabel: "Medium", riskScore: productRisk, productMomentumScore: 55, marginAtRisk: 110, orderCount: 5, returnUnits: 1, refundAmount: 0, negativeReviewCount: 2, primaryIssue: title },
+      sourceChanges: [{
+        id: "new-returns",
+        source: "returns",
+        label: "New returns",
+        value: "1 returned unit",
+        delta: "+1 return signal",
+        direction: "up",
+        tone: "orange",
+        icon: "shopify-returns",
+      }],
+      sections: [{
+        id: "risk",
+        title: "Risk and diagnosis",
+        tone: "purple",
+        changes: [{
+          id: "risk-score",
+          label: "Product risk",
+          from: String(productRisk - 3),
+          to: String(productRisk),
+          delta: "+3",
+          direction: "up",
+        }],
+      }],
+      changes: [{ id: "risk-score", label: "Product risk", sectionTitle: "Risk and diagnosis", direction: "up", delta: "+3" }],
+      sourceInsights: [],
+    });
+
+    renderWithRouter(<WatchlistScreen
+      data={{
+        watchlist: {
+          maxProducts: 99,
+          watchedCount: 2,
+          slotsAvailable: 97,
+          selectedRunId: "global-watch-run-1",
+          rows: [
+            {
+              id: "watch-alpha",
+              productGid: "gid://shopify/Product/alpha",
+              title: "GEN Grouped Alpha",
+              handle: "gen-grouped-alpha",
+              status: "Watching",
+              riskScore: 61,
+              riskLabel: "Medium",
+              riskTone: "warning",
+              latestChange: "Alpha return pressure",
+              href: "/app/products/gen-grouped-alpha",
+              watchlistHref: "/app/watchlist/gen-grouped-alpha",
+              latestChangeReport: {
+                ...makeReport({
+                  id: "product-run-alpha",
+                  jobId: "job-alpha",
+                  title: "Alpha return pressure",
+                  currentRunAt: "2026-05-17T10:12:00.000Z",
+                  changeLabel: "Alpha return pressure",
+                  productRisk: 61,
+                }),
+                runReports: [makeReport({
+                  id: "product-run-alpha",
+                  jobId: "job-alpha",
+                  title: "Alpha return pressure",
+                  currentRunAt: "2026-05-17T10:12:00.000Z",
+                  changeLabel: "Alpha return pressure",
+                  productRisk: 61,
+                })],
+              },
+            },
+            {
+              id: "watch-beta",
+              productGid: "gid://shopify/Product/beta",
+              title: "GEN Grouped Beta",
+              handle: "gen-grouped-beta",
+              status: "Watching",
+              riskScore: 58,
+              riskLabel: "Medium",
+              riskTone: "warning",
+              latestChange: "Beta refund pressure",
+              href: "/app/products/gen-grouped-beta",
+              watchlistHref: "/app/watchlist/gen-grouped-beta",
+              latestChangeReport: {
+                ...makeReport({
+                  id: "product-run-beta",
+                  jobId: "job-beta",
+                  title: "Beta refund pressure",
+                  currentRunAt: "2026-05-17T10:41:00.000Z",
+                  changeLabel: "Beta refund pressure",
+                  productRisk: 58,
+                }),
+                runReports: [makeReport({
+                  id: "product-run-beta",
+                  jobId: "job-beta",
+                  title: "Beta refund pressure",
+                  currentRunAt: "2026-05-17T10:41:00.000Z",
+                  changeLabel: "Beta refund pressure",
+                  productRisk: 58,
+                })],
+              },
+            },
+          ],
+          activities: [],
+          runActivities: [{
+            id: "global-watch-run-1",
+            eventType: "watch_manual_scan_queued",
+            title: "Manual watch diagnostics queued",
+            detail: "2 deep product diagnostics queued from Watchlist.",
+            createdAt: "2026-05-17T10:00:00.000Z",
+            metadata: { jobIds: ["job-alpha", "job-beta"] },
+          }],
+          settings: { alertsEnabled: true, alertRecipientCount: 1, options: { cadence: [], triggerRules: [], summaries: [] } },
+        },
+      }}
+    />);
+
+    expect(screen.getAllByRole("link", { name: /View Watchlist run May 17/ })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /View Watchlist run May 17/ })).toHaveAttribute("href", "/app/watchlist?runId=global-watch-run-1");
+    expect(screen.getAllByText("Alpha return pressure").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Beta refund pressure").length).toBeGreaterThan(0);
+  });
+
   it("renders a dedicated product Watchlist report page", () => {
     renderWithRouter(<WatchlistProductScreen
       product={{
@@ -1501,11 +1631,17 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("link", { name: "Back to Products" })).not.toBeInTheDocument();
     expect(screen.queryByText("Cost control")).not.toBeInTheDocument();
     expect(screen.queryByText(/OpenAI Batch/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start wizard" })).not.toBeInTheDocument();
     expect(screen.queryByText("Create Shopify mock dataset")).not.toBeInTheDocument();
   });
 
-  it("shows settings mock dataset controls only in development mode", () => {
-    renderWithRouter(<SettingsScreen data={{
+  it("shows development-only wizard and mock dataset controls in development mode", async () => {
+    window.localStorage.setItem(WIZARD_STORAGE_KEY, "true");
+    const wizardStartEvents = [];
+    const handleWizardStart = (event) => wizardStartEvents.push(event);
+    window.addEventListener("productpulse:wizard-start", handleWizardStart);
+
+    const { router } = renderWithRouter(<SettingsScreen data={{
       ...defaultView,
       developmentMode: true,
       settings: {
@@ -1527,22 +1663,79 @@ describe("ProductPulse screens", () => {
           stages: {},
         },
       },
-    }} />);
+    }} />, ["/app/settings"]);
 
+    expect(screen.getByText("Start onboarding wizard")).toBeInTheDocument();
     expect(screen.getByText("Create Shopify mock dataset")).toBeInTheDocument();
     expect(screen.getByText("Create products")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start wizard" }));
+
+    expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
+    expect(wizardStartEvents).toHaveLength(1);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/app/dashboard"));
+
+    window.removeEventListener("productpulse:wizard-start", handleWizardStart);
   });
 
-  it("shows a scan overlay when a quick scan starts", () => {
-    renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
-    fireEvent.click(screen.getAllByRole("button", { name: /Run quick scan/ })[0]);
-    expect(screen.getByRole("heading", { name: "Confirm quick product scan" })).toBeInTheDocument();
-    expect(screen.getByText("QuickScan costs 1.0 point and runs as a background job.")).toBeInTheDocument();
-    expect(screen.getByText(/Products that already have a full AI product diagnosis will be ignored/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Accept cost and run QuickScan" }));
-    expect(screen.getByText("Fast product scan running")).toBeInTheDocument();
-    expect(screen.getByText(/backend job will keep running/)).toBeInTheDocument();
-    expect(screen.queryByText(/8%/)).not.toBeInTheDocument();
+  it("uses the Shopify save bar guard when the wizard tries to leave dirty Settings", async () => {
+    const leaveConfirmation = vi.fn(() => Promise.resolve());
+    window.shopify = {
+      saveBar: {
+        show: vi.fn(() => Promise.resolve()),
+        hide: vi.fn(() => Promise.resolve()),
+        leaveConfirmation,
+      },
+    };
+    const allowedEvents = [];
+    const handleAllowed = (event) => allowedEvents.push(event);
+    window.addEventListener("productpulse:wizard-settings-leave-allowed", handleAllowed);
+
+    renderWithRouter(<SettingsScreen data={{
+      ...defaultView,
+      settings: {
+        risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
+        momentum: { minimumScore: 72 },
+        analysis: { lookbackDays: 120 },
+        htmlStyle: {
+          preset: "professional-card",
+          customTemplate: "",
+        },
+      },
+    }} />, ["/app/settings"]);
+
+    fireEvent.change(screen.getByLabelText("Minimum QuickScan score"), { target: { value: "42" } });
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard-request-settings-leave"));
+    });
+
+    await waitFor(() => expect(leaveConfirmation).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(allowedEvents).toHaveLength(1));
+
+    window.removeEventListener("productpulse:wizard-settings-leave-allowed", handleAllowed);
+  });
+
+  it("shows a scan overlay when a quick scan starts", async () => {
+    const wizardEvents = [];
+    const handleWizardEvent = (event) => wizardEvents.push(event.detail?.type);
+    window.addEventListener("productpulse:wizard", handleWizardEvent);
+
+    try {
+      renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
+      fireEvent.click(screen.getAllByRole("button", { name: /Run quick scan/ })[0]);
+      expect(screen.getByRole("heading", { name: "Confirm quick product scan" })).toBeInTheDocument();
+      expect(screen.getByText("QuickScan costs 1.0 point and runs as a background job.")).toBeInTheDocument();
+      expect(screen.getByText(/Products that already have a full AI product diagnosis will be ignored/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Accept cost and run QuickScan" }));
+      expect(screen.getByText("Fast product scan running")).toBeInTheDocument();
+      expect(screen.getByText(/backend job will keep running/)).toBeInTheDocument();
+      expect(screen.queryByText(/8%/)).not.toBeInTheDocument();
+      expect(wizardEvents).toContain("quick-scan-started");
+      await waitFor(() => expect(wizardEvents).toContain("quick-scan-job-started"));
+    } finally {
+      window.removeEventListener("productpulse:wizard", handleWizardEvent);
+    }
   });
 
   it("recommends uploading CSV reviews before QuickScan when no review CSV is configured", () => {

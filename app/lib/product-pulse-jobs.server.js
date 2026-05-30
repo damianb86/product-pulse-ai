@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import prisma from "../db.server";
 import { unauthenticated } from "../shopify.server";
 import {
@@ -51,9 +52,11 @@ import {
   runShopifyMockDatasetJob,
 } from "./product-pulse-shopify-mock-dataset.server";
 import {
+  creditStorePointsForShop,
   debitStorePointsForShop,
   getStorePointBalanceForShop,
   getStorePointSummaryForShop,
+  lockStorePointLedgerForShop,
   validateStorePointsForShop,
 } from "./product-pulse-points.server";
 import { maybeSendWatchlistRunAlertForJob } from "./product-pulse-watchlist-alerts.server";
@@ -519,21 +522,34 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
   }
 
   const jobs = [];
+  const pointFailures = [];
   for (const productId of uniqueProductIds) {
     const job = await createProductDiagnosisJob(shop, productId, { ...options, skipPointBalanceCheck: true });
+    if (job?.pointValidationError) {
+      pointFailures.push(job.pointValidationError);
+      continue;
+    }
     if (job) jobs.push(job);
   }
 
   if (!jobs.length) {
-    return { status: "validation_error", message: "Selected products were not found in ProductPulse or Shopify." };
+    const pointFailure = pointFailures[0];
+    return {
+      status: "validation_error",
+      message: pointFailure?.message || "Selected products were not found in ProductPulse or Shopify.",
+      pointBalance: pointFailure?.balance,
+    };
   }
 
   ensureProductDiagnosisQueueWorker(shop);
+  const skippedForPoints = pointFailures.length;
 
   return {
     status: "success",
     suppressBanner: true,
-    message: `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
+    message: skippedForPoints
+      ? `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because credits were no longer available.`
+      : `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
     queuedCount: jobs.length,
     jobs: jobs.map(formatJob),
   };
@@ -583,6 +599,123 @@ export async function getJobMonitorForShop(shop) {
     pointBalance: pointSummary.balance,
     pointSummary,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function cancelBackgroundJobForShop(shop, jobId) {
+  const normalizedJobId = String(jobId || "").trim();
+  if (!normalizedJobId) {
+    return { status: "validation_error", message: "Choose a background job to cancel." };
+  }
+
+  const job = await prisma.catalogSignalJob.findFirst({
+    where: {
+      shop,
+      id: normalizedJobId,
+    },
+  });
+
+  if (!job) {
+    return { status: "validation_error", message: "That background job could not be found." };
+  }
+
+  if (!isActiveStatus(job.status)) {
+    return { status: "validation_error", message: "Only queued or running jobs can be cancelled." };
+  }
+
+  const cancellationRefund = await refundCancelledQueuedProductDiagnosisJob(job);
+  const cancellationPayload = cancellationRefund?.refunded
+    ? {
+      ...(job.payload || {}),
+      creditsConsumed: 0,
+      pointsConsumed: 0,
+      pointRefundLedgerEntryId: cancellationRefund.ledgerEntry?.id || null,
+      pointDebitStatus: "refunded",
+    }
+    : job.payload;
+
+  await prisma.catalogSignalJob.updateMany({
+    where: {
+      shop,
+      id: normalizedJobId,
+      status: { in: ["Queued", "Running"] },
+    },
+    data: {
+      status: "Failed",
+      progress: 100,
+      source: "Canceled by user",
+      errorMessage: cancellationRefund?.refunded
+        ? "Canceled from Background processes. Reserved diagnosis point was refunded."
+        : "Canceled from Background processes. Any points already consumed by the queued job are not automatically refunded.",
+      payload: cancellationPayload,
+      finishedAt: new Date(),
+    },
+  });
+
+  await recordJobLog({
+    shop,
+    jobId: normalizedJobId,
+    event: "job.cancelled",
+    message: "Background job was cancelled from the job monitor.",
+    data: {
+      kind: job.kind,
+      previousStatus: job.status,
+      pointCost: getJobPointCost(job),
+      pointRefundStatus: cancellationRefund?.status || null,
+      pointRefundLedgerEntryId: cancellationRefund?.ledgerEntry?.id || null,
+    },
+  });
+
+  const updatedJob = await prisma.catalogSignalJob.findUnique({ where: { id: normalizedJobId } });
+
+  return {
+    status: "success",
+    suppressBanner: true,
+    message: "Background job cancelled.",
+    job: updatedJob ? formatJob(updatedJob) : null,
+  };
+}
+
+async function refundCancelledQueuedProductDiagnosisJob(job) {
+  if (job.kind !== PRODUCT_DIAGNOSIS_KIND || job.status !== "Queued") return null;
+  const payload = job.payload || {};
+  if (!payload.pointLedgerEntryId || payload.pointRefundLedgerEntryId) return null;
+
+  const amount = Number(payload.pointCost || payload.pointsConsumed || payload.creditsConsumed || 1);
+  const refund = await creditStorePointsForShop(job.shop, {
+    amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
+    reason: `Product diagnosis point refund product-diagnosis-cancel-refund:${job.id} - ${payload.productTitle || "selected product"}`,
+    idempotencyKey: `product-diagnosis-cancel-refund:${job.id}`,
+    metadata: {
+      source: "product_diagnosis_refund",
+      jobId: job.id,
+      originalLedgerEntryId: payload.pointLedgerEntryId,
+      productGid: payload.productGid || null,
+      productTitle: payload.productTitle || null,
+      cancelled: true,
+    },
+  });
+
+  if (!isPointCreditRecorded(refund)) {
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      level: "error",
+      event: "product_diagnosis.points_refund_failed",
+      message: refund.message || "Cancelled product diagnosis point refund could not be recorded.",
+      data: {
+        pointRefundStatus: refund.status,
+        pointBalance: refund.balance || null,
+      },
+    });
+    return { status: refund.status, refunded: false, balance: refund.balance || null };
+  }
+
+  return {
+    status: refund.status,
+    refunded: true,
+    ledgerEntry: refund.ledgerEntry || null,
+    balance: refund.balance || null,
   };
 }
 
@@ -2472,38 +2605,76 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
     snapshot = await createManualProductRiskSnapshot(shop, options.admin, productId);
   }
   if (!snapshot) return null;
-  const activeJob = await getActiveProductDiagnosisJobForSnapshot(shop, snapshot);
-  if (activeJob) return activeJob;
-
-  if (!options.skipPointBalanceCheck) {
-    const pointCheck = await validateStorePointsForShop(shop, 1);
-    if (!pointCheck.valid) return { pointValidationError: pointCheck };
-  }
 
   const snapshotMetrics = snapshot.metrics || {};
   const snapshotImage = await resolveSnapshotProductImage(shop, snapshot, options.admin);
-  const job = await prisma.catalogSignalJob.create({
-    data: {
-      shop,
-      kind: PRODUCT_DIAGNOSIS_KIND,
-      source: `Queued AI Product Diagnosis - ${snapshot.productTitle}`,
-      status: "Queued",
-      progress: 0,
-      payload: {
-        productId,
-        productGid: snapshot.productGid,
-        handle: snapshot.handle,
-        productTitle: snapshot.productTitle,
-        imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
-        productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
-        imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
-        productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
-        riskScore: snapshot.riskScore,
-        pointCost: 1,
-        queuedAt: new Date().toISOString(),
+  const result = await prisma.$transaction(async (tx) => {
+    await lockStorePointLedgerForShop(tx, shop);
+
+    const activeJobs = await tx.catalogSignalJob.findMany({
+      where: {
+        shop,
+        kind: PRODUCT_DIAGNOSIS_KIND,
+        status: { in: ["Queued", "Running"] },
       },
-    },
+      orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
+    });
+    const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeJobs);
+    if (activeJob) return { job: activeJob, created: false };
+
+    if (!options.skipPointBalanceCheck) {
+      const pointCheck = await validateStorePointsForShop(shop, 1, { db: tx });
+      if (!pointCheck.valid) return { pointValidationError: pointCheck };
+    }
+
+    const jobId = randomUUID();
+    const pointDebit = await debitStorePointsForShop(shop, {
+      db: tx,
+      amount: 1,
+      reason: `Product diagnosis point debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+      idempotencyKey: `product-diagnosis:${jobId}`,
+      metadata: {
+        source: "product_diagnosis",
+        jobId,
+        productGid: snapshot.productGid || null,
+        productTitle: snapshot.productTitle || null,
+        queued: true,
+      },
+    });
+    if (!isPointDebitRecorded(pointDebit)) return { pointValidationError: pointDebit };
+
+    const job = await tx.catalogSignalJob.create({
+      data: {
+        id: jobId,
+        shop,
+        kind: PRODUCT_DIAGNOSIS_KIND,
+        source: `Queued AI Product Diagnosis - ${snapshot.productTitle}`,
+        status: "Queued",
+        progress: 0,
+        payload: {
+          productId,
+          productGid: snapshot.productGid,
+          handle: snapshot.handle,
+          productTitle: snapshot.productTitle,
+          imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+          productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
+          imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
+          productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
+          riskScore: snapshot.riskScore,
+          pointCost: 1,
+          pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+          pointDebitStatus: pointDebit.status,
+          queuedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return { job, created: true, pointDebit };
   });
+
+  if (result.pointValidationError) return { pointValidationError: result.pointValidationError };
+  const { job, pointDebit, created } = result;
+  if (!created) return job;
 
   await recordJobLog({
     shop,
@@ -2515,6 +2686,8 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
       handle: snapshot.handle,
       title: snapshot.productTitle,
       riskScore: snapshot.riskScore,
+      pointsConsumed: 1,
+      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
     },
   });
 
@@ -2552,11 +2725,6 @@ async function getActiveShopifyMockDatasetJob(shop) {
     },
     orderBy: { startedAt: "desc" },
   });
-}
-
-async function getActiveProductDiagnosisJobForSnapshot(shop, snapshot) {
-  const jobs = await getActiveProductDiagnosisJobs(shop);
-  return findActiveProductDiagnosisJobForSnapshot(snapshot, jobs);
 }
 
 function findActiveProductDiagnosisJobForSnapshot(snapshot, jobs = []) {
@@ -2869,6 +3037,8 @@ async function runProductDiagnosisJob(job) {
     },
   });
 
+  const pointDebit = await ensureProductDiagnosisPointDebit(job);
+
   await updateProductDiagnosisJob(job.id, {
     progress: 18,
     source: `Preparing AI Product Diagnosis - ${snapshot.productTitle}`,
@@ -2887,7 +3057,7 @@ async function runProductDiagnosisJob(job) {
     admin,
     snapshot,
   });
-  const pointDebit = await recordProductDiagnosisPointDebit(job, diagnosis);
+  const pointCharge = await finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit);
 
   await updateProductDiagnosisJob(job.id, {
     progress: 92,
@@ -2908,10 +3078,11 @@ async function runProductDiagnosisJob(job) {
       productImageUrl: job.payload?.productImageUrl || productImage.imageUrl || "",
       imageAlt: job.payload?.imageAlt || productImage.imageAlt || snapshot.productTitle,
       productImageAlt: job.payload?.productImageAlt || productImage.imageAlt || snapshot.productTitle,
-      creditsConsumed: diagnosis?.creditsConsumed ?? 1,
-      pointsConsumed: diagnosis?.creditsConsumed ?? 1,
-      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
-      pointDebitStatus: pointDebit?.status || "not_charged",
+      creditsConsumed: pointCharge.pointsConsumed,
+      pointsConsumed: pointCharge.pointsConsumed,
+      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
+      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
+      pointDebitStatus: pointCharge.status || "not_charged",
     },
     finishedAt: new Date(),
   });
@@ -2920,7 +3091,7 @@ async function runProductDiagnosisJob(job) {
     shop: job.shop,
     jobId: job.id,
     event: "product_diagnosis.completed",
-    message: diagnosis?.skipped
+    message: diagnosis?.skipped && pointCharge.pointsConsumed <= 0
       ? "Product diagnosis finished from cache because no source changes were detected. No point was consumed."
       : "Product diagnosis completed.",
     data: {
@@ -2928,11 +3099,12 @@ async function runProductDiagnosisJob(job) {
       diagnosisId: diagnosis?.diagnosisId,
       skipped: Boolean(diagnosis?.skipped),
       skipReason: diagnosis?.skipReason,
-      creditsConsumed: diagnosis?.creditsConsumed ?? 1,
-      pointsConsumed: diagnosis?.creditsConsumed ?? 1,
-      pointDebitStatus: pointDebit?.status || "not_charged",
-      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
-      pointBalance: pointDebit?.balance || null,
+      creditsConsumed: pointCharge.pointsConsumed,
+      pointsConsumed: pointCharge.pointsConsumed,
+      pointDebitStatus: pointCharge.status || "not_charged",
+      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
+      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
+      pointBalance: pointCharge.balance || null,
       riskScore: diagnosis?.riskScore,
       confidence: diagnosis?.confidence,
       estimatedImpact: diagnosis?.estimatedImpact,
@@ -2948,40 +3120,54 @@ async function runProductDiagnosisJob(job) {
     status: "Completed",
     payload: {
       ...(job.payload || {}),
-      creditsConsumed: diagnosis?.creditsConsumed ?? 1,
-      pointsConsumed: diagnosis?.creditsConsumed ?? 1,
-      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
-      pointDebitStatus: pointDebit?.status || "not_charged",
+      creditsConsumed: pointCharge.pointsConsumed,
+      pointsConsumed: pointCharge.pointsConsumed,
+      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
+      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
+      pointDebitStatus: pointCharge.status || "not_charged",
     },
   });
 }
 
-async function recordProductDiagnosisPointDebit(job, diagnosis) {
-  const pointsConsumed = Number(diagnosis?.creditsConsumed ?? 1);
-  if (!Number.isFinite(pointsConsumed) || pointsConsumed <= 0) {
-    return {
-      status: "no_charge",
-      charged: false,
-      amount: 0,
-    };
-  }
+function isPointDebitRecorded(pointDebit) {
+  return ["success", "already_recorded"].includes(pointDebit?.status);
+}
 
-  const idempotencyKey = `product-diagnosis:${job.id}`;
+function isPointCreditRecorded(pointCredit) {
+  return ["success", "already_recorded"].includes(pointCredit?.status);
+}
+
+function getExistingProductDiagnosisPointDebit(job) {
+  const payload = job.payload || {};
+  if (!payload.pointLedgerEntryId || !isPointDebitRecorded({ status: payload.pointDebitStatus })) return null;
+  const amount = Number(payload.pointCost || payload.pointsConsumed || payload.creditsConsumed || 1);
+  return {
+    status: payload.pointDebitStatus,
+    charged: false,
+    amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
+    ledgerEntry: { id: payload.pointLedgerEntryId },
+    balance: null,
+  };
+}
+
+async function ensureProductDiagnosisPointDebit(job) {
+  const existing = getExistingProductDiagnosisPointDebit(job);
+  if (existing) return existing;
+
   const pointDebit = await debitStorePointsForShop(job.shop, {
-    amount: pointsConsumed,
-    reason: `Product diagnosis point debit ${idempotencyKey} - ${job.payload?.productTitle || "selected product"}`,
-    idempotencyKey,
+    amount: 1,
+    reason: `Product diagnosis point debit product-diagnosis:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+    idempotencyKey: `product-diagnosis:${job.id}`,
     metadata: {
       source: "product_diagnosis",
       jobId: job.id,
-      diagnosisId: diagnosis?.diagnosisId || null,
       productGid: job.payload?.productGid || null,
       productTitle: job.payload?.productTitle || null,
-      skipped: Boolean(diagnosis?.skipped),
+      queued: false,
     },
   });
 
-  if (!["success", "already_recorded"].includes(pointDebit.status)) {
+  if (!isPointDebitRecorded(pointDebit)) {
     await recordJobLog({
       shop: job.shop,
       jobId: job.id,
@@ -2989,14 +3175,80 @@ async function recordProductDiagnosisPointDebit(job, diagnosis) {
       event: "product_diagnosis.points_not_consumed",
       message: pointDebit.message || "Product diagnosis points could not be consumed.",
       data: {
-        pointsConsumed,
+        pointsConsumed: 1,
         pointDebitStatus: pointDebit.status,
         pointBalance: pointDebit.balance || null,
       },
     });
+    throw new Error(pointDebit.message || "Product diagnosis needs 1.0 point before it can start.");
   }
 
+  await updateProductDiagnosisJob(job.id, {
+    payload: {
+      ...(job.payload || {}),
+      pointCost: 1,
+      pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+      pointDebitStatus: pointDebit.status,
+    },
+  });
+
   return pointDebit;
+}
+
+async function finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit) {
+  const chargedAmount = Number(pointDebit?.amount || pointDebit?.ledgerEntry?.amount || job.payload?.pointCost || 1);
+  const normalizedChargedAmount = Number.isFinite(chargedAmount) && chargedAmount > 0 ? chargedAmount : 1;
+  const diagnosisPointsConsumed = Number(diagnosis?.creditsConsumed ?? 1);
+  if (!Number.isFinite(diagnosisPointsConsumed) || diagnosisPointsConsumed <= 0) {
+    const refund = await creditStorePointsForShop(job.shop, {
+      amount: normalizedChargedAmount,
+      reason: `Product diagnosis point refund product-diagnosis-refund:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+      idempotencyKey: `product-diagnosis-refund:${job.id}`,
+      metadata: {
+        source: "product_diagnosis_refund",
+        jobId: job.id,
+        originalLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+        diagnosisId: diagnosis?.diagnosisId || null,
+        productGid: job.payload?.productGid || null,
+        productTitle: job.payload?.productTitle || null,
+        skipped: Boolean(diagnosis?.skipped),
+      },
+    });
+
+    if (!isPointCreditRecorded(refund)) {
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        level: "error",
+        event: "product_diagnosis.points_refund_failed",
+        message: refund.message || "Product diagnosis point refund could not be recorded.",
+        data: {
+          pointDebitStatus: pointDebit?.status || "unknown",
+          pointRefundStatus: refund.status,
+          pointBalance: refund.balance || null,
+        },
+      });
+      return {
+        ...pointDebit,
+        status: `refund_${refund.status || "failed"}`,
+        pointsConsumed: normalizedChargedAmount,
+        balance: refund.balance || pointDebit?.balance || null,
+      };
+    }
+
+    return {
+      ...pointDebit,
+      status: "refunded",
+      pointsConsumed: 0,
+      refundLedgerEntry: refund.ledgerEntry || null,
+      balance: refund.balance || pointDebit?.balance || null,
+    };
+  }
+
+  return {
+    ...pointDebit,
+    pointsConsumed: normalizedChargedAmount,
+  };
 }
 
 async function getOfflineAdmin(shop) {

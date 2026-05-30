@@ -1,14 +1,22 @@
 .ppWizardRoot {
   position: fixed;
   inset: 0;
+  z-index: 2147483000;
+  isolation: isolate;
   pointer-events: none;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.ppWizardBackdropRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 2147481000;
+  pointer-events: none;
 }
 
 .ppWizardBlurLayer {
   position: absolute;
   inset: 0;
-  z-index: 130;
   pointer-events: auto;
   background:
     linear-gradient(135deg, rgba(var(--pp-shadow-rgb), 0.22), rgba(var(--pp-shadow-rgb), 0.12)),
@@ -30,7 +38,7 @@
   position: fixed;
   left: 50%;
   top: 50%;
-  z-index: 132;
+  z-index: 2147482100;
   width: min(520px, calc(100vw - 32px));
   padding: 22px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
@@ -121,7 +129,7 @@
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 180;
+  z-index: 2147483100;
   padding: 12px clamp(14px, 3vw, 28px);
   border-top: 1px solid rgba(var(--pp-shadow-rgb), 0.1);
   background: rgba(255, 255, 255, 0.96);
@@ -209,7 +217,38 @@
 
 .ppWizardSpotlightTarget {
   position: relative !important;
-  z-index: 142 !important;
+  z-index: 2147481500 !important;
+  box-shadow:
+    0 0 0 4px rgba(var(--pp-primary-green-rgb), 0.16),
+    0 18px 52px rgba(var(--pp-shadow-rgb), 0.18) !important;
+}
+
+.ppWizardSpotlightAncestor {
+  position: relative !important;
+  z-index: 2147481550 !important;
+  overflow: visible !important;
+}
+
+.ppGlobalTopbarPopover.ppWizardSpotlightTarget {
+  position: absolute !important;
+}
+
+.ppJobNotice.ppWizardSpotlightTarget {
+  position: fixed !important;
+}
+
+.ppWizardDeepScanCompleteActive [data-pp-job-completion-notice="product-diagnosis"] {
+  top: 50% !important;
+  right: auto !important;
+  left: 50% !important;
+  z-index: 2147481500 !important;
+  transform: translate(-50%, calc(-50% - 36px));
+}
+
+.ppWizardDeepScanCompleteActive [data-pp-job-completion-notice="product-diagnosis"].ppWizardSpotlightTarget {
+  box-shadow:
+    0 0 0 4px rgba(var(--pp-primary-green-rgb), 0.16),
+    0 26px 70px rgba(var(--pp-shadow-rgb), 0.24) !important;
 }
 
 .ppConnectSourceTable tr.ppWizardSpotlightTarget td,
@@ -228,6 +267,10 @@
   opacity: 1;
 }
 
+.ppWizardConnectActive [data-pp-connect-source-row="chatmeReviews"] {
+  display: none;
+}
+
 .ppSettingsStepCard.ppWizardSpotlightTarget {
   background: var(--pp-cloud-white);
   box-shadow:
@@ -235,12 +278,47 @@
     0 16px 40px rgba(var(--pp-shadow-rgb), 0.14);
 }
 
+.ppProductDetailHeroPanel.ppWizardSpotlightTarget,
+[data-pp-product-detail-analysis-panel].ppWizardSpotlightTarget {
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow:
+    0 0 0 4px rgba(var(--pp-primary-green-rgb), 0.14),
+    0 20px 54px rgba(var(--pp-shadow-rgb), 0.18) !important;
+}
+
 button.ppWizardSpotlightTarget,
 .ppConnectSourceTable tr.ppWizardSpotlightTarget .ppConnectSmallButton,
-.ppProductsTable tr.ppWizardSpotlightTarget .ppAnalyzeLinkButton {
+.ppProductsTable tr.ppWizardSpotlightTarget .ppAnalyzeLinkButton,
+[data-pp-products-candidate-run-deep-scan].ppWizardSpotlightTarget,
+[data-pp-products-run-deep-scan-selected].ppWizardSpotlightTarget {
+  position: relative !important;
+  z-index: 2147481600 !important;
   box-shadow:
     0 0 0 3px rgba(var(--pp-primary-green-rgb), 0.14),
     0 12px 28px rgba(var(--pp-shadow-rgb), 0.14);
+}
+
+.ppWizardBackgroundProcessesActive .ppGlobalTopbar {
+  z-index: 2147481510;
+}
+
+.ppWizardBackgroundProcessesActive .ppGlobalTopbarPopover {
+  z-index: 2147481520;
+}
+
+.ppWizardBackgroundProcessesActive .ppGlobalTopbarJobsButton.ppWizardSpotlightTarget,
+.ppWizardBackgroundProcessesActive .ppGlobalTopbarJobsPopover.ppWizardSpotlightTarget {
+  box-shadow:
+    0 0 0 3px rgba(var(--pp-primary-green-rgb), 0.16),
+    0 18px 44px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppWizardProductOverviewActive .ppWizardSpotlightTarget,
+.ppWizardProductOverviewActive .ppWizardSpotlightTarget *,
+.ppWizardProductAnalysisPanelsActive .ppWizardSpotlightTarget,
+.ppWizardProductAnalysisPanelsActive .ppWizardSpotlightTarget * {
+  pointer-events: none !important;
 }
 
 .ppWizardTooltip,
@@ -254,12 +332,12 @@ button.ppWizardSpotlightTarget,
 }
 
 .ppWizardTooltip {
-  z-index: 132;
+  z-index: 2147482100;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
 }
 
 .ppWizardModalCoach {
-  z-index: 170;
+  z-index: 2147482200;
   border: 1px solid rgba(var(--pp-primary-green-rgb), 0.18);
 }
 
@@ -280,23 +358,47 @@ button.ppWizardSpotlightTarget,
 
 .ppWizardTooltipArrow {
   position: absolute;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 18px;
   display: block;
   background: rgba(255, 255, 255, 0.97);
-  box-shadow: -1px 1px 0 rgba(var(--pp-pulse-blue-rgb), 0.16);
+  box-shadow: none;
 }
 
 .ppWizardTooltip.isRight .ppWizardTooltipArrow,
 .ppWizardModalCoach.isRight .ppWizardTooltipArrow {
-  left: -7px;
-  transform: translateY(-50%) rotate(45deg);
+  left: -13px;
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
+  transform: translateY(-50%);
+}
+
+.ppWizardTooltip-backgroundProcesses.isRight .ppWizardTooltipArrow {
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.ppWizardTooltip.isLeft .ppWizardTooltipArrow,
+.ppWizardModalCoach.isLeft .ppWizardTooltipArrow {
+  right: -13px;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  transform: translateY(-50%);
 }
 
 .ppWizardTooltip.isBottom .ppWizardTooltipArrow,
 .ppWizardModalCoach.isBottom .ppWizardTooltipArrow {
-  top: -7px;
-  transform: translateX(-50%) rotate(135deg);
+  top: -13px;
+  width: 18px;
+  height: 16px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  transform: translateX(-50%);
+}
+
+.ppWizardTooltip.isTop .ppWizardTooltipArrow,
+.ppWizardModalCoach.isTop .ppWizardTooltipArrow {
+  bottom: -13px;
+  width: 18px;
+  height: 16px;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  transform: translateX(-50%);
 }
 
 .ppWizardProviderBadges {
@@ -328,11 +430,43 @@ button.ppWizardSpotlightTarget,
   object-fit: contain;
 }
 
+.ppWizardProcessingStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 13px;
+  padding: 9px 10px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 8px;
+  background: var(--pp-blue-soft);
+  color: var(--pp-slate-800);
+  font-size: 12.5px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.ppWizardInlineSpinner {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  flex: 0 0 auto;
+  border: 2px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-top-color: var(--pp-pulse-blue);
+  border-radius: 999px;
+  animation: ppWizardSpin 0.82s linear infinite;
+}
+
+@keyframes ppWizardSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ppWizardSuccessToast {
   position: fixed;
   right: clamp(14px, 3vw, 28px);
   bottom: 82px;
-  z-index: 150;
+  z-index: 2147482150;
   width: min(360px, calc(100vw - 28px));
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -377,14 +511,44 @@ button.ppWizardSpotlightTarget,
 
 .ppWizardActive .ppConnectionModalOverlay,
 .ppWizardActive .ppAnalysisConfirmOverlay {
-  z-index: 145;
+  z-index: 2147482150;
   background: transparent;
+}
+
+.ppWizardActive .ppProductsScanOverlay {
+  z-index: 2147482050;
+  background: transparent;
+}
+
+.ppWizardActive .ppProductsScanOverlay > div {
+  position: relative;
+  z-index: 2147482060;
 }
 
 .ppWizardActive .ppConnectionModal,
 .ppWizardActive .ppAnalysisConfirmModal {
   position: relative;
-  z-index: 146;
+  z-index: 2147482160;
+}
+
+.ppWizardActive .ppChatKitAssistant,
+.ppWizardActive .ppChatKitAssistant-open {
+  z-index: 2147480900 !important;
+  pointer-events: none;
+}
+
+.ppWizardChatAssistantActive .ppChatKitAssistant,
+.ppWizardChatAssistantActive .ppChatKitAssistant-open {
+  z-index: 2147481600 !important;
+  pointer-events: auto;
+}
+
+.ppWizardChatAssistantActive [data-pp-chat-launcher].ppWizardSpotlightTarget {
+  position: relative !important;
+  z-index: 2147481600 !important;
+  box-shadow:
+    0 0 0 5px rgba(var(--pp-primary-green-rgb), 0.22),
+    0 18px 46px rgba(var(--pp-shadow-rgb), 0.26) !important;
 }
 
 @media (max-width: 680px) {

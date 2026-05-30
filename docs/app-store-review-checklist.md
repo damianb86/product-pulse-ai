@@ -19,12 +19,12 @@
 - Order/return data purpose is documented as product quality intelligence.
 - `read_orders` and `read_all_orders` are used only for product-level order/refund aggregates. `read_all_orders` requires Shopify protected-scope approval before production use.
 - `read_customers` is used only to derive safe same-customer keys from Shopify customer IDs for aggregate before/after product relationships.
-- `write_orders`, `write_returns` and `write_customers` are used by the Settings mock dataset generator to create controlled QA test customers, orders, refunds and returns; they should be disclosed as development/testing support scopes if enabled in production.
+- Production config excludes mock-dataset write scopes (`write_orders`, `write_returns`, `write_customers`, `write_inventory`). Development mode adds them at runtime only for controlled QA data generation.
 - Product writes use merchant-confirmed `write_products` actions only.
 
 ## Billing
 - Real paid plans are not enabled in MVP.
-- Credit UI is internal/demo until Shopify billing is wired.
+- Credit UI does not expose prices, payment methods or purchasable credit packs until Shopify Billing or Shopify App Pricing is wired.
 
 ## Webhooks
 - `app/uninstalled` registered.

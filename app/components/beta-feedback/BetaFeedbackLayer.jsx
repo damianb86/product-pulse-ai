@@ -22,6 +22,7 @@ const HIDE_REASONS = [
   { value: "duplicate_information", label: "I already get this information elsewhere" },
   { value: "only_need_sometimes", label: "I only need it sometimes" },
   { value: "other", label: "Other" },
+  { value: "skipped", label: "Skip feedback" },
 ];
 
 const DEFAULT_MODAL_STATE = {
@@ -41,6 +42,10 @@ export function BetaFeedbackProvider({ config, children }) {
   const [preferences, setPreferences] = useState({});
   const [modal, setModal] = useState(null);
   const [hidePrompt, setHidePrompt] = useState(null);
+  const hiddenPanels = useMemo(
+    () => getHiddenPanelPreferences(preferences, pageKey),
+    [pageKey, preferences],
+  );
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return undefined;
@@ -299,6 +304,7 @@ export function BetaFeedbackProvider({ config, children }) {
     <BetaFeedbackContext.Provider value={value}>
       {children}
       <BetaFeedbackGlobalLauncher onOpen={() => openFeedback(null)} />
+      <BetaFeedbackHiddenPanelTray panels={hiddenPanels} onRestore={restorePanel} />
       {modal ? (
         <BetaFeedbackModal
           config={config}
@@ -320,55 +326,70 @@ export function BetaFeedbackProvider({ config, children }) {
   );
 }
 
-export function BetaFeedbackPanelControls({ panel, className = "", allowHide = true }) {
+export function BetaFeedbackPanelControls({ panel, className = "", allowHide = true, showFeedback = true }) {
   const feedback = useContext(BetaFeedbackContext);
   const normalizedPanel = normalizePanel(panel);
   if (!feedback?.enabled || !normalizedPanel) return null;
 
   return (
     <span className={`ppBetaFeedbackPanelControls ${className}`.trim()} data-beta-feedback-panel-id={normalizedPanel.id}>
-      <button
-        aria-label={`Beta feedback for ${normalizedPanel.label}`}
-        className="ppBetaFeedbackPanelButton"
-        onClick={() => feedback.openFeedback(normalizedPanel)}
-        title="Beta feedback"
-        type="button"
-      >
-        <s-icon type="spark" size="small"></s-icon>
-      </button>
+      {showFeedback ? (
+        <button
+          aria-label={`Beta feedback for ${normalizedPanel.label}`}
+          className="ppBetaFeedbackPanelButton ppBetaFeedbackPanelButton-feedback"
+          onClick={() => feedback.openFeedback(normalizedPanel)}
+          title="Beta feedback"
+          type="button"
+        >
+          <s-icon type="chat" size="small"></s-icon>
+        </button>
+      ) : null}
       {allowHide ? (
         <button
           aria-label={`Hide ${normalizedPanel.label}`}
-          className="ppBetaFeedbackPanelButton"
+          className="ppBetaFeedbackPanelButton ppBetaFeedbackPanelButton-hide"
           onClick={() => feedback.requestPanelHide(normalizedPanel)}
           title="Hide this panel"
           type="button"
         >
-          <s-icon type="hidden" size="small"></s-icon>
+          <s-icon type="hide" size="small"></s-icon>
         </button>
       ) : null}
     </span>
   );
 }
 
-export function BetaFeedbackPanelFrame({ panel, children, className = "" }) {
+export function BetaFeedbackPanelFrame({ panel, children }) {
   const feedback = useContext(BetaFeedbackContext);
   const normalizedPanel = normalizePanel(panel);
   if (!feedback?.enabled || !normalizedPanel) return <>{children}</>;
 
   if (!feedback.isPanelHidden(normalizedPanel)) return <>{children}</>;
 
+  return null;
+}
+
+function BetaFeedbackHiddenPanelTray({ panels = [], onRestore }) {
+  if (!panels.length) return null;
+
   return (
-    <div className={`ppBetaFeedbackHiddenPanel ${className}`.trim()} data-beta-feedback-panel-id={normalizedPanel.id}>
-      <button
-        className="ppBetaFeedbackHiddenPanelRestore"
-        type="button"
-        onClick={() => feedback.restorePanel(normalizedPanel)}
-      >
-        <s-icon type="view" size="small"></s-icon>
-        <span>{normalizedPanel.label} hidden</span>
-      </button>
-      <BetaFeedbackPanelControls panel={normalizedPanel} allowHide={false} />
+    <div className="ppBetaFeedbackHiddenTray" aria-label="Hidden beta panels">
+      {panels.map((panel) => (
+        <button
+          aria-label={`Restore ${panel.label}`}
+          className="ppBetaFeedbackHiddenTrayButton"
+          data-beta-feedback-panel-id={panel.id}
+          key={`${panel.pageKey || "page"}-${panel.id}`}
+          onClick={() => onRestore(panel)}
+          type="button"
+        >
+          <s-icon type="view" size="small"></s-icon>
+          <span className="ppBetaFeedbackHiddenTrayTooltip" role="tooltip">
+            <strong>{panel.label}</strong>
+            <small>Hidden panel. Click to restore it.</small>
+          </span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -382,8 +403,8 @@ function BetaFeedbackGlobalLauncher({ onOpen }) {
       title="Beta feedback"
       type="button"
     >
-      <s-icon type="spark" size="small"></s-icon>
-      <span>Beta</span>
+      <s-icon type="bug" size="small"></s-icon>
+      <span>Beta feedback</span>
     </button>
   );
 }
@@ -406,7 +427,7 @@ function BetaFeedbackModal({ config, modal, onChange, onClose, onSubmit }) {
       <section className="ppBetaFeedbackModal" role="dialog" aria-modal="true" aria-labelledby="pp-beta-feedback-title">
         <div className="ppBetaFeedbackModalHeader">
           <span className="ppBetaFeedbackModalIcon" aria-hidden="true">
-            <s-icon type="spark" size="small"></s-icon>
+            <s-icon type="chat" size="small"></s-icon>
           </span>
           <div>
             <p>ProductPulse beta</p>
@@ -501,7 +522,7 @@ function BetaFeedbackHideModal({ state, onChange, onClose, onSubmit }) {
       <section className="ppBetaFeedbackModal ppBetaFeedbackHideModal" role="dialog" aria-modal="true" aria-labelledby="pp-beta-hide-title">
         <div className="ppBetaFeedbackModalHeader">
           <span className="ppBetaFeedbackModalIcon" aria-hidden="true">
-            <s-icon type="hidden" size="small"></s-icon>
+            <s-icon type="hide" size="small"></s-icon>
           </span>
           <div>
             <p>Panel visibility</p>
@@ -514,7 +535,7 @@ function BetaFeedbackHideModal({ state, onChange, onClose, onSubmit }) {
 
         <form className="ppBetaFeedbackForm ppBetaFeedbackHideForm" onSubmit={handleSubmit}>
           <p className="ppBetaFeedbackContextNote">
-            This helps us understand which beta panels are not earning their space.
+            This helps us understand which beta panels are not useful, unclear, wrong, or taking too much space. You can skip the question.
           </p>
           <fieldset>
             <legend>Why do you want to hide it?</legend>
@@ -534,23 +555,25 @@ function BetaFeedbackHideModal({ state, onChange, onClose, onSubmit }) {
             </div>
           </fieldset>
 
-          <label className="ppBetaFeedbackFullWidth">
-            <span>Comment (optional)</span>
-            <textarea
-              maxLength={4000}
-              onChange={(event) => update({ reasonMessage: event.target.value })}
-              placeholder="Add any detail that would help us improve or remove this panel."
-              rows={3}
-              value={state.reasonMessage}
-            />
-          </label>
+          {state.reason === "other" ? (
+            <label className="ppBetaFeedbackFullWidth">
+              <span>Tell us why</span>
+              <textarea
+                maxLength={4000}
+                onChange={(event) => update({ reasonMessage: event.target.value })}
+                placeholder="Add any detail that would help us improve or remove this panel."
+                rows={3}
+                value={state.reasonMessage}
+              />
+            </label>
+          ) : null}
 
           {state.error ? <p className="ppBetaFeedbackError" role="alert">{state.error}</p> : null}
 
           <div className="ppBetaFeedbackFooter">
             <button className="ppSecondaryButton" type="button" onClick={onClose} disabled={submitting}>Cancel</button>
             <button className="ppPrimaryButton" type="submit" disabled={submitting}>
-              {submitting ? "Saving..." : "Hide panel"}
+              {submitting ? "Saving..." : state.reason === "skipped" ? "Hide without feedback" : "Hide panel"}
             </button>
           </div>
         </form>
@@ -561,6 +584,7 @@ function BetaFeedbackHideModal({ state, onChange, onClose, onSubmit }) {
 
 function getAutomaticClientContext({ config, location, pageKey, recentClientErrors }) {
   const searchParams = new URLSearchParams(location.search || "");
+  const routeEntity = getRouteEntityContext(location.pathname);
   return {
     timestamp: new Date().toISOString(),
     currentUrl: typeof window === "undefined" ? "" : window.location.href,
@@ -570,6 +594,15 @@ function getAutomaticClientContext({ config, location, pageKey, recentClientErro
       search: location.search || "",
       pageKey,
     },
+    entity: routeEntity || undefined,
+    product: routeEntity?.type === "product" ? {
+      routeParam: routeEntity.routeParam,
+      handle: routeEntity.handle || "",
+      productGid: routeEntity.productGid || "",
+    } : undefined,
+    watchlist: routeEntity?.type === "watchlistProduct" ? {
+      productRef: routeEntity.routeParam,
+    } : undefined,
     filters: getSafeFilters(searchParams),
     shop: {
       domain: config?.shop || "",
@@ -588,9 +621,47 @@ function getAutomaticClientContext({ config, location, pageKey, recentClientErro
   };
 }
 
+function getRouteEntityContext(pathname = "") {
+  const segments = String(pathname || "").split("/").filter(Boolean).map(safeDecodePathSegment);
+  if (segments[0] !== "app") return null;
+
+  if (segments[1] === "products" && segments[2]) {
+    const routeParam = segments[2];
+    return {
+      type: "product",
+      routeParam,
+      handle: routeParam.startsWith("gid://") ? "" : routeParam,
+      productGid: routeParam.startsWith("gid://") ? routeParam : "",
+      subpage: segments[3] || "detail",
+    };
+  }
+
+  if (segments[1] === "watchlist" && segments[2]) {
+    return {
+      type: "watchlistProduct",
+      routeParam: segments[2],
+      subpage: segments[3] || "detail",
+    };
+  }
+
+  return null;
+}
+
+function safeDecodePathSegment(value = "") {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch {
+    return String(value || "");
+  }
+}
+
 function getSafeFilters(searchParams) {
   const filters = {};
-  ["q", "risk", "status", "issue", "source", "vendor", "collection", "sort", "direction", "tab", "runId", "window"].forEach((key) => {
+  [
+    "q", "risk", "status", "issue", "source", "vendor", "collection", "sort", "direction", "tab", "runId", "window", "page", "rows",
+    "candidateQ", "candidateRisk", "candidateStatus", "candidateIssue", "candidateVendor", "candidateCollection", "candidateSort", "candidateDirection", "candidatePage", "candidateRows",
+    "resolvedQ", "resolvedRisk", "resolvedStatus", "resolvedIssue", "resolvedVendor", "resolvedCollection", "resolvedSort", "resolvedDirection", "resolvedPage", "resolvedRows",
+  ].forEach((key) => {
     const value = searchParams.get(key);
     if (value) filters[key] = value.slice(0, 180);
   });
@@ -623,6 +694,18 @@ function normalizePanel(panel) {
     id,
     label: String(panel.label || panel.title || id).trim(),
   };
+}
+
+function getHiddenPanelPreferences(preferences = {}, pageKey = "") {
+  return Object.values(preferences)
+    .filter((preference) => preference?.hidden && (!pageKey || preference.pageKey === pageKey))
+    .map((preference) => normalizePanel({
+      id: preference.panelId,
+      label: preference.panelLabel || preference.panelId,
+      pageKey: preference.pageKey,
+    }))
+    .filter(Boolean)
+    .sort((first, second) => String(first.label).localeCompare(String(second.label)));
 }
 
 function normalizePageKey(pathname) {

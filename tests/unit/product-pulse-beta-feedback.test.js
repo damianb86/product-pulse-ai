@@ -98,6 +98,7 @@ describe("ProductPulse beta feedback layer", () => {
         },
       },
     });
+    await flushQueuedEmail();
 
     expect(mocks.reportCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -116,53 +117,101 @@ describe("ProductPulse beta feedback layer", () => {
     });
   });
 
-  it("stores and exposes panel hide preferences separately from reports", async () => {
-    const preference = await recordBetaFeedbackPanelHide({
-      session,
-      payload: {
-        pageKey: "/app/products/hat",
-        pagePath: "/app/products/hat",
-        panelId: "product.evidenceBySource",
-        panelLabel: "Evidence by Source",
-        reason: "data_looks_wrong",
-        reasonMessage: "The review counts do not match.",
-        context: {
-          paymentDetails: "4111",
-          evidence: { sourceCount: 3 },
-        },
-      },
-    });
+  it("emails beta feedback to the beta recipient and configured contact email", async () => {
+    const previousBetaRecipient = process.env.BETA_FEEDBACK_RECIPIENT;
+    const previousContactEmail = process.env.CONTACT_EMAIL;
+    process.env.BETA_FEEDBACK_RECIPIENT = "owner@example.com";
+    process.env.CONTACT_EMAIL = "support@example.com";
 
-    expect(mocks.preferenceUpsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        shop_userKey_pageKey_panelId: {
-          shop: "shop-a.myshopify.com",
-          userKey: "42",
-          pageKey: "/app/products/hat",
-          panelId: "product.evidenceBySource",
+    try {
+      await createBetaFeedbackReport({
+        session,
+        payload: {
+          category: "bug_error",
+          severity: "high",
+          message: "The product detail chart is clipped.",
+          pagePath: "/app/products/hat",
+          panelId: "product.momentum",
+          panelLabel: "Product Momentum",
+          context: { route: { path: "/app/products/hat" } },
         },
-      },
-      create: expect.objectContaining({
-        hidden: true,
-        hideReason: "data_looks_wrong",
-        context: expect.objectContaining({
-          paymentDetails: "[redacted]",
-          evidence: { sourceCount: 3 },
+      });
+      await flushQueuedEmail();
+
+      expect(mocks.sendProductPulseEmail).toHaveBeenCalledWith(expect.objectContaining({
+        type: "beta_feedback",
+        to: "owner@example.com,support@example.com",
+        requiredRecipientEnv: "BETA_FEEDBACK_RECIPIENT and/or CONTACT_EMAIL",
+      }));
+    } finally {
+      restoreEnvValue("BETA_FEEDBACK_RECIPIENT", previousBetaRecipient);
+      restoreEnvValue("CONTACT_EMAIL", previousContactEmail);
+    }
+  });
+
+  it("stores and exposes panel hide preferences separately from reports", async () => {
+    const previousBetaRecipient = process.env.BETA_FEEDBACK_RECIPIENT;
+    const previousContactEmail = process.env.CONTACT_EMAIL;
+    process.env.BETA_FEEDBACK_RECIPIENT = "owner@example.com";
+    process.env.CONTACT_EMAIL = "support@example.com";
+
+    try {
+      const preference = await recordBetaFeedbackPanelHide({
+        session,
+        payload: {
+          pageKey: "/app/products/hat",
+          pagePath: "/app/products/hat",
+          panelId: "product.evidenceBySource",
+          panelLabel: "Evidence by Source",
+          reason: "data_looks_wrong",
+          reasonMessage: "The review counts do not match.",
+          context: {
+            paymentDetails: "4111",
+            evidence: { sourceCount: 3 },
+          },
+        },
+      });
+
+      expect(mocks.preferenceUpsert).toHaveBeenCalledWith(expect.objectContaining({
+        where: {
+          shop_userKey_pageKey_panelId: {
+            shop: "shop-a.myshopify.com",
+            userKey: "42",
+            pageKey: "/app/products/hat",
+            panelId: "product.evidenceBySource",
+          },
+        },
+        create: expect.objectContaining({
+          hidden: true,
+          hideReason: "data_looks_wrong",
+          context: expect.objectContaining({
+            paymentDetails: "[redacted]",
+            evidence: { sourceCount: 3 },
+          }),
         }),
-      }),
-    }));
-    expect(mocks.reportCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        category: "panel_hide",
-        source: "panel-hide",
+      }));
+      expect(mocks.reportCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          category: "panel_hide",
+          source: "panel-hide",
+          panelId: "product.evidenceBySource",
+        }),
+      });
+      expect(preference).toMatchObject({
         panelId: "product.evidenceBySource",
-      }),
-    });
-    expect(preference).toMatchObject({
-      panelId: "product.evidenceBySource",
-      hidden: true,
-      hasHideReason: true,
-    });
+        hidden: true,
+        hasHideReason: true,
+      });
+      await flushQueuedEmail();
+      expect(mocks.sendProductPulseEmail).toHaveBeenCalledWith(expect.objectContaining({
+        type: "beta_feedback",
+        to: "owner@example.com,support@example.com",
+        message: expect.stringContaining("Panel hidden: Evidence by Source"),
+      }));
+    } finally {
+      restoreEnvValue("BETA_FEEDBACK_RECIPIENT", previousBetaRecipient);
+      restoreEnvValue("CONTACT_EMAIL", previousContactEmail);
+    }
   });
 
   it("returns page-scoped preferences for the current user", async () => {
@@ -197,3 +246,15 @@ describe("ProductPulse beta feedback layer", () => {
     expect(context.truncated || context.text.length < 60_000).toBeTruthy();
   });
 });
+
+function flushQueuedEmail() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function restoreEnvValue(key, value) {
+  if (value == null) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}

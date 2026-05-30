@@ -40,8 +40,8 @@
 
 ## Shopify Integration
 - Admin GraphQL is used for products/variants and order/refund/return reads once real loaders are connected.
-- Required scopes: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `write_orders`, `read_customers`, `write_customers`, `read_returns`, `write_returns`, `read_inventory`, `write_inventory`, `read_locations`.
-- `read_all_orders` and order/return write scopes can require Shopify protected-scope approval before production use.
+- Production scopes: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `read_customers`, `read_returns`, `read_inventory`, `read_locations`.
+- `read_all_orders` can require Shopify protected-scope approval before production use. Order, return, customer and inventory write scopes are development-only for mock dataset generation.
 - Webhooks: `app/uninstalled`, `app/scopes_update`; future product/order/return updates.
 - Billing: mocked credit ledger in MVP; Shopify billing required before paid usage.
 

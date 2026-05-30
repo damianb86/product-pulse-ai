@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLocation, useNavigation } from "react-router";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLoaderData, useLocation, useNavigation } from "react-router";
 import appStylesheet from "./styles/product-pulse.css?url";
 import betaFeedbackStylesheet from "./styles/product-pulse-beta-feedback.css?url";
 import chatKitStylesheet from "./styles/product-pulse-chatkit.css?url";
@@ -14,12 +14,21 @@ export const links = () => [
   { rel: "stylesheet", href: wizardStylesheet },
 ];
 
+export const loader = async () => ({
+  // eslint-disable-next-line no-undef
+  shopifyApiKey: process.env.SHOPIFY_API_KEY || "",
+});
+
 export default function App() {
+  const { shopifyApiKey } = useLoaderData() || {};
+
   return (
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
+        {shopifyApiKey ? <meta name="shopify-api-key" content={shopifyApiKey} /> : null}
+        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
         <Meta />
         <Links />
         <script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script>

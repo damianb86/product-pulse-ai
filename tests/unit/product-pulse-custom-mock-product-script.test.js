@@ -100,4 +100,48 @@ describe("custom mock product seed scenario", () => {
     expect(scenario.product.handle).toBe("gen-hazedock-magnetic-charging-stand");
     expect(scenario.scenarioTag).toBe("ppcustom-gen-hazedock-v1");
   });
+
+  test("defines watch-step scenarios as incremental updates to the same Shopify products", () => {
+    const drift = buildScenario("gen-driftweave-v2", {
+      now: new Date("2026-05-25T12:00:00.000Z"),
+    });
+    const volt = buildScenario("gen-voltnest-v2", {
+      now: new Date("2026-05-25T12:00:00.000Z"),
+    });
+    const prism = buildScenario("gen-prismhue-v2", {
+      now: new Date("2026-05-25T12:00:00.000Z"),
+    });
+
+    expect(drift.scenarioTag).toBe("ppcustom-gen-driftweave-v1");
+    expect(drift.orderTag).toBe("ppc-driftweave-w2-order");
+    expect(drift.product.handle).toBe("gen-driftweave-packable-overshirt");
+    expect(drift.productKey).toBe("gen-driftweave-packable-overshirt-watch-v2");
+    expect(drift.product.descriptionHtml).toMatch(/Finished garment checkpoints/i);
+
+    expect(volt.scenarioTag).toBe("ppcustom-gen-voltnest-v1");
+    expect(volt.orderTag).toBe("ppc-voltnest-w2-order");
+    expect(volt.product.handle).toBe("gen-voltnest-foldaway-steam-kettle");
+    expect(volt.product.descriptionHtml).toMatch(/Decision checklist/i);
+
+    expect(prism.scenarioTag).toBe("ppcustom-gen-prismhue-v1");
+    expect(prism.orderTag).toBe("ppc-prismhue-w2-order");
+    expect(prism.product.handle).toBe("gen-prismhue-magnetic-photo-light-panel");
+    expect(prism.product.descriptionHtml).toMatch(/Mounting and room setup/i);
+
+    const expectedReviewsByScenario = new Map([
+      ["gen-driftweave-v2", 9],
+      ["gen-voltnest-v2", 10],
+      ["gen-prismhue-v2", 10],
+    ]);
+    for (const scenario of [drift, volt, prism]) {
+      const summary = calculateScenarioPlanSummary(scenario);
+      expect(new Set(scenario.orderPlans.map((plan) => plan.ref)).size).toBe(scenario.orderPlans.length);
+      expect(summary).toMatchObject({
+        plannedOrders: 4,
+        plannedReturns: 1,
+        plannedRefunds: 1,
+        plannedReviews: expectedReviewsByScenario.get(scenario.key),
+      });
+    }
+  });
 });

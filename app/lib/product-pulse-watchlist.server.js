@@ -159,8 +159,9 @@ export async function getWatchlistForShop(shop, options = {}) {
     findActiveWatchlistDiagnosisJobForItem(item, activeDiagnosisJobs),
   ));
   const watchedCount = rows.length;
-  const [activities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
+  const [activities, runActivities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
+    getWatchActivityRowsForShop(shop, { take: 120, eventTypes: ["watch_scan_queued", "watch_manual_scan_queued"] }),
     productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 80 }) : new Map(),
     getWatchActivityStatsForShop(shop, productPulseSettings),
     getWatchSettingsForShop(shop),
@@ -176,6 +177,7 @@ export async function getWatchlistForShop(shop, options = {}) {
     slotsAvailable: Math.max(0, limitContext.maxProducts - watchedCount),
     rows,
     activities,
+    runActivities,
     selectedRunId: optionalString(options.selectedRunId || options.runId),
     trend: buildWatchlistTrend(rows, trendHistoryByProductGid, productPulseSettings),
     settings,
@@ -972,9 +974,13 @@ function getWatchlistOverviewSections({ rows = [], activities = [], activityStat
   };
 }
 
-async function getWatchActivityRowsForShop(shop, { take = 5 } = {}) {
+async function getWatchActivityRowsForShop(shop, { take = 5, eventTypes = null } = {}) {
+  const where = { shop, eventType: { not: "watch_order_changed" } };
+  if (Array.isArray(eventTypes) && eventTypes.length) {
+    where.eventType = { in: eventTypes.map(String).filter(Boolean) };
+  }
   const activities = await prisma.productWatchActivity.findMany({
-    where: { shop, eventType: { not: "watch_order_changed" } },
+    where,
     orderBy: { createdAt: "desc" },
     take,
   });
@@ -1360,10 +1366,11 @@ function hasWatchSourceBaseline(previous = {}, previousSource = {}, itemFields =
 }
 
 function buildWatchOrderSourceChange(previous, current, previousOrders = {}, currentOrders = {}) {
-  const newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
+  let newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
   const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
   const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
+  newItems = reconcileNewWatchOrderItemsWithAggregateDelta(newItems, { previous, orderDelta });
   const allowAggregateFallback = hasWatchSourceBaseline(previous, previousOrders, ["items"]);
   const newOrderCount = countWatchUniqueOrders(newItems) || (allowAggregateFallback ? Math.max(0, Math.round(orderDelta)) : 0);
   const newUnits = sumWatchItemNumbers(newItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
@@ -1384,6 +1391,48 @@ function buildWatchOrderSourceChange(previous, current, previousOrders = {}, cur
     ].filter(Boolean).join(" "),
     items: newItems.slice(-6),
   };
+}
+
+function reconcileNewWatchOrderItemsWithAggregateDelta(items = [], { previous = {}, orderDelta = 0 } = {}) {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const maxNewOrders = Math.max(0, Math.round(Number(orderDelta || 0)));
+  if (!maxNewOrders || countWatchUniqueOrders(normalizedItems) <= maxNewOrders) return normalizedItems;
+
+  const withoutStaleDerivedItems = normalizedItems.filter((item) => !isStaleDerivedWatchSaleItem(item, previous?.capturedAt));
+  if (countWatchUniqueOrders(withoutStaleDerivedItems) <= maxNewOrders) return withoutStaleDerivedItems;
+
+  return keepMostRecentWatchOrderItems(withoutStaleDerivedItems, maxNewOrders);
+}
+
+function isStaleDerivedWatchSaleItem(item = {}, cutoffValue = null) {
+  const id = String(item?.id || item?.key || "").toLowerCase();
+  if (!id.includes("derived-sale")) return false;
+  if (Number(item?.amount || 0) > 0) return false;
+  const cutoff = parseWatchDate(cutoffValue);
+  const itemDate = parseWatchDate(item.createdAt || item.updatedAt || item.processedAt || item.date);
+  return Boolean(cutoff && itemDate && itemDate.getTime() <= cutoff.getTime());
+}
+
+function keepMostRecentWatchOrderItems(items = [], maxNewOrders = 0) {
+  const sorted = [...items].sort((left, right) => {
+    const leftTime = parseWatchDate(left.createdAt || left.updatedAt || left.processedAt || left.date)?.getTime() || 0;
+    const rightTime = parseWatchDate(right.createdAt || right.updatedAt || right.processedAt || right.date)?.getTime() || 0;
+    return rightTime - leftTime;
+  });
+  const keptOrderIds = new Set();
+  const kept = [];
+  for (const item of sorted) {
+    const orderId = String(item?.orderId || item?.key || item?.id || "").trim();
+    if (orderId && keptOrderIds.has(orderId)) {
+      kept.push(item);
+      continue;
+    }
+    if (keptOrderIds.size >= maxNewOrders) continue;
+    if (orderId) keptOrderIds.add(orderId);
+    kept.push(item);
+  }
+  const keptKeys = new Set(kept.map((item) => item?.key || item?.id).filter(Boolean));
+  return items.filter((item) => keptKeys.has(item?.key || item?.id));
 }
 
 function buildWatchReturnSourceChange(previous, current, previousReturns = {}, currentReturns = {}) {
@@ -1522,10 +1571,11 @@ function buildWatchEvidenceChangeInsights(previous, current) {
 }
 
 function buildWatchOrderInsight(previous, current, previousOrders = {}, currentOrders = {}) {
-  const newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
+  let newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
   const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
   const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
   const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
+  newItems = reconcileNewWatchOrderItemsWithAggregateDelta(newItems, { previous, orderDelta });
   const allowAggregateFallback = hasWatchSourceBaseline(previous, previousOrders, ["items"]);
   const newOrderCount = countWatchUniqueOrders(newItems) || (allowAggregateFallback ? Math.max(0, Math.round(orderDelta)) : 0);
   const newUnits = sumWatchItemNumbers(newItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
@@ -2343,11 +2393,14 @@ function normalizeWatchSentiment(sentiment = {}) {
 function getNewWatchEvidenceItems(previousItems = [], currentItems = [], { sinceAt = null } = {}) {
   const previousList = Array.isArray(previousItems) ? previousItems : [];
   const previousKeys = new Set(previousList.map((item) => item?.key).filter(Boolean));
-  const hasPreviousItemBaseline = previousKeys.size > 0;
+  const previousFingerprints = new Set(previousList.map(getWatchEvidenceStableFingerprint).filter(Boolean));
+  const hasPreviousItemBaseline = previousKeys.size > 0 || previousFingerprints.size > 0;
   const cutoff = parseWatchDate(sinceAt);
 
   return (Array.isArray(currentItems) ? currentItems : []).filter((item) => {
     if (!item?.key || previousKeys.has(item.key)) return false;
+    const fingerprint = getWatchEvidenceStableFingerprint(item);
+    if (fingerprint && previousFingerprints.has(fingerprint)) return false;
     if (hasPreviousItemBaseline) return true;
 
     const itemDate = parseWatchDate(item.createdAt || item.updatedAt || item.processedAt || item.date);
@@ -2358,6 +2411,35 @@ function getNewWatchEvidenceItems(previousItems = [], currentItems = [], { since
 
     return hasPreviousItemBaseline;
   });
+}
+
+function getWatchEvidenceStableFingerprint(item = {}) {
+  if (!item || typeof item !== "object") return "";
+  const source = normalizeWatchFingerprintText(item.source || item.sourceLabel);
+  const text = normalizeWatchFingerprintText(item.text || item.analysisText || item.noteText || item.reasonText);
+  const reason = normalizeWatchFingerprintText(item.reason || item.issueCode || item.restockType);
+  if (!text && !reason) return "";
+  const reviewLike = source.includes("review") || Number(item.rating || 0) > 0;
+  return [
+    source,
+    text,
+    reason,
+    Number(item.rating || 0) || "",
+    reviewLike && text ? "" : normalizeWatchFingerprintDate(item.createdAt || item.updatedAt || item.processedAt || item.date),
+  ].join("|");
+}
+
+function normalizeWatchFingerprintText(value = "") {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeWatchFingerprintDate(value = "") {
+  const date = parseWatchDate(value);
+  return date ? date.toISOString() : "";
 }
 
 function summarizeWatchEvidenceItems(items = []) {

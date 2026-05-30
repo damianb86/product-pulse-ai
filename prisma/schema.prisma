@@ -776,14 +776,16 @@ model BetaFeedbackPanelPreference {
 }
 
 model CreditLedgerEntry {
-  id           String   @id @default(cuid())
-  shop         String
-  direction    String
-  amount       Float
-  reason       String
-  balanceAfter Float
-  metadata     Json?
-  createdAt    DateTime @default(now())
+  id             String   @id @default(cuid())
+  shop           String
+  direction      String
+  amount         Float
+  reason         String
+  idempotencyKey String?
+  balanceAfter   Float
+  metadata       Json?
+  createdAt      DateTime @default(now())
 
   @@index([shop, createdAt])
+  @@unique([shop, idempotencyKey])
 }

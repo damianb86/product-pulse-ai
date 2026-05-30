@@ -180,24 +180,53 @@ export async function getNormalizedCsvReviewsForShop(shop) {
 
   const csvText = await readFile(filePath, "utf8");
   const parsed = parseCsvText(csvText);
-  return parsed.rows.map((row) => ({
-    id: `csv-review-${row.sourceRow}`,
-    sourceRow: row.sourceRow,
-    productHandle: cleanScalar(row.values.product_handle),
-    shopifyProductId: cleanScalar(row.values.shopify_product_id),
-    rating: Number(normalizeRating(row.values.rating)),
-    reviewTitle: cleanText(row.values.review_title),
-    reviewBody: cleanText(row.values.review_body),
-    reviewDate: cleanScalar(row.values.review_date),
-    reviewerName: cleanScalar(row.values.reviewer_name),
-    reviewStatus: cleanScalar(row.values.review_status),
-    sourceProductId: cleanScalar(row.values.source_product_id),
-  })).filter((row) => (
+  return parsed.rows.map((row) => {
+    const normalized = {
+      sourceRow: row.sourceRow,
+      productHandle: cleanScalar(row.values.product_handle),
+      shopifyProductId: cleanScalar(row.values.shopify_product_id),
+      rating: Number(normalizeRating(row.values.rating)),
+      reviewTitle: cleanText(row.values.review_title),
+      reviewBody: cleanText(row.values.review_body),
+      reviewDate: cleanScalar(row.values.review_date),
+      reviewerName: cleanScalar(row.values.reviewer_name),
+      reviewStatus: cleanScalar(row.values.review_status),
+      sourceProductId: cleanScalar(row.values.source_product_id),
+    };
+    return {
+      id: buildStableCsvReviewId(normalized),
+      ...normalized,
+    };
+  }).filter((row) => (
     Number.isFinite(row.rating)
       && row.rating > 0
       && (row.productHandle || row.shopifyProductId)
       && (row.reviewBody || row.reviewTitle)
   ));
+}
+
+function buildStableCsvReviewId(row = {}) {
+  const hash = createHash("sha256")
+    .update([
+      row.productHandle,
+      row.shopifyProductId,
+      row.sourceProductId,
+      row.rating,
+      row.reviewTitle,
+      row.reviewBody,
+      normalizeStableCsvReviewDate(row.reviewDate),
+      row.reviewerName,
+    ].map((value) => String(value || "").trim()).join("|"))
+    .digest("hex")
+    .slice(0, 16);
+  return `csv-review-${hash}`;
+}
+
+function normalizeStableCsvReviewDate(value = "") {
+  const text = String(value || "").trim();
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  return text.slice(0, 10);
 }
 
 export function parseCsvText(csvText) {

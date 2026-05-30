@@ -468,12 +468,11 @@ s-page[inline-size="large-500"] {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: var(--pp-icon-badge-glyph-size);
-  height: var(--pp-icon-badge-glyph-size);
   display: inline-grid;
   place-items: center;
   line-height: 0;
-  transform: translate(-50%, -50%);
+  transform: scale(2);
+  transform-origin: bottom right;
 }
 
 .ppProductPulseIconBadgeGlyph > svg,
@@ -30366,7 +30365,7 @@ s-page[inline-size="large-500"] {
   position: absolute;
   inset: 0;
   width: 100%;
-  height: 36px;
+  height: 22px;
   margin: 0;
   appearance: none;
   background: transparent;
@@ -30940,6 +30939,36 @@ s-page[inline-size="large-500"] {
   color: var(--pp-insight-violet);
   font-size: 11px;
   font-weight: 800;
+}
+
+.ppSettingsWizardDevCard {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.18);
+  background:
+    linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.08), rgba(var(--pp-pulse-blue-rgb), 0.04)),
+    var(--pp-cloud-white);
+}
+
+.ppSettingsWizardDevActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(var(--pp-insight-violet-rgb), 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.ppSettingsWizardDevActions p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ppSettingsWizardDevButton {
+  min-width: 168px;
+  justify-content: center;
 }
 
 .ppSettingsMockDatasetCard {
@@ -33275,7 +33304,7 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarJobItem {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 26px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   min-height: 58px;
@@ -33449,6 +33478,44 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
+.ppGlobalTopbarJobItemActions {
+  display: inline-grid;
+  grid-auto-flow: row;
+  gap: 5px;
+  justify-items: end;
+}
+
+.ppGlobalTopbarJobCancelButton {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  display: inline-grid;
+  place-items: center;
+  justify-self: end;
+  padding: 0;
+  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.22);
+  border-radius: 999px;
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+  cursor: pointer;
+}
+
+.ppGlobalTopbarJobCancelButton s-icon {
+  transform: scale(0.7);
+}
+
+.ppGlobalTopbarJobCancelButton:hover:not(:disabled) {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.38);
+  background: rgba(var(--pp-risk-red-rgb), 0.12);
+  box-shadow: 0 8px 16px rgba(var(--pp-risk-red-rgb), 0.12);
+}
+
+.ppGlobalTopbarJobCancelButton:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
 .ppGlobalTopbarJobOpenButton:hover {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.3);
   color: var(--pp-pulse-blue);
@@ -33457,13 +33524,15 @@ s-page[inline-size="large-500"] {
 }
 
 .ppGlobalTopbarJobsFooter {
-  width: calc(100% + 24px);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   min-height: 38px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  margin: 11px -12px 0;
+  margin: 11px 0 0;
   padding: 0 12px;
   border: 0;
   border-top: 1px solid var(--pp-slate-200);
@@ -33476,6 +33545,13 @@ s-page[inline-size="large-500"] {
   text-align: left;
   text-decoration: none;
   cursor: pointer;
+}
+
+.ppGlobalTopbarJobsFooter > span:not(.ppGlobalTopbarJobsFooterIcon) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ppGlobalTopbarJobsFooter:hover {
@@ -33610,8 +33686,9 @@ s-page[inline-size="large-500"] {
 .ppJobDockMinimized {
   right: auto;
   bottom: 18px;
-  left: 18px;
+  left: 50%;
   width: auto;
+  transform: translateX(-50%);
   max-width: calc(100vw - 36px);
   display: inline-flex;
   align-items: center;
@@ -34521,6 +34598,7 @@ s-page[inline-size="large-500"] {
   .ppProductsTableTabs,
   .ppSettingsHtmlPresetGrid,
   .ppSettingsHtmlPlaceholderList,
+  .ppSettingsWizardDevActions,
   .ppSettingsMockDatasetGrid,
   .ppSettingsMockDatasetActions,
   .ppSettingsMockDatasetMeta,
@@ -34979,11 +35057,12 @@ s-page[inline-size="large-500"] {
   }
 
   .ppJobDockMinimized {
-    right: 10px;
+    right: auto;
     bottom: 10px;
-    left: auto;
+    left: 50%;
     width: auto;
     max-width: calc(100vw - 20px);
+    transform: translateX(-50%);
   }
 
   .ppGlobalJobIndicator {

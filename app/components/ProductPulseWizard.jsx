@@ -10,8 +10,8 @@ const PRODUCTS_CANDIDATES_ROUTE = "/app/products?tab=candidates";
 const emptyWizardTargets = [];
 
 const connectTargets = [
-  { id: "chatmeRow", selector: '[data-pp-connect-source-row="chatmeReviews"]' },
-  { id: "chatmeAction", selector: '[data-pp-connect-source-action="chatmeReviews"]' },
+  { id: "judgemeRow", selector: '[data-pp-connect-source-row="judgemeReviews"]' },
+  { id: "judgemeAction", selector: '[data-pp-connect-source-action="judgemeReviews"]' },
   { id: "csvRow", selector: '[data-pp-connect-source-row="csvReviews"]' },
   { id: "csvAction", selector: '[data-pp-connect-source-action="csvReviews"]' },
 ];
@@ -36,8 +36,52 @@ const productCandidateTargets = [
   { id: "candidateRows", selector: '[data-pp-products-candidate-row]', all: true },
   {
     id: "deepScanAction",
-    selector: '[data-pp-products-run-deep-scan-selected], [data-pp-products-candidate-run-deep-scan]',
+    selector: '[data-pp-products-run-deep-scan-selected]',
+    ancestorSelectors: [".ppProductsToolbar", ".ppProductsSecondaryActions"],
   },
+];
+
+const backgroundProcessTargets = [
+  {
+    id: "backgroundProcessPopover",
+    selector: '[data-pp-background-process-popover]',
+  },
+  {
+    id: "backgroundProcessButton",
+    selector: '[data-pp-background-process-button]',
+  },
+];
+
+const deepScanCompleteTargets = [
+  {
+    id: "completionNotice",
+    selector: '[data-pp-job-completion-notice="product-diagnosis"]',
+  },
+  {
+    id: "completionNoticeAction",
+    selector: '[data-pp-job-completion-open-product="true"]',
+  },
+];
+
+const productOverviewTargets = [
+  { id: "productHero", selector: '[data-pp-product-detail-overview="hero"]' },
+  { id: "productHeroSummary", selector: '[data-pp-product-detail-overview="summary"]' },
+  { id: "productHeroActions", selector: '[data-pp-product-detail-overview="actions"]' },
+];
+
+const productAnalysisPanelTargets = [
+  {
+    id: "aiInterpretation",
+    selector: '[data-pp-product-detail-analysis-panel="ai-interpretation"]',
+  },
+  {
+    id: "recommendedActions",
+    selector: '[data-pp-product-detail-analysis-panel="recommended-actions"]',
+  },
+];
+
+const chatAssistantTargets = [
+  { id: "chatLauncher", selector: '[data-pp-chat-launcher]' },
 ];
 
 const wizardSteps = [
@@ -45,11 +89,15 @@ const wizardSteps = [
   { id: "connectReviews", kind: "connect", route: CONNECT_ROUTE, targets: connectTargets },
   { id: "settings", kind: "settings", route: SETTINGS_ROUTE, targets: settingsTargets },
   { id: "products", kind: "products", route: PRODUCTS_CANDIDATES_ROUTE },
+  { id: "backgroundProcesses", kind: "backgroundProcesses", targets: backgroundProcessTargets },
+  { id: "deepScanComplete", kind: "deepScanComplete", targets: deepScanCompleteTargets },
+  { id: "productOverview", kind: "productOverview", targets: productOverviewTargets },
+  { id: "productAnalysisPanels", kind: "productAnalysisPanels", targets: productAnalysisPanelTargets },
+  { id: "chatAssistant", kind: "chatAssistant", targets: chatAssistantTargets },
 ];
 
 const csvProviderBadges = [
   { label: "Judge.me", domain: "judge.me" },
-  { label: "ChatMe", domain: "chatme.ai" },
   { label: "Yotpo", domain: "yotpo.com" },
   { label: "Loox", domain: "loox.io" },
   { label: "Okendo", domain: "okendo.io" },
@@ -57,6 +105,11 @@ const csvProviderBadges = [
 ];
 
 const modalCopy = {
+  judgeme: {
+    eyebrow: "Judge.me connection",
+    title: "Connect Judge.me reviews",
+    body: "Paste the Judge.me private API token here. ProductPulse uses it to read review signals for QuickScan and deep product diagnostics.",
+  },
   chatme: {
     eyebrow: "ChatMe connection",
     title: "Add your ChatMe credentials",
@@ -97,16 +150,29 @@ export function ProductPulseWizard() {
   const [stepIndex, setStepIndex] = useState(0);
   const [connectCompletion, setConnectCompletion] = useState(null);
   const [quickScanStarted, setQuickScanStarted] = useState(false);
+  const [quickScanJobActive, setQuickScanJobActive] = useState(false);
+  const [quickScanStepCompleted, setQuickScanStepCompleted] = useState(false);
+  const [deepScanStarted, setDeepScanStarted] = useState(false);
+  const [completedDeepScanJob, setCompletedDeepScanJob] = useState(null);
+  const [settingsDirty, setSettingsDirty] = useState(false);
   const step = wizardSteps[stepIndex] || wizardSteps[0];
   const productsState = useProductsWizardState(active && step.kind === "products");
   const openModal = useOpenWizardModal(active);
   const targets = useMemo(
-    () => getWizardTargets(step, productsState.hasCandidates),
-    [productsState.hasCandidates, step],
+    () => getWizardTargets(step, productsState.hasCandidates, quickScanStepCompleted),
+    [productsState.hasCandidates, quickScanStepCompleted, step],
   );
   const targetRects = useWizardSpotlightTargets(targets, active && step.kind !== "welcome");
-  const nextDisabled = step.kind === "products" && !productsState.hasCandidates;
-  const labels = getWizardControlLabels(step, productsState);
+  const waitingForDeepScan = step.kind === "backgroundProcesses" && deepScanStarted && !completedDeepScanJob;
+  const nextDisabled = (step.kind === "products" && (!quickScanStepCompleted || !productsState.hasCandidates || !deepScanStarted))
+    || waitingForDeepScan
+    || step.kind === "deepScanComplete";
+  const labels = getWizardControlLabels(step, productsState, deepScanStarted, quickScanStepCompleted, completedDeepScanJob);
+
+  const completeWizard = useCallback(() => {
+    markWizardCompleted();
+    setActive(false);
+  }, []);
 
   useEffect(() => {
     setHydrated(true);
@@ -118,8 +184,22 @@ export function ProductPulseWizard() {
 
   useEffect(() => {
     document.body.classList.toggle("ppWizardActive", active);
-    return () => document.body.classList.remove("ppWizardActive");
-  }, [active]);
+    document.body.classList.toggle("ppWizardConnectActive", active && step.kind === "connect");
+    document.body.classList.toggle("ppWizardBackgroundProcessesActive", active && step.kind === "backgroundProcesses");
+    document.body.classList.toggle("ppWizardDeepScanCompleteActive", active && step.kind === "deepScanComplete");
+    document.body.classList.toggle("ppWizardProductOverviewActive", active && step.kind === "productOverview");
+    document.body.classList.toggle("ppWizardProductAnalysisPanelsActive", active && step.kind === "productAnalysisPanels");
+    document.body.classList.toggle("ppWizardChatAssistantActive", active && step.kind === "chatAssistant");
+    return () => {
+      document.body.classList.remove("ppWizardActive");
+      document.body.classList.remove("ppWizardConnectActive");
+      document.body.classList.remove("ppWizardBackgroundProcessesActive");
+      document.body.classList.remove("ppWizardDeepScanCompleteActive");
+      document.body.classList.remove("ppWizardProductOverviewActive");
+      document.body.classList.remove("ppWizardProductAnalysisPanelsActive");
+      document.body.classList.remove("ppWizardChatAssistantActive");
+    };
+  }, [active, step.kind]);
 
   useEffect(() => {
     if (!active || !step.route || isCurrentWizardRoute(location.pathname, location.search, step)) return;
@@ -130,9 +210,19 @@ export function ProductPulseWizard() {
     if (!active || !step.targets?.length) return undefined;
     const timeout = window.setTimeout(() => {
       const selector = step.kind === "connect"
-        ? '[data-pp-connect-source-row="chatmeReviews"]'
+        ? '[data-pp-connect-source-row="judgemeReviews"]'
         : step.kind === "settings"
           ? '[data-pp-settings-target="risk-thresholds"]'
+          : step.kind === "backgroundProcesses"
+            ? '[data-pp-background-process-popover], [data-pp-background-process-button]'
+            : step.kind === "deepScanComplete"
+              ? '[data-pp-job-completion-notice="product-diagnosis"]'
+              : step.kind === "productOverview"
+                ? '[data-pp-product-detail-overview="hero"]'
+                : step.kind === "productAnalysisPanels"
+                  ? '[data-pp-product-detail-analysis-panel="ai-interpretation"]'
+                  : step.kind === "chatAssistant"
+                    ? '[data-pp-chat-launcher]'
           : "";
       if (selector) document.querySelector(selector)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 140);
@@ -142,13 +232,13 @@ export function ProductPulseWizard() {
   useEffect(() => {
     if (!active || step.kind !== "products") return undefined;
     const timeout = window.setTimeout(() => {
-      const selector = productsState.hasCandidates
+      const selector = quickScanStepCompleted && productsState.hasCandidates
         ? '[data-pp-products-candidate-row]'
         : '[data-pp-products-quick-scan]';
       document.querySelector(selector)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 140);
     return () => window.clearTimeout(timeout);
-  }, [active, productsState.hasCandidates, step.kind]);
+  }, [active, productsState.hasCandidates, quickScanStepCompleted, step.kind]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -162,23 +252,86 @@ export function ProductPulseWizard() {
       }
       if (detail.type === "quick-scan-started") {
         setQuickScanStarted(true);
+        setQuickScanJobActive(false);
+      }
+      if (detail.type === "quick-scan-job-started") {
+        setQuickScanStarted(true);
+        setQuickScanJobActive(true);
+      }
+      if (detail.type === "quick-scan-job-finished") {
+        setQuickScanStarted(false);
+        setQuickScanJobActive(false);
+        setQuickScanStepCompleted(true);
       }
       if (detail.type === "deep-scan-started") {
         setQuickScanStarted(false);
+        setQuickScanJobActive(false);
+        setCompletedDeepScanJob(null);
+        setDeepScanStarted(true);
+        const backgroundStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "backgroundProcesses");
+        if (backgroundStepIndex >= 0) setStepIndex(backgroundStepIndex);
+        window.setTimeout(() => openBackgroundProcessesPopover(), 80);
+      }
+      if (detail.type === "deep-scan-completed" && detail.job?.kind === "product-diagnosis") {
+        setCompletedDeepScanJob(detail.job);
+        setDeepScanStarted(false);
+        const completeStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "deepScanComplete");
+        if (completeStepIndex >= 0) setStepIndex(completeStepIndex);
+      }
+      if (detail.type === "deep-scan-product-opened") {
+        const job = detail.job || completedDeepScanJob;
+        if (job) setCompletedDeepScanJob(job);
+        const productStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "productOverview");
+        if (productStepIndex >= 0) setStepIndex(productStepIndex);
+        if (detail.href) navigate(detail.href);
+      }
+      if (detail.type === "chat-opened") {
+        completeWizard();
       }
     };
 
     window.addEventListener("productpulse:wizard", handleWizardEvent);
     return () => window.removeEventListener("productpulse:wizard", handleWizardEvent);
-  }, [active]);
+  }, [active, completeWizard, completedDeepScanJob, navigate]);
 
-  const completeWizard = useCallback(() => {
-    markWizardCompleted();
-    setActive(false);
+  useEffect(() => {
+    const handleStartWizard = () => {
+      clearWizardCompleted();
+      setConnectCompletion(null);
+      setQuickScanStarted(false);
+      setQuickScanJobActive(false);
+      setQuickScanStepCompleted(false);
+      setDeepScanStarted(false);
+      setCompletedDeepScanJob(null);
+      setSettingsDirty(false);
+      setStepIndex(0);
+      setActive(true);
+      if (!isCurrentWizardRoute(location.pathname, location.search, wizardSteps[0])) {
+        navigate(DASHBOARD_ROUTE);
+      }
+    };
+
+    window.addEventListener("productpulse:wizard-start", handleStartWizard);
+    return () => window.removeEventListener("productpulse:wizard-start", handleStartWizard);
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    const handleSettingsDirtyState = (event) => {
+      setSettingsDirty(Boolean(event.detail?.dirty));
+    };
+
+    window.addEventListener("productpulse:settings-dirty-state", handleSettingsDirtyState);
+    return () => window.removeEventListener("productpulse:settings-dirty-state", handleSettingsDirtyState);
   }, []);
 
-  const handleNext = useCallback(() => {
-    if (nextDisabled) return;
+  useEffect(() => {
+    if (!active || step.kind !== "backgroundProcesses") return undefined;
+    const timeout = window.setTimeout(() => openBackgroundProcessesPopover(), 80);
+    return () => window.clearTimeout(timeout);
+  }, [active, step.kind]);
+
+  const advanceWizard = useCallback((options = {}) => {
+    if (!options.ignoreDisabled && nextDisabled) return;
     if (stepIndex >= wizardSteps.length - 1) {
       completeWizard();
       return;
@@ -188,6 +341,68 @@ export function ProductPulseWizard() {
     const nextStep = wizardSteps[nextIndex];
     if (nextStep?.route) navigate(nextStep.route);
   }, [completeWizard, navigate, nextDisabled, stepIndex]);
+
+  useEffect(() => {
+    const handleSettingsLeaveAllowed = () => {
+      if (!active || step.kind !== "settings") return;
+      advanceWizard();
+    };
+
+    window.addEventListener("productpulse:wizard-settings-leave-allowed", handleSettingsLeaveAllowed);
+    return () => window.removeEventListener("productpulse:wizard-settings-leave-allowed", handleSettingsLeaveAllowed);
+  }, [active, advanceWizard, step.kind]);
+
+  const handleNext = useCallback(() => {
+    if (step.kind === "settings" && settingsDirty) {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard-request-settings-leave"));
+      return;
+    }
+    if (step.kind === "backgroundProcesses" && !deepScanStarted && !completedDeepScanJob) {
+      completeWizard();
+      return;
+    }
+    advanceWizard();
+  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, settingsDirty, step.kind]);
+
+  const handleSkipStep = useCallback(() => {
+    if (step.kind === "settings" && settingsDirty) {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard-request-settings-leave"));
+      return;
+    }
+
+    if (step.kind === "products") {
+      if (!quickScanStepCompleted) {
+        setQuickScanStarted(false);
+        setQuickScanJobActive(false);
+        setQuickScanStepCompleted(true);
+        return;
+      }
+
+      if (!deepScanStarted) {
+        setQuickScanStarted(false);
+        setQuickScanJobActive(false);
+        setDeepScanStarted(false);
+        const backgroundStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "backgroundProcesses");
+        if (backgroundStepIndex >= 0) setStepIndex(backgroundStepIndex);
+        window.setTimeout(() => openBackgroundProcessesPopover(), 80);
+        return;
+      }
+    }
+
+    if (step.kind === "backgroundProcesses") {
+      completeWizard();
+      return;
+    }
+
+    if (step.kind === "deepScanComplete") {
+      const productStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "productOverview");
+      if (productStepIndex >= 0) setStepIndex(productStepIndex);
+      if (completedDeepScanJob?.productHref) navigate(completedDeepScanJob.productHref);
+      return;
+    }
+
+    advanceWizard({ ignoreDisabled: true });
+  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, navigate, quickScanStepCompleted, settingsDirty, step.kind]);
 
   const handleBack = useCallback(() => {
     if (stepIndex <= 0) return;
@@ -200,38 +415,61 @@ export function ProductPulseWizard() {
   if (!hydrated || !active) return null;
 
   return createPortal(
-    <div className={`ppWizardRoot ppWizardRoot-${step.kind}`} aria-live="polite">
-      <div className="ppWizardBlurLayer" aria-hidden="true" />
-      {step.kind === "welcome" ? <WelcomeWizardStep /> : null}
-      {step.kind === "connect" ? (
-        <ConnectWizardStep
-          targetRects={targetRects}
-          openModal={openModal}
-          completion={connectCompletion}
-        />
-      ) : null}
-      {step.kind === "settings" ? (
-        <SettingsWizardStep targetRects={targetRects} />
-      ) : null}
-      {step.kind === "products" ? (
-        <ProductsWizardStep
-          targetRects={targetRects}
-          productsState={productsState}
-          quickScanStarted={quickScanStarted}
-          openModal={openModal}
-        />
-      ) : null}
-      {openModal ? <WizardModalCoach modal={openModal} /> : null}
-      <WizardControlBar
-        backLabel={labels.back}
-        nextLabel={labels.next}
-        canGoBack={stepIndex > 0}
-        nextDisabled={nextDisabled}
-        onBack={handleBack}
-        onNext={handleNext}
-        onSkip={completeWizard}
-      />
-    </div>,
+    <>
+      <div className="ppWizardBackdropRoot" aria-hidden="true">
+        <div className="ppWizardBlurLayer" />
+      </div>
+      <div className={`ppWizardRoot ppWizardRoot-${step.kind}`} aria-live="polite">
+        {step.kind === "welcome" ? <WelcomeWizardStep /> : null}
+        {step.kind === "connect" ? (
+          <ConnectWizardStep
+            targetRects={targetRects}
+            openModal={openModal}
+            completion={connectCompletion}
+          />
+        ) : null}
+        {step.kind === "settings" ? (
+          <SettingsWizardStep targetRects={targetRects} />
+        ) : null}
+        {step.kind === "products" ? (
+          <ProductsWizardStep
+            targetRects={targetRects}
+            productsState={productsState}
+            quickScanStarted={quickScanStarted}
+            quickScanJobActive={quickScanJobActive}
+            quickScanStepCompleted={quickScanStepCompleted}
+            openModal={openModal}
+          />
+        ) : null}
+        {step.kind === "backgroundProcesses" ? (
+          <BackgroundProcessesWizardStep targetRects={targetRects} />
+        ) : null}
+        {step.kind === "deepScanComplete" ? (
+          <DeepScanCompleteWizardStep targetRects={targetRects} completedJob={completedDeepScanJob} />
+        ) : null}
+        {step.kind === "productOverview" ? (
+          <ProductOverviewWizardStep targetRects={targetRects} />
+        ) : null}
+        {step.kind === "productAnalysisPanels" ? (
+          <ProductAnalysisPanelsWizardStep targetRects={targetRects} />
+        ) : null}
+        {step.kind === "chatAssistant" ? (
+          <ChatAssistantWizardStep targetRects={targetRects} />
+        ) : null}
+        {openModal ? <WizardModalCoach modal={openModal} /> : null}
+        {step.kind !== "chatAssistant" ? (
+          <WizardControlBar
+            backLabel={labels.back}
+            nextLabel={labels.next}
+            canGoBack={stepIndex > 0}
+            nextDisabled={nextDisabled}
+            onBack={handleBack}
+            onNext={handleNext}
+            onSkipStep={handleSkipStep}
+          />
+        ) : null}
+      </div>
+    </>,
     document.body,
   );
 }
@@ -264,24 +502,26 @@ function WelcomeWizardStep() {
 
 function ConnectWizardStep({ targetRects, openModal, completion }) {
   if (openModal) return null;
-  const chatAnchor = targetRects.chatmeAction || targetRects.chatmeRow;
+  const judgeAnchor = targetRects.judgemeAction || targetRects.judgemeRow;
   const csvAnchor = targetRects.csvAction || targetRects.csvRow;
 
-  if (!chatAnchor || !csvAnchor) {
-    return <WizardLoadingCard title="Opening Connect" body="We are locating the ChatMe and CSV review source rows." />;
+  if (!judgeAnchor || !csvAnchor) {
+    return <WizardLoadingCard title="Opening Connect" body="We are locating the Judge.me and CSV review source rows." />;
   }
 
   return (
     <>
       <WizardTooltip
-        anchorRect={chatAnchor}
-        className="ppWizardTooltip-chatme"
-        title="Connect ChatMe Reviews"
+        anchorRect={judgeAnchor}
+        className="ppWizardTooltip-judgeme"
+        title="Connect Judge.me Reviews"
         eyebrow="Direct connector"
+        estimatedHeight={166}
+        offsetY={0}
       >
         <p>
-          Click <strong>Manage</strong> on ChatMe Reviews to connect your account with a private API
-          token. You can open and close this setup without ending the wizard.
+          Click <strong>Manage</strong> on Judge.me Reviews to connect your account with a private API
+          token. The wizard stays open while you add credentials.
         </p>
       </WizardTooltip>
 
@@ -290,7 +530,10 @@ function ConnectWizardStep({ targetRects, openModal, completion }) {
         className="ppWizardTooltip-csv"
         title="Upload reviews by CSV"
         eyebrow="Works with any provider"
-        offsetY={36}
+        estimatedHeight={250}
+        forceSide="bottom"
+        offsetY={60}
+        preferredWidth={392}
       >
         <p>
           Use CSV Upload when you prefer not to connect a provider directly, or when your review
@@ -332,7 +575,12 @@ function SettingsWizardStep({ targetRects }) {
       className="ppWizardTooltip-settings"
       title="Tune your scan rules"
       eyebrow="Settings"
-      offsetY={-16}
+      estimatedHeight={166}
+      forceSide="bottom"
+      hideArrow
+      centered
+      offsetY={66}
+      widthRatio={0.5}
     >
       <p>
         Review Product risk thresholds, Product Momentum inclusion, and Evidence lookback. These
@@ -346,27 +594,33 @@ function SettingsWizardStep({ targetRects }) {
   );
 }
 
-function ProductsWizardStep({ targetRects, productsState, quickScanStarted, openModal }) {
+function ProductsWizardStep({ targetRects, productsState, quickScanStarted, quickScanJobActive, quickScanStepCompleted, openModal }) {
   if (openModal) return null;
 
-  if (!productsState.hasCandidates) {
+  if (!quickScanStepCompleted || !productsState.hasCandidates) {
     const anchor = targetRects.quickScan;
     if (!anchor) {
       return <WizardLoadingCard title="Opening Products" body="We are locating the Candidates tab and QuickScan button." />;
+    }
+
+    let quickScanTitle = "Run QuickScan";
+    let quickScanBody = "Click Run quick scan to create lightweight product-risk candidates from your catalog. The wizard stays open while confirmation modals appear.";
+    if (quickScanJobActive) {
+      quickScanTitle = "QuickScan is running";
+      quickScanBody = "ProductPulse is scanning the catalog. Keep the wizard open; when the QuickScan job finishes, this step will move to the candidate products.";
+    } else if (quickScanStarted) {
+      quickScanTitle = "Starting QuickScan";
+      quickScanBody = "ProductPulse is waiting for the QuickScan background job to start. Keep the wizard open while the scan modal stays visible.";
     }
 
     return (
       <WizardTooltip
         anchorRect={anchor}
         className="ppWizardTooltip-products"
-        title={quickScanStarted ? "QuickScan is running" : "Run QuickScan"}
+        title={quickScanTitle}
         eyebrow="Products"
       >
-        <p>
-          {quickScanStarted
-            ? "ProductPulse is scanning the catalog. Keep the wizard open; when candidate products appear, this step will move to the deep scan action."
-            : "Click Run quick scan to create lightweight product-risk candidates from your catalog. The wizard stays open while confirmation modals appear."}
-        </p>
+        <p>{quickScanBody}</p>
       </WizardTooltip>
     );
   }
@@ -382,10 +636,197 @@ function ProductsWizardStep({ targetRects, productsState, quickScanStarted, open
       className="ppWizardTooltip-products"
       title="Select a candidate and run Deep Scan"
       eyebrow="Candidates"
+      estimatedHeight={150}
+      forceSide="bottom"
+      preferredWidth={380}
+      offsetY={4}
     >
       <p>
         Candidate products are QuickScan results that still need full AI diagnosis. Select one row,
-        then use the action button to queue a deep scan for that product.
+        then use the highlighted Run Deep Scan action in the toolbar to queue a deep scan for that product.
+      </p>
+    </WizardTooltip>
+  );
+}
+
+function BackgroundProcessesWizardStep({ targetRects }) {
+  const anchor = targetRects.backgroundProcessPopover || targetRects.backgroundProcessButton;
+  if (!anchor) {
+    return <WizardLoadingCard title="Opening Background processes" body="We are opening the process monitor for the deep scan." />;
+  }
+
+  return (
+      <WizardTooltip
+        anchorRect={anchor}
+        className="ppWizardTooltip-backgroundProcesses"
+        title="Track the Deep Scan"
+        eyebrow="Background processes"
+        estimatedHeight={292}
+        forceSide="left"
+        offsetY={24}
+        preferredWidth={408}
+      >
+      <p>
+        ProductPulse is running the deep diagnosis in the background. During this process, the
+        system reviews the product context, recent signals, review evidence, return patterns,
+        support hints, and catalog metadata to understand what may be causing the risk.
+      </p>
+      <p>
+        The analysis uses AI-assisted reasoning and product-signal scoring to separate useful
+        evidence from noise, compare possible causes, and prepare a diagnosis with recommended
+        actions. Please wait; this can take a few minutes depending on the amount of evidence.
+      </p>
+      <div className="ppWizardProcessingStatus" role="status" aria-live="polite">
+        <span className="ppWizardInlineSpinner" aria-hidden="true" />
+        <span>Deep Scan is still running...</span>
+      </div>
+    </WizardTooltip>
+  );
+}
+
+function DeepScanCompleteWizardStep({ targetRects, completedJob }) {
+  const anchor = targetRects.completionNoticeAction || targetRects.completionNotice;
+  if (!anchor) {
+    return <WizardLoadingCard title="Deep Scan complete" body="We are locating the completion message for the finished product analysis." />;
+  }
+
+  return (
+    <WizardTooltip
+      anchorRect={anchor}
+      className="ppWizardTooltip-deepScanComplete"
+      title="Deep Scan complete"
+      eyebrow="Product ready"
+      estimatedHeight={154}
+      forceSide="bottom"
+      preferredWidth={390}
+      offsetY={10}
+    >
+      <p>
+        {completedJob?.productTitle || completedJob?.displayTitle || "This product"} is ready to review. Click <strong>Open product</strong> to see the full diagnosis details.
+      </p>
+    </WizardTooltip>
+  );
+}
+
+function ProductOverviewWizardStep({ targetRects }) {
+  const heroAnchor = targetRects.productHeroSummary || targetRects.productHero;
+  const actionsAnchor = targetRects.productHeroActions || targetRects.productHero;
+
+  if (!targetRects.productHero || !heroAnchor || !actionsAnchor) {
+    return <WizardLoadingCard title="Opening product details" body="We are locating the product overview and action controls." />;
+  }
+
+  return (
+    <>
+      <WizardTooltip
+        anchorRect={heroAnchor}
+        className="ppWizardTooltip-productOverview"
+        title="Deep product analysis"
+        eyebrow="Product details"
+        estimatedHeight={164}
+        preferredWidth={392}
+        offsetY={-10}
+      >
+        <p>
+          This is the deep analysis detail page for the product. ProductPulse gathers the
+          available product, review, return, support, and Shopify signals here so you can read the
+          diagnosis with the key metrics in one place.
+        </p>
+      </WizardTooltip>
+
+      <WizardTooltip
+        anchorRect={actionsAnchor}
+        className="ppWizardTooltip-productActions"
+        title="Product actions"
+        eyebrow="Product tools"
+        estimatedHeight={156}
+        preferredWidth={382}
+        offsetY={8}
+      >
+        <p>
+          These buttons hold the actions for this product: run the analysis again when new data
+          changes, open Metric Timelines, or use the additional product actions from the menu.
+        </p>
+      </WizardTooltip>
+    </>
+  );
+}
+
+function ProductAnalysisPanelsWizardStep({ targetRects }) {
+  const aiAnchor = targetRects.aiInterpretation;
+  const actionsAnchor = targetRects.recommendedActions;
+
+  if (!aiAnchor || !actionsAnchor) {
+    return <WizardLoadingCard title="Opening analysis panels" body="We are locating AI Interpretation and Recommended Actions." />;
+  }
+
+  return (
+    <>
+      <WizardTooltip
+        anchorRect={aiAnchor}
+        className="ppWizardTooltip-aiInterpretation"
+        title="AI Interpretation"
+        eyebrow="Main finding"
+        estimatedHeight={204}
+        forceSide="vertical"
+        preferredWidth={420}
+        offsetY={-8}
+      >
+        <p>
+          This is the most important point of the analysis. It is an AI interpretation across all
+          product data ProductPulse knows: product context, review evidence, return signals,
+          support signals, and scan results.
+        </p>
+        <p>
+          Read it first to understand what ProductPulse found, including product failures,
+          quality risks, or improvements that could make the product perform better.
+        </p>
+      </WizardTooltip>
+
+      <WizardTooltip
+        anchorRect={actionsAnchor}
+        className="ppWizardTooltip-recommendedActions"
+        title="Recommended Actions"
+        eyebrow="Next steps"
+        estimatedHeight={180}
+        forceSide="top"
+        preferredWidth={410}
+        offsetY={-6}
+      >
+        <p>
+          These actions are generated from the problems detected for this product. They are meant
+          to help the team apply focused fixes that improve product quality and reduce repeated
+          issues.
+        </p>
+      </WizardTooltip>
+    </>
+  );
+}
+
+function ChatAssistantWizardStep({ targetRects }) {
+  const anchor = targetRects.chatLauncher;
+  if (!anchor) {
+    return <WizardLoadingCard title="Opening Pulse Guide" body="We are locating the chat assistant launcher." />;
+  }
+
+  return (
+    <WizardTooltip
+      anchorRect={anchor}
+      className="ppWizardTooltip-chatAssistant"
+      title="Meet Pulse Guide"
+      eyebrow="Intelligent companion"
+      estimatedHeight={190}
+      preferredWidth={390}
+      forceSide="top"
+      offsetY={-4}
+    >
+      <p>
+        Pulse Guide is your intelligent chat companion for ProductPulse. Ask it questions about this
+        page, the product analysis, evidence, metrics, candidates, watchlists, or what to do next.
+      </p>
+      <p>
+        It can help you investigate details, understand what you are seeing, and move through tasks.
+        Open it now to finish the guided setup.
       </p>
     </WizardTooltip>
   );
@@ -395,10 +836,11 @@ function WizardModalCoach({ modal }) {
   const copy = modalCopy[modal.kind];
   if (!copy || !modal.rect) return null;
   const placement = getTooltipPlacement(modal.rect, 0, 340);
+  const sideClass = getWizardTooltipSideClass(placement.side);
 
   return (
     <aside
-      className={`ppWizardModalCoach ${placement.side === "right" ? "isRight" : "isBottom"}`.trim()}
+      className={`ppWizardModalCoach ${sideClass}`.trim()}
       style={placement.style}
       role="status"
     >
@@ -410,17 +852,31 @@ function WizardModalCoach({ modal }) {
   );
 }
 
-function WizardTooltip({ anchorRect, className = "", title, eyebrow, children, offsetY = 0 }) {
-  const placement = getTooltipPlacement(anchorRect, offsetY);
+function WizardTooltip({
+  anchorRect,
+  className = "",
+  title,
+  eyebrow,
+  children,
+  offsetY = 0,
+  preferredWidth = 360,
+  estimatedHeight,
+  forceSide,
+  hideArrow = false,
+  widthRatio,
+  centered = false,
+}) {
+  const placement = getTooltipPlacement(anchorRect, offsetY, preferredWidth, { estimatedHeight, forceSide, widthRatio, centered });
+  const sideClass = getWizardTooltipSideClass(placement.side);
 
   return (
     <aside
-      className={`ppWizardTooltip ${placement.side === "right" ? "isRight" : "isBottom"} ${className}`.trim()}
+      className={`ppWizardTooltip ${sideClass} ${className}`.trim()}
       style={placement.style}
       role="dialog"
       aria-label={title}
     >
-      <span className="ppWizardTooltipArrow" style={placement.arrowStyle} aria-hidden="true" />
+      {hideArrow ? null : <span className="ppWizardTooltipArrow" style={placement.arrowStyle} aria-hidden="true" />}
       <p className="ppWizardTooltipEyebrow">{eyebrow}</p>
       <h3>{title}</h3>
       {children}
@@ -435,7 +891,7 @@ function WizardControlBar({
   nextDisabled,
   onBack,
   onNext,
-  onSkip,
+  onSkipStep,
 }) {
   return (
     <footer className="ppWizardControlBar" role="group" aria-label="Wizard controls">
@@ -444,8 +900,8 @@ function WizardControlBar({
           <s-icon type="chevron-left" size="small"></s-icon>
           {backLabel}
         </button>
-        <button className="ppWizardSkipButton" type="button" onClick={onSkip}>
-          Skip tour
+        <button className="ppWizardSkipButton" type="button" onClick={onSkipStep}>
+          Skip step
         </button>
         <button className="ppWizardNextButton" type="button" onClick={onNext} disabled={nextDisabled}>
           {nextLabel}
@@ -469,7 +925,7 @@ function useWizardSpotlightTargets(targets, enabled) {
   const [rects, setRects] = useState({});
   const rafRef = useRef(null);
   const targetsKey = useMemo(
-    () => targets.map((target) => `${target.id}:${target.selector}:${target.all ? "all" : "one"}`).join("|"),
+    () => targets.map((target) => `${target.id}:${target.selector}:${target.all ? "all" : "one"}:${(target.ancestorSelectors || []).join(",")}`).join("|"),
     [targets],
   );
 
@@ -477,6 +933,9 @@ function useWizardSpotlightTargets(targets, enabled) {
     const nextRects = {};
     document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
       element.classList.remove("ppWizardSpotlightTarget");
+    });
+    document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
+      element.classList.remove("ppWizardSpotlightAncestor");
     });
 
     targets.forEach((target) => {
@@ -486,7 +945,12 @@ function useWizardSpotlightTargets(targets, enabled) {
       const visibleElements = elements.filter((element) => getComputedStyle(element).display !== "none");
       if (!visibleElements.length) return;
 
-      visibleElements.forEach((element) => element.classList.add("ppWizardSpotlightTarget"));
+      visibleElements.forEach((element) => {
+        element.classList.add("ppWizardSpotlightTarget");
+        (target.ancestorSelectors || []).forEach((selector) => {
+          element.closest(selector)?.classList.add("ppWizardSpotlightAncestor");
+        });
+      });
       nextRects[target.id] = getUnionRect(visibleElements);
     });
 
@@ -497,6 +961,9 @@ function useWizardSpotlightTargets(targets, enabled) {
     if (!enabled) {
       document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
         element.classList.remove("ppWizardSpotlightTarget");
+      });
+      document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
+        element.classList.remove("ppWizardSpotlightAncestor");
       });
       setRects((current) => (Object.keys(current).length ? {} : current));
       return undefined;
@@ -520,6 +987,9 @@ function useWizardSpotlightTargets(targets, enabled) {
       window.removeEventListener("scroll", scheduleMeasure, true);
       document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
         element.classList.remove("ppWizardSpotlightTarget");
+      });
+      document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
+        element.classList.remove("ppWizardSpotlightAncestor");
       });
     };
   }, [enabled, measure, targetsKey]);
@@ -597,6 +1067,7 @@ function useOpenWizardModal(enabled) {
 
 function getOpenWizardModal() {
   const candidates = [
+    { kind: "judgeme", selector: "#judgeme-connect-title" },
     { kind: "chatme", selector: "#chatme-connect-title" },
     { kind: "csv", selector: "#csv-upload-title" },
     { kind: "csvPreview", selector: "#csv-preview-title" },
@@ -612,18 +1083,53 @@ function getOpenWizardModal() {
   return { kind: match.kind, rect: getElementRect(modal) };
 }
 
-function getWizardTargets(step, hasCandidates) {
+function getWizardTargets(step, hasCandidates, quickScanStepCompleted) {
   if (step.kind === "products") {
-    return hasCandidates ? productCandidateTargets : productQuickScanTargets;
+    return quickScanStepCompleted && hasCandidates ? productCandidateTargets : productQuickScanTargets;
   }
   return step.targets || emptyWizardTargets;
 }
 
-function getWizardControlLabels(step, productsState) {
+function getWizardControlLabels(step, productsState, deepScanStarted, quickScanStepCompleted, completedDeepScanJob) {
   if (step.kind === "products") {
+    const next = !quickScanStepCompleted
+      ? "Run QuickScan first"
+      : productsState.hasCandidates
+        ? deepScanStarted ? "Next" : "Waiting for Deep Scan"
+        : "Waiting for candidates";
     return {
       back: "Back",
-      next: productsState.hasCandidates ? "Finish" : "Waiting for candidates",
+      next,
+    };
+  }
+  if (step.kind === "backgroundProcesses") {
+    return {
+      back: "Back",
+      next: deepScanStarted && !completedDeepScanJob ? "Waiting for Deep Scan" : "Finish",
+    };
+  }
+  if (step.kind === "deepScanComplete") {
+    return {
+      back: "Back",
+      next: "Open product first",
+    };
+  }
+  if (step.kind === "productOverview") {
+    return {
+      back: "Back",
+      next: "Next",
+    };
+  }
+  if (step.kind === "productAnalysisPanels") {
+    return {
+      back: "Back",
+      next: "Next",
+    };
+  }
+  if (step.kind === "chatAssistant") {
+    return {
+      back: "Back",
+      next: "Finish",
     };
   }
   return {
@@ -633,6 +1139,7 @@ function getWizardControlLabels(step, productsState) {
 }
 
 function getConnectCompletionMessage(provider) {
+  if (provider === "judgemeReviews") return "Judge.me was connected. When you are ready, click Next to configure Settings.";
   if (provider === "chatmeReviews") return "ChatMe was connected. When you are ready, click Next to configure Settings.";
   if (provider === "csvReviews") return "CSV reviews were saved. When you are ready, click Next to configure Settings.";
   return "Source saved. When you are ready, click Next to configure Settings.";
@@ -666,20 +1173,52 @@ function getElementRect(element) {
   };
 }
 
-function getTooltipPlacement(anchorRect, offsetY = 0, preferredWidth = 360) {
+function getTooltipPlacement(anchorRect, offsetY = 0, preferredWidth = 360, options = {}) {
   if (typeof window === "undefined") return { style: {}, arrowStyle: {}, side: "right" };
 
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const bottomBarHeight = 78;
-  const tooltipWidth = Math.min(preferredWidth, viewportWidth - 32);
-  const estimatedHeight = 204;
+  const requestedWidth = options.widthRatio ? viewportWidth * options.widthRatio : preferredWidth;
+  const tooltipWidth = Math.min(requestedWidth, viewportWidth - 32);
+  const estimatedHeight = options.estimatedHeight || 204;
   const gap = 18;
   const centerY = anchorRect.top + (anchorRect.height || 34) / 2;
   const canUseRight = viewportWidth - anchorRect.right >= tooltipWidth + gap + 16;
   const maxTop = viewportHeight - bottomBarHeight - estimatedHeight - 16;
 
-  if (canUseRight) {
+  if (options.forceSide === "top" || (options.forceSide === "vertical" && anchorRect.top - estimatedHeight - gap + offsetY >= 16)) {
+    const left = clamp(anchorRect.left, 16, viewportWidth - tooltipWidth - 16);
+    const top = clamp(anchorRect.top - estimatedHeight - gap + offsetY, 16, maxTop);
+    return {
+      side: "top",
+      style: {
+        width: `${tooltipWidth}px`,
+        left: `${left}px`,
+        top: `${top}px`,
+      },
+      arrowStyle: {
+        left: `${clamp(anchorRect.left + (anchorRect.width || 40) / 2 - left, 24, tooltipWidth - 24)}px`,
+      },
+    };
+  }
+
+  if (options.forceSide === "left") {
+    const top = clamp(centerY - estimatedHeight / 2 + offsetY, 16, maxTop);
+    return {
+      side: "left",
+      style: {
+        width: `${tooltipWidth}px`,
+        left: `${clamp(anchorRect.left - tooltipWidth - gap, 16, viewportWidth - tooltipWidth - 16)}px`,
+        top: `${top}px`,
+      },
+      arrowStyle: {
+        top: `${clamp(centerY - top, 22, estimatedHeight - 22)}px`,
+      },
+    };
+  }
+
+  if (options.forceSide !== "bottom" && options.forceSide !== "top" && options.forceSide !== "vertical" && (canUseRight || options.forceSide === "right")) {
     const top = clamp(centerY - estimatedHeight / 2 + offsetY, 16, maxTop);
     return {
       side: "right",
@@ -694,7 +1233,9 @@ function getTooltipPlacement(anchorRect, offsetY = 0, preferredWidth = 360) {
     };
   }
 
-  const left = clamp(anchorRect.left, 16, viewportWidth - tooltipWidth - 16);
+  const left = options.centered
+    ? clamp((viewportWidth - tooltipWidth) / 2, 16, viewportWidth - tooltipWidth - 16)
+    : clamp(anchorRect.left, 16, viewportWidth - tooltipWidth - 16);
   const preferredTop = anchorRect.bottom + 14 + offsetY;
   const top = preferredTop + estimatedHeight < viewportHeight - bottomBarHeight
     ? preferredTop
@@ -713,8 +1254,16 @@ function getTooltipPlacement(anchorRect, offsetY = 0, preferredWidth = 360) {
   };
 }
 
+function getWizardTooltipSideClass(side) {
+  if (side === "right") return "isRight";
+  if (side === "left") return "isLeft";
+  if (side === "top") return "isTop";
+  return "isBottom";
+}
+
 function isCurrentWizardRoute(pathname, search, step) {
   if (step.kind === "welcome") return isDashboardRoute(pathname);
+  if (step.kind === "backgroundProcesses") return true;
   if (step.kind === "products") {
     return pathname.startsWith("/app/products") && new URLSearchParams(search).get("tab") === "candidates";
   }
@@ -744,4 +1293,17 @@ function markWizardCompleted() {
   } catch {
     // Ignore storage failures; the visible wizard can still be dismissed for this session.
   }
+}
+
+function clearWizardCompleted() {
+  try {
+    window.localStorage.removeItem(WIZARD_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures; the visible wizard can still restart for this session.
+  }
+}
+
+function openBackgroundProcessesPopover() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:wizard-open-background-processes"));
 }

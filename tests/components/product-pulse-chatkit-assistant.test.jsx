@@ -36,15 +36,15 @@ describe("ProductPulseChatKitAssistant", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
 
-    expect(screen.getByRole("dialog", { name: "AI Assistant" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open AI Assistant" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Pulse Guide" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Pulse Guide" })).not.toBeInTheDocument();
     expect(screen.getByText("ChatKit requires OPENAI_API_KEY on the server.")).toBeVisible();
     expect(screen.queryByTestId("chatkit")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Close AI Assistant" }));
-    expect(screen.getByRole("button", { name: "Open AI Assistant" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close Pulse Guide" }));
+    expect(screen.getByRole("button", { name: "Open Pulse Guide" })).toBeInTheDocument();
   });
 
   it("lets the assistant drawer switch between default and wide widths", () => {
@@ -55,15 +55,15 @@ describe("ProductPulseChatKitAssistant", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
 
-    const assistant = screen.getByLabelText("ProductPulse AI assistant");
+    const assistant = screen.getByLabelText("Pulse Guide assistant");
     expect(assistant).not.toHaveClass("ppChatKitAssistant-expanded");
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand AI Assistant width" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Pulse Guide width" }));
     expect(assistant).toHaveClass("ppChatKitAssistant-expanded");
 
-    fireEvent.click(screen.getByRole("button", { name: "Use default AI Assistant width" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use default Pulse Guide width" }));
     expect(assistant).not.toHaveClass("ppChatKitAssistant-expanded");
   });
 
@@ -75,7 +75,7 @@ describe("ProductPulseChatKitAssistant", () => {
       />,
     );
 
-    const launcher = screen.getByRole("button", { name: "Open AI Assistant" });
+    const launcher = screen.getByRole("button", { name: "Open Pulse Guide" });
     expect(launcher).toHaveClass("ppChatKitLauncher");
     expect(launcher.textContent.trim()).toBe("");
 
@@ -98,7 +98,7 @@ describe("ProductPulseChatKitAssistant", () => {
     const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
     fireEvent.load(script);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
 
     expect(await screen.findByTestId("chatkit")).toHaveClass("ppChatKitSurface");
     expect(useChatKit).toHaveBeenCalledWith(expect.objectContaining({
@@ -111,7 +111,7 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(useChatKit.mock.calls.at(-1)[0].onClientTool).toBeUndefined();
     expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe(null);
     expect(useChatKit.mock.calls.at(-1)[0].thread.autoScroll).toBe(false);
-    expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("light");
+    expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("dark");
     expect(useChatKit.mock.calls.at(-1)[0].header.enabled).toBe(false);
   });
 
@@ -130,22 +130,22 @@ describe("ProductPulseChatKitAssistant", () => {
 
     const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
     fireEvent.load(script);
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
     await screen.findByTestId("chatkit");
 
-    const assistant = screen.getByLabelText("ProductPulse AI assistant");
-    const switchButton = screen.getByRole("switch", { name: "Use dark AI Assistant theme" });
-    expect(switchButton).toHaveAttribute("aria-checked", "false");
-    expect(assistant).toHaveClass("ppChatKitAssistant-light");
+    const assistant = screen.getByLabelText("Pulse Guide assistant");
+    const switchButton = screen.getByRole("switch", { name: "Use light Pulse Guide theme" });
+    expect(switchButton).toHaveAttribute("aria-checked", "true");
+    expect(assistant).toHaveClass("ppChatKitAssistant-dark");
 
     fireEvent.click(switchButton);
 
-    expect(screen.getByRole("switch", { name: "Use light AI Assistant theme" })).toHaveAttribute("aria-checked", "true");
-    expect(assistant).toHaveClass("ppChatKitAssistant-dark");
-    expect(window.localStorage.getItem("productPulse.chatkit.theme.v1")).toBe("dark");
+    expect(screen.getByRole("switch", { name: "Use dark Pulse Guide theme" })).toHaveAttribute("aria-checked", "false");
+    expect(assistant).toHaveClass("ppChatKitAssistant-light");
+    expect(window.localStorage.getItem("productPulse.chatkit.theme.v2")).toBe("light");
 
     await waitFor(() => {
-      expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("dark");
+      expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("light");
     });
   });
 
@@ -164,7 +164,7 @@ describe("ProductPulseChatKitAssistant", () => {
 
     const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
     fireEvent.load(script);
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
     await screen.findByTestId("chatkit");
 
     await act(async () => {
@@ -173,7 +173,7 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(window.sessionStorage.getItem("productPulse.chatkit.conversationId.v1")).toBe("conversation-123");
 
     const methods = useChatKit.mock.results.at(-1).value;
-    fireEvent.click(screen.getByRole("button", { name: "Start a new AI Assistant chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start a new Pulse Guide chat" }));
 
     await waitFor(() => {
       expect(methods.setThreadId).toHaveBeenCalledWith(null);
@@ -181,7 +181,7 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(methods.focusComposer).toHaveBeenCalled();
     expect(window.sessionStorage.getItem("productPulse.chatkit.conversationId.v1")).toBe(null);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant chat history" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide chat history" }));
 
     await waitFor(() => {
       expect(useChatKit.mock.results.some((result) => result.value.showHistory.mock.calls.length > 0)).toBe(true);
@@ -203,7 +203,7 @@ describe("ProductPulseChatKitAssistant", () => {
 
     const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
     fireEvent.load(script);
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
     await screen.findByTestId("chatkit");
 
     await act(async () => {
@@ -215,10 +215,10 @@ describe("ProductPulseChatKitAssistant", () => {
     });
     expect(window.sessionStorage.getItem("productPulse.chatkit.conversationId.v1")).toBe("conversation-123");
 
-    fireEvent.click(screen.getByRole("button", { name: "Close AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close Pulse Guide" }));
     expect(screen.queryByTestId("chatkit")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
     expect(await screen.findByTestId("chatkit")).toHaveClass("ppChatKitSurface");
     expect(useChatKit.mock.calls.at(-1)[0].initialThread).toBe("conversation-123");
   });
@@ -240,7 +240,7 @@ describe("ProductPulseChatKitAssistant", () => {
 
     const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
     fireEvent.load(script);
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
     await screen.findByTestId("chatkit");
 
     await waitFor(() => {
@@ -267,7 +267,7 @@ describe("ProductPulseChatKitAssistant", () => {
 
     const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
     fireEvent.load(script);
-    fireEvent.click(screen.getByRole("button", { name: "Open AI Assistant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
     await screen.findByTestId("chatkit");
 
     await act(async () => {

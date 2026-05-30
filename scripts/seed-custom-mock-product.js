@@ -12,12 +12,23 @@ import { promisify } from "node:util";
 const API_VERSION = "2026-04";
 const execFileAsync = promisify(execFile);
 const DEFAULT_SCENARIO_KEY = "gen-lumispan-v1";
-const SUPPORTED_SCENARIO_KEYS = new Set(["gen-hazedock-v1", "gen-hazedock-v2", "gen-lumispan-v1"]);
+const SUPPORTED_SCENARIO_KEYS = new Set([
+  "gen-hazedock-v1",
+  "gen-hazedock-v2",
+  "gen-lumispan-v1",
+  "gen-driftweave-v1",
+  "gen-driftweave-v2",
+  "gen-voltnest-v1",
+  "gen-voltnest-v2",
+  "gen-prismhue-v1",
+  "gen-prismhue-v2",
+]);
 const CUSTOM_REVIEW_SOURCE = "ProductPulse mock reviews";
 const CUSTOM_TAG = "productpulse-custom-gen";
 const CUSTOM_ORDER_TAG = "productpulse-custom-gen-order";
 const RELTEST_CUSTOMER_TAG = "productpulse-reltest-customer";
 const DEFAULT_ORDER_CREATE_DELAY_MS = 12_500;
+const DEFAULT_ADMIN_FETCH_TIMEOUT_MS = 60_000;
 const CUSTOM_DIAGNOSIS_JOB_KIND = "scripted-product-diagnosis";
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g");
 const NORMALIZED_CSV_COLUMNS = [
@@ -38,6 +49,12 @@ export function buildScenario(key = DEFAULT_SCENARIO_KEY, { now = new Date() } =
     throw new Error(`Unknown custom mock scenario: ${key}`);
   }
   if (key === "gen-lumispan-v1") return buildLumaSpanScenario(now);
+  if (key === "gen-driftweave-v1") return buildDriftWeaveScenario(now);
+  if (key === "gen-driftweave-v2") return buildDriftWeaveWatchStepScenario(now);
+  if (key === "gen-voltnest-v1") return buildVoltNestScenario(now);
+  if (key === "gen-voltnest-v2") return buildVoltNestWatchStepScenario(now);
+  if (key === "gen-prismhue-v1") return buildPrismHueScenario(now);
+  if (key === "gen-prismhue-v2") return buildPrismHueWatchStepScenario(now);
 
   const cleanCompatibilityRevision = key === "gen-hazedock-v2";
   const scenarioTag = cleanCompatibilityRevision ? "ppcustom-gen-hazedock-v2" : "ppcustom-gen-hazedock-v1";
@@ -562,6 +579,667 @@ function buildLumaSpanReviews(now) {
   }));
 }
 
+function buildDriftWeaveScenario(now) {
+  const scenarioTag = "ppcustom-gen-driftweave-v1";
+  const productKey = "gen-driftweave-packable-overshirt";
+  const orderRefPrefix = "driftweave";
+
+  return {
+    key: "gen-driftweave-v1",
+    scenarioTag,
+    productKey,
+    orderTag: `${scenarioTag}-order`,
+    product: {
+      key: productKey,
+      title: "GEN DriftWeave Packable Overshirt",
+      handle: "gen-driftweave-packable-overshirt",
+      productType: "Apparel",
+      vendor: "ProductPulse Lab",
+      preliminaryIssue: "Fit, wash behavior, and size-chart interpretation mismatch",
+      seoTitle: "DriftWeave Packable Overshirt",
+      seoDescription: "Lightweight packable overshirt with relaxed layering fit, cold-wash care, and notes about body-size versus garment measurements.",
+      descriptionHtml: `
+        <section>
+          <h2>Packable overshirt for travel layers and cool offices</h2>
+          <p>GEN DriftWeave is a lightweight overshirt designed to sit between a shirt and a shell. It packs into its own pocket, has a dry handfeel, and is meant to be worn over a tee or thin knit rather than as a fitted button-up.</p>
+          <p>The fabric is a cotton-nylon blend with a low-crinkle finish. It is wind resistant but not waterproof, insulated, or rain rated.</p>
+        </section>
+        <section>
+          <h3>Fit and sizing</h3>
+          <p>DriftWeave is cut with a relaxed body and a straighter shoulder line. If you are between sizes, have broad shoulders, or plan to layer over a sweatshirt, choose the larger size.</p>
+          <p>The size chart is based on body measurements. It is not a finished garment measurement chart. Sleeve length is intentionally compact so cuffs do not cover the hands when packing or commuting.</p>
+          <ul>
+            <li>Small: body chest 36-38 in.</li>
+            <li>Medium: body chest 39-41 in.</li>
+            <li>Large: body chest 42-44 in.</li>
+            <li>XL: body chest 45-48 in.</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Care</h3>
+          <p>Machine wash cold, close the snaps, and hang dry. Do not tumble dry. A warm dryer can tighten the sleeve and shoulder feel, especially on the first wash. Steam lightly if the pocket fold leaves a crease.</p>
+        </section>
+      `,
+      tags: [
+        "GEN",
+        CUSTOM_TAG,
+        scenarioTag,
+        "apparel",
+        "overshirt",
+        "fit-sizing",
+        "care-instructions",
+        "packable-layer",
+        "size-chart-body-measurements",
+      ],
+      options: [
+        { name: "Color", values: ["Pine", "Stone"] },
+        { name: "Size", values: ["S", "M", "L", "XL"] },
+      ],
+      variants: [
+        { options: { Color: "Pine", Size: "S" }, price: "74.00", sku: "GEN-DRIFTWEAVE-PINE-S" },
+        { options: { Color: "Pine", Size: "M" }, price: "74.00", sku: "GEN-DRIFTWEAVE-PINE-M" },
+        { options: { Color: "Pine", Size: "L" }, price: "74.00", sku: "GEN-DRIFTWEAVE-PINE-L" },
+        { options: { Color: "Stone", Size: "M" }, price: "74.00", sku: "GEN-DRIFTWEAVE-STONE-M" },
+        { options: { Color: "Stone", Size: "L" }, price: "74.00", sku: "GEN-DRIFTWEAVE-STONE-L" },
+        { options: { Color: "Stone", Size: "XL" }, price: "74.00", sku: "GEN-DRIFTWEAVE-STONE-XL" },
+      ],
+      story: "An apparel product where the PDP already says the chart is body measurements and warns against tumble drying, but reviews and returns show shoppers still misread the fit and wash behavior.",
+      expectedFindings: [
+        "Root cause should be fit_sizing or care expectation, not broad product quality.",
+        "Actions should focus on size-chart interpretation, finished garment measurements, shoulder/sleeve fit, and cold-wash/hang-dry behavior.",
+        "If description changes are proposed, they should be apparel-specific and not generic product dimensions copy.",
+      ],
+      expectedActions: [
+        "Add or rewrite fit guidance around finished garment measurements and broad shoulders.",
+        "Make the care warning more prominent if shrink/tightness signals repeat.",
+        "Avoid QA or stop-sale language unless the analysis sees true defect evidence beyond wash misuse.",
+      ],
+    },
+    customers: [
+      { key: "reltest-customer-001", role: "repeat apparel buyer with two DriftWeave orders" },
+      { key: "reltest-customer-002", role: "size exchange behavior after a return" },
+      { key: "reltest-customer-003", role: "clean order used as control" },
+      { key: "reltest-customer-006", role: "refund-only care-friction customer" },
+      { key: "reltest-customer-018", role: "general customer with late negative review" },
+    ],
+    orderPlans: [
+      { ref: `${orderRefPrefix}-001`, customerKey: "reltest-customer-001", daysAgo: 72, variantHint: "Pine / M", quantity: 1, note: "Clean first order from repeat customer." },
+      { ref: `${orderRefPrefix}-002`, customerKey: "reltest-customer-002", daysAgo: 61, variantHint: "Stone / M", quantity: 1, note: "Return because body chart was interpreted as garment width." },
+      { ref: `${orderRefPrefix}-003`, customerKey: "reltest-customer-003", daysAgo: 52, variantHint: "Pine / L", quantity: 1, note: "Clean order with positive review." },
+      { ref: `${orderRefPrefix}-004`, customerKey: "reltest-customer-006", daysAgo: 43, variantHint: "Stone / L", quantity: 2, note: "Two units; one refund-only after tumble-dry care issue." },
+      { ref: `${orderRefPrefix}-005`, customerKey: "reltest-customer-001", daysAgo: 30, variantHint: "Pine / L", quantity: 1, note: "Repeat buyer sizes up successfully for retention signal." },
+      { ref: `${orderRefPrefix}-006`, customerKey: "reltest-customer-002", daysAgo: 21, variantHint: "Stone / XL", quantity: 1, note: "Second try after return, no outcome." },
+      { ref: `${orderRefPrefix}-007`, customerKey: "reltest-customer-018", daysAgo: 13, variantHint: "Pine / M", quantity: 1, note: "Recent return after sleeve tightness and color expectation note." },
+      { ref: `${orderRefPrefix}-008`, customerKey: "reltest-customer-003", daysAgo: 7, variantHint: "Stone / L", quantity: 1, note: "Clean repeat control order." },
+      { ref: `${orderRefPrefix}-009`, customerKey: "reltest-customer-006", daysAgo: 2, variantHint: "Pine / S", quantity: 1, note: "Late refund-only size chart dispute." },
+    ],
+    outcomePlans: [
+      {
+        type: "return",
+        orderRef: `${orderRefPrefix}-002`,
+        returnReason: "SIZE_TOO_SMALL",
+        theme: "body-chart-vs-garment",
+        note: "Size issue: the buyer used the chest number like it was a finished garment measurement. The body fit was technically described, but they needed garment width and shoulder measurement before checkout.",
+      },
+      {
+        type: "refund",
+        orderRef: `${orderRefPrefix}-004`,
+        theme: "dryer-tightness",
+        quantity: 1,
+        note: "Goodwill refund on one Stone L. Customer tumble dried it once and says sleeves and shoulders tightened; support notes hang-dry warning exists but was easy to miss.",
+      },
+      {
+        type: "return",
+        orderRef: `${orderRefPrefix}-007`,
+        returnReason: "OTHER",
+        theme: "shoulder-and-color",
+        note: "Other: shoulder line felt narrow over a sweatshirt and Pine looked darker indoors. The return is mainly fit/sizing, not a fabric defect.",
+      },
+      {
+        type: "refund",
+        orderRef: `${orderRefPrefix}-009`,
+        theme: "size-chart-dispute",
+        quantity: 1,
+        note: "Refund-only courtesy credit. Customer says the S size followed the chart but felt trim in the upper arm; wants finished garment measurements, not another generic size note.",
+      },
+    ],
+    reviews: buildDriftWeaveReviews(now),
+  };
+}
+
+function buildDriftWeaveReviews(now) {
+  return buildDatedReviews(now, [
+    { daysAgo: 76, rating: 5, title: "Works as an overshirt", body: "Pine M is relaxed over a tee and packs flatter than my old chore jacket. The sleeve is not long, but that is part of why it works for commuting.", reviewer: "Mock Reviewer Drift 01" },
+    { daysAgo: 66, rating: 2, title: "Chart read one way, garment fit another", body: "I read the chest number like a garment measurement and the Stone M felt too close in the shoulders. The page says body measurements, but I did not process the difference.", reviewer: "Mock Reviewer Drift 02" },
+    { daysAgo: 58, rating: 4, title: "Size up if layering", body: "The L solved it for me. Medium would have been fine over a thin tee, but not over a midweight sweatshirt.", reviewer: "Mock Reviewer Drift 03" },
+    { daysAgo: 47, rating: 2, title: "Washed once and felt tighter", body: "I missed the no-dryer part and it came out with a shorter sleeve feel. I cannot say the fabric is bad, but the care warning should be closer to the size choice.", reviewer: "Mock Reviewer Drift 04" },
+    { daysAgo: 40, rating: 5, title: "Hang dry was fine", body: "Cold wash and hang dry kept the shape. It is a travel layer, not a rain shell, and that expectation matched the page.", reviewer: "Mock Reviewer Drift 05" },
+    { daysAgo: 31, rating: 2, title: "Broad shoulders beware", body: "The body is relaxed but the shoulder line is the deciding point. I needed a finished shoulder measurement, not just body chest guidance.", reviewer: "Mock Reviewer Drift 06" },
+    { daysAgo: 24, rating: 3, title: "Pine shifts indoors", body: "Pine looks almost black-green under warm office lights. I kept it, but the color name and photos made me expect more visible green.", reviewer: "Mock Reviewer Drift 07" },
+    { daysAgo: 18, rating: 4, title: "Second size was right", body: "After returning M, XL gave me the boxy layer I wanted. The product works if you treat the chart as body sizing.", reviewer: "Mock Reviewer Drift 08" },
+    { daysAgo: 11, rating: 1, title: "Fit advice was too easy to skim", body: "The answer was probably in the description, but the buying decision still felt like normal shirt sizing. The sleeve and upper arm felt tight after one wash.", reviewer: "Mock Reviewer Drift 09" },
+    { daysAgo: 8, rating: 5, title: "Stone L is my travel layer", body: "Light, quiet fabric and no weird crinkle. I sized up for shoulders and hang dried it.", reviewer: "Mock Reviewer Drift 10" },
+    { daysAgo: 4, rating: 2, title: "Need garment measurements", body: "The phrase body measurement is not enough. I need actual garment chest, shoulder, sleeve and sweep to decide.", reviewer: "Mock Reviewer Drift 11" },
+    { daysAgo: 1, rating: 3, title: "Good, but not waterproof", body: "I understood it was wind resistant, not rainwear. That part was clear. Fit guidance still needs the bigger warning.", reviewer: "Mock Reviewer Drift 12" },
+  ]);
+}
+
+function buildDriftWeaveWatchStepScenario(now) {
+  const base = buildDriftWeaveScenario(now);
+  const productKey = "gen-driftweave-packable-overshirt-watch-v2";
+
+  return {
+    ...base,
+    key: "gen-driftweave-v2",
+    productKey,
+    orderTag: "ppc-driftweave-w2-order",
+    product: {
+      ...base.product,
+      key: productKey,
+      preliminaryIssue: "Recent upper-arm fit and post-wash sizing drift",
+      descriptionHtml: `
+        ${base.product.descriptionHtml.trim()}
+        <section>
+          <h3>Finished garment checkpoints</h3>
+          <p>Use the body-size chart first, then compare these finished garment checkpoints if you are between sizes, broad-shouldered, or layering: Medium chest 44.5 in, shoulder 18 in, sleeve 32.5 in; Large chest 47 in, shoulder 18.8 in, sleeve 33.2 in; XL chest 50 in, shoulder 19.6 in, sleeve 34 in.</p>
+          <p>If your upper arm measures above 13.5 in or you plan to wear a sweatshirt under DriftWeave, choose the larger size. Hang dry only; dryer heat can make the sleeve and upper-arm feel tighter even when the body still feels relaxed.</p>
+        </section>
+      `,
+      tags: [...new Set([...base.product.tags, "watchlist-step-2", "finished-garment-measurements", "upper-arm-fit"])],
+      expectedFindings: [
+        "The second run should detect new orders, one new return, one new refund, new review text, and a concrete PDP content update.",
+        "The core issue should remain fit/sizing or care expectation, not become product quality.",
+        "Description actions should not ask for generic dimensions; if proposed, they should refine garment checkpoints or size-selector prominence.",
+      ],
+      expectedActions: [
+        "Prefer finished-garment measurement, upper-arm, and layer-fit guidance.",
+        "Media guidance should request garment-on-body/layering examples rather than generic product photos.",
+        "Care guidance may be useful, but avoid defect/stop-sale language because the new evidence still points to interpretation and care.",
+      ],
+    },
+    customers: [
+      { key: "reltest-customer-001", role: "repeat customer now testing correct size-up behavior" },
+      { key: "reltest-customer-002", role: "prior return customer with a new borderline fit complaint" },
+      { key: "reltest-customer-006", role: "care-friction customer with another refund-only signal" },
+      { key: "reltest-customer-018", role: "general customer with color and sleeve review" },
+    ],
+    orderPlans: [
+      { ref: "driftweave-w2-001", customerKey: "reltest-customer-001", daysAgo: 1, variantHint: "Stone / XL", quantity: 1, note: "Repeat buyer uses the new garment-checkpoint guidance and keeps the item." },
+      { ref: "driftweave-w2-002", customerKey: "reltest-customer-002", daysAgo: 1, variantHint: "Stone / L", quantity: 1, note: "Borderline fit return: chart was understood, but upper-arm room was still underestimated." },
+      { ref: "driftweave-w2-003", customerKey: "reltest-customer-006", daysAgo: 1, variantHint: "Pine / M", quantity: 1, note: "Refund-only post-wash complaint after warm-air drying near a radiator, not a standard defect." },
+      { ref: "driftweave-w2-004", customerKey: "reltest-customer-018", daysAgo: 1, variantHint: "Pine / L", quantity: 1, note: "Clean recent order that should keep the second run from becoming all-negative." },
+    ],
+    outcomePlans: [
+      {
+        type: "return",
+        orderRef: "driftweave-w2-002",
+        returnReason: "SIZE_TOO_SMALL",
+        theme: "upper-arm-layering",
+        note: "Size return: the buyer did see the finished garment chest number, but the upper-arm and sweatshirt layering decision still felt buried. The body fits, the shoulder is tolerable, the arm is the blocker.",
+      },
+      {
+        type: "refund",
+        orderRef: "driftweave-w2-003",
+        theme: "care-warning-location",
+        quantity: 1,
+        note: "Partial refund. Customer says it tightened after drying on a warm rack; support notes the no-heat care rule exists, but the complaint is about where that warning appears during size selection.",
+      },
+    ],
+    reviews: buildDriftWeaveWatchStepReviews(now),
+  };
+}
+
+function buildDriftWeaveWatchStepReviews(now) {
+  return buildDatedReviews(now, [
+    { daysAgo: 0, rating: 5, title: "XL solved the shoulder problem", body: "I came back after returning a smaller size. The finished measurements helped, and Stone XL over a sweatshirt finally behaves like the overshirt I wanted.", reviewer: "Mock Reviewer Drift Step 01" },
+    { daysAgo: 0, rating: 2, title: "Upper arm is the hidden measurement", body: "The new chest and shoulder numbers are helpful, but the actual blocker is upper-arm room with a layer underneath. It is not defective; the decision point is just not where I expected it.", reviewer: "Mock Reviewer Drift Step 02" },
+    { daysAgo: 0, rating: 2, title: "Care warning is technically there", body: "I cannot say the page failed to mention hang dry. It did. But when choosing size I did not connect warm drying with sleeve tightness, so the warning felt separated from the fit decision.", reviewer: "Mock Reviewer Drift Step 03" },
+    { daysAgo: 0, rating: 3, title: "Pine still reads darker indoors", body: "The fit was acceptable in L, but Pine under warm office lights is almost black-green. I kept it, though the color photos still need indoor context.", reviewer: "Mock Reviewer Drift Step 04" },
+    { daysAgo: 0, rating: 4, title: "Better after reading twice", body: "The garment checkpoint language is the useful part. I had to slow down and read it, which probably means the size selector needs the same cue.", reviewer: "Mock Reviewer Drift Step 05" },
+    { daysAgo: 0, rating: 2, title: "Fit issue, not a fabric failure", body: "Support kept asking quality questions, but my issue is simpler: the body-size chart and finished garment note did not make the upper-arm fit decision obvious before I picked the size.", reviewer: "Mock Reviewer Drift Step 06" },
+    { daysAgo: 0, rating: 4, title: "Selector cue helped", body: "The extra garment checkpoint did its job for me. I chose XL for a sweatshirt layer and would call this a fit-selection issue, not a fabric defect.", reviewer: "Mock Reviewer Drift Step 07" },
+    { daysAgo: 0, rating: 2, title: "One more sleeve clue", body: "I still wish the size picker said upper-arm room in the same place as chest. The description has the facts; the ordering of those facts is what tripped me.", reviewer: "Mock Reviewer Drift Step 08" },
+    { daysAgo: 0, rating: 3, title: "Same facts, better placement needed", body: "The measurements exist, but I need the upper-arm and sweatshirt cue next to the size choice. I would not call it a bad garment; it is a placement problem.", reviewer: "Mock Reviewer Drift Step 09" },
+  ]);
+}
+
+function buildVoltNestScenario(now) {
+  const scenarioTag = "ppcustom-gen-voltnest-v1";
+  const productKey = "gen-voltnest-foldaway-steam-kettle";
+  const orderRefPrefix = "voltnest";
+
+  return {
+    key: "gen-voltnest-v1",
+    scenarioTag,
+    productKey,
+    orderTag: `${scenarioTag}-order`,
+    product: {
+      key: productKey,
+      title: "GEN VoltNest Foldaway Steam Kettle",
+      handle: "gen-voltnest-foldaway-steam-kettle",
+      productType: "Kitchen Appliances",
+      vendor: "ProductPulse Lab",
+      preliminaryIssue: "Voltage, minimum-fill, and steam-vent setup expectations",
+      seoTitle: "VoltNest Foldaway Steam Kettle",
+      seoDescription: "Compact 120 V foldaway kettle with minimum-fill, steam vent, and travel-power guidance.",
+      descriptionHtml: `
+        <section>
+          <h2>Foldaway kettle for small kitchens and hotel counters</h2>
+          <p>GEN VoltNest is a compact electric kettle with a folding silicone body, stainless heated base, and locking travel lid. It is designed for countertop boiling in small spaces, not for car sockets, power banks, or direct induction heat.</p>
+          <p>This model is 120 V only for North American outlets. Do not use it with step-down travel converters, loose adapters, or shared hotel bathroom outlets.</p>
+        </section>
+        <section>
+          <h3>Setup rules before boiling</h3>
+          <ul>
+            <li>Fill above the MIN line before powering on.</li>
+            <li>Keep the steam vent facing away from cabinets, shelves, hands, and walls.</li>
+            <li>Use on a flat, dry, heat-safe counter with the cord fully seated.</li>
+            <li>Rinse once before first use; a light silicone smell can appear during the first boil.</li>
+          </ul>
+          <p>Auto shutoff is calibrated for normal water boiling. Very low fill, high altitude, thick mineral buildup, or unstable power can make shutoff feel early or delayed.</p>
+        </section>
+      `,
+      tags: [
+        "GEN",
+        CUSTOM_TAG,
+        scenarioTag,
+        "kitchen-appliance",
+        "travel-kettle",
+        "voltage-warning",
+        "minimum-fill",
+        "steam-safety",
+        "setup-expectation",
+      ],
+      options: [{ name: "Color", values: ["Cloud", "Graphite"] }],
+      variants: [
+        { options: { Color: "Cloud" }, price: "49.00", sku: "GEN-VOLTNEST-CLOUD" },
+        { options: { Color: "Graphite" }, price: "49.00", sku: "GEN-VOLTNEST-GRAPHITE" },
+      ],
+      story: "A small appliance with safety-adjacent setup friction: voltage, minimum fill, first-use odor, steam direction, and auto-shutoff interpretation.",
+      expectedFindings: [
+        "The algorithm should separate safety/setup expectation from generic quality.",
+        "Returns and refunds should connect to voltage misuse, minimum fill, steam placement, and first-use odor.",
+        "Actions should not casually suggest applying vague product quality notes; they should be specific and cautious.",
+      ],
+      expectedActions: [
+        "Prioritize safety/setup guidance and support triage.",
+        "If PDP copy changes are suggested, they should front-load 120 V, MIN fill, steam vent orientation, and converter limitations.",
+        "QA review is reasonable only around auto-shutoff complaints that occur despite supported setup.",
+      ],
+    },
+    customers: [
+      { key: "reltest-customer-007", role: "travel appliance buyer with converter misuse" },
+      { key: "reltest-customer-008", role: "small kitchen buyer with clean order" },
+      { key: "reltest-customer-009", role: "refund-only first-use odor complaint" },
+      { key: "reltest-customer-010", role: "repeat buyer tests support resolution" },
+      { key: "reltest-customer-018", role: "general customer with steam placement return" },
+    ],
+    orderPlans: [
+      { ref: `${orderRefPrefix}-001`, customerKey: "reltest-customer-007", daysAgo: 68, variantHint: "Cloud", quantity: 1, note: "Converter misuse return; voltage warning exists but was missed." },
+      { ref: `${orderRefPrefix}-002`, customerKey: "reltest-customer-008", daysAgo: 58, variantHint: "Graphite", quantity: 1, note: "Clean small-kitchen order." },
+      { ref: `${orderRefPrefix}-003`, customerKey: "reltest-customer-009", daysAgo: 49, variantHint: "Cloud", quantity: 2, note: "Two Cloud units with first-use odor refund on one." },
+      { ref: `${orderRefPrefix}-004`, customerKey: "reltest-customer-010", daysAgo: 38, variantHint: "Graphite", quantity: 1, note: "Minimum fill return." },
+      { ref: `${orderRefPrefix}-005`, customerKey: "reltest-customer-018", daysAgo: 28, variantHint: "Cloud", quantity: 1, note: "Steam vent placement return." },
+      { ref: `${orderRefPrefix}-006`, customerKey: "reltest-customer-010", daysAgo: 19, variantHint: "Cloud", quantity: 1, note: "Repeat after support guidance; clean outcome." },
+      { ref: `${orderRefPrefix}-007`, customerKey: "reltest-customer-008", daysAgo: 11, variantHint: "Graphite", quantity: 1, note: "Clean repeat control order." },
+      { ref: `${orderRefPrefix}-008`, customerKey: "reltest-customer-007", daysAgo: 4, variantHint: "Cloud", quantity: 1, note: "Refund-only auto-shutoff complaint after high-altitude use." },
+    ],
+    outcomePlans: [
+      {
+        type: "return",
+        orderRef: `${orderRefPrefix}-001`,
+        returnReason: "OTHER",
+        theme: "voltage-converter",
+        note: "Other: Buyer used the 120 V kettle with a travel converter overseas. It clicked and smelled hot; the product page says 120 V only, but the warning did not register as a hard no.",
+      },
+      {
+        type: "refund",
+        orderRef: `${orderRefPrefix}-003`,
+        theme: "first-use-odor",
+        quantity: 1,
+        note: "Goodwill refund for one Cloud unit. Customer describes silicone odor after first boil as chemical; support notes the rinse/first-use smell text exists but should be more prominent.",
+      },
+      {
+        type: "return",
+        orderRef: `${orderRefPrefix}-004`,
+        returnReason: "NOT_AS_DESCRIBED",
+        theme: "minimum-fill",
+        note: "Auto shutoff looked defective because the buyer boiled below the MIN line for tea-for-one. The failure is setup-dependent, but support wants MIN fill in the first decision block.",
+      },
+      {
+        type: "return",
+        orderRef: `${orderRefPrefix}-005`,
+        returnReason: "OTHER",
+        theme: "steam-vent-placement",
+        note: "Other: Steam vent faced a low cabinet and made the buyer feel unsafe. The vent warning is in the list, but they did not understand it as a clearance requirement.",
+      },
+      {
+        type: "refund",
+        orderRef: `${orderRefPrefix}-008`,
+        theme: "altitude-shutoff",
+        quantity: 1,
+        note: "Refund-only courtesy credit. Customer says auto shutoff cycles early at a mountain rental; notes mention high altitude can affect shutoff timing but not what to do.",
+      },
+    ],
+    reviews: buildVoltNestReviews(now),
+  };
+}
+
+function buildVoltNestReviews(now) {
+  return buildDatedReviews(now, [
+    { daysAgo: 73, rating: 2, title: "Travel wording tricked me", body: "I saw foldaway and travel lid and assumed Europe converter use was okay. The 120 V line exists, but it needs to be impossible to miss.", reviewer: "Mock Reviewer Volt 01" },
+    { daysAgo: 61, rating: 5, title: "Good in a tiny kitchen", body: "Graphite lives beside my sink and boils enough water for coffee. I keep the vent pointed outward and fill above MIN.", reviewer: "Mock Reviewer Volt 02" },
+    { daysAgo: 53, rating: 2, title: "Smell made me distrust it", body: "The first boil silicone smell made me think something was wrong. I later saw the rinse note, but it was not framed like a normal first-use condition.", reviewer: "Mock Reviewer Volt 03" },
+    { daysAgo: 45, rating: 1, title: "Shutoff felt defective", body: "Below the MIN line it clicked off and on. Support says that is expected behavior, but I bought it to heat one cup and missed that limit.", reviewer: "Mock Reviewer Volt 04" },
+    { daysAgo: 34, rating: 4, title: "Follow the setup and it works", body: "Flat counter, MIN line, vent away from cabinets. Not a mystery product if you actually follow the warnings.", reviewer: "Mock Reviewer Volt 05" },
+    { daysAgo: 26, rating: 2, title: "Steam clearance was not obvious", body: "The kettle did boil, but the steam path was too close to a cabinet. The warning is present; the required clearance is what I needed.", reviewer: "Mock Reviewer Volt 06" },
+    { daysAgo: 21, rating: 5, title: "Second unit was fine", body: "After support explained the minimum fill, I bought another and it works. I would call the issue instructions, not quality.", reviewer: "Mock Reviewer Volt 07" },
+    { daysAgo: 15, rating: 3, title: "Altitude note needs action", body: "At a rental cabin the shutoff timing changed. The page mentions altitude, but not whether to fill more, wait longer, or avoid use.", reviewer: "Mock Reviewer Volt 08" },
+    { daysAgo: 10, rating: 4, title: "Cloud looks clean", body: "Rinsed twice and used it daily in a dorm. The fold is useful, but I would not pack it for international voltage.", reviewer: "Mock Reviewer Volt 09" },
+    { daysAgo: 6, rating: 2, title: "Warnings are there but not ranked", body: "120 V, MIN line, steam direction, altitude, first smell. All the answers are scattered in one list, so the riskier ones do not feel riskier.", reviewer: "Mock Reviewer Volt 10" },
+    { daysAgo: 3, rating: 5, title: "Works on normal outlet", body: "No issue with a normal kitchen outlet and correct fill. Small enough for my counter.", reviewer: "Mock Reviewer Volt 11" },
+    { daysAgo: 1, rating: 2, title: "Not broken, still returned", body: "Everything support said made sense after the fact. Before buying, I did not see the setup rules as hard limits.", reviewer: "Mock Reviewer Volt 12" },
+  ]);
+}
+
+function buildVoltNestWatchStepScenario(now) {
+  const base = buildVoltNestScenario(now);
+  const productKey = "gen-voltnest-foldaway-steam-kettle-watch-v2";
+
+  return {
+    ...base,
+    key: "gen-voltnest-v2",
+    productKey,
+    orderTag: "ppc-voltnest-w2-order",
+    product: {
+      ...base.product,
+      key: productKey,
+      preliminaryIssue: "Minimum-fill visibility, altitude guidance, and supported-use shutoff expectations",
+      descriptionHtml: `
+        ${base.product.descriptionHtml.trim()}
+        <section>
+          <h3>Decision checklist</h3>
+          <p>Before checkout, confirm you will use VoltNest on a 120 V wall outlet, keep water above the MIN line, leave at least 12 in of open space above the steam vent, and boil on a flat counter rather than inside a cabinet, car, bathroom outlet, or power-bank setup.</p>
+          <p>At high altitude or with mineral-heavy water, fill slightly above the MIN line and descale more often. If auto shutoff cycles repeatedly even with water above MIN on a normal outlet, stop using the kettle and contact support with the fill level, outlet type, and altitude.</p>
+        </section>
+      `,
+      tags: [...new Set([...base.product.tags, "watchlist-step-2", "altitude-guidance", "min-line-visibility"])],
+      expectedFindings: [
+        "The second run should keep the root cause in setup/expectation territory while acknowledging a narrow supported-setup escalation path.",
+        "Watchlist should detect new orders, return/refund movement, review movement, and a PDP content update.",
+        "Any description action should refine MIN-line visibility, altitude action, or safe-stop support triage rather than vague product quality.",
+      ],
+      expectedActions: [
+        "Media/action copy should request MIN-line closeups and steam-clearance visuals.",
+        "Support-note content should ask for outlet type, fill level, altitude, and descaling history.",
+        "Avoid a draft/stop-sale action unless evidence clearly says supported normal use is unsafe.",
+      ],
+    },
+    customers: [
+      { key: "reltest-customer-007", role: "travel buyer now testing clearer 120 V rule" },
+      { key: "reltest-customer-008", role: "clean repeat customer for retention contrast" },
+      { key: "reltest-customer-009", role: "first-use odor customer with new MIN-line visibility issue" },
+      { key: "reltest-customer-010", role: "repeat buyer with supported-setup support triage" },
+    ],
+    orderPlans: [
+      { ref: "voltnest-w2-001", customerKey: "reltest-customer-008", daysAgo: 1, variantHint: "Graphite", quantity: 1, note: "Clean repeat control order after checklist update." },
+      { ref: "voltnest-w2-002", customerKey: "reltest-customer-009", daysAgo: 1, variantHint: "Graphite", quantity: 1, note: "Return: MIN line is hard to see on Graphite under low light." },
+      { ref: "voltnest-w2-003", customerKey: "reltest-customer-010", daysAgo: 1, variantHint: "Cloud", quantity: 1, note: "Refund-only escalation: claims cycling happened above MIN at altitude." },
+      { ref: "voltnest-w2-004", customerKey: "reltest-customer-007", daysAgo: 1, variantHint: "Cloud", quantity: 1, note: "Buyer avoids converter after clearer rule and keeps product." },
+    ],
+    outcomePlans: [
+      {
+        type: "return",
+        orderRef: "voltnest-w2-002",
+        returnReason: "NOT_AS_DESCRIBED",
+        theme: "min-line-visibility",
+        note: "Return note: Graphite MIN line was too subtle in a dim kitchenette. Buyer understood the rule after support, but says the line itself and PDP closeup did not make the operating limit obvious.",
+      },
+      {
+        type: "refund",
+        orderRef: "voltnest-w2-003",
+        theme: "supported-setup-altitude",
+        quantity: 1,
+        note: "Refund-only support credit. Customer reports cycling above MIN on a normal 120 V outlet at a mountain cabin; support asked for altitude and descaling details instead of treating it as a broad defect.",
+      },
+    ],
+    reviews: buildVoltNestWatchStepReviews(now),
+  };
+}
+
+function buildVoltNestWatchStepReviews(now) {
+  return buildDatedReviews(now, [
+    { daysAgo: 0, rating: 4, title: "Checklist made the use case clear", body: "The 120 V wall-outlet language is finally hard to miss. I did not pack it for overseas use and it worked normally at home.", reviewer: "Mock Reviewer Volt Step 01" },
+    { daysAgo: 0, rating: 2, title: "MIN line is the product", body: "I now understand that the MIN line is a hard operating rule. On Graphite, in low light, the mark is too quiet for something that important.", reviewer: "Mock Reviewer Volt Step 02" },
+    { daysAgo: 0, rating: 2, title: "Altitude note still needs a next step", body: "The page mentions altitude and filling slightly above MIN, but when the shutoff cycled at a cabin I still did not know whether to descale, add more water, or stop using it.", reviewer: "Mock Reviewer Volt Step 03" },
+    { daysAgo: 0, rating: 3, title: "Steam clearance is clearer than before", body: "The 12 inch clearance sentence helped. I still think the product needs a real counter photo because the list reads like appliance fine print.", reviewer: "Mock Reviewer Volt Step 04" },
+    { daysAgo: 0, rating: 5, title: "Works when the constraints fit", body: "Normal outlet, above MIN, vent away from the shelf. It is small and useful if those constraints fit your counter.", reviewer: "Mock Reviewer Volt Step 05" },
+    { daysAgo: 0, rating: 2, title: "Graphite needs a MIN line closeup", body: "The checklist is better, but the Graphite fill mark still disappears in my kitchenette light. I do not think the kettle is broadly defective; the operating line needs visual proof.", reviewer: "Mock Reviewer Volt Step 06" },
+    { daysAgo: 0, rating: 3, title: "Category is not the issue", body: "This is a kettle setup problem, not a utensil rack or organizer problem. The useful fix is clearer MIN-line and outlet guidance.", reviewer: "Mock Reviewer Volt Step 07" },
+    { daysAgo: 0, rating: 2, title: "Not furniture, just setup", body: "Calling it anything like a kitchen hutch would miss the point. The issue is a small kettle setup: fill above MIN, use 120 V, and keep steam clear.", reviewer: "Mock Reviewer Volt Step 08" },
+    { daysAgo: 0, rating: 2, title: "Same setup issue again", body: "The appliance works when the MIN mark is visible. My complaint is still the buying and first-use checklist, not cabinets, hutches, or another kitchen-storage category.", reviewer: "Mock Reviewer Volt Step 09" },
+    { daysAgo: 0, rating: 3, title: "Checklist belongs on first use", body: "I understood 120 V after reading carefully, but the first-use moment still needs MIN visibility and steam clearance in one tight visual block.", reviewer: "Mock Reviewer Volt Step 10" },
+  ]);
+}
+
+function buildPrismHueScenario(now) {
+  const scenarioTag = "ppcustom-gen-prismhue-v1";
+  const productKey = "gen-prismhue-magnetic-photo-light-panel";
+  const orderRefPrefix = "prismhue";
+
+  return {
+    key: "gen-prismhue-v1",
+    scenarioTag,
+    productKey,
+    orderTag: `${scenarioTag}-order`,
+    relationshipAddOns: [
+      { key: "reltest-together", sku: "GEN-RELTEST-TOGETHER", expectedTitle: "GEN RELTEST Bought Together Product" },
+      { key: "reltest-after", sku: "GEN-RELTEST-AFTER", expectedTitle: "GEN RELTEST Bought After Product" },
+    ],
+    product: {
+      key: productKey,
+      title: "GEN PrismHue Magnetic Photo Light Panel",
+      handle: "gen-prismhue-magnetic-photo-light-panel",
+      productType: "Home Decor",
+      vendor: "ProductPulse Lab",
+      preliminaryIssue: "Color and media expectation mismatch",
+      seoTitle: "PrismHue Magnetic Photo Light Panel",
+      seoDescription: "Magnetic backlit photo display panel with warm, gallery, and night modes plus notes about print color and included contents.",
+      descriptionHtml: `
+        <section>
+          <h2>Backlit magnetic panel for photo prints and small art cards</h2>
+          <p>GEN PrismHue is a low-profile wall or shelf panel that holds one 5 x 7 in print behind a magnetic clear face. It creates a soft backlit effect for desks, shelves, and hallway art moments.</p>
+          <p>The box includes the panel, magnetic face, USB-C cable, adhesive wall tabs, and a tabletop foot. Printed photos and art cards are not included.</p>
+        </section>
+        <section>
+          <h3>Light and color expectations</h3>
+          <p>PrismHue has three modes: Warm Shelf, Gallery Neutral, and Night Amber. These modes change the appearance of white borders, skin tones, beige paper, and glossy prints. It is decorative lighting, not a color-proofing or print-matching light.</p>
+          <p>Product photos are shot in Gallery Neutral on matte sample prints. Glossy prints, thick paper, dark ink, and warm room lighting can make the final look deeper or more amber than the product image.</p>
+        </section>
+      `,
+      tags: [
+        "GEN",
+        CUSTOM_TAG,
+        scenarioTag,
+        "home-decor",
+        "photo-panel",
+        "color-expectation",
+        "media-context",
+        "magnetic-frame",
+        "relationship-test",
+      ],
+      options: [{ name: "Frame", values: ["Black", "Walnut"] }],
+      variants: [
+        { options: { Frame: "Black" }, price: "42.00", sku: "GEN-PRISMHUE-BLACK" },
+        { options: { Frame: "Walnut" }, price: "46.00", sku: "GEN-PRISMHUE-WALNUT" },
+      ],
+      story: "A decor/display product where the PDP says light modes shift print appearance, but buyer language still frames the issue as color mismatch, missing included photos, and insufficient real-world media.",
+      expectedFindings: [
+        "Root cause should be color expectation/media context, not product quality.",
+        "Description actions should not say photos are missing from the box if the description already says prints are not included.",
+        "Media actions should request real mode comparison photos and glossy/matte examples.",
+      ],
+      expectedActions: [
+        "Prioritize media guidance and color expectation copy.",
+        "Avoid duplicate FAQ about included photos if the PDP already says printed photos are not included.",
+        "Use relationship and repeat-customer context where bundled RELTEST add-ons exist.",
+      ],
+    },
+    customers: [
+      { key: "reltest-customer-011", role: "first PrismHue buyer with color return" },
+      { key: "reltest-customer-012", role: "clean buyer with same-order relationship add-on" },
+      { key: "reltest-customer-013", role: "refund-only included-photo misunderstanding" },
+      { key: "reltest-customer-014", role: "repeat buyer with second clean order" },
+      { key: "reltest-customer-018", role: "general customer with media expectation review" },
+    ],
+    orderPlans: [
+      { ref: `${orderRefPrefix}-001`, customerKey: "reltest-customer-011", daysAgo: 69, variantHint: "Walnut", quantity: 1, note: "Return over amber/walnut color expectation." },
+      { ref: `${orderRefPrefix}-002`, customerKey: "reltest-customer-012", daysAgo: 57, variantHint: "Black", quantity: 1, addOns: [{ key: "reltest-together", quantity: 1 }], note: "Clean order with same-order relationship add-on." },
+      { ref: `${orderRefPrefix}-003`, customerKey: "reltest-customer-013", daysAgo: 46, variantHint: "Walnut", quantity: 2, note: "Refund-only confusion about printed photos not included." },
+      { ref: `${orderRefPrefix}-004`, customerKey: "reltest-customer-014", daysAgo: 36, variantHint: "Black", quantity: 1, note: "Clean order before repeat." },
+      { ref: `${orderRefPrefix}-005`, customerKey: "reltest-customer-018", daysAgo: 26, variantHint: "Walnut", quantity: 1, note: "Return due glossy print and warm room mismatch." },
+      { ref: `${orderRefPrefix}-006`, customerKey: "reltest-customer-014", daysAgo: 15, variantHint: "Walnut", quantity: 1, addOns: [{ key: "reltest-after", quantity: 1 }], note: "Repeat buyer clean order with relationship add-on." },
+      { ref: `${orderRefPrefix}-007`, customerKey: "reltest-customer-012", daysAgo: 8, variantHint: "Black", quantity: 1, note: "Refund-only shadow/magnet note." },
+      { ref: `${orderRefPrefix}-008`, customerKey: "reltest-customer-011", daysAgo: 3, variantHint: "Black", quantity: 1, note: "Second try clean order after switching prints." },
+    ],
+    outcomePlans: [
+      {
+        type: "return",
+        orderRef: `${orderRefPrefix}-001`,
+        returnReason: "NOT_AS_DESCRIBED",
+        theme: "amber-print-shift",
+        note: "Color mismatch: walnut frame plus Warm Shelf mode made the border and skin tones amber. The page mentions mode shifts, but the product photos looked more neutral than the installed result.",
+      },
+      {
+        type: "refund",
+        orderRef: `${orderRefPrefix}-003`,
+        theme: "prints-not-included",
+        quantity: 1,
+        note: "Courtesy refund for one panel. Customer expected the sample photo print in the box even though description says printed photos are not included.",
+      },
+      {
+        type: "return",
+        orderRef: `${orderRefPrefix}-005`,
+        returnReason: "OTHER",
+        theme: "glossy-vs-matte-media",
+        note: "Other: glossy print reflected the LEDs and looked deeper than the sample image. The listing says sample photos use matte prints, but the buyer needed side-by-side media.",
+      },
+      {
+        type: "refund",
+        orderRef: `${orderRefPrefix}-007`,
+        theme: "magnetic-face-shadow",
+        quantity: 1,
+        note: "Partial refund. Buyer sees a faint magnetic edge shadow on a white-bordered print; support says it is normal with bright borders but not shown clearly in media.",
+      },
+    ],
+    reviews: buildPrismHueReviews(now),
+  };
+}
+
+function buildPrismHueReviews(now) {
+  return buildDatedReviews(now, [
+    { daysAgo: 72, rating: 2, title: "Warmer than the photos", body: "Walnut with Warm Shelf made my print look amber. The page says modes change color, but the photos made Gallery Neutral feel like the default look.", reviewer: "Mock Reviewer Prism 01" },
+    { daysAgo: 60, rating: 5, title: "Nice with matte prints", body: "Black frame with matte postcards looks close to the product photos. I use Gallery Neutral and it is exactly the shelf light I wanted.", reviewer: "Mock Reviewer Prism 02" },
+    { daysAgo: 51, rating: 2, title: "Expected the sample print", body: "I know it says printed photos are not included, but the product imagery made the sample print feel like part of the set. The panel itself works.", reviewer: "Mock Reviewer Prism 03" },
+    { daysAgo: 43, rating: 4, title: "Decorative, not proofing", body: "Once I stopped expecting exact print color, it looked good. The warning is accurate but could be closer to the mode selector.", reviewer: "Mock Reviewer Prism 04" },
+    { daysAgo: 32, rating: 1, title: "Glossy print looked bad", body: "The glossy photo reflected the light and went darker at the edges. The matte sample note exists, but I needed to see glossy versus matte before buying.", reviewer: "Mock Reviewer Prism 05" },
+    { daysAgo: 25, rating: 5, title: "Repeat order for hallway", body: "Second panel, different frame. Works well with matte art cards and the tabletop foot.", reviewer: "Mock Reviewer Prism 06" },
+    { daysAgo: 19, rating: 2, title: "Magnetic edge shadow", body: "White-bordered print shows a faint frame shadow. It is not broken, but the product photos hide that edge behavior.", reviewer: "Mock Reviewer Prism 07" },
+    { daysAgo: 14, rating: 3, title: "Night Amber is very amber", body: "The name is honest, but I still expected a softer warm white. It changes beige paper more than I thought.", reviewer: "Mock Reviewer Prism 08" },
+    { daysAgo: 10, rating: 4, title: "Good if you pick prints carefully", body: "Dark art looks rich, glossy photos less so. More real examples would help.", reviewer: "Mock Reviewer Prism 09" },
+    { daysAgo: 6, rating: 2, title: "Not as pictured for my room", body: "Warm room lighting plus Walnut made everything look yellower than the PDP. The panel did power on and hold the print fine.", reviewer: "Mock Reviewer Prism 10" },
+    { daysAgo: 3, rating: 5, title: "Black frame is safer", body: "Black frame and neutral mode keep my print closer to expected. I would buy again.", reviewer: "Mock Reviewer Prism 11" },
+    { daysAgo: 1, rating: 2, title: "Need mode comparison media", body: "The copy has caveats, but the action I needed was visual: same print in all three modes, matte and glossy.", reviewer: "Mock Reviewer Prism 12" },
+  ]);
+}
+
+function buildPrismHueWatchStepScenario(now) {
+  const base = buildPrismHueScenario(now);
+  const productKey = "gen-prismhue-magnetic-photo-light-panel-watch-v2";
+
+  return {
+    ...base,
+    key: "gen-prismhue-v2",
+    productKey,
+    orderTag: "ppc-prismhue-w2-order",
+    product: {
+      ...base.product,
+      key: productKey,
+      preliminaryIssue: "Mounting surface and real-room light expectation mismatch",
+      descriptionHtml: `
+        ${base.product.descriptionHtml.trim()}
+        <section>
+          <h3>Mounting and room setup</h3>
+          <p>Adhesive wall tabs are intended for smooth, clean painted surfaces only. Do not mount on textured plaster, dusty paint, brick, raw wood, damp walls, wallpaper, or fresh paint. For those surfaces, use the tabletop foot or a separate wall-safe hanging method.</p>
+          <p>Room lighting changes the perceived print color. Test Warm Shelf, Gallery Neutral, and Night Amber before removing adhesive liners, especially with glossy photos, white borders, or walnut frames.</p>
+        </section>
+      `,
+      tags: [...new Set([...base.product.tags, "watchlist-step-2", "mounting-surface", "real-room-lighting"])],
+      expectedFindings: [
+        "The second run may shift from pure color expectation toward mounting/setup expectation without treating the panel electronics as defective.",
+        "The watchlist should detect the content update, fresh mounting return/refund, new reviews, and repeat-customer movement.",
+        "Actions should avoid saying printed photos are missing from the description; that information is already present.",
+      ],
+      expectedActions: [
+        "Media guidance should request real-room mode comparisons and mounting-surface examples.",
+        "Description guidance, if any, should refine setup language rather than duplicate included-contents copy.",
+        "Relationship insights should remain analytic context unless the sample is strong enough for merchandising action.",
+      ],
+    },
+    customers: [
+      { key: "reltest-customer-011", role: "returned color buyer now testing mounting expectations" },
+      { key: "reltest-customer-012", role: "relationship add-on customer with a clean repeat order" },
+      { key: "reltest-customer-013", role: "included-photo misunderstanding customer now hitting adhesive edge case" },
+      { key: "reltest-customer-014", role: "repeat customer with clean retention behavior" },
+    ],
+    orderPlans: [
+      { ref: "prismhue-w2-001", customerKey: "reltest-customer-014", daysAgo: 1, variantHint: "Black", quantity: 1, addOns: [{ key: "reltest-together", quantity: 1 }], note: "Clean repeat order with same-order relationship add-on." },
+      { ref: "prismhue-w2-002", customerKey: "reltest-customer-013", daysAgo: 1, variantHint: "Walnut", quantity: 1, note: "Return due textured-wall adhesive mismatch after description update." },
+      { ref: "prismhue-w2-003", customerKey: "reltest-customer-011", daysAgo: 1, variantHint: "Walnut", quantity: 1, note: "Refund-only real-room lighting issue on glossy white-border print." },
+      { ref: "prismhue-w2-004", customerKey: "reltest-customer-012", daysAgo: 1, variantHint: "Black", quantity: 1, addOns: [{ key: "reltest-after", quantity: 1 }], note: "Clean repeat with later relationship add-on context." },
+    ],
+    outcomePlans: [
+      {
+        type: "return",
+        orderRef: "prismhue-w2-002",
+        returnReason: "OTHER",
+        theme: "textured-wall-adhesive",
+        note: "Other: adhesive tabs lifted from lightly textured plaster. Description says smooth painted surfaces only, but buyer read that after planning the install; support says product works on tabletop foot.",
+      },
+      {
+        type: "refund",
+        orderRef: "prismhue-w2-003",
+        theme: "real-room-lighting",
+        quantity: 1,
+        note: "Partial refund. Walnut plus warm room light made glossy white-bordered photos look amber at the edges; support points to mode and room-light caveats but says the PDP needs real-room comparison media.",
+      },
+    ],
+    reviews: buildPrismHueWatchStepReviews(now),
+  };
+}
+
+function buildPrismHueWatchStepReviews(now) {
+  return buildDatedReviews(now, [
+    { daysAgo: 0, rating: 5, title: "Black frame repeat worked", body: "Second panel with Black frame and matte print looks close to the Gallery Neutral photos. I also bought the add-on again because the hallway setup finally made sense.", reviewer: "Mock Reviewer Prism Step 01" },
+    { daysAgo: 0, rating: 2, title: "Textured wall warning came too late", body: "The smooth-wall sentence exists, so this is not missing information. It just was not part of my install decision until the adhesive lifted from textured plaster.", reviewer: "Mock Reviewer Prism Step 02" },
+    { daysAgo: 0, rating: 2, title: "Room light changed the whole read", body: "Walnut plus my warm lamp made the white border look amber even in Gallery Neutral. The copy warns about room lighting, but I needed a real-room comparison, not another sentence.", reviewer: "Mock Reviewer Prism Step 03" },
+    { daysAgo: 0, rating: 3, title: "Tabletop foot saved it", body: "Adhesive was not right for my wall, but the tabletop foot works. The product is useful if surface choice is treated like a setup requirement.", reviewer: "Mock Reviewer Prism Step 04" },
+    { daysAgo: 0, rating: 2, title: "Still not about missing photos", body: "I knew the sample print was not included this time. My issue was glossy paper and the edge shadow in a real room.", reviewer: "Mock Reviewer Prism Step 05" },
+    { daysAgo: 0, rating: 2, title: "Mounting choice belongs before color choice", body: "The smooth-wall warning is there, but I made the color/frame decision first and only noticed surface limits after. This is setup sequencing, not a broken light panel.", reviewer: "Mock Reviewer Prism Step 06" },
+    { daysAgo: 0, rating: 3, title: "Not a wall clock problem", body: "The panel is decor, but the failure mode is print lighting and mounting surface. I would not classify the fix like a clock or decal issue.", reviewer: "Mock Reviewer Prism Step 07" },
+    { daysAgo: 0, rating: 2, title: "Not a poster problem either", body: "The printed photo was mine, so a poster-style fix would be off. The unresolved part is how the panel lighting changes glossy prints on a real wall.", reviewer: "Mock Reviewer Prism Step 08" },
+    { daysAgo: 0, rating: 2, title: "Panel setup before art choice", body: "I chose the image first, then learned the wall surface and lighting mode mattered more. The fix is setup ordering and real-room media, not reclassifying the product as artwork.", reviewer: "Mock Reviewer Prism Step 09" },
+    { daysAgo: 0, rating: 3, title: "Real-room media matters most", body: "The copy mentions room lighting, but I needed a visual before picking Walnut. This is still about setup evidence and surface/light context, not included artwork.", reviewer: "Mock Reviewer Prism Step 10" },
+  ]);
+}
+
+function buildDatedReviews(now, specs) {
+  return specs.map((spec) => ({
+    ...spec,
+    date: new Date(now.getTime() - spec.daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+  }));
+}
+
 function buildHazeDockReviews(now, { cleanCompatibilityRevision = false } = {}) {
   if (cleanCompatibilityRevision) {
     const specs = [
@@ -771,7 +1449,7 @@ function printHelp() {
     "",
     "Creates or reuses one custom GEN product, existing mock customers, orders, returns, refunds, CSV reviews,",
     "a ProductPulse snapshot, a watchlist baseline, and optionally a deep diagnosis.",
-    "Supported scenarios: gen-lumispan-v1, gen-hazedock-v2, gen-hazedock-v1.",
+    "Supported scenarios: gen-lumispan-v1, gen-driftweave-v1, gen-driftweave-v2, gen-voltnest-v1, gen-voltnest-v2, gen-prismhue-v1, gen-prismhue-v2, gen-hazedock-v2, gen-hazedock-v1.",
   ].join("\n"));
 }
 
@@ -783,24 +1461,34 @@ async function main() {
     return;
   }
 
+  logStep("Loading Prisma client.");
   const { PrismaClient } = await import("@prisma/client");
+  logStep(`Loading app modules${args.runDiagnosis ? " with diagnosis support" : ""}.`);
   const appModulesHandle = await loadAppModules({ diagnosis: args.runDiagnosis });
 
   const prisma = new PrismaClient();
   try {
+    logStep("Resolving shop and offline session.");
     const shop = await resolveShop(prisma, args.shop);
     const session = await getOfflineSession(prisma, shop);
+    logStep(`Creating Shopify admin client for ${shop}.`);
     const admin = await createScenarioAdmin({ shop, session, mode: args.adminMode });
     admin.productPulseScopes = session.scope || "";
 
     const scenario = buildScenario(args.scenario);
 
+    logStep(`Seeding scenario ${scenario.key}: ${scenario.product.title}.`);
     const shopInfo = await getShopInfo(admin);
     const location = await getPrimaryLocation(admin);
+    logStep("Creating or updating product and variants.");
     const product = await loadOrCreateProduct({ admin, scenario, location, currencyCode: shopInfo.currencyCode });
+    logStep("Resolving relationship add-ons.");
     const relationshipAddOns = await loadRelationshipAddOns({ admin, scenario, currencyCode: shopInfo.currencyCode });
+    logStep("Resolving scenario customers.");
     const customers = await loadScenarioCustomers({ admin, scenario });
+    logStep("Reading customer purchase history before seed.");
     const purchaseHistoryBefore = await loadCustomerPurchaseHistories({ admin, customers });
+    logStep("Creating or reusing scenario orders.");
     const orders = await loadOrCreateOrders({
       admin,
       scenario,
@@ -810,8 +1498,10 @@ async function main() {
       location,
       currencyCode: shopInfo.currencyCode,
     });
+    logStep("Fetching orders before outcomes.");
     const ordersWithOutcomes = await fetchScenarioOrders({ admin, scenario, product, includeOutcomes: true });
     const ordersForOutcomes = mergeOrdersByRef(orders, ordersWithOutcomes);
+    logStep("Creating or reusing returns and refunds.");
     const outcomes = await createScenarioOutcomes({
       admin,
       scenario,
@@ -819,14 +1509,17 @@ async function main() {
       orders: ordersForOutcomes,
       currencyCode: shopInfo.currencyCode,
     });
+    logStep("Fetching final order state.");
     const fetchedFinalOrders = await fetchScenarioOrders({ admin, scenario, product, includeOutcomes: true });
     const finalOrders = mergeOrdersByRef(ordersForOutcomes, fetchedFinalOrders);
+    logStep("Appending normalized CSV reviews.");
     const reviewSource = await appendScenarioReviews({
       prisma,
       shop,
       scenario,
       product,
     });
+    logStep("Upserting preliminary ProductPulse snapshot.");
     const snapshot = await upsertPreliminarySnapshot({
       prisma,
       shop,
@@ -836,12 +1529,14 @@ async function main() {
       outcomes,
       reviewSource,
     });
+    logStep("Adding product to watchlist and capturing baseline.");
     const watchlist = await addScenarioProductToWatchlist({
       watchlistModule: appModulesHandle.watchlistModule,
       shop,
       product,
       snapshot,
     });
+    if (args.runDiagnosis) logStep("Running deep diagnosis.");
     const diagnosis = args.runDiagnosis
       ? await runDeepDiagnosis({
         prisma,
@@ -851,7 +1546,9 @@ async function main() {
         snapshot,
       })
       : null;
+    logStep("Reading customer purchase history after seed.");
     const purchaseHistoryAfter = await loadCustomerPurchaseHistories({ admin, customers });
+    logStep("Validating seeded data.");
     const validation = await validateScenarioSeed({
       prisma,
       shop,
@@ -863,6 +1560,7 @@ async function main() {
       watchlist,
       diagnosis,
     });
+    logStep("Writing scenario report.");
     const report = await saveScenarioReport({
       shop,
       scenario,
@@ -1004,6 +1702,7 @@ async function createScenarioAdmin({ shop, session, mode = "auto" }) {
 function createDirectAdmin({ shop, accessToken }) {
   return {
     graphql(query, options = undefined) {
+      const timeoutMs = getAdminFetchTimeoutMs();
       return fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
         method: "POST",
         headers: {
@@ -1014,6 +1713,7 @@ function createDirectAdmin({ shop, accessToken }) {
           query,
           variables: options?.variables,
         }),
+        ...(timeoutMs > 0 ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
       });
     },
   };
@@ -2668,6 +3368,17 @@ function sanitizeStorageSegment(value) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function logStep(message) {
+  const timestamp = new Date().toISOString();
+  console.error(`[custom-mock-seed ${timestamp}] ${message}`);
+}
+
+function getAdminFetchTimeoutMs() {
+  const configured = Number(process.env.PRODUCT_PULSE_CUSTOM_ADMIN_FETCH_TIMEOUT_MS);
+  if (Number.isFinite(configured) && configured >= 0) return configured;
+  return DEFAULT_ADMIN_FETCH_TIMEOUT_MS;
 }
 
 function getOrderCreateDelayMs() {

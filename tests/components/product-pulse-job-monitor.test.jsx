@@ -13,6 +13,11 @@ function renderMonitor(initialMonitor, options = {}) {
     {
       path: "/app/job-status",
       loader: () => ({ jobMonitor: getMonitor() }),
+      action: async ({ request }) => {
+        const formData = await request.formData();
+        options.onCancelJob?.(String(formData.get("jobId") || ""));
+        return { status: "success", message: "Background job cancelled." };
+      },
     },
     {
       path: "/app/product-search",
@@ -51,6 +56,18 @@ afterEach(() => {
 });
 
 describe("ProductPulseJobMonitor", () => {
+  it("opens the background processes popover when the wizard requests it", async () => {
+    renderMonitor({ activeJobs: [], recentJobs: [], logs: [] });
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard-open-background-processes"));
+    });
+
+    expect(await screen.findByRole("dialog", { name: /background processes/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /background processes/i })).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector("[data-pp-background-process-popover]")).toBeInTheDocument();
+  });
+
   it("keeps a global top bar visible and searches stored products from a dropdown", async () => {
     const productSearchQueries = [];
     renderMonitor(
@@ -136,8 +153,8 @@ describe("ProductPulseJobMonitor", () => {
     expect(within(creditsDialog).getByText("Initial balance")).toBeVisible();
     expect(within(creditsDialog).getByText("+100 credits")).toBeVisible();
     expect(within(creditsDialog).getByText("1h ago")).toBeVisible();
-    expect(within(creditsDialog).getByRole("link", { name: "Buy more credits" })).toHaveAttribute("href", "/app/plans-and-credits");
-    expect(within(creditsDialog).getByRole("link", { name: /View billing/ })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(within(creditsDialog).getByRole("link", { name: "Review credits" })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(within(creditsDialog).getByRole("link", { name: /View credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
 
     fireEvent.click(screen.getByRole("button", { name: /search products/i }));
     fireEvent.change(screen.getByPlaceholderText("Product title, handle, issue..."), {
@@ -222,6 +239,37 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");
   });
 
+  it("confirms before cancelling an active job from the top bar popover", async () => {
+    const cancelledJobs = [];
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderMonitor(
+      {
+        activeJobs: [
+          {
+            id: "job-running-cancel",
+            kind: "product-diagnosis",
+            name: "Running scan",
+            displayTitle: "Core Linen Trouser",
+            status: "Running",
+            productHref: "/app/products/core-linen-trouser",
+            startedAtIso: new Date(Date.now() - 5000).toISOString(),
+            updatedAtIso: new Date().toISOString(),
+          },
+        ],
+        recentJobs: [],
+        logs: [],
+      },
+      { onCancelJob: (jobId) => cancelledJobs.push(jobId) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel Core Linen Trouser" }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Cancel Core Linen Trouser?"));
+    await waitFor(() => expect(cancelledJobs).toEqual(["job-running-cancel"]));
+  });
+
   it("does not cap the top bar history below the loaded recent jobs", () => {
     const recentJobs = Array.from({ length: 25 }, (_, index) => ({
       id: `job-${index + 1}`,
@@ -269,6 +317,9 @@ describe("ProductPulseJobMonitor", () => {
   });
 
   it("shows the product analysis completion toast after a running diagnosis finishes", async () => {
+    const wizardEvents = [];
+    const handleWizardEvent = (event) => wizardEvents.push(event.detail);
+    window.addEventListener("productpulse:wizard", handleWizardEvent);
     const runningJob = {
       id: "job-finished-toast",
       kind: "product-diagnosis",
@@ -287,30 +338,36 @@ describe("ProductPulseJobMonitor", () => {
       logs: [],
     };
 
-    renderMonitor(() => monitor);
-    expect(screen.queryByText("Deep analysis finished")).not.toBeInTheDocument();
+    try {
+      renderMonitor(() => monitor);
+      expect(screen.queryByText("Deep analysis finished")).not.toBeInTheDocument();
 
-    monitor = {
-      activeJobs: [],
-      recentJobs: [
-        {
-          ...runningJob,
-          status: "Completed",
-          finishedAtIso: new Date().toISOString(),
-        },
-      ],
-      logs: [],
-    };
+      monitor = {
+        activeJobs: [],
+        recentJobs: [
+          {
+            ...runningJob,
+            status: "Completed",
+            finishedAtIso: new Date().toISOString(),
+          },
+        ],
+        logs: [],
+      };
 
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: runningJob } }));
-    });
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: runningJob } }));
+      });
 
-    const notice = await screen.findByRole("status");
-    expect(notice).toHaveTextContent("Deep analysis finished");
-    expect(notice).toHaveTextContent("GEN QuietDesk Mini Fan is ready to review.");
-    expect(screen.getByAltText("GEN QuietDesk Mini Fan product photo")).toHaveAttribute("src", "https://cdn.example.com/gen-quietdesk-mini-fan.jpg");
-    expect(screen.getByRole("link", { name: /Open product/ })).toHaveAttribute("href", "/app/products/gen-quietdesk-mini-fan");
+      const notice = await screen.findByRole("status");
+      expect(notice).toHaveTextContent("Deep analysis finished");
+      expect(notice).toHaveTextContent("GEN QuietDesk Mini Fan is ready to review.");
+      expect(notice).toHaveAttribute("data-pp-job-completion-notice", "product-diagnosis");
+      expect(screen.getByAltText("GEN QuietDesk Mini Fan product photo")).toHaveAttribute("src", "https://cdn.example.com/gen-quietdesk-mini-fan.jpg");
+      expect(screen.getByRole("link", { name: /Open product/ })).toHaveAttribute("href", "/app/products/gen-quietdesk-mini-fan");
+      await waitFor(() => expect(wizardEvents.some((event) => event?.type === "deep-scan-completed")).toBe(true));
+    } finally {
+      window.removeEventListener("productpulse:wizard", handleWizardEvent);
+    }
   });
 
   it("always starts minimized in development mode and filters logs by recent job", () => {

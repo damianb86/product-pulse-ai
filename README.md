@@ -24,7 +24,7 @@ SHOPIFY_API_KEY=
 SHOPIFY_API_SECRET=
 SHOPIFY_APP_URL=
 SHOPIFY_ADMIN_APP_HANDLE=product-pulse-ai
-SCOPES=read_products,write_products,read_orders,read_all_orders,write_orders,read_customers,write_customers,read_returns,write_returns,read_inventory,write_inventory,read_locations
+SCOPES=read_products,write_products,read_orders,read_all_orders,read_customers,read_returns,read_inventory,read_locations
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
 PRODUCT_PULSE_AI_LEVEL=1
 OPENAI_API_KEY=
@@ -44,7 +44,7 @@ AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 
 When `PRODUCT_PULSE_AI_LEVEL` is not set, local development defaults to `1` and non-development runtime defaults to `3`.
 
-The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `read_customers` so same-customer product sequence relationships can use Shopify customer IDs without exposing names or emails. `write_orders`, `write_returns`, and `write_customers` are used by the Settings mock dataset generator, which creates controlled Shopify test customers, orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
+The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `read_customers` so same-customer product sequence relationships can use Shopify customer IDs without exposing names or emails. Production app config keeps order, return, customer and inventory write scopes out of the public review surface. Development mode adds those write scopes at runtime for the Settings mock dataset generator, which creates controlled Shopify test customers, orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
 
 Required scopes are also defined in code. If local `SCOPES` is present but stale, ProductPulse merges it with the required scope list so a local environment variable cannot silently remove permissions the app needs.
 

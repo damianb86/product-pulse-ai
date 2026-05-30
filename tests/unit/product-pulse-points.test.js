@@ -64,7 +64,9 @@ describe("ProductPulse store points", () => {
       charged: false,
       balance: { available: 8.7 },
     });
-    expect(db.state.entries.filter((entry) => entry.direction === "debit")).toHaveLength(1);
+    const debits = db.state.entries.filter((entry) => entry.direction === "debit");
+    expect(debits).toHaveLength(1);
+    expect(debits[0].idempotencyKey).toBe("product-diagnosis:job-1");
   });
 
   it("credits monthly plan grants and extra packs with idempotent ledger entries", async () => {
@@ -166,6 +168,7 @@ describe("ProductPulse store points", () => {
       balance: { available: 7.2 },
     });
     expect(db.state.entries.filter((entry) => entry.reason.includes("Manual adjustment"))).toHaveLength(1);
+    expect(db.state.entries.find((entry) => entry.reason.includes("Manual adjustment")).idempotencyKey).toBe("adjustment-1");
   });
 
   it("charges chat points only after ten successful assistant responses by default", async () => {
@@ -368,6 +371,7 @@ function filterLedgerEntries(entries, where) {
   return entries.filter((entry) => {
     if (where.shop && entry.shop !== where.shop) return false;
     if (where.direction && entry.direction !== where.direction) return false;
+    if (where.idempotencyKey && entry.idempotencyKey !== where.idempotencyKey) return false;
     if (where.reason?.startsWith && !String(entry.reason || "").startsWith(where.reason.startsWith)) return false;
     if (where.reason?.contains && !String(entry.reason || "").includes(where.reason.contains)) return false;
     if (where.metadata?.path?.[0] === "idempotencyKey") {

@@ -710,7 +710,7 @@ function buildProductTaxonomySearches(product = {}) {
 }
 
 function getTaxonomySearchTermsFromCategory(category = "") {
-  if (category === "apparel") return ["apparel", "clothing", "shoes"];
+  if (category === "apparel") return ["apparel", "clothing"];
   if (category === "toy") return ["toys", "games", "figures"];
   if (category === "art") return ["art prints", "posters", "wall decor"];
   if (category === "electronics") return ["electronics", "electronic accessories"];
@@ -728,22 +728,107 @@ function rankProductTaxonomyCategories(categories = [], product = {}) {
     ...(Array.isArray(product.collections) ? product.collections : []),
     ...(Array.isArray(product.tags) ? product.tags : []),
   ].filter(Boolean).join(" ");
+  const productIdentityText = [
+    product.title,
+    product.productType,
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    ...(Array.isArray(product.tags) ? product.tags : []),
+  ].filter(Boolean).join(" ");
   const productTokens = new Set(meaningfulTokens(productText));
   const productGroups = detectProductCategoryGroups(productText);
+  const genericTokens = new Set([
+    "apparel",
+    "appliance",
+    "appliances",
+    "accessories",
+    "clothing",
+    "decor",
+    "dining",
+    "garden",
+    "holder",
+    "holders",
+    "home",
+    "kitchen",
+    "kitchens",
+    "organizer",
+    "organizers",
+    "product",
+    "products",
+    "rack",
+    "racks",
+    "supplies",
+    "tool",
+    "tools",
+    "utensil",
+    "utensils",
+    "wall",
+    "walls",
+  ]);
+  const productIdentityTokens = new Set(meaningfulTokens(productIdentityText));
+  const productSpecificTokens = expandTaxonomyTokenSet([...productIdentityTokens].filter((token) => !genericTokens.has(token)));
   return categories
     .map((category) => {
       const label = `${category.fullName || ""} ${category.name || ""}`;
       const categoryTokens = meaningfulTokens(label);
       const sharedTokens = categoryTokens.filter((token) => productTokens.has(token)).length;
+      const specificSharedTokens = new Set(categoryTokens.filter((token) => productSpecificTokens.has(token))).size;
       const categoryGroups = detectProductCategoryGroups(label);
       const groupOverlap = [...categoryGroups].filter((group) => productGroups.has(group)).length;
+      const petMismatchPenalty = /\b(pet|pets|dog|dogs|cat|cats|animal|animals)\b/.test(normalizeText(label))
+        && !/\b(pet|pets|dog|dogs|cat|cats|animal|animals)\b/.test(normalizeText(productText))
+        ? 24
+        : 0;
+      const shoeMismatchPenalty = /\b(shoe|shoes|sneaker|sneakers|boot|boots)\b/.test(normalizeText(label))
+        && !/\b(shoe|shoes|sneaker|sneakers|boot|boots)\b/.test(normalizeText(productText))
+        ? 18
+        : 0;
+      const taxonomyMismatchPenalty = getProductTaxonomyMismatchPenalty(label, productIdentityText);
       const score = (category.isLeaf ? 8 : 0)
         + Math.min(18, sharedTokens * 3)
+        + Math.min(12, specificSharedTokens * 6)
         + (groupOverlap * 8)
-        + Math.min(8, Number(category.level || 0));
-      return { ...category, score };
+        + Math.min(8, Number(category.level || 0))
+        - petMismatchPenalty
+        - shoeMismatchPenalty
+        - taxonomyMismatchPenalty;
+      return { ...category, score, specificSharedTokens, taxonomyMismatchPenalty };
     })
+    .filter((category) => category.specificSharedTokens > 0 && category.taxonomyMismatchPenalty < 30)
     .sort((first, second) => second.score - first.score || Number(second.isLeaf) - Number(first.isLeaf) || second.level - first.level || first.fullName.localeCompare(second.fullName));
+}
+
+function getProductTaxonomyMismatchPenalty(categoryLabel = "", productIdentityText = "") {
+  const label = normalizeText(categoryLabel);
+  const identity = normalizeText(productIdentityText);
+  const lacksIdentityTerm = (pattern) => !pattern.test(identity);
+  if (/\b(furniture|cabinet|cabinets|hutch|hutches)\b/.test(label) && lacksIdentityTerm(/\b(furniture|cabinet|cabinets|hutch|hutches)\b/)) {
+    return 40;
+  }
+  if (/\b(pool|spa|ladder|ladders|ramp|ramps)\b/.test(label) && lacksIdentityTerm(/\b(pool|spa|ladder|ladders|ramp|ramps)\b/)) {
+    return 40;
+  }
+  if (/\b(office supplies|post cards|postcards|paper products)\b/.test(label) && lacksIdentityTerm(/\b(post card|post cards|postcard|postcards|office|paper)\b/)) {
+    return 36;
+  }
+  if (/\b(beds|bed frames|four posters)\b/.test(label) && lacksIdentityTerm(/\b(bed|beds|frame|frames|poster bed|four poster)\b/)) {
+    return 36;
+  }
+  if (/\b(wallpaper)\b/.test(label) && lacksIdentityTerm(/\b(wallpaper)\b/)) {
+    return 30;
+  }
+  return 0;
+}
+
+function expandTaxonomyTokenSet(tokens = []) {
+  const expanded = new Set();
+  (Array.isArray(tokens) ? tokens : []).forEach((token) => {
+    const normalized = String(token || "").trim();
+    if (!normalized) return;
+    expanded.add(normalized);
+    if (normalized.endsWith("s") && normalized.length > 3) expanded.add(normalized.slice(0, -1));
+    else if (normalized.length > 2) expanded.add(`${normalized}s`);
+  });
+  return expanded;
 }
 
 export function buildProductMomentumCatalogBaseline(snapshots = [], currentProductGid = "") {
@@ -7639,6 +7724,9 @@ function hasProductFailureTextSignals(deterministic = {}) {
 function hasOperationalQualityLanguage(value = "") {
   const text = String(value || "").toLowerCase();
   if (!text) return false;
+  const normalized = normalizeText(text);
+  const setupDependentApplianceLanguage = /\b(min line|minimum fill|min fill|fill line|120v|120 v|voltage|converter|travel converter|power bank|car socket|steam vent|vent clearance|first boil|first use|silicone smell|odor|odour|descale|mineral buildup)\b/.test(normalized);
+  if (setupDependentApplianceLanguage && isSetupExpectationMismatchText(normalized)) return false;
   const hardOperationalPattern = /\b(leak|leaking|spill|spilled|broken|break|broke|crack|cracked|chip|chipped|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|tore|ripped|stain|mold|battery|burn|sharp|packaging|package|shipping|arrived damaged)\b/i;
   if (hardOperationalPattern.test(text)) return true;
   const defectOnlyPattern = /\b(defect|defective|damaged|damage|quality problem|manufacturing issue|supplier issue)\b/i;
@@ -7855,11 +7943,16 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   };
 
   if (id === "correct-product-description") {
+    const targetedEnhancement = payload.changeStrategy === "targeted-enhancement";
     return {
       ...common,
-      proposedChange: "Correct specific contradictory text in the Shopify product description while preserving the existing description structure.",
+      proposedChange: targetedEnhancement
+        ? "Make a targeted product-specific edit to the Shopify description while preserving the existing structure."
+        : "Correct specific contradictory text in the Shopify product description while preserving the existing description structure.",
       shopifyField: "Product.descriptionHtml",
-      expectedImpact: "Remove a buyer-facing content contradiction without rewriting the full PDP copy.",
+      expectedImpact: targetedEnhancement
+        ? "Add only the missing shopper guidance without duplicating content already covered in the PDP."
+        : "Remove a buyer-facing content contradiction without rewriting the full PDP copy.",
       applicationRisk: "Low",
       priorityGroup: "Customer-facing fix",
       impactLevel: "High impact",
@@ -9602,7 +9695,7 @@ function getRepeatedLanguageIssueCode(item = {}, deterministic = {}, fallbackIss
 function shouldTreatRepeatedLanguageAsSetupExpectation(value = "", mainIssue = "") {
   const text = normalizeText(value);
   if (!text) return false;
-  const setupTerm = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|cure|oiled|textured|porous|sealed|shelf|cable|routing|left|right|adapter|wall brick|usb c|usb-c|webcam|camera|banding|flicker|glossy|reflection|glare|monitor)\b/.test(text);
+  const setupTerm = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|cure|oiled|textured|porous|sealed|shelf|cable|routing|left|right|adapter|wall brick|usb c|usb-c|webcam|camera|banding|flicker|glossy|reflection|glare|monitor|min line|minimum fill|min fill|fill line|voltage|120v|120 v|converter|travel converter|power bank|car socket|steam vent|vent clearance|counter placement|outlet|boil|boiling)\b/.test(text);
   if (!setupTerm) return false;
   if (mainIssue === "setup_expectation") return true;
   return isSetupExpectationMismatchText(text)
@@ -10664,13 +10757,25 @@ function normalizeCsvDiagnosisReview(row, snapshot, product, matchConfidence = 0
   const title = stripHtml(row.reviewTitle || "");
   const rating = Number(row.rating || 0);
   if (!rating || (!body && !title)) return null;
-
-  return {
-    id: String(row.id || `csv-${snapshot.productGid}-${row.sourceRow || title}-${body}`),
+  const createdAt = toIso(row.reviewDate);
+  const stableReviewId = stableSignature([
+    snapshot.productGid,
+    row.sourceProductId || "",
+    row.shopifyProductId || product.numericId || "",
+    row.productHandle || snapshot.handle || "",
     rating,
     title,
     body,
-    createdAt: toIso(row.reviewDate),
+    getReviewDateCacheBucket(createdAt),
+    row.reviewerName || "",
+  ].join("|"));
+
+  return {
+    id: String(row.id || `csv-review-${stableReviewId}`),
+    rating,
+    title,
+    body,
+    createdAt,
     published: true,
     productId: String(row.sourceProductId || ""),
     externalProductId: String(row.shopifyProductId || product.numericId || ""),
@@ -12111,7 +12216,26 @@ function getReturnTextCacheKey(item = {}) {
 }
 
 function getReviewTextCacheKey(review = {}) {
-  return stableEventCacheKey(review.sourceType || "review", review, [review.id, review.sourceRow, review.productId, review.handle, review.rating, review.title, review.body, review.createdAt]);
+  const prefix = review.sourceType || "review";
+  const explicitId = [review.id, review.externalId, review.sourceReviewId]
+    .find((part) => part !== undefined && part !== null && String(part).trim());
+  if (explicitId) return `${prefix}:${String(explicitId)}`;
+  return `${prefix}:${stableSignature([
+    review.productId,
+    review.sourceProductId,
+    review.handle,
+    review.rating,
+    review.title,
+    review.body,
+    getReviewDateCacheBucket(review.createdAt),
+    review.reviewerName,
+  ].map((part) => String(part || "")).join("|"))}`;
+}
+
+function getReviewDateCacheBucket(value = "") {
+  const date = parseValidDate(value);
+  if (date) return date.toISOString().slice(0, 10);
+  return String(value || "").trim().slice(0, 10);
 }
 
 function getRefundTextCacheKey(item = {}) {
@@ -12197,25 +12321,22 @@ function buildDiagnosisSourceFingerprint({
     ]),
     judgeMeReviews: buildFingerprintEvents(judgeMeReviews, [
       "id",
-      "sourceRow",
       "productId",
       "handle",
       "rating",
       "title",
       "body",
-      "createdAt",
-      "updatedAt",
+      "reviewerName",
     ]),
     csvReviews: buildFingerprintEvents(csvReviews, [
       "id",
-      "sourceRow",
       "productId",
       "handle",
       "rating",
       "title",
       "body",
-      "createdAt",
-      "updatedAt",
+      "reviewerName",
+      "sourceProductId",
     ]),
   });
 }
@@ -12989,13 +13110,83 @@ function getEvidencePreferredMainIssue(deterministic = {}, proposedIssue = "") {
   const counts = deterministic.issueSignalCounts || {};
   const current = counts[proposed] ? proposed : normalizeIssueCode(deterministic.mainIssue) || proposed;
   if (Number(counts.setup_expectation || 0) > 0 && hasSetupExpectationTextSignals(deterministic)) return "setup_expectation";
+  if (shouldPreferFitSizingMainIssue(deterministic, counts, current)) return "fit_sizing";
   if (["quality_defect", "durability", "safety_concern", "refund_impact"].includes(current)) return current;
   if (!hasProductFailureTextSignals(deterministic)) return current;
   if (Number(deterministic.riskScore || 0) < 70 || !hasMaterialCustomerProblemEvidence(deterministic)) return current;
   if (Number(counts.safety_concern || 0) > 0) return "safety_concern";
   if (Number(counts.durability || 0) > 0) return "durability";
+  if (shouldPreferFitSizingMainIssue(deterministic, counts, current)) return "fit_sizing";
   if (Number(counts.quality_defect || 0) > 0) return "quality_defect";
   return "quality_defect";
+}
+
+function shouldPreferFitSizingMainIssue(deterministic = {}, counts = {}, current = "") {
+  if (!hasFitSizingTextSignals(deterministic)) return false;
+  const fitSignals = Number(counts.fit_sizing || 0)
+    + countIssueCountRows(deterministic.metrics?.refundInsights?.issueCounts, "fit_sizing")
+    + countRepeatedLanguageIssueRows(deterministic.metrics?.textInsights?.repeatedLanguage, "fit_sizing");
+  const qualitySignals = Number(counts.quality_defect || 0)
+    + Number(counts.product_quality || 0)
+    + countIssueCountRows(deterministic.metrics?.refundInsights?.issueCounts, "quality_defect")
+    + countIssueCountRows(deterministic.metrics?.refundInsights?.issueCounts, "product_quality")
+    + countRepeatedLanguageIssueRows(deterministic.metrics?.textInsights?.repeatedLanguage, "quality_defect")
+    + countRepeatedLanguageIssueRows(deterministic.metrics?.textInsights?.repeatedLanguage, "product_quality");
+  if (fitSignals >= 2 && fitSignals >= qualitySignals) return true;
+  const normalizedCurrent = normalizeIssueCode(current);
+  return ["quality_defect", "product_quality"].includes(normalizedCurrent)
+    && fitSignals >= 2
+    && isApparelLikeDiagnosis(deterministic);
+}
+
+function countIssueCountRows(rows = [], issueCode = "") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  return (Array.isArray(rows) ? rows : []).reduce((total, row) => {
+    const label = normalizeIssueCode(row?.label || row?.issueCode || row?.issue_code || row?.issue);
+    return total + (label === normalizedIssue ? Number(row?.count || 0) : 0);
+  }, 0);
+}
+
+function countRepeatedLanguageIssueRows(rows = [], issueCode = "") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  return (Array.isArray(rows) ? rows : []).reduce((total, row) => {
+    const label = normalizeIssueCode(row?.issueCode || row?.issue_code || row?.issueCategory || row?.issue_category);
+    return total + (label === normalizedIssue ? Number(row?.count || 1) : 0);
+  }, 0);
+}
+
+function hasFitSizingTextSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const text = normalizeText([
+    deterministic.mainIssue,
+    deterministic.mainFinding?.title,
+    deterministic.mainFinding?.summary,
+    deterministic.mainFinding?.detail,
+    deterministic.product?.title,
+    deterministic.product?.productType,
+    ...(Array.isArray(deterministic.product?.tags) ? deterministic.product.tags : []),
+    ...(Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets : []).map((item) => item.text || item.body || item.quote || item.summary || ""),
+    ...(Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails : []).flatMap((item) => [
+      item.label,
+      item.detail,
+      ...(Array.isArray(item.subReasons) ? item.subReasons.map((subReason) => subReason.label) : []),
+    ]),
+    ...(Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : []),
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []).map((item) => `${item.term || ""} ${item.example || ""} ${item.issueCode || ""}`),
+    ...(Array.isArray(metrics.refundInsights?.examples) ? metrics.refundInsights.examples : []).map((item) => `${item.text || ""} ${item.noteText || ""} ${item.issueCode || ""}`),
+  ].flat().filter(Boolean).join(" "));
+  return /\b(fit|fits|fitting|size|sizing|too small|too large|runs small|runs large|chest|shoulder|sleeve|upper arm|garment measurement|body measurement|size chart|layering|sweatshirt|waist|inseam)\b/.test(text);
+}
+
+function isApparelLikeDiagnosis(deterministic = {}) {
+  const product = deterministic.product || {};
+  const text = normalizeText([
+    product.title,
+    product.productType,
+    product.description,
+    ...(Array.isArray(product.tags) ? product.tags : []),
+  ].filter(Boolean).join(" "));
+  return /\b(apparel|clothing|overshirt|shirt|garment|jacket|sleeve|shoulder|size chart|body measurement)\b/.test(text);
 }
 
 function classifyIssueText(text, context = {}) {
@@ -13023,10 +13214,10 @@ function classifyIssueText(text, context = {}) {
 
 function isSetupExpectationMismatchText(normalizedText = "", { positiveContext = false } = {}) {
   if (positiveContext) return false;
-  const setupTerms = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|clamps|cure|oiled|textured|porous|sealed|warm underside|shelf|cable|routing|left side|right side|flip|flipping|adapter|wall brick|wall adapter|usb c|usb-c|webcam|camera|banding|bands|flicker|glossy|reflection|glare)\b/.test(normalizedText);
+  const setupTerms = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|clamps|cure|oiled|textured|porous|sealed|warm underside|shelf|cable|routing|left side|right side|flip|flipping|adapter|wall brick|wall adapter|usb c|usb-c|webcam|camera|banding|bands|flicker|glossy|reflection|glare|min line|minimum fill|min fill|fill line|120v|120 v|voltage|converter|travel converter|power bank|car socket|steam vent|vent clearance|counter placement|outlet|boil|boiling)\b/.test(normalizedText);
   if (!setupTerms) return false;
   const expectationTerms = /\b(expectation|mismatch|confusing|unclear|buried|missed|not obvious|did not understand|didn t understand|page|listing|description|pdp|checklist|rule|guidance|before checkout|before buying|support pointed|technically explains|probably present|not broken|conditional)\b/.test(normalizedText);
-  const supportedSetupTerms = /\b(use clamps|clamp feet|smooth sealed|surface checklist|camera warning|no wall adapter|cable exits|flip option|control button|not a video|not video|not included)\b/.test(normalizedText);
+  const supportedSetupTerms = /\b(use clamps|clamp feet|smooth sealed|surface checklist|camera warning|no wall adapter|cable exits|flip option|control button|not a video|not video|not included|120 v only|120v only|above the min line|min fill line|steam vent|travel converters|power banks|car sockets)\b/.test(normalizedText);
   return expectationTerms || supportedSetupTerms;
 }
 
@@ -15471,24 +15662,57 @@ function buildTargetedDescriptionEnhancementSentences({ contentIssues = [], prod
     ...issues.flatMap((issue) => [issue.code, issue.label, issue.evidence, issue.suggestedAction]),
   ].filter(Boolean).join(" "));
   const sentences = [];
+  const context = getTargetedDescriptionProductContext(text);
 
   if (/\b(color temperature|brightness|lumen|lumens|cri|beam angle|optical|five brightness|three color temperatures)\b/.test(text)) {
-    sentences.push("If exact lighting measurements matter, verify color-temperature values, brightness or lumen range, CRI, and beam-angle details against the selected variant before purchase.");
+    sentences.push(context.photoPanel
+      ? "If color accuracy matters, compare the lighting mode examples and confirm brightness, color-temperature behavior, and print finish before purchase."
+      : "If exact lighting measurements matter, verify color-temperature values, brightness or lumen range, CRI, and beam-angle details against the selected variant before purchase.");
   }
-  if (/\b(width|height|dimension|dimensions|coverage|diffuser|rail|length)\b/.test(text)) {
-    const railLike = /\b(rail|diffuser|light bar|bar light|strip light|lumispan)\b/.test(text);
-    sentences.push(railLike
-      ? "For tight desks or shelves, verify rail width and height, diffuser dimensions, and coverage for the selected length before purchase."
-      : "Verify product dimensions, coverage footprint, and variant-specific measurements before purchase when space or fit is important.");
+  if (/\b(width|height|dimension|dimensions|coverage|diffuser|rail|length|capacity|wattage|watt|voltage|power|min line|minimum fill|print area|card thickness|thickness|surface compatibility)\b/.test(text)) {
+    sentences.push(context.photoPanel
+      ? "Before purchase, confirm panel outer dimensions, visible 5 x 7 print area, card thickness, USB power needs, and the surface where adhesive tabs or the tabletop foot will be used."
+      : context.railLike
+        ? "For tight desks or shelves, verify rail width and height, diffuser dimensions, and coverage for the selected length before purchase."
+        : context.apparel
+          ? "For precise fit, compare the body-size chart with finished garment measurements such as shoulder width, chest width, sleeve length, and upper-arm ease for the selected size."
+          : context.kettle
+            ? "Before purchase, confirm kettle capacity, wattage, counter clearance, and that your intended use can stay above the MIN fill line on a 120 V outlet."
+            : "Confirm product dimensions, included parts, materials, care, and setup limits for the selected variant before purchase.");
   }
   if (/\b(clean|cleaning|care|solvent|abrasive|maintenance)\b/.test(text)) {
-    sentences.push("Clean the rail and diffuser only with a soft dry or lightly damp cloth, and avoid solvents, abrasives, or soaking unless the listed materials confirm otherwise.");
+    sentences.push(context.photoPanel
+      ? "Clean the magnetic face and panel only with a soft dry or lightly damp cloth, and avoid solvents, abrasives, or soaking."
+      : context.railLike
+        ? "Clean the rail and diffuser only with a soft dry or lightly damp cloth, and avoid solvents, abrasives, or soaking unless the listed materials confirm otherwise."
+        : context.apparel
+          ? "For care, cold wash and hang dry; avoid tumble drying if shoulder, sleeve, or upper-arm fit is important."
+          : context.kettle
+            ? "For care, rinse before first use, descale when mineral buildup appears, keep the powered base out of water, and avoid abrasives on the silicone body, lid, and steam vent."
+            : "Clean only according to the listed material guidance, and avoid solvents, abrasives, or soaking unless the product instructions explicitly allow it.");
   }
   if (/\b(variant|variants|both|same across|differs|differences|cable length|brightness levels)\b/.test(text)) {
-    sentences.push("Check whether brightness levels, color temperatures, cable length, and cable-exit behavior are identical across variants if those details matter for your setup.");
+    sentences.push(context.photoPanel
+      ? "Check whether frame finish, brightness behavior, cable routing, and included mounting parts are identical across variants if those details matter for your setup."
+      : context.kettle
+        ? "Check whether capacity, wattage, cord length, and safety markings are identical across variants if those details matter for your setup."
+        : context.apparel
+          ? "Check which color and size combinations are available, and confirm whether finished garment measurements or fit notes differ by variant."
+        : "Check variant-specific specs and setup details before purchase if those differences matter for your use case.");
   }
 
   return uniqueBy(sentences, normalizeText).slice(0, 3);
+}
+
+function getTargetedDescriptionProductContext(text = "") {
+  const kettleCore = /\b(kettle|boil|boiling|min line|minimum fill|min fill|fill line|converter|power bank|car socket|silicone body|steam vent|descale)\b/.test(text)
+    || (/\bsteam\b/.test(text) && /\b(vent|boil|boiling|kettle|fill|outlet|counter|descale)\b/.test(text));
+  return {
+    railLike: /\b(rail|diffuser|light bar|bar light|strip light|lumispan)\b/.test(text),
+    apparel: /\b(apparel|overshirt|shirt|garment|fabric|sleeve|shoulder|upper arm|chest|body measurement|body-size chart|size chart|sizing chart)\b/.test(text),
+    kettle: kettleCore,
+    photoPanel: /\b(photo|print|panel|backlit|magnetic face|art card|5 x 7|5x7|gallery neutral|warm shelf|night amber|white border|edge shadow|wall tabs|tabletop foot)\b/.test(text),
+  };
 }
 
 function findDescriptionEnhancementAnchor(currentDescription = "", additionText = "", contentIssues = []) {
@@ -15502,7 +15726,7 @@ function findDescriptionEnhancementAnchor(currentDescription = "", additionText 
     .map((sentence, index) => {
       const tokens = meaningfulTokens(sentence);
       const shared = tokens.filter((token) => issueTokens.has(token)).length;
-      const setupBonus = /\b(spec|detail|variant|option|included|brightness|temperature|dimension|length|rail|diffuser|power|care|clean)\b/i.test(sentence) ? 2 : 0;
+      const setupBonus = /\b(spec|detail|variant|option|included|brightness|temperature|dimension|length|rail|diffuser|power|care|clean|size|fit|measurement|capacity|voltage|steam|print|panel|surface)\b/i.test(sentence) ? 2 : 0;
       return { sentence, index, score: shared + setupBonus };
     })
     .sort((first, second) => second.score - first.score || first.index - second.index);
@@ -15530,13 +15754,22 @@ function isMeaningfullyDifferentDescription(currentDescription = "", nextDescrip
 }
 
 function buildDescriptionGuidanceAddendum({ title, contentIssues = [], suggestedDescription = "", shopperGuidance = "" }) {
+  const issueGuidance = buildCustomerFacingDescriptionAddendum({ contentIssues, title });
   const focusedGuidance = normalizeDraftParagraph(shopperGuidance);
-  if (focusedGuidance) return focusedGuidance;
+  if (focusedGuidance && !isGenericProductPulseDescriptionGuidance(focusedGuidance)) return focusedGuidance;
 
   const suggested = normalizeDraftParagraph(suggestedDescription);
   if (suggested && !looksLikeFullDescriptionRewrite(suggested, title) && !isInstructionalDescriptionDraft(suggested)) return suggested;
 
-  return buildCustomerFacingDescriptionAddendum({ contentIssues, title }) || buildDefaultCustomerFacingDescriptionAddendum(title);
+  return issueGuidance || focusedGuidance || buildDefaultCustomerFacingDescriptionAddendum(title);
+}
+
+function isGenericProductPulseDescriptionGuidance(value = "") {
+  const text = normalizeText(value);
+  if (!text) return false;
+  return /productpulse detected .* signals/.test(text)
+    || /add clear shopper-facing guidance before purchase/.test(text)
+    || /review stored customer signals/.test(text);
 }
 
 function buildCustomerFacingDescriptionAddendum({ contentIssues = [], title = "" } = {}) {
@@ -15545,7 +15778,8 @@ function buildCustomerFacingDescriptionAddendum({ contentIssues = [], title = ""
     .join(" "));
   const categoryText = normalizeText(title);
   const categories = detectProductCategoryGroups(categoryText);
-  const apparelLike = categories.has("apparel") || /\b(chest|shoulder|sleeve|inseam|waist|garment|apparel|shirt|trouser|pants|shoe|fit|sizing)\b/.test(issueText);
+  const context = getTargetedDescriptionProductContext(`${categoryText} ${issueText}`);
+  const apparelLike = categories.has("apparel") || /\b(garment|apparel|clothing|shirt|overshirt|jacket|trouser|pants|shoe|sleeve)\b/.test(categoryText);
   const sentences = [];
   if (/\b(material|fiber|fabric|linen|cotton|composition|blend)\b/.test(issueText)) {
     sentences.push("Before ordering, confirm the fabric composition for the selected variant if exact material percentages are important to you.");
@@ -15553,13 +15787,25 @@ function buildCustomerFacingDescriptionAddendum({ contentIssues = [], title = ""
   if (/\b(size chart|measurement|measurements|chest|shoulder|sleeve|inseam|waist|length|fit|sizing)\b/.test(issueText)) {
     sentences.push(apparelLike
       ? "Compare the selected size against the garment measurements, especially the fit points that matter most for how you want the item to sit."
-      : "Add confirmed product dimensions, coverage guidance, and variant-specific measurements where shoppers compare options.");
+      : context.photoPanel
+        ? "Confirm panel outer dimensions, visible print area, card thickness, USB power needs, and mounting surface compatibility before purchase."
+        : context.kettle
+          ? "Confirm kettle capacity, wattage, counter clearance, and MIN fill requirements before purchase."
+          : "Confirm product dimensions, coverage guidance, and variant-specific measurements where shoppers compare options.");
+  } else if (context.photoPanel && /\b(spec|specification|dimension|dimensions|power|voltage|wattage|adapter|surface|adhesive|card thickness|print area)\b/.test(issueText)) {
+    sentences.push("Confirm panel outer dimensions, visible print area, card thickness, USB power needs, and mounting surface compatibility before purchase.");
+  } else if (context.kettle && /\b(spec|specification|capacity|power|voltage|wattage|counter|clearance|min line|minimum fill)\b/.test(issueText)) {
+    sentences.push("Confirm kettle capacity, wattage, counter clearance, and MIN fill requirements before purchase.");
   }
   if (/\b(included|package|box|bundle|accessor|accessories|comes with|what.*include)\b/.test(issueText)) {
     sentences.push("Check the product details for what is included with the item before checkout.");
   }
   if (/\b(compatib|works with|adapter|device|model|setup)\b/.test(issueText)) {
-    sentences.push("Confirm the selected variant is compatible with your setup before purchase.");
+    sentences.push(context.photoPanel
+      ? "Confirm USB power needs, mounting surface compatibility, and tabletop versus wall setup before purchase."
+      : context.kettle
+        ? "Confirm the kettle will be used only with a supported 120 V outlet and above the MIN fill line before purchase."
+        : "Confirm the selected variant is compatible with your setup before purchase.");
   }
   if (/\b(color|colour|photo|image|lighting|appearance|pictured)\b/.test(issueText)) {
     sentences.push("Review the selected variant photos and color name carefully, since lighting and screens can affect how the product appears.");
@@ -16072,10 +16318,14 @@ export const __productPulseDiagnosisTestHooks = {
   normalizeAiClassifiedSignals,
   countAiSignalsByIssue,
   classifyIssueText,
+  getEvidencePreferredMainIssue,
+  getReviewTextCacheKey,
   getCsvReviewMatchConfidence,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,
   cleanProductDescription,
+  buildCustomerFacingDescriptionAddendum,
+  buildTargetedDescriptionEnhancementSentences,
 };
 
 function formatMoney(value) {

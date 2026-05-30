@@ -56,6 +56,7 @@ export async function getStorePointBalanceForShop(shop, options = {}) {
   if (!normalizedShop) return buildPointBalance("", 0, null);
 
   return withPointTransaction(db, async (tx) => {
+    await lockStorePointLedgerForShop(tx, normalizedShop);
     const entry = await getLatestLedgerEntry(tx, normalizedShop);
     if (entry) return buildPointBalance(normalizedShop, entry.balanceAfter, entry);
 
@@ -139,6 +140,8 @@ export async function debitStorePointsForShop(shop, input = {}) {
   }
 
   return withPointTransaction(db, async (tx) => {
+    await lockStorePointLedgerForShop(tx, normalizedShop);
+
     if (idempotencyKey) {
       const existing = await findLedgerEntryByIdempotencyKey(tx, normalizedShop, idempotencyKey);
       if (existing) {
@@ -163,18 +166,21 @@ export async function debitStorePointsForShop(shop, input = {}) {
     }
 
     const nextBalance = roundPointAmount(currentBalance.available - amount);
+    const data = {
+      shop: normalizedShop,
+      direction: "debit",
+      amount,
+      reason,
+      balanceAfter: nextBalance,
+      metadata: normalizeLedgerMetadata({
+        ...(input.metadata || {}),
+        idempotencyKey: idempotencyKey || undefined,
+      }),
+    };
+    if (idempotencyKey) data.idempotencyKey = idempotencyKey;
+
     const created = await tx.creditLedgerEntry.create({
-      data: {
-        shop: normalizedShop,
-        direction: "debit",
-        amount,
-        reason,
-        balanceAfter: nextBalance,
-        metadata: normalizeLedgerMetadata({
-          ...(input.metadata || {}),
-          idempotencyKey: idempotencyKey || undefined,
-        }),
-      },
+      data,
     });
     return {
       status: "success",
@@ -202,6 +208,8 @@ export async function creditStorePointsForShop(shop, input = {}) {
   }
 
   return withPointTransaction(db, async (tx) => {
+    await lockStorePointLedgerForShop(tx, normalizedShop);
+
     if (idempotencyKey) {
       const existing = await findLedgerEntryByIdempotencyKey(tx, normalizedShop, idempotencyKey);
       if (existing) {
@@ -217,18 +225,21 @@ export async function creditStorePointsForShop(shop, input = {}) {
 
     const currentBalance = await ensureStorePointBalanceForShopInTransaction(tx, normalizedShop, input.env || process.env);
     const nextBalance = roundPointAmount(currentBalance.available + amount);
+    const data = {
+      shop: normalizedShop,
+      direction: "credit",
+      amount,
+      reason,
+      balanceAfter: nextBalance,
+      metadata: normalizeLedgerMetadata({
+        ...(input.metadata || {}),
+        idempotencyKey: idempotencyKey || undefined,
+      }),
+    };
+    if (idempotencyKey) data.idempotencyKey = idempotencyKey;
+
     const created = await tx.creditLedgerEntry.create({
-      data: {
-        shop: normalizedShop,
-        direction: "credit",
-        amount,
-        reason,
-        balanceAfter: nextBalance,
-        metadata: normalizeLedgerMetadata({
-          ...(input.metadata || {}),
-          idempotencyKey: idempotencyKey || undefined,
-        }),
-      },
+      data,
     });
     return {
       status: "success",
@@ -462,6 +473,15 @@ function sumPointAmounts(entries = []) {
 }
 
 async function findLedgerEntryByIdempotencyKey(db, shop, idempotencyKey) {
+  const columnMatch = await db.creditLedgerEntry.findFirst({
+    where: {
+      shop,
+      idempotencyKey,
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  }).catch(() => null);
+  if (columnMatch) return columnMatch;
+
   const metadataMatch = await db.creditLedgerEntry.findFirst({
     where: {
       shop,
@@ -566,6 +586,13 @@ function getPointActivitySpec(entry, metadata = {}) {
       detail: String(metadata.productTitle || "Product diagnosis"),
     };
   }
+  if (source === "product_diagnosis_refund") {
+    return {
+      icon: "wand",
+      title: "Deep diagnosis refund",
+      detail: String(metadata.productTitle || "Product diagnosis"),
+    };
+  }
   if (source === "chat") {
     const messageCount = metadata.successfulAssistantMessageCount || metadata.chatMessageCount || metadata.userMessageCount;
     return {
@@ -645,6 +672,16 @@ function normalizeLedgerMetadata(metadata = {}) {
 
 function normalizeShop(shop) {
   return String(shop || "").trim();
+}
+
+export async function lockStorePointLedgerForShop(db, shop) {
+  const normalizedShop = normalizeShop(shop);
+  if (!normalizedShop || typeof db?.$executeRawUnsafe !== "function") return false;
+  await db.$executeRawUnsafe(
+    "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0::bigint))",
+    normalizedShop,
+  );
+  return true;
 }
 
 function toIso(value) {
