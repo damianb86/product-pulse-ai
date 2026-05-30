@@ -56,6 +56,7 @@ const PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_FALLBACK_SPACING_DAYS = 7;
 const PRODUCT_METRIC_TIMELINE_DAY_MS = 86_400_000;
 const PRODUCT_METRIC_TIMELINE_LOOKBACK_DAYS = 365;
 const PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY = "productPulse.metricTimelines.chartOrder.v1";
+const PRODUCT_WATCH_RECENT_RUNS_WINDOW_STORAGE_KEY = "productPulse.watchlist.recentRuns.window.v1";
 const PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY = "productPulse.productDetail.collapsedPanels.v1";
 const PRODUCT_METRIC_TIMELINE_EVENT_MAX_LANES = 5;
 const PRODUCT_METRIC_TIMELINE_EVENT_MIN_SPACING_DAYS = 7;
@@ -1765,11 +1766,6 @@ export function WatchlistScreen({ data = {}, actionData }) {
           <WatchlistStatCard icon="email" tone="green" label="Alert status" value={mock.alertStatus || "Email alerts on"} detail={mock.alertStatusDetail || "2 recipients"} />
         </div>
 
-        <div className="ppWatchlistInfoBanner">
-          <s-icon type="info" size="small"></s-icon>
-          <span>Automatic rescans run on your selected cadence. We&apos;ll email you when new issues are detected.</span>
-        </div>
-
         <WatchlistOverviewDashboard
           overview={overviewDashboard}
           trend={trend}
@@ -2876,6 +2872,7 @@ function getWatchCategorySecondaryBadge(card = {}, focus = {}) {
 
 function WatchRecentRunsTimeline({ rows = [] }) {
   const orderedRows = useMemo(() => rows.slice().reverse(), [rows]);
+  const rowsSignature = useMemo(() => getWatchRecentRunsSignature(orderedRows), [orderedRows]);
   const listRef = useRef(null);
   const maxVisibleRuns = 5;
   const [windowSize, setWindowSize] = useState(Math.min(maxVisibleRuns, Math.max(1, orderedRows.length || 1)));
@@ -2884,7 +2881,8 @@ function WatchRecentRunsTimeline({ rows = [] }) {
   const defaultStart = selectedIndex >= 0
     ? Math.min(maxStart, Math.max(0, selectedIndex - windowSize + 1))
     : maxStart;
-  const [windowStart, setWindowStart] = useState(defaultStart);
+  const [windowStart, setWindowStart] = useState(() => readWatchRecentRunsWindowStart(rowsSignature, defaultStart, maxStart));
+  const clampedWindowStart = Math.round(clampNumber(windowStart, 0, maxStart));
 
   useLayoutEffect(() => {
     const node = listRef.current;
@@ -2915,12 +2913,20 @@ function WatchRecentRunsTimeline({ rows = [] }) {
   }, [orderedRows.length]);
 
   useEffect(() => {
-    setWindowStart(defaultStart);
-  }, [defaultStart]);
+    setWindowStart(readWatchRecentRunsWindowStart(rowsSignature, defaultStart, maxStart));
+  }, [rowsSignature]);
 
-  const visibleRows = orderedRows.slice(windowStart, windowStart + windowSize);
-  const canGoOlder = windowStart > 0;
-  const canGoNewer = windowStart < maxStart;
+  useEffect(() => {
+    if (windowStart !== clampedWindowStart) {
+      setWindowStart(clampedWindowStart);
+      return;
+    }
+    saveWatchRecentRunsWindowStart(rowsSignature, clampedWindowStart);
+  }, [clampedWindowStart, rowsSignature, windowStart]);
+
+  const visibleRows = orderedRows.slice(clampedWindowStart, clampedWindowStart + windowSize);
+  const canGoOlder = clampedWindowStart > 0;
+  const canGoNewer = clampedWindowStart < maxStart;
 
   return (
     <section className="ppWatchRecentRuns" aria-label="Recent Watchlist runs">
@@ -2958,6 +2964,36 @@ function WatchRecentRunsTimeline({ rows = [] }) {
       </div>
     </section>
   );
+}
+
+function getWatchRecentRunsSignature(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => String(row?.id || row?.href || row?.label || "run"))
+    .join("|");
+}
+
+function readWatchRecentRunsWindowStart(signature = "", fallback = 0, maxStart = 0) {
+  const fallbackStart = Math.round(clampNumber(Number(fallback) || 0, 0, Math.max(0, maxStart)));
+  if (typeof window === "undefined" || !window.localStorage || !signature) return fallbackStart;
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PRODUCT_WATCH_RECENT_RUNS_WINDOW_STORAGE_KEY) || "{}");
+    if (!stored || stored.signature !== signature) return fallbackStart;
+    return Math.round(clampNumber(Number(stored.windowStart) || 0, 0, Math.max(0, maxStart)));
+  } catch {
+    return fallbackStart;
+  }
+}
+
+function saveWatchRecentRunsWindowStart(signature = "", windowStart = 0) {
+  if (typeof window === "undefined" || !window.localStorage || !signature) return;
+  try {
+    window.localStorage.setItem(PRODUCT_WATCH_RECENT_RUNS_WINDOW_STORAGE_KEY, JSON.stringify({
+      signature,
+      windowStart: Math.max(0, Math.round(Number(windowStart) || 0)),
+    }));
+  } catch {
+    // Local storage can be unavailable in private or embedded contexts.
+  }
 }
 
 function WatchRecentRunCard({ row = {} }) {
@@ -14777,12 +14813,16 @@ export const __productPulseScreensTestHooks = {
   getProductMetricTimelineNearestSyncIndex,
   getProductMetricTimelineTooltipLockProps,
   getProductMetricTimelineOrderedCharts,
+  getWatchRecentRunsSignature,
+  readWatchRecentRunsWindowStart,
+  saveWatchRecentRunsWindowStart,
   getProductDetailModel,
   getProductMetricTimelineModel,
   getProductRiskHistoryTimelineMilestones,
   moveProductMetricTimelineChartOrder,
   productDetailPanelCollapseStorageKey: PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY,
   productMetricTimelineOrderStorageKey: PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY,
+  watchRecentRunsWindowStorageKey: PRODUCT_WATCH_RECENT_RUNS_WINDOW_STORAGE_KEY,
 };
 
 function getProductMetricTimelineModel(detail = {}) {

@@ -892,6 +892,7 @@ describe("ProductPulse screens", () => {
 
     expect(screen.getByText("Watched products")).toBeInTheDocument();
     expect(screen.getByText("2 / 99")).toBeInTheDocument();
+    expect(screen.queryByText(/Automatic rescans run on your selected cadence/i)).not.toBeInTheDocument();
     expect(screen.getAllByText("Nintendo New 3DS XL").length).toBeGreaterThan(0);
     expect(screen.getByText("Recent watch activity")).toBeInTheDocument();
     expect(screen.getByText("Product added to watchlist")).toBeInTheDocument();
@@ -2018,6 +2019,29 @@ describe("ProductPulse screens", () => {
         { id: "middle", time: time("2025-08-03T09:00:00.000Z"), title: "Middle event", category: "actions" },
       ],
     }).map((event) => event.id)).toEqual(["early", "middle", "late"]);
+  });
+
+  it("keeps the Watchlist Recent Runs window stable for the same run list", () => {
+    const {
+      getWatchRecentRunsSignature,
+      readWatchRecentRunsWindowStart,
+      saveWatchRecentRunsWindowStart,
+    } = __productPulseScreensTestHooks;
+    const rows = [
+      { id: "run-1", label: "May 12" },
+      { id: "run-2", label: "May 13" },
+      { id: "run-3", label: "May 14" },
+      { id: "run-4", label: "May 15" },
+      { id: "run-5", label: "May 16" },
+      { id: "run-6", label: "May 17" },
+    ];
+    const signature = getWatchRecentRunsSignature(rows);
+
+    saveWatchRecentRunsWindowStart(signature, 1);
+
+    expect(readWatchRecentRunsWindowStart(signature, 4, 4)).toBe(1);
+    expect(readWatchRecentRunsWindowStart("different-runs", 4, 4)).toBe(4);
+    window.localStorage.removeItem(__productPulseScreensTestHooks.watchRecentRunsWindowStorageKey);
   });
 
   it("renders product diagnosis evidence and draft actions", () => {
