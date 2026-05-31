@@ -70,6 +70,22 @@ if ! grep -Eq '^[[:space:]]*POSTGRES_ADMIN_PASSWORD=.+' "$SHARED_ENV_FILE"; then
   exit 1
 fi
 
+APP_DATABASE_URL=$(
+  grep -E '^[[:space:]]*DATABASE_URL=' "$APP_ENV_FILE" \
+    | tail -n 1 \
+    | sed 's/^[^=]*=//' \
+    | sed "s/^[\"']//; s/[\"']$//" \
+    || true
+)
+case "$APP_DATABASE_URL" in
+  *@127.0.0.1:*|*@localhost:*|*@0.0.0.0:*)
+    echo "DATABASE_URL points to a loopback host, which will not work from the app container." >&2
+    echo "Use the shared PostgreSQL service hostname instead, for example:" >&2
+    echo "  DATABASE_URL=postgresql://<app-db-user>:<password>@postgres:5432/<app-db-name>?schema=public&connection_limit=3" >&2
+    exit 1
+    ;;
+esac
+
 cd "$APP_DIR"
 
 echo "Deploying $APP_DISPLAY_NAME"
