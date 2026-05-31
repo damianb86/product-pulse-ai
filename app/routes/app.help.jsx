@@ -445,7 +445,11 @@ export default function Help() {
           </div>
 
           <div className={styles.heroVisual}>
-            <SignalMapGraphic />
+            <img
+              className={styles.heroImage}
+              src="/assets/help.png"
+              alt="ProductPulse AI connects reviews, refunds, returns, and support signals into evidence-backed product actions."
+            />
           </div>
         </section>
 
