@@ -95,8 +95,16 @@ echo
 echo "Validating docker-compose.yml with both env files..."
 compose config >/dev/null
 
-echo "Building and starting containers..."
-compose up -d --build --remove-orphans
+echo "Initializing database role and database..."
+compose up \
+  --no-deps \
+  --force-recreate \
+  --abort-on-container-exit \
+  --exit-code-from db-init \
+  db-init
+
+echo "Building and starting app container..."
+compose up -d --build --remove-orphans --no-deps app
 
 if [ -n "$VERIFY_ENV_VARS" ]; then
   for ENV_VAR in $VERIFY_ENV_VARS; do
