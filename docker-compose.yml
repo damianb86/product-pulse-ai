@@ -26,6 +26,7 @@ services:
     expose:
       - "3000"
     environment:
+      APP_ENV: production
       NODE_ENV: production
       NODE_OPTIONS: ${NODE_OPTIONS}
       PORT: 3000
@@ -33,7 +34,7 @@ services:
       SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET:?Set SHOPIFY_API_SECRET in the app .env}
       SCOPES: ${SCOPES:?Set SCOPES in the app .env}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the app .env}
-      SHOPIFY_APP_URL: ${SHOPIFY_APP_URL:?Set SHOPIFY_APP_URL in the app .env}
+      SHOPIFY_APP_URL: ${PROD_SHOPIFY_APP_URL:?Set PROD_SHOPIFY_APP_URL in the app .env}
       SHOPIFY_ADMIN_APP_HANDLE: ${SHOPIFY_ADMIN_APP_HANDLE:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in the app .env}
       PRODUCT_PULSE_AI_LEVEL: ${PRODUCT_PULSE_AI_LEVEL:-3}
@@ -52,10 +53,18 @@ services:
       AI_CHATKIT_DOMAIN_KEY: ${AI_CHATKIT_DOMAIN_KEY:?Set AI_CHATKIT_DOMAIN_KEY in the app .env}
       PRODUCT_PULSE_WATCHLIST_CRON_SECRET: ${PRODUCT_PULSE_WATCHLIST_CRON_SECRET:?Set PRODUCT_PULSE_WATCHLIST_CRON_SECRET in the app .env}
     labels:
+      observability.stack: qorve
+      observability.app: product-pulse-ai
+      observability.service: app
       caddy: ${APP_HOST:?Set APP_HOST in the app .env}
       caddy.encode: zstd gzip
       caddy.reverse_proxy: "{{upstreams 3000}}"
       caddy_ingress_network: ${SHARED_DOCKER_NETWORK:-shared_apps}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-10m}
+        max-file: ${DOCKER_LOG_MAX_FILE:-5}
     depends_on:
       db-init:
         condition: service_completed_successfully

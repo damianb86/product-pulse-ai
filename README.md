@@ -23,9 +23,11 @@ Set real local values in `.env`:
 SHOPIFY_API_KEY=
 SHOPIFY_API_SECRET=
 SHOPIFY_APP_URL=
+PROD_SHOPIFY_APP_URL=
 SHOPIFY_ADMIN_APP_HANDLE=product-pulse-ai
 SCOPES=read_products,write_products,read_orders,read_all_orders,read_customers,read_returns,read_inventory,read_locations
 DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
+APP_ENV=development
 PRODUCT_PULSE_AI_LEVEL=1
 OPENAI_API_KEY=
 OPENAI_BASIC_MODEL=gpt-5.4-nano
@@ -46,6 +48,29 @@ AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 - `3`: production mode using task-specific `OPENAI_BASIC_MODEL`, `OPENAI_PRO_MODEL`, and `OPENAI_PREMIUM_MODEL`.
 
 When `PRODUCT_PULSE_AI_LEVEL` is not set, local development defaults to `1` and non-development runtime defaults to `3`.
+
+## Docker Deploy
+
+ProductPulse AI is configured to deploy like Reply Pilot on the shared Qorve Docker stack:
+
+- Shared Caddy and PostgreSQL live in `../shared-docker`.
+- The app joins the external Docker network `shared_apps`.
+- `deploy.sh` loads both the app `.env` and the shared `shared-docker/.env`, validates `docker-compose.yml`, then runs `docker compose up -d --build --remove-orphans`.
+- Docker publishes `SHOPIFY_APP_URL` from `PROD_SHOPIFY_APP_URL`; keep local `SHOPIFY_APP_URL` for development.
+- In Docker, use the shared PostgreSQL hostname in `DATABASE_URL`, for example `postgresql://qorve_dev:replace-with-app-db-password@postgres:5432/product_pulse_ai?schema=public&connection_limit=3`.
+
+```bash
+cd ../shared-docker
+cp .env.example .env
+./deploy-all.sh
+```
+
+```bash
+cd ../ProductPulseIA/product-pulse-ai
+cp .env.example .env
+# set APP_ENV=production and edit Shopify, PROD_SHOPIFY_APP_URL, PostgreSQL, OpenAI and cron values
+./deploy.sh
+```
 
 The Shopify app requests `read_all_orders` together with `read_orders` so ProductPulse can analyze historical orders beyond Shopify's standard recent-order window. It also requests `read_customers` so same-customer product sequence relationships can use Shopify customer IDs without exposing names or emails. Production app config keeps order, return, customer and inventory write scopes out of the public review surface. Development mode adds those write scopes at runtime for the Settings mock dataset generator, which creates controlled Shopify test customers, orders, refunds and returns. Protected scopes must be approved in the Partner Dashboard before installing or reauthorizing the app on a store.
 

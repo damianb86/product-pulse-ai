@@ -3,6 +3,10 @@ build
 node_modules
 .env
 .env.*
+.git
+.shopify
 .react-router
 playwright-report
 test-results
+prisma/dev.sqlite
+prisma/dev.sqlite-journal
