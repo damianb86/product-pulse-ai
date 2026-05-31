@@ -3105,7 +3105,7 @@ function WatchRecentRunsTimeline({ rows = [] }) {
 
   useEffect(() => {
     setWindowStart(readWatchRecentRunsWindowStart(rowsSignature, defaultStart, maxStart));
-  }, [rowsSignature]);
+  }, [defaultStart, maxStart, rowsSignature]);
 
   useEffect(() => {
     if (windowStart !== clampedWindowStart) {
@@ -18246,7 +18246,7 @@ function ProductOrderActivityPanel({ detail }) {
   const [visibleOrderActivitySeries, setVisibleOrderActivitySeries] = useState(() => ({ ...ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES }));
   const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("monthlyOrderActivity");
   const activity = detail.monthlyOrderActivity || normalizeProductMonthlyOrderActivity(null);
-  const months = activity.months || [];
+  const months = useMemo(() => activity.months || [], [activity.months]);
   const summary = activity.summary || {};
   const hasActivity = months.some((month) => month.orders || month.returnedOrders || month.refundedOrders || month.revenue);
   const unresolvedReturnSeries = useMemo(() => getOrderActivityUnresolvedReturnSeries(months), [months]);
