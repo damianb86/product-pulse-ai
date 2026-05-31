@@ -104,10 +104,11 @@ Weights:
 - Shopify orders: 18
 - Shopify returns: 18
 - Judge.me reviews: 14
-- Chatme reviews: 10
 - CSV reviews: 8
 - Support tickets: 8
 - PDP questions: 6
+
+Loox and Stamped review providers are listed as future connectors with zero scoring weight until they become active coverage sources.
 
 Formula:
 

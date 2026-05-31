@@ -12,8 +12,15 @@ import { defaultView } from "../fixtures/product-pulse-fixtures";
 
 describe("ProductPulse scoring", () => {
   it("calculates deterministic source coverage from connected weights", () => {
-    expect(calculateCoverageScore(defaultView.sources)).toBe(76);
-    expect(getCoverageState(76).label).toBe("Strong coverage");
+    const connectedWeight = defaultView.sources
+      .filter((source) => source.connected)
+      .reduce((sum, source) => sum + source.weight, 0);
+    const totalWeight = defaultView.sources.reduce((sum, source) => sum + source.weight, 0);
+
+    expect(connectedWeight).toBe(76);
+    expect(totalWeight).toBe(90);
+    expect(calculateCoverageScore(defaultView.sources)).toBe(84);
+    expect(getCoverageState(84).label).toBe("Strong coverage");
   });
 
   it("calculates product risk without AI-provided numeric metrics", () => {
