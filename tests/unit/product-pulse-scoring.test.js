@@ -222,7 +222,7 @@ describe("ProductPulse scoring", () => {
     expect(pending.confidenceFactors.pendingRelationshipPenalty).toBeGreaterThan(0);
   });
 
-  it("separates return pressure, refund leakage, customer signals, and financial exposure", () => {
+  it("separates return pressure, refund leakage, customer signals, and estimated margin exposure", () => {
     const model = calculateProductScoreModel({
       soldUnits: 40,
       salesAmount: 4000,
@@ -460,7 +460,7 @@ describe("ProductPulse scoring", () => {
     expect(withContext.purchaseContextFactors.returnPressure.returnRateForMultiVariantOrders).toBeGreaterThan(0);
   });
 
-  it("raises financial exposure for bulk purchases with refund evidence without making healthy bulk risky", () => {
+  it("raises estimated margin exposure for bulk purchases with refund evidence without making healthy bulk risky", () => {
     const baseInput = {
       soldUnits: 120,
       salesAmount: 12000,

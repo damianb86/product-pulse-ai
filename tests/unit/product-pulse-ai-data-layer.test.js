@@ -205,7 +205,7 @@ describe("ProductPulse AI data repositories", () => {
     expect(JSON.stringify(detail)).not.toContain("switch-product-template");
   });
 
-  it("returns compact relationship and financial exposure summaries for one scoped product", async () => {
+  it("returns compact relationship and estimated margin exposure summaries for one scoped product", async () => {
     const db = createRepositoryDbMock();
     const snapshot = buildSnapshot({
       productGid: "gid://shopify/Product/relationship",

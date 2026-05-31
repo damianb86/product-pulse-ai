@@ -21,7 +21,7 @@
 - `app/lib/product-pulse-data.js`: fixtures and view-model builders.
 - `app/lib/product-pulse-scoring.js`: deterministic scoring helpers.
 - `app/lib/product-pulse-validation.js`: validation, GraphQL error parsing and AI output shape checks.
-- Prisma/PostgreSQL: Session plus app-owned tables for sources, jobs, product risk snapshots, diagnoses, actions and credits.
+- Prisma/PostgreSQL: Session plus app-owned tables for sources, jobs, product risk snapshots, diagnoses, actions and diagnosis credits.
 
 ## Loaders And Actions
 - All `/app` loaders call `authenticate.admin(request)`.
@@ -34,16 +34,16 @@
 - `ProductPulseSource`: source category, health and connected state per shop.
 - `CatalogSignalJob`: scan/import/diagnosis job status and progress.
 - `ProductRiskSnapshot`: deterministic product-level risk and impact metrics.
-- `ProductDiagnosis`: AI diagnosis result, confidence, issues and evidence summary.
+- `ProductDiagnosis`: Product Diagnosis result, confidence, issues and evidence summary.
 - `ProductAction`: draft/applied action recommendation.
-- `CreditLedgerEntry`: credit grants and consumption.
+- `CreditLedgerEntry`: diagnosis credit grants and consumption.
 
 ## Shopify Integration
 - Admin GraphQL is used for products/variants and order/refund/return reads once real loaders are connected.
 - Production scopes: `read_products`, `write_products`, `read_orders`, `read_all_orders`, `read_customers`, `read_returns`, `read_inventory`, `read_locations`.
 - `read_all_orders` can require Shopify protected-scope approval before production use. Order, return, customer and inventory write scopes are development-only for mock dataset generation.
 - Webhooks: `app/uninstalled`, `app/scopes_update`; future product/order/return updates.
-- Billing: mocked credit ledger in MVP; Shopify billing required before paid usage.
+- Billing: mocked diagnosis credit ledger in MVP; Shopify billing required before paid usage.
 
 ## UX With Polaris
 - Polaris web components from the Shopify React Router template: `s-page`, `s-section`, `s-box`, `s-stack`, `s-grid`, `s-button`, `s-badge`, `s-banner`, `s-text-field`, `s-select`, `s-progress-bar`, `s-table`-style accessible HTML tables where needed.

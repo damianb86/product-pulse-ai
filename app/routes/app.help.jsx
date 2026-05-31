@@ -21,7 +21,7 @@ const requestCards = [
   {
     icon: "diagnosis",
     title: "Understand diagnosis results",
-    text: "Ask about risk, confidence, financial exposure, product momentum, retention, evidence by source, points, and ProductPulse action records.",
+    text: "Ask about risk, confidence, Estimated Margin Exposure, Sales Momentum, retention, evidence by source, diagnosis credits, and ProductPulse action records.",
     action: "Ask a question",
     modal: "support",
   },
@@ -77,7 +77,7 @@ const workflowSteps = [
   },
   {
     eyebrow: "02",
-    title: "Run QuickScan",
+    title: "Run Catalog Scan",
     text: "Create a background catalog scan that calculates product-level risk snapshots from the available signals.",
     href: "/app/products",
     linkText: "Scan products",
@@ -85,7 +85,7 @@ const workflowSteps = [
   {
     eyebrow: "03",
     title: "Diagnose one product",
-    text: "Spend 1.0 point to run AI Product Diagnosis with likely cause, confidence, issue clusters, evidence, and recommended actions.",
+    text: "Spend 1.0 diagnosis credit to run Product Diagnosis with likely cause, confidence, issue clusters, evidence, and recommended actions.",
     href: "/app/products",
     linkText: "Review products",
   },
@@ -102,17 +102,17 @@ const featureGuideItems = [
   {
     icon: "diagnosis",
     title: "Dashboard and Products",
-    text: "Use Dashboard for priority products, active jobs, points, top issues, latest diagnoses, and recommended actions. Use Products to review diagnosed products, QuickScan candidates, resolved items, and Watchlist actions.",
+    text: "Use Dashboard for priority products, active jobs, diagnosis credits, top issues, latest diagnoses, and recommended actions. Use Products to review diagnosed products, Catalog Scan candidates, resolved items, and Watchlist actions.",
   },
   {
     icon: "evidence",
     title: "Product detail and evidence",
-    text: "Product detail combines risk, confidence, impact, momentum, return pressure, refund leakage, customer signals, evidence tabs, action history, product timeline, relationships, and score history.",
+    text: "Product detail combines risk, confidence, Estimated Margin Exposure, Sales Momentum, return pressure, refund leakage, customer signals, evidence tabs, action history, product timeline, relationships, and score history.",
   },
   {
     icon: "coverage",
     title: "Metric timelines",
-    text: "Metric timelines aligns product risk, financial exposure, return/refund metrics, retention health, momentum, confidence, evidence, ratings, customer signals, and main issue across the same time window.",
+    text: "Metric timelines aligns product risk, Estimated Margin Exposure, return/refund metrics, retention health, Sales Momentum, confidence, evidence, ratings, customer signals, and main issue across the same time window.",
   },
   {
     icon: "sources",
@@ -133,22 +133,22 @@ const featureGuideItems = [
 
 const commonTopics = [
   "Coverage score looks low because optional customer-signal sources are missing, disabled, ignored, or outside the analysis window.",
-  "QuickScan is deterministic: it reads available catalog, order, return, refund, review rating, CSV, and coverage metadata without calling the AI model.",
-  "Deep Product Diagnosis uses deterministic metrics plus bounded AI synthesis to classify likely cause, evidence, and recommended actions.",
+  "Catalog Scan is deterministic: it reads available catalog, order, return, refund, review rating, CSV, and coverage metadata without calling the AI model.",
+  "Product Diagnosis uses deterministic metrics plus bounded AI synthesis to classify likely cause, evidence, and recommended actions.",
   "Metric timelines compare different metrics on one shared time domain; missing months or sparse snapshots can change how much history is visible.",
   "Retention and LTV views are cohort-based, so low customer volume or immature 90-day windows can make retention signals sparse.",
   "Recommended action previews are ProductPulse records first; direct Shopify product writes are not performed by the assistant.",
-  "Watchlist reports compare new source movement, product risk, momentum, evidence, and diagnosis changes against a stored baseline.",
+  "Watchlist reports compare new source movement, product risk, Sales Momentum, evidence, and diagnosis changes against a stored baseline.",
   "Missing Shopify scopes should show recovery guidance instead of silently producing partial analysis.",
 ];
 
 const privacyStoredItems = [
   "Source connection state, coverage preferences, and health metadata.",
   "Catalog scan jobs, diagnosis jobs, job logs, and recoverable error details.",
-  "Product risk snapshots, AI diagnosis summaries, issue evidence, and recommendations.",
+  "Product risk snapshots, Product Diagnosis summaries, issue evidence, and recommendations.",
   "Product retention runs, cohort summaries, LTV curves, segment rows, and monthly order activity used in retention views.",
   "Product timeline events, metric score history, Watchlist products, Watchlist settings, and Watchlist activity.",
-  "ProductPulse actions, AI conversation records, AI tool/audit logs, app-owned proposals, usage events, credit ledger entries, and contact requests from this page.",
+  "ProductPulse actions, AI conversation records, AI tool/audit logs, app-owned proposals, usage events, diagnosis credit ledger entries, and contact requests from this page.",
   "Shopify session tokens required for embedded admin authentication.",
 ];
 
@@ -163,10 +163,10 @@ const modalContent = {
   setup: {
     title: "Request setup help",
     type: "setup",
-    subjectPlaceholder: "Coverage, QuickScan, or source setup",
+    subjectPlaceholder: "Coverage, Catalog Scan, or source setup",
     messageLabel: "What are you trying to configure?",
     messagePlaceholder:
-      "Example: We have Shopify returns, refunds, Judge.me reviews, and a CSV import, but coverage still looks low and QuickScan has not ranked any products yet.",
+      "Example: We have Shopify returns, refunds, Judge.me reviews, and a CSV import, but coverage still looks low and Catalog Scan has not ranked any products yet.",
     intro:
       "Tell us which sources you use, what the app shows today, and what a good ProductPulse workflow should unlock for your team.",
     primary: "Send setup request",
@@ -236,7 +236,7 @@ export const action = async ({ request }) => {
         `- AI usage events: ${counts.aiUsageEvents}`,
         `- AI action proposals: ${counts.aiActionProposals}`,
         `- AI app draft proposals: ${counts.aiAppDraftProposals}`,
-        `- Credit ledger entries: ${counts.creditEntries}`,
+        `- Diagnosis credit ledger entries: ${counts.creditEntries}`,
         `- Contact requests: ${counts.contacts}`,
         `- Sessions: ${counts.sessions}`,
         "",
@@ -263,7 +263,7 @@ export const action = async ({ request }) => {
         `Shop: ${session.shop}`,
         "",
         "The merchant requested deletion of all ProductPulse AI app data.",
-        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, product actions, retention records, product timeline events, watchlist products, watch settings, watch activity, product score history, AI conversations, AI usage events, AI proposals, credit ledger entries, contact requests, and sessions.",
+        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, product actions, retention records, product timeline events, watchlist products, watch settings, watch activity, product score history, AI conversations, AI usage events, AI proposals, diagnosis credit ledger entries, contact requests, and sessions.",
       ].join("\n"),
     });
 
@@ -412,9 +412,9 @@ export default function Help() {
                 Get clearer product decisions from every signal.
               </h1>
               <p className={styles.heroText}>
-                Use this page when source coverage, QuickScan jobs, deep diagnosis,
+                Use this page when source coverage, Catalog Scan jobs, Product Diagnosis,
                 retention metrics, metric timelines, Watchlist reports, ProductPulse
-                actions, points, or privacy questions block your catalog review workflow.
+                actions, diagnosis credits, or privacy questions block your catalog review workflow.
               </p>
             </div>
             <div className={styles.heroActions}>
@@ -507,7 +507,7 @@ export default function Help() {
             <h2 id="feature-guide-title">Use the right view for the decision you are making.</h2>
             <p>
               ProductPulse has several product-level views. Use this guide to decide
-              whether you need portfolio prioritization, a single-product diagnosis,
+              whether you need portfolio prioritization, a single-Product Diagnosis,
               timeline comparison, retention review, or a safe ProductPulse action.
             </p>
           </div>
@@ -601,7 +601,7 @@ export default function Help() {
               <p>
                 ProductPulse keeps tokens server-side and stores only the
                 app-owned data needed for traceability, diagnosis, support, and
-                point accounting.
+                diagnosis credit accounting.
               </p>
             </div>
           </div>
@@ -671,7 +671,7 @@ export default function Help() {
               snapshots, diagnoses, product actions, retention records, product
               timeline events, Watchlist products, Watchlist settings, Watchlist
               activity, product score history, AI conversations, AI usage events,
-              AI proposals, credit ledger entries, contact requests, and Shopify
+              AI proposals, diagnosis credit ledger entries, contact requests, and Shopify
               sessions for this shop.
             </p>
             <p className={styles.subduedText}>

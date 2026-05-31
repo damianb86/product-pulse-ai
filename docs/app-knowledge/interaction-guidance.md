@@ -56,8 +56,8 @@ These options never mutate data.
 Options are based on curated ProductPulse app knowledge tools:
 
 - Score formulas and metric interpretation.
-- QuickScan.
-- Deep diagnosis.
+- Catalog Scan.
+- Product Diagnosis.
 - Screen guides.
 
 These options never mutate data.

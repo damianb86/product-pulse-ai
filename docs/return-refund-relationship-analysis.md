@@ -32,7 +32,7 @@ If a refund came from an order-level financial-status fallback in a multiproduct
 
 ## Data model
 
-The persisted summary lives in `ProductRiskSnapshot.metrics.returnRefundRelationshipSummary` and, after a deep diagnosis, in the updated snapshot metrics as well.
+The persisted summary lives in `ProductRiskSnapshot.metrics.returnRefundRelationshipSummary` and, after a Product Diagnosis, in the updated snapshot metrics as well.
 
 Core fields:
 
@@ -117,7 +117,7 @@ Persisted fields added in Phase 2:
 - `metrics.customerSignalBreakdown`
 - `metrics.financialExposureBreakdown`
 
-These are written by QuickScan and deep diagnosis. Recompute support lives in `app/lib/product-pulse-recalculation.server.js`.
+These are written by Catalog Scan and Product Diagnosis. Recompute support lives in `app/lib/product-pulse-recalculation.server.js`.
 
 ## Scoring impact
 
@@ -159,7 +159,7 @@ Customer Signals:
 Return Rate Prediction:
 
 - remains return-focused;
-- relationship data may later become a severity feature or feed a separate refund leakage/financial exposure forecast.
+- relationship data may later become a severity feature or feed a separate refund leakage/estimated margin exposure forecast.
 
 ## Recalculation and backfill
 
@@ -171,14 +171,14 @@ Return Rate Prediction:
 
 Recompute updates `ProductRiskSnapshot` risk, impact, confidence, score components, relationship factors, and scoring version. It does not call Shopify, mutate Shopify data, or create Shopify write payloads.
 
-Existing snapshots without `returnRefundRelationshipSummary` cannot reconstruct line-level relationships because raw source events are not persisted. They are still recalculated under v2, but relationship-aware impact becomes meaningful after QuickScan or deep diagnosis stores the summary.
+Existing snapshots without `returnRefundRelationshipSummary` cannot reconstruct line-level relationships because raw source events are not persisted. They are still recalculated under v2, but relationship-aware impact becomes meaningful after Catalog Scan or Product Diagnosis stores the summary.
 
 ## Current limitations
 
 - Raw Shopify source records are not persisted as relational rows.
-- Historical relationship data starts only after new QuickScan/deep diagnosis runs store the summary.
+- Historical relationship data starts only after new Catalog Scan/Product Diagnosis runs store the summary.
 - Exchange/replacement is inferred from source text only.
-- Product-scoped deep diagnosis may have less cross-product order context than QuickScan.
+- Product-scoped Product Diagnosis may have less cross-product order context than Catalog Scan.
 - Order-level refund fallback remains weak and is intentionally not over-attributed.
 
 ## Phase 3 UI integration

@@ -4311,8 +4311,13 @@ s-page[inline-size="large-500"] {
   margin: 0;
   color: var(--pp-slate-700);
   font-size: 12px;
-  font-weight: 560;
+  font-weight: 400;
   line-height: 1.5;
+}
+
+.ppMainFindingQuestionHeading {
+  color: var(--pp-slate-900);
+  font-weight: 700;
 }
 
 .ppProductDetailOverviewFinding {

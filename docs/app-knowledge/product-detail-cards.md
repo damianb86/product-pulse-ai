@@ -39,7 +39,7 @@ Formula:
 
 Interpretation: actions can be reviewed, edited, dismissed, accepted, completed, or created inside ProductPulse when the app supports that state. The AI assistant may create or update ProductAction records after confirmation, but it must not apply changes to Shopify.
 
-### Product Momentum
+### Sales Momentum
 
 Purpose: measures commercial strength right now, separate from Product Risk.
 
@@ -120,7 +120,7 @@ Where:
 
 Purpose: keeps ProductPulse focused on current commercial or risk signals.
 
-Product Momentum formula:
+Sales Momentum formula:
 
 `recencyScore = clamp(base + recentShare * 10 + (unitsLast7Days >= 5 ? 4 : 0), 0, 96)`
 
@@ -221,7 +221,7 @@ Risk contribution:
 - `refundAnomaly = storeAvgRefundRate > 0 ? max(0, min(20, ((refundRate / storeAvgRefundRate) - 1) * 11)) : min(18, refundRate)`
 - `impact = min(15, log10(refundAmount + 1) * 4)`
 
-### Evidence Strength
+### Evidence Support
 
 Purpose: support strength behind the diagnosis.
 
@@ -229,7 +229,7 @@ Formula:
 
 `evidenceStrengthScore = round(clamp(signalVolumeScore * 1.3 + independentSourceScore * 1.4 + sourceAgreementScore * 1.3 + recencyScore * 1.1, 0, 100))`
 
-Evidence strength is not risk severity. It is evidence support.
+Evidence support is not risk severity. It is evidence support.
 
 ### Customer Signals
 
@@ -363,7 +363,7 @@ Formula:
 
 `monthlyActivity = group orders, returned order cohorts, refunded order cohorts, revenue, and unresolved returns by cohort month`
 
-This requires deep diagnosis and stored order evidence.
+This requires Product Diagnosis and stored order evidence.
 
 ### Return Rate Prediction
 

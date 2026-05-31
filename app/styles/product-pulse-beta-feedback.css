@@ -49,11 +49,6 @@
   height: 24px;
 }
 
-.ppBetaFeedbackPanelButton-feedback {
-  width: 25px;
-  height: 24px;
-}
-
 .ppBetaFeedbackPanelButton:hover,
 .ppBetaFeedbackPanelButton:focus-visible {
   background: rgba(var(--pp-insight-violet-rgb), 0.10);

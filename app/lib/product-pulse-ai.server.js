@@ -166,7 +166,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       shop,
       jobId,
       event: "product_diagnosis.content_gap_reused",
-      message: "Reused previous product content-gap analysis because Shopify product content has not changed since the last deep diagnosis.",
+      message: "Reused previous product content-gap analysis because Shopify product content has not changed since the last product diagnosis.",
       data: {
         provider: "cache",
         task: "content_gap",
@@ -591,7 +591,7 @@ function buildSignalClassificationPrompt(input) {
     product,
     "Incremental diagnosis context:",
     incremental,
-    "If this is an incremental diagnosis, evidence snippets contain only newly changed evidence since the previous deep diagnosis. Use deterministic aggregate metrics for full-window totals, and do not invent old snippets that are not supplied.",
+    "If this is an incremental diagnosis, evidence snippets contain only newly changed evidence since the previous product diagnosis. Use deterministic aggregate metrics for full-window totals, and do not invent old snippets that are not supplied.",
     "Deterministic metrics, already calculated by the system:",
     metrics,
     "Evidence snippets:",
@@ -732,22 +732,26 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "For evidence_synthesis_sections, write three intermediate qualitative synthesis sections for the AI Evidence Synthesis tab, not one entry per UI tab. Do not restate concrete counts, rates, scores, amounts, or dates unless a specific number is essential to understand the issue; those values are already visible in the product panels.",
     "The three overview evidence_synthesis_sections must be: customer_language for overall customer/product language, product_orders_retention for product setup, variants, Shopify orders, retention and LTV, and post_purchase for refunds, returns and negative reviews. Each body should generalize that evidence group into one merchant-facing reading: what the relationship suggests, what to compare next, and how cautiously to interpret the data. Use only the supplied evidence and avoid inventing new facts.",
     "For retention and LTV, use deterministic.metrics.productRetention only. Its retention rates use rateScale fraction_0_to_1, so 0.24 means 24%. Mention retention briefly only when productRetention.shouldMention is true because it shows a clear retention risk, repeat-purchase strength, cross-sell opportunity, same-product repurchase pattern, or meaningful LTV movement. If retention is unavailable, low-sample, or not material to the product risk/opportunity, do not force it into the main finding or recommendations.",
-    "Also write basket_context_interpretation for the Basket context card only when deterministic.metrics.productPurchaseContextSummary includes purchase-context data. This text is generated only during deep diagnosis and will be stored; the frontend will not synthesize it at render time.",
+    "Also write basket_context_interpretation for the Basket context card only when deterministic.metrics.productPurchaseContextSummary includes purchase-context data. This text is generated only during product diagnosis and will be stored; the frontend will not synthesize it at render time.",
     "For basket_context_interpretation, use mostly qualitative interpretation with as few numeric values as possible. Do not recap the visible bar percentages or counts. Explain what the basket, unit, variant, co-purchase, return/refund, review, content and final-report context imply together.",
-    "Keep basket_context_interpretation consistent with the main_finding_detail and evidence_summary you return in this same JSON, so it reads as an interpretation of the full diagnosis rather than a standalone metric explanation.",
+    "Keep basket_context_interpretation consistent with the main_finding_detail and evidence_summary you return in this same JSON, so it reads as an interpretation of the product diagnosis rather than a standalone metric explanation.",
     "If purchase context is unavailable or too thin to interpret, return an empty string for basket_context_interpretation.",
     "When review evidence comes from multiple providers, you may also create separate evidence_synthesis_sections entries for each review provider so provider tabs can show scoped interpretation. Set source_title and source_key for provider-specific review sections, and do not reuse the same body across CSV, Judge.me, or any other external review provider.",
     "Only write a provider-specific section from that provider's own review evidence. Do not mix CSV review text into Judge.me sections, do not mix Judge.me review text into CSV sections, and do not use the aggregate Customer Language section as a substitute for a provider tab.",
     "Do not put low-priority metadata coverage suggestions, such as product type/tags/collections not being repeated in the description, in the main finding unless they create a real buyer-facing contradiction.",
     "For subjective negative reactions, avoid overstating risk from a single customer. Explain it as a monitor/review signal unless repeated evidence supports action.",
     "Respect deterministic.signalRelevance. If it says reviewSignals level is weak, do not lead the main finding with review language. If customerEvidence level is isolated, treat that signal as evidence to monitor, not as a confirmed issue. If it is emerging, describe it as early evidence with limited confidence. Give priority to returns, refunds, repeated customer language, product content issues, and multi-source agreement.",
-    "Write main_finding_detail as 1 to 3 merchant-facing paragraphs separated by two newline characters. Use one paragraph when evidence is thin; use two or three when separate evidence groups deserve their own explanation.",
-    "Do not let reviews consume the whole main finding when product description, title, tags, collections, returns, refunds, variants, or customer-language evidence also exists. Cover every relevant discovery group in descending evidence strength, and skip only areas with no evidence.",
+    "Write main_finding_detail as exactly five merchant-facing text blocks separated by two newline characters.",
+    "Block 1 must be one concise descriptive overview paragraph that summarizes the full diagnosis: the most important finding, the strongest supporting evidence, the relevant calculated context, and the practical merchant implication. Compress what used to be multiple overview paragraphs into this single paragraph.",
+    "Blocks 2 through 5 must each answer one key question, using these exact English question headings followed by the answer in the same block: What is wrong? Why do we believe that? What should we do now? How much does it matter?",
+    "For the four question blocks, keep the heading and answer together in the same paragraph, for example: What is wrong? The product is...",
+    "Do not add extra questions, bullets, markdown headings, numbering, or more than five blocks.",
+    "Do not let reviews consume the whole main finding when product description, title, tags, collections, returns, refunds, variants, or customer-language evidence also exists. Cover every relevant discovery group in descending evidence support, and skip only areas with no evidence.",
     "Return valid JSON only. No markdown.",
     "Schema:",
     JSON.stringify({
       main_finding_title: "Sizing and fit expectations are not being met",
-      main_finding_detail: "1-3 paragraphs separated by \\n\\n, grounded in evidence and covering each relevant discovery area",
+      main_finding_detail: "One overview paragraph.\\n\\nWhat is wrong? Direct answer grounded in the strongest issue pattern.\\n\\nWhy do we believe that? Direct answer grounded in source agreement and evidence support.\\n\\nWhat should we do now? Direct answer with the next practical merchant action.\\n\\nHow much does it matter? Direct answer explaining impact, risk, confidence, and urgency without overusing visible numbers.",
       evidence_summary: "1-2 sentence source agreement summary",
       basket_context_interpretation: "Concise qualitative Basket context interpretation that uses the final report, overview context, purchase context, and other product signals together while avoiding unnecessary numbers.",
       evidence_synthesis_sections: [
@@ -959,7 +963,7 @@ const PRODUCT_CHART_INTERPRETATION_DEFINITIONS = [
   { responseKey: "return_rate_prediction", outputKey: "returnRatePrediction", label: "Return Rate Prediction" },
   { responseKey: "product_retention_metrics", outputKey: "productRetentionMetrics", label: "Product Retention Metrics" },
   { responseKey: "product_risk_over_time", outputKey: "productRiskOverTime", label: "Product Risk Over Time" },
-  { responseKey: "product_momentum", outputKey: "productMomentum", label: "Product Momentum" },
+  { responseKey: "product_momentum", outputKey: "productMomentum", label: "Sales Momentum" },
 ];
 
 export function buildCompactProductChartInterpretationInput(input = {}) {
@@ -2170,23 +2174,23 @@ function buildGeminiFailureLogMessage({ model, nextModel, retryReason, openAiFal
 function buildGeminiPoolExhaustedError(retryReason, error) {
   const detail = formatProviderErrorDetail(error);
   if (retryReason === "high_demand") {
-    return new Error(`AI diagnosis could not be completed because every configured Gemini model is currently under high demand. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because every configured Gemini model is currently under high demand. Gemini detail: ${detail}`);
   }
   if (retryReason === "quota") {
-    return new Error(`AI diagnosis could not be completed because every configured Gemini model hit quota or rate limits. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because every configured Gemini model hit quota or rate limits. Gemini detail: ${detail}`);
   }
   if (retryReason === "model_unavailable") {
-    return new Error(`AI diagnosis could not be completed because no configured Gemini model is currently available. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because no configured Gemini model is currently available. Gemini detail: ${detail}`);
   }
   if (retryReason === "transient") {
-    return new Error(`AI diagnosis could not be completed because every configured Gemini model hit a temporary provider or network error. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because every configured Gemini model hit a temporary provider or network error. Gemini detail: ${detail}`);
   }
-  return error || new Error("AI diagnosis could not be completed with Gemini. Please try again later.");
+  return error || new Error("Product Diagnosis could not be completed with Gemini. Please try again later.");
 }
 
 function buildOpenAINanoFallbackError({ retryReason, geminiError, openAiError }) {
   return new Error([
-    `AI diagnosis failed after all Gemini models hit ${getGeminiRetryReasonLabel(retryReason)} and OpenAI nano fallback also failed.`,
+    `Product Diagnosis failed after all Gemini models hit ${getGeminiRetryReasonLabel(retryReason)} and OpenAI nano fallback also failed.`,
     `Gemini: ${formatProviderErrorDetail(geminiError)}.`,
     `OpenAI nano: ${formatProviderErrorDetail(openAiError)}.`,
     "Please try again later.",

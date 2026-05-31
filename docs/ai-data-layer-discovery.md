@@ -12,15 +12,15 @@ ProductPulse is a Shopify embedded app backed by Prisma/PostgreSQL. App-owned te
 - `ProductPulseAiProviderState`: provider/model fallback state. Internal operational state only. Do not expose to LLMs.
 - `ProductPulseJobLog`: development-only job logs. Too low-level and may include serialized operational data. Do not expose raw logs. Future activity tools should summarize safe events only.
 - `ProductRiskSnapshot`: primary ProductPulse product risk snapshot per shop/product. Useful for AI. Relevant fields are product GID/title/handle, risk/impact/confidence, primary issue, source coverage, compact metrics, calculated/updated timestamps. Do not return the full `metrics` JSON because it can contain cached source events, customer text caches, Shopify product internals, and detailed AI usage.
-- `ProductDiagnosis`: completed or in-progress product diagnosis output. Useful for AI when compacted. Relevant fields are product GID/title, status, risk score, confidence, likely cause, issues, evidence, recommendations, credits consumed, created/completed timestamps. Do not expose raw full arrays without limits. Do not expose cached prompt inputs or raw model outputs, which are not stored here directly but may be present in related metric caches.
+- `ProductDiagnosis`: completed or in-progress Product Diagnosis output. Useful for AI when compacted. Relevant fields are product GID/title, status, risk score, confidence, likely cause, issues, evidence, recommendations, diagnosis credits consumed, created/completed timestamps. Do not expose raw full arrays without limits. Do not expose cached prompt inputs or raw model outputs, which are not stored here directly but may be present in related metric caches.
 - `ProductAction`: stored draft/applied/dismissed actions. Useful as read-only action history and recommendation status. Relevant fields are action type, label, status, created/applied timestamps, diagnosis link, and small safe payload summaries. Do not expose full payloads unbounded; draft copy should be truncated.
 - `ProductWatchlistItem`: merchant watchlist rows. Useful for watchlist status. Relevant fields are product GID/title/handle/SKU/status/image metadata and timestamps. Tenant scoped by `shop`.
 - `ProductWatchSettings`: watch cadence and alert configuration. Useful only as a compact settings summary. Do not expose `alertRecipients` emails; expose recipient count instead.
 - `ProductWatchActivity`: watchlist activity and change reports. Useful as recent activity if summarized. Relevant fields are event type, title/detail, product title/GID, timestamps, and selected safe metadata such as risk score/label/primary issue. Do not expose raw `metadata.report` or cached evidence details without limits.
 - `ProductPulseSchedulerLock`: cron lock state. Internal only. Do not expose.
 - `ProductScoreHistory`: product risk history over time. Useful for compact trends. Relevant fields are product GID/title, source, risk/impact/confidence, primary issue, recorded timestamp, and selected metrics. Tenant scoped by `shop`.
-- `ContactRequest`: merchant help/contact content. Not useful for product diagnosis chat. Contains free-form message and email; do not expose.
-- `CreditLedgerEntry`: credit balance history. Potentially useful for billing UI but not needed for product analysis tools. If exposed later, use current balance only; do not expose raw ledger history by default.
+- `ContactRequest`: merchant help/contact content. Not useful for Product Diagnosis chat. Contains free-form message and email; do not expose.
+- `CreditLedgerEntry`: diagnosis credit balance history. Potentially useful for billing UI but not needed for Product Diagnosis tools. If exposed later, use current balance only; do not expose raw ledger history by default.
 
 ## Existing UI/Data Flow Inventory
 
@@ -39,13 +39,13 @@ ProductPulse is a Shopify embedded app backed by Prisma/PostgreSQL. App-owned te
 
 - Shopify shop/tenant: represented by `session.shop` and app-owned `shop` columns.
 - Source coverage: Shopify product/orders/returns/refunds, Judge.me reviews, CSV reviews, and future sources represented by `ProductPulseSource` plus snapshot `sourceCoverage`.
-- QuickScan/product risk snapshot: deterministic product-level risk record in `ProductRiskSnapshot`.
-- Deep product diagnosis: completed AI-assisted persisted analysis in `ProductDiagnosis`, with issues, evidence, recommendations, and updated snapshot metrics.
+- Catalog Scan/product risk snapshot: deterministic product-level risk record in `ProductRiskSnapshot`.
+- Deep Product Diagnosis: completed AI-assisted persisted analysis in `ProductDiagnosis`, with issues, evidence, recommendations, and updated snapshot metrics.
 - Product action: draft/applied/dismissed ProductPulse recommendation or workflow record in `ProductAction`. Some action payloads can contain draft product copy but no Shopify write should happen in this AI data layer.
 - Watchlist: capped merchant watchlist in `ProductWatchlistItem`, settings in `ProductWatchSettings`, activity/change reports in `ProductWatchActivity`.
 - Analytics: derived view data from snapshots, score history, sources, actions, and settings.
 - Jobs and logs: background work state in `CatalogSignalJob` and development logs in `ProductPulseJobLog`.
-- Credits: credit ledger entries consumed by deep diagnoses.
+- Diagnosis Credits: diagnosis credit ledger entries consumed by Product Diagnosis.
 
 ## AI Suitability Assessment
 
@@ -54,7 +54,7 @@ Safe and useful:
 - Compact product risk summaries from `ProductRiskSnapshot`.
 - Latest completed diagnosis summary from `ProductDiagnosis`.
 - Bounded issue/evidence/recommendation snippets.
-- Compact metrics: return/refund rates, review counts/ratings, signal counts, estimated impact, source coverage, risk history points.
+- Compact metrics: return/refund rates, review counts/ratings, signal counts, estimated margin exposure, source coverage, risk history points.
 - Source connection/coverage summaries without credentials/config internals.
 - Watchlist status and recent safe activity summaries.
 

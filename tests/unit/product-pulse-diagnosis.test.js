@@ -1201,7 +1201,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
-  it("reuses cached customer text analysis and only analyzes new text on incremental deep diagnosis", () => {
+  it("reuses cached customer text analysis and only analyzes new text on incremental product diagnosis", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const product = {
       id: "gid://shopify/Product/123",
@@ -1600,7 +1600,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
-  it("refreshes date-derived deterministic metrics without replacing cached AI diagnosis data", () => {
+  it("refreshes date-derived deterministic metrics without replacing cached Product Diagnosis data", () => {
     const snapshot = {
       productGid: "gid://shopify/Product/123",
       riskScore: 48,
@@ -5695,7 +5695,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(serialized).toContain("product dimensions");
   });
 
-  it("calculates Product Momentum from recent sales velocity, growth and catalog baseline", () => {
+  it("calculates Sales Momentum from recent sales velocity, growth and catalog baseline", () => {
     const now = new Date("2026-05-16T12:00:00.000Z");
     const sales = [
       { orderId: "ord-1", createdAt: "2026-05-15T10:00:00.000Z", quantity: 8, amount: 800 },

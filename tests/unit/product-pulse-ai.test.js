@@ -446,7 +446,8 @@ describe("ProductPulse AI provider fallback", () => {
     expect(prompts).toHaveLength(5);
     expect(prompts[0]).toContain("Predefined sentiment taxonomy");
     expect(prompts[1]).toContain("clustering customer emotions");
-    expect(prompts[3]).toContain("Write main_finding_detail as 1 to 3 merchant-facing paragraphs");
+    expect(prompts[3]).toContain("Write main_finding_detail as exactly five merchant-facing text blocks");
+    expect(prompts[3]).toContain("What is wrong? Why do we believe that? What should we do now? How much does it matter?");
     expect(prompts[3]).toContain("Do not let reviews consume the whole main finding");
     expect(prompts[3]).toContain("basket_context_interpretation");
     expect(prompts[3]).toContain("as few numeric values as possible");
@@ -493,7 +494,7 @@ describe("ProductPulse AI provider fallback", () => {
           return_rate_prediction: "The forecast stays elevated after recent returns, which suggests the next cohorts may continue to carry return pressure.",
           product_retention_metrics: "Retention is limited, so repeat demand is not yet offsetting the cost of post-purchase issues.",
           product_risk_over_time: "Risk moved upward across the saved history, making the recent order activity more important to review.",
-          product_momentum: "Momentum is concentrated in the latest week, which points to fresh activity rather than a long stable sales pattern.",
+          product_momentum: "Sales Momentum is concentrated in the latest week, which points to fresh activity rather than a long stable sales pattern.",
         },
       },
     ];

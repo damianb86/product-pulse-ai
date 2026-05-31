@@ -454,13 +454,13 @@ const MOCK_PRODUCTS = [
         <p>Choose tactile or linear switch feel before checkout.</p>
       </section>
     `,
-    tags: ["GEN", GENERATED_TAG, "keyboard", "premium", "high-momentum"],
+    tags: ["GEN", GENERATED_TAG, "keyboard", "premium", "high-sales-momentum"],
     options: [{ name: "Switch", values: ["Tactile", "Linear"] }],
     variants: [
       { options: { Switch: "Tactile" }, price: "149.00", sku: "GEN-KBD-TAC" },
       { options: { Switch: "Linear" }, price: "149.00", sku: "GEN-KBD-LIN" },
     ],
-    story: "A commercially important product with rising sales, high momentum and mostly positive reviews. It should enter the app through momentum even without high risk.",
+    story: "A commercially important product with rising sales, high Sales Momentum and mostly positive reviews. It should enter the app through momentum even without high risk.",
     orderPattern: "Slow launch, then accelerating recent sales with occasional multi-unit purchases.",
     returnRefundPattern: "Very low returns/refunds; maybe a rare price/value complaint but no repeated defect.",
     reviewPattern: "Recent reviews are longer and enthusiastic about build quality, switches and included accessories. A few customers mention price but not enough to create high risk.",
@@ -472,7 +472,7 @@ const MOCK_PRODUCTS = [
     ],
     expectedActions: [
       "Add to Watchlist.",
-      "Create baseline scan or run full diagnosis if QuickScan only.",
+      "Create baseline scan or run product diagnosis if Catalog Scan only.",
       "No urgent customer-facing fix.",
     ],
     themes: ["premium", "solid", "switches", "fast shipping"],
@@ -817,7 +817,7 @@ const MOCK_PRODUCTS = [
     descriptionHtml: `
       <section>
         <h2>RELTEST multi-variant product</h2>
-        <p>Generated companion product with multiple variants for basket and variant diagnostics.</p>
+        <p>Generated companion product with multiple variants for basket and variant Product Diagnosis.</p>
       </section>
     `,
     tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "basket-test", "variant-test"],
@@ -2138,8 +2138,8 @@ function buildOrderPlans(products, currencyCode, { now = Date.now() } = {}) {
       processedAt: date.toISOString(),
       currencyCode,
       note: stressOrder
-        ? `ProductPulse generated order ${index + 1}. ${phase} phase. Extreme mock stress dataset for diagnostics.`
-        : `ProductPulse generated order ${index + 1}. ${phase} phase. Controlled mock dataset for diagnostics.`,
+        ? `ProductPulse generated order ${index + 1}. ${phase} phase. Extreme mock stress dataset for Product Diagnosis.`
+        : `ProductPulse generated order ${index + 1}. ${phase} phase. Controlled mock dataset for Product Diagnosis.`,
       tags: [GENERATED_ORDER_TAG, `ppgen-order-${index + 1}`, `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
       items,
       total,
@@ -3797,7 +3797,7 @@ function buildEvolutionReviewRows(products, evolution, startSourceRow = 2) {
       key: "premium-keyboard",
       daysAgo: 1,
       rating: 5,
-      title: "Momentum feels deserved",
+      title: "Sales Momentum feels deserved",
       body: "The keyboard feels premium and the switch options were clear before ordering. I bought a second unit because the build quality, accessories, and delivery matched the page exactly.",
       phase: "evolution_improving",
     },

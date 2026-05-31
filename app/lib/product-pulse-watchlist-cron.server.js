@@ -191,8 +191,8 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
     if (!creditPlan.queueItems.length) {
       await recordWatchActivityForShop(shop, {
         eventType: "watch_cron_credit_exhausted",
-        title: "Scheduled watch diagnostics skipped",
-        detail: "Watchlist cron found active watched products, but the shop has no available credits.",
+        title: "Scheduled Watchlist Product Diagnosis skipped",
+        detail: "Watchlist cron found active watched products, but the shop has no available diagnosis credits.",
         metadata: {
           triggeredBy: "watchlist-cron",
           scheduleTime: config.scheduleTime,
@@ -244,7 +244,7 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
 
     const queuedActivity = await recordWatchActivityForShop(shop, {
       eventType: "watch_scan_queued",
-      title: "Scheduled watch diagnostics queued",
+      title: "Scheduled Watchlist Product Diagnosis queued",
       detail: `${result.queuedCount || productIds.length} deep product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued by Watchlist cron.`,
       metadata: {
         triggeredBy: "watchlist-cron",
@@ -348,7 +348,7 @@ async function recordWatchCronFailure(shop, { now = new Date(), cadenceDays = nu
   return recordWatchActivityForShop(shop, {
     eventType: "watch_cron_failed",
     title: "Watchlist cron failed",
-    detail: error?.message || String(error || "Watchlist cron could not queue diagnostics."),
+    detail: error?.message || String(error || "Watchlist cron could not queue Product Diagnosis."),
     metadata: {
       triggeredBy: "watchlist-cron",
       cadenceDays,

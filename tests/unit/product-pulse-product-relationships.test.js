@@ -381,7 +381,7 @@ describe("product relationship intelligence metrics", () => {
     expect(summary.data_basis.order_count).toBe(1);
   });
 
-  it("stores product relationship intelligence on QuickScan candidate metrics", () => {
+  it("stores product relationship intelligence on Catalog Scan candidate metrics", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 90,
       settings: { risk: { minimumScore: 0 }, momentum: { minimumScore: 101 } },

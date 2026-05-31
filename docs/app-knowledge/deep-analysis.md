@@ -1,6 +1,6 @@
-# Deep Product Diagnosis
+# Product Diagnosis
 
-Deep Product Diagnosis is a queued ProductPulse job for one or more stored products.
+Product Diagnosis is a queued ProductPulse job for one or more stored products.
 
 Implementation references:
 
@@ -26,12 +26,12 @@ How it runs:
 
 No-change reanalysis:
 
-- When a product already has a completed deep diagnosis, reanalysis first compares product content, Shopify order/return/refund source events, review/customer text, refund text, and the stored source fingerprint.
-- If no concrete source changes are found, ProductPulse reuses the previous deep diagnosis instead of running the AI diagnosis flow again.
-- This no-change path consumes 0 credits and records the job as skipped/reused.
-- Date-window metrics that can move only because time passed, such as product momentum, recent activity windows, forecast/window summaries, retention preview, return/refund window summaries, purchase context, and relationship summaries, are refreshed deterministically.
-- The previous AI diagnosis, evidence synthesis, chart interpretation text, content-gap interpretation, primary issue, and recommendations remain in place until there is new evidence or product content that can affect them.
-- If the only movement is a rolling date-window change with no newly fetched orders, returns, refunds, reviews, or product-content changes, the reanalysis is still treated as a 0-credit no-AI refresh.
+- When a product already has a completed Product Diagnosis, reanalysis first compares product content, Shopify order/return/refund source events, review/customer text, refund text, and the stored source fingerprint.
+- If no concrete source changes are found, ProductPulse reuses the previous Product Diagnosis instead of running the Product Diagnosis flow again.
+- This no-change path consumes 0 diagnosis credits and records the job as skipped/reused.
+- Date-window metrics that can move only because time passed, such as sales momentum, recent activity windows, forecast/window summaries, retention preview, return/refund window summaries, purchase context, and relationship summaries, are refreshed deterministically.
+- The previous Product Diagnosis, evidence synthesis, chart interpretation text, content-gap interpretation, primary issue, and recommendations remain in place until there is new evidence or product content that can affect them.
+- If the only movement is a rolling date-window change with no newly fetched orders, returns, refunds, reviews, or product-content changes, the reanalysis is still treated as a zero diagnosis credit no-AI refresh.
 
 Requirements and limits:
 
@@ -41,6 +41,6 @@ Requirements and limits:
 
 Limitations:
 
-- Deep diagnosis is not a Shopify mutation.
+- Product Diagnosis is not a Shopify mutation.
 - Recommendations are ProductPulse app-owned guidance until a separate non-AI workflow applies anything to Shopify.
 - If source data is weak, stale, or sparse, confidence should be lower.

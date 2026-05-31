@@ -51,7 +51,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before saving product actions." };
+    return { status: "validation_error", message: "Run Catalog Scan before saving product actions." };
   }
 
   if (actionType === "dismiss-action") {
@@ -66,7 +66,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before dismissing product actions." };
+    return { status: "validation_error", message: "Run Catalog Scan before dismissing product actions." };
   }
 
   if (actionType === "restore-action") {
@@ -81,7 +81,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before restoring product actions." };
+    return { status: "validation_error", message: "Run Catalog Scan before restoring product actions." };
   }
 
   if (actionType === "review-action") {
@@ -96,7 +96,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before marking product actions reviewed." };
+    return { status: "validation_error", message: "Run Catalog Scan before marking product actions reviewed." };
   }
 
   if (actionType === "ignore-issue") {
@@ -113,7 +113,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before ignoring product issues." };
+    return { status: "validation_error", message: "Run Catalog Scan before ignoring product issues." };
   }
 
   if (actionType === "unignore-issue") {
@@ -130,19 +130,19 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before restoring product issues." };
+    return { status: "validation_error", message: "Run Catalog Scan before restoring product issues." };
   }
 
   if (actionType === "mark-resolved") {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before resolving a product." };
+    return { status: "validation_error", message: "Run Catalog Scan before resolving a product." };
   }
 
   if (actionType === "mark-unresolved") {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-unresolved");
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before restoring a product." };
+    return { status: "validation_error", message: "Run Catalog Scan before restoring a product." };
   }
 
   if (actionType === "add-to-watchlist") {

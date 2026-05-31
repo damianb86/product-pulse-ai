@@ -47,7 +47,7 @@ export function getQuickScanWindowDays(settings = undefined) {
 
 export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   if (!admin?.graphql) {
-    throw new Error("A Shopify Admin API context is required to run QuickScan.");
+    throw new Error("A Shopify Admin API context is required to run Catalog Scan.");
   }
 
   const startedAt = Date.now();
@@ -57,7 +57,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.started",
-    message: "QuickScan started using Shopify-native signals and connected CSV review ratings.",
+    message: "Catalog Scan started using Shopify-native signals and connected CSV review ratings.",
     data: { windowDays },
   });
 
@@ -90,7 +90,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
 
   await updateQuickScanJob(jobId, {
     progress: 72,
-    source: "Calculating product risk and momentum",
+    source: "Calculating product risk and Sales Momentum",
   });
 
   const candidates = buildQuickScanCandidates({
@@ -105,7 +105,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.scored",
-    message: "Deterministic risk and Product Momentum scoring completed.",
+    message: "Deterministic risk and Sales Momentum scoring completed.",
     data: {
       candidateCount: candidates.length,
       topCandidates: candidates.slice(0, 5).map((candidate) => ({
@@ -131,7 +131,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.persisted",
-    message: "QuickScan persisted products above the product risk or momentum threshold and skipped products with full diagnoses.",
+    message: "Catalog Scan persisted products above the product risk or Sales Momentum threshold and skipped products with Product Diagnosis results.",
     data: {
       persistedCandidates: persistence.persistedCandidates,
       ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
@@ -145,7 +145,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     status: "Completed",
     progress: 100,
     source: extraction.meta.orderAccessDenied
-      ? "QuickScan completed with catalog only - Shopify order access unavailable"
+      ? "Catalog Scan completed with catalog only - Shopify order access unavailable"
       : getQuickScanCompletionSource(persistence),
     finishedAt: new Date(),
   });
@@ -153,7 +153,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.completed",
-    message: "QuickScan completed.",
+    message: "Catalog Scan completed.",
     data: {
       durationMs: Date.now() - startedAt,
       candidateCount: candidates.length,
@@ -176,13 +176,13 @@ async function loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays = QUIC
         shop,
         jobId,
         event: "quick_scan.csv_reviews_loaded",
-        message: "Loaded normalized CSV review ratings for deterministic QuickScan scoring.",
+        message: "Loaded normalized CSV review ratings for deterministic Catalog Scan scoring.",
         data: {
           ratingRows: ratings.length,
           ignoredOutsideWindow: Math.max(0, allRatings.length - ratings.length),
           windowDays,
           productsWithRatings: countCsvRatingProductKeys(ratings),
-          usage: "rating-only; review text is not read during QuickScan",
+          usage: "rating-only; review text is not read during Catalog Scan",
         },
       });
     }
@@ -193,7 +193,7 @@ async function loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays = QUIC
       jobId,
       level: "warn",
       event: "quick_scan.csv_reviews_skipped",
-      message: "CSV review ratings could not be loaded; QuickScan will continue without CSV rating signals.",
+      message: "CSV review ratings could not be loaded; Catalog Scan will continue without CSV rating signals.",
       data: { error: getErrorMessage(error) },
     });
     return [];
@@ -351,7 +351,7 @@ async function recordOrderAccessUnavailableLog({ shop, jobId, mode }) {
     jobId,
     level: "warn",
     event: "quick_scan.orders_unavailable",
-    message: "Shopify denied access to orders. QuickScan will complete with product catalog data only until Order object access is approved.",
+    message: "Shopify denied access to orders. Catalog Scan will complete with product catalog data only until Order object access is approved.",
     data: {
       code: "SHOPIFY_ORDER_ACCESS_DENIED",
       mode,
@@ -524,7 +524,7 @@ async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId 
       jobId,
       level: "warn",
       event: "quick_scan.refunds_skipped",
-      message: "Supplemental refund extraction failed; QuickScan will continue with sales and returns.",
+      message: "Supplemental refund extraction failed; Catalog Scan will continue with sales and returns.",
       data: { error: getErrorMessage(error) },
     });
     return [];
@@ -591,7 +591,7 @@ async function extractOptionalPaginatedEvents({ shop, jobId, label, extractor })
       jobId,
       level: "warn",
       event: `quick_scan.${label}_skipped`,
-      message: `Paginated ${label} extraction failed; QuickScan will continue without that signal group.`,
+      message: `Paginated ${label} extraction failed; Catalog Scan will continue without that signal group.`,
       data: { error: getErrorMessage(error) },
     });
     return [];
@@ -2047,8 +2047,8 @@ function getQuickScanCompletionSource(persistence) {
   const persisted = persistence.persistedCandidates;
   const ignored = persistence.ignoredFullDiagnosisProducts;
   const productLabel = `${persisted} product${persisted === 1 ? "" : "s"} needing attention`;
-  if (!ignored) return `QuickScan completed - ${productLabel}`;
-  return `QuickScan completed - ${productLabel}; ${ignored} full diagnosis product${ignored === 1 ? "" : "s"} ignored`;
+  if (!ignored) return `Catalog Scan completed - ${productLabel}`;
+  return `Catalog Scan completed - ${productLabel}; ${ignored} product diagnosis product${ignored === 1 ? "" : "s"} ignored`;
 }
 
 async function updateQuickScanJob(jobId, data) {

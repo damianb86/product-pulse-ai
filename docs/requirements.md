@@ -5,16 +5,16 @@
 - FR-002: The authenticated app shell must expose navigation for Dashboard, Connect sources, Running jobs, Products, Product diagnosis, Analytics, Analyses and Sources & Billing.
 - FR-003: Connect sources must group sources by Reviews, Returns & Refunds, Chat & Support, PDP Q&A and Product data, showing connected state, contribution and missing-source guidance.
 - FR-004: Data coverage score must be deterministic from connected source weights and must show empty, partial and strong coverage states.
-- FR-005: Catalog Signal Scan must be available as an included scan and create a visible running/completed job state.
+- FR-005: Catalog Scan must be available as an included scan and create a visible running/completed job state.
 - FR-006: Running jobs must show job type, source, progress, status, last update and recoverable errors.
 - FR-007: Dashboard must show KPIs, start-here recommendation, highest-risk products, top issues and suggested fixes.
-- FR-008: Products must show a filterable product table sorted by risk with signals, source coverage, last analysis, credit cost and Analyze action.
-- FR-009: Product diagnosis must show likely cause, evidence by source, risk score, confidence, estimated impact, detected issues and applicable actions.
-- FR-010: AI Product Diagnosis must consume one base credit per product in MVP and block with a validation state when credits are insufficient.
+- FR-008: Products must show a filterable product table sorted by risk with signals, source coverage, last analysis, diagnosis credit cost and Analyze action.
+- FR-009: Product diagnosis must show likely cause, evidence by source, risk score, confidence, estimated margin exposure, detected issues and applicable actions.
+- FR-010: Product Diagnosis must consume one base diagnosis credit per product in MVP and block with a validation state when diagnosis credits are insufficient.
 - FR-011: Applying an action must create an internal draft/action record and show success/error states. Actual product writes are limited to documented safe future mutations unless enabled with valid scopes.
-- FR-012: Analyses must show completed and running diagnoses with status, risk, main issue, confidence, credits used and applied actions.
-- FR-013: Analytics must show visual summaries for signals over time, issue distribution, contribution by source, risk vs impact, margin at risk by collection and source coverage.
-- FR-014: Sources & Billing must show source health, coverage, plan, credits, usage and upgrade placeholders.
+- FR-012: Analyses must show completed and running diagnoses with status, risk, main issue, confidence, diagnosis credits used and applied actions.
+- FR-013: Analytics must show visual summaries for signals over time, issue distribution, contribution by source, risk vs impact, estimated margin exposure by collection and source coverage.
+- FR-014: Sources & Billing must show source health, coverage, plan, diagnosis credits, usage and upgrade placeholders.
 - FR-015: Server-side loaders/actions must authenticate with `authenticate.admin` for `/app` routes and must not expose tokens to the client.
 - FR-016: Shopify Admin API operations must handle top-level `errors`, `userErrors`, 401/403/404/500 states, pagination and GIDs.
 - FR-017: The app must include preview routes for local QA that do not require real merchant data.
@@ -24,25 +24,25 @@
 - Dashboard: operational home, KPIs, recommended next product, high-risk product cards/table, issues and suggested fixes.
 - Connect sources: grouped source cards, coverage score, missing sources and source-specific benefits.
 - Running jobs: progress table/timeline for scan and diagnosis jobs.
-- Products: table with search, risk filter, source filters, credit cost and Analyze links.
+- Products: table with search, risk filter, source filters, diagnosis credit cost and Analyze links.
 - Product diagnosis: evidence, cause, confidence, deterministic metrics and action panel.
 - Analytics: charts and breakdowns using accessible HTML/CSS blocks.
 - Analyses: history and running queue.
-- Sources & Billing: connection state, coverage, plan and credits.
+- Sources & Billing: connection state, coverage, plan and diagnosis credits.
 
 ## Merchant Actions
 - Connect or review each source state.
-- Run Catalog Signal Scan.
+- Run Catalog Scan.
 - Monitor jobs.
 - Search/filter products by risk and source coverage.
-- Run AI Product Diagnosis for one product.
+- Run Product Diagnosis for one product.
 - Apply draft recommendations to a product workflow.
-- Review historical analyses and credit usage.
+- Review historical analyses and diagnosis credit usage.
 
 ## Data
-- Created: source connection state, jobs, product risk snapshots, diagnoses, draft actions, credit ledger entries.
+- Created: source connection state, jobs, product risk snapshots, diagnoses, draft actions, diagnosis credit ledger entries.
 - Read: Shopify product, variant, order, refund and return data when scopes are granted; imported CSV reviews; future third-party sources.
-- Updated: source health, job status, action status, credit balance.
+- Updated: source health, job status, action status, diagnosis credit balance.
 - Deleted: no merchant data deletion in MVP; app uninstall cleanup is documented.
 
 ## Shopify Admin API
@@ -61,12 +61,12 @@
 - Future: `products/update`, `orders/updated`, return-related updates if available and needed.
 
 ## Billing
-- MVP shows plan and credit state internally.
-- Production needs Shopify billing before paid plans or purchasable credits are enabled.
+- MVP shows plan and diagnosis credit state internally.
+- Production needs Shopify billing before paid plans or purchasable diagnosis credits are enabled.
 
 ## AI
 - AI is only used for classification, grouping phrases, separating noise, explaining likely causes and drafting recommendations.
-- Deterministic metrics such as return rate, refund rate, estimated impact, trends and risk score must be computed by app code.
+- Deterministic metrics such as return rate, refund rate, estimated margin exposure, trends and risk score must be computed by app code.
 - AI output must be schema-validated before storage or display.
 
 ## Non-Functional Requirements

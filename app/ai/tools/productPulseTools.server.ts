@@ -203,7 +203,7 @@ export function createProductPulseAiToolDefinitions(
 
   const getProductEvidenceSnippetsTool: AiToolDefinition<ProductEvidenceInput, { product: AiProductRiskSummary; evidence: AiEvidenceSnippet[] }> = {
       name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductEvidenceSnippets,
-      description: "Get bounded evidence snippets behind one stored ProductPulse product analysis.",
+      description: "Get bounded evidence snippets behind one stored ProductPulse Product Diagnosis.",
       inputSchema: getProductEvidenceInputSchema,
       readOnly: true,
       category: "evidence",
@@ -289,7 +289,7 @@ export function createProductPulseAiToolDefinitions(
 
   const getProductFinancialExposureBreakdownTool: AiToolDefinition<ProductEvidenceInput, FinancialExposureBreakdownData> = {
       name: PRODUCT_PULSE_AI_TOOL_NAMES.getProductFinancialExposureBreakdown,
-      description: "Get a compact read-only financial exposure breakdown separating confirmed refunds, return-related risk, unattributed refunds, and attribution confidence.",
+      description: "Get a compact read-only estimated margin exposure breakdown separating confirmed refunds, return-related risk, unattributed refunds, and attribution confidence.",
       inputSchema: getProductEvidenceInputSchema,
       readOnly: true,
       category: "diagnosis",

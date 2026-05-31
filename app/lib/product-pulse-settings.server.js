@@ -177,10 +177,10 @@ export function validateProductPulseSettings(input = {}) {
     return "Risk thresholds must be valid numbers.";
   }
   if (minimumScore < PRODUCT_PULSE_MIN_RISK_THRESHOLD || minimumScore > 90) {
-    return `Minimum QuickScan score must be between ${PRODUCT_PULSE_MIN_RISK_THRESHOLD} and 90.`;
+    return `Minimum Catalog Scan score must be between ${PRODUCT_PULSE_MIN_RISK_THRESHOLD} and 90.`;
   }
   if (mediumThreshold <= minimumScore) {
-    return "Medium risk must start above the minimum QuickScan score.";
+    return "Medium risk must start above the minimum Catalog Scan score.";
   }
   if (highThreshold <= mediumThreshold) {
     return "High risk must start above medium risk.";
@@ -193,7 +193,7 @@ export function validateProductPulseSettings(input = {}) {
     || momentumMinimumScore < PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD
     || momentumMinimumScore > 100
   ) {
-    return `Momentum inclusion threshold must be between ${PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD} and 100.`;
+    return `Sales Momentum inclusion threshold must be between ${PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD} and 100.`;
   }
   if (!Number.isFinite(lookbackDays) || lookbackDays < PRODUCT_PULSE_MIN_LOOKBACK_DAYS || lookbackDays > PRODUCT_PULSE_MAX_LOOKBACK_DAYS) {
     return `Analysis lookback must be between ${PRODUCT_PULSE_MIN_LOOKBACK_DAYS} and ${PRODUCT_PULSE_MAX_LOOKBACK_DAYS} days.`;

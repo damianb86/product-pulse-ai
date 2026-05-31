@@ -14,14 +14,14 @@ The Prisma schema has product-level ProductPulse tables only. There is no first-
 
 ## Shopify order ingestion
 
-QuickScan reads orders in `app/lib/product-pulse-quick-scan.server.js`.
+Catalog Scan reads orders in `app/lib/product-pulse-quick-scan.server.js`.
 
 - Bulk order query: `buildOrdersBulkQuery`.
 - Paginated fallback query: `extractOrderLineItemEventsWithPaginatedQueries`.
 - Order date: `getShopifyOrderDate(order)` prefers `processedAt`, then `createdAt`, then `updatedAt`.
 - Sales are normalized into `sale` events with `orderId`, `lineItemId`, `productId`, `variantId`, quantity, amount, and order dates.
 
-Deep diagnosis reads product-scoped sales in `app/lib/product-pulse-diagnosis.server.js`.
+Product Diagnosis reads product-scoped sales in `app/lib/product-pulse-diagnosis.server.js`.
 
 - `fetchShopifySalesEvents` queries orders by `processed_at`.
 - It filters line items to the active product with `lineItemMatchesProduct`.
@@ -29,13 +29,13 @@ Deep diagnosis reads product-scoped sales in `app/lib/product-pulse-diagnosis.se
 
 ## Shopify return ingestion
 
-QuickScan:
+Catalog Scan:
 
 - Bulk orders include `returns { returnLineItems { fulfillmentLineItem { lineItem { ... } } } }`.
 - Paginated fallback uses `extractReturnEventsWithPaginatedQueries`.
 - Return line item fields include line item id, product, variant, quantity, processed quantity, refunded quantity, status, return reason, return reason note, and customer note when Shopify exposes them.
 
-Deep diagnosis:
+Product Diagnosis:
 
 - `fetchShopifyReturnEvents` and `fetchShopifyReturnEventsWithPlan` query return line items for the current product.
 - The query supports both `returnReasonDefinition` and legacy `returnReason` shapes.
@@ -43,22 +43,22 @@ Deep diagnosis:
 
 How returns were counted before this phase:
 
-- QuickScan increments `aggregate.returnUnits` directly from each return event quantity.
-- Deep diagnosis calculates `returnUnits` as `sumBy(returns, "quantity")`, with a fallback to persisted snapshot metrics.
+- Catalog Scan increments `aggregate.returnUnits` directly from each return event quantity.
+- Product Diagnosis calculates `returnUnits` as `sumBy(returns, "quantity")`, with a fallback to persisted snapshot metrics.
 - Return rates are unit-based: `returnUnits / soldUnits`, stored as a percentage.
 - Monthly Order Activity uses return events assigned back to the original order cohort when `orderId` is known.
 - Return Rate Prediction is also unit-based for rate calculation but stores both order and unit counts.
 
 ## Shopify refund ingestion
 
-QuickScan:
+Catalog Scan:
 
 - Refunds are intentionally fetched outside the bulk order query with paginated queries because refund line items are excluded from the bulk query.
 - `extractRefundEventsWithPaginatedQueries` reads orders updated in the window and orders with refunded financial statuses.
 - It reads `refunds`, `refundLineItems`, `orderAdjustments`, `totalRefundedSet`, order line items, product and variant ids, restock type, and refund notes.
-- When Shopify does not expose refund line items, QuickScan creates fallback order-level refund events from order financial status and line items.
+- When Shopify does not expose refund line items, Catalog Scan creates fallback order-level refund events from order financial status and line items.
 
-Deep diagnosis:
+Product Diagnosis:
 
 - `fetchShopifyRefundEvents` uses several query plans to stay under Shopify query-cost limits.
 - It filters refund line items to the current product through `lineItemMatchesProduct`.
@@ -67,10 +67,10 @@ Deep diagnosis:
 
 How refunds were counted before this phase:
 
-- QuickScan increments `aggregate.refundUnits` directly from each refund event quantity and `aggregate.refundAmount` from the refund amount.
-- Deep diagnosis calculates `refundUnits` and `refundAmount` as sums of product-scoped refund events, with fallback to snapshot metrics.
+- Catalog Scan increments `aggregate.refundUnits` directly from each refund event quantity and `aggregate.refundAmount` from the refund amount.
+- Product Diagnosis calculates `refundUnits` and `refundAmount` as sums of product-scoped refund events, with fallback to snapshot metrics.
 - Refund rate is unit-based: `refundUnits / soldUnits`, stored as a percentage.
-- Refund leakage and financial exposure use refund amount, sales amount, margin assumptions, and return handling costs.
+- Refund leakage and estimated margin exposure use refund amount, sales amount, margin assumptions, and return handling costs.
 
 ## Matching capability
 
@@ -134,7 +134,7 @@ Order-based metrics:
 
 - Monthly Order Activity stores `totalOrders`, `returnedOrders`, and `refundedOrders`.
 - Return Rate Prediction stores `totalOrders` and `totalReturnedOrders`.
-- Product Momentum uses order-level sales events and weekly order/unit activity.
+- Sales Momentum uses order-level sales events and weekly order/unit activity.
 
 Unit-based metrics:
 
@@ -168,8 +168,8 @@ Possible misleading labels:
 ## Current limitations
 
 - No dedicated raw order/return/refund persistence exists.
-- QuickScan has the best cross-product order context, but order-level refund fallback can still be weak.
-- Deep diagnosis is product-scoped and may not know whether an order had other products unless the fallback refund query includes enough order line context.
+- Catalog Scan has the best cross-product order context, but order-level refund fallback can still be weak.
+- Product Diagnosis is product-scoped and may not know whether an order had other products unless the fallback refund query includes enough order line context.
 - Exchange/replacement detection is text-based only.
 - Shopify refund line items may be missing or inaccessible for some stores/API plans.
 - Return and refund reasons are inconsistent across Shopify fields.

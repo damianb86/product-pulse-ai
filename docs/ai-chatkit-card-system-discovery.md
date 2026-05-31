@@ -6,7 +6,7 @@ ProductPulse already has strong visual patterns in `app/components/ProductPulseS
 
 - KPI cards for dashboard and analytics summaries.
 - Product table rows with product title, risk badge, risk score, trend, momentum, status, evidence, source icons, and last analysis.
-- Product detail overview cards with risk snapshot, diagnosis confidence, financial exposure, evidence strength, customer signals, and main issue.
+- Product detail overview cards with risk snapshot, diagnosis confidence, estimated margin exposure, evidence support, customer signals, and main issue.
 - Evidence panels with source labels, compact findings, AI evidence synthesis, metric cards, and empty states.
 - Watchlist stat cards, watchlist empty states, recent activity, and change cards.
 - Recommended action cards and confirmation modal patterns for app-owned internal actions.

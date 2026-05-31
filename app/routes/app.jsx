@@ -9,6 +9,7 @@ import { isAiCostDashboardEnabled } from "../ai/observability/usageEvents.server
 import { BetaFeedbackProvider } from "../components/beta-feedback/BetaFeedbackLayer";
 import { ProductPulseChatKitAssistant } from "../components/ProductPulseChatKitAssistant";
 import { ProductPulseJobMonitor } from "../components/ProductPulseJobMonitor";
+import { ProductPulseWatchlistWizard } from "../components/ProductPulseWatchlistWizard";
 import { ProductPulseWizard } from "../components/ProductPulseWizard";
 import { getBetaFeedbackClientConfig } from "../lib/beta-feedback-config.server";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
@@ -55,7 +56,7 @@ export default function App() {
           <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
           <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
           <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
-          <s-link href="/app/plans-and-credits" data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plans & Credits</s-link>
+          <s-link href="/app/plans-and-credits" data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plans & Diagnosis Credits</s-link>
           {aiCostDashboardEnabled ? (
             <s-link href="/app/ai-costs" data-active={activeSection === "ai-costs" ? "true" : undefined}>AI Costs</s-link>
           ) : null}
@@ -66,6 +67,7 @@ export default function App() {
         <Outlet />
         <ProductPulseChatKitAssistant config={chatKit} quota={chatQuota} pageContext={aiPageContext} />
         <ProductPulseWizard />
+        <ProductPulseWatchlistWizard />
       </BetaFeedbackProvider>
     </AppProvider>
   );

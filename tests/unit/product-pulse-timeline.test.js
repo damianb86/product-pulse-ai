@@ -121,7 +121,7 @@ describe("ProductPulse timeline event helpers", () => {
     });
   });
 
-  it("uses business impact only as a fallback with before and after values", () => {
+  it("uses estimated margin exposure only as a fallback with before and after values", () => {
     const events = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
       shop: "peak-outfitters.myshopify.com",
       product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow" },
@@ -145,16 +145,16 @@ describe("ProductPulse timeline event helpers", () => {
       },
     });
 
-    expect(events.map((event) => event.title)).not.toContain("Business impact increased");
+    expect(events.map((event) => event.title)).not.toContain("Estimated Margin Exposure increased");
     expect(events.find((event) => event.eventType === "business_impact_increased")).toMatchObject({
       title: "Estimated exposure changed",
-      summary: "Business impact estimate moved from $200 to $380 (+$180).",
+      summary: "Estimated Margin Exposure moved from $200 to $380 (+$180).",
       beforeValue: { financialExposure: 200 },
       afterValue: { financialExposure: 380 },
     });
   });
 
-  it("does not add business impact when a clearer signal exists", () => {
+  it("does not add estimated margin exposure when a clearer signal exists", () => {
     const events = __productPulseTimelineTestHooks.buildTimelineEventsForScoreHistoryPair({
       shop: "peak-outfitters.myshopify.com",
       product: { productGid: "gid://shopify/Product/1", productTitle: "Cooling Pillow" },

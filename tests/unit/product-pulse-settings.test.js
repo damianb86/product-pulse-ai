@@ -111,7 +111,7 @@ describe("ProductPulse settings", () => {
       momentum: {
         minimumScore: 101,
       },
-    })).toMatch(/Momentum inclusion/);
+    })).toMatch(/Sales Momentum inclusion/);
   });
 
   it("normalizes and validates the analysis lookback window", () => {

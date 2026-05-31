@@ -266,7 +266,7 @@ describe("ProductPulse AI internal action registry", () => {
     expect(JSON.stringify(services.recordProductDetailActionForShop.mock.calls[0][3])).not.toContain("applyMode");
   });
 
-  it("archives only ProductPulse internal product analysis records", async () => {
+  it("archives only ProductPulse internal Product Diagnosis records", async () => {
     const { registry, services } = createActionRegistry();
     const proposal = await registry.createAiActionProposal(
       context,
@@ -344,7 +344,7 @@ function createActionRegistry(overrides = {}) {
     }),
     runSelectedProductDiagnosesForShop: vi.fn().mockResolvedValue({
       status: "success",
-      message: "Watchlist diagnostics queued.",
+      message: "Watchlist Product Diagnosis queued.",
       queuedCount: 1,
       jobs: [{ id: "job-watchlist-1" }],
     }),

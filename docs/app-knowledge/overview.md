@@ -6,10 +6,10 @@ The app reads Shopify product, order, refund, return, return reason, review, CSV
 
 Main workflows:
 
-- Run QuickScan / Catalog Signal Scan to identify product candidates.
+- Run Catalog Scan to identify product candidates.
 - Review Dashboard priorities and top issues.
 - Review Products and Candidates tables.
-- Queue deep Product Diagnosis for stored products.
+- Queue Product Diagnosis for stored products.
 - Inspect product detail for evidence, metrics, recommendations, action history, and score history.
 - Track important products in Watchlist.
 - Use Analytics to understand aggregate risk, impact, sources, and trends.
@@ -20,7 +20,7 @@ Main app-owned entities:
 - `ProductPulseSource`: source availability and coverage metadata.
 - `CatalogSignalJob`: scan, diagnosis, and mock dataset job state.
 - `ProductRiskSnapshot`: stored product-level risk or candidate snapshot.
-- `ProductDiagnosis`: deep diagnosis output with issues, evidence, and recommendations.
+- `ProductDiagnosis`: Product Diagnosis output with issues, evidence, and recommendations.
 - `ProductAction`: app-owned recommendation/action record visible in the product UI.
 - `ProductWatchlistItem`, `ProductWatchSettings`, `ProductWatchActivity`: watchlist state.
 - `ProductScoreHistory`: stored score trend points.

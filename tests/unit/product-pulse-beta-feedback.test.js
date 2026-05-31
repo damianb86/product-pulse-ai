@@ -132,7 +132,7 @@ describe("ProductPulse beta feedback layer", () => {
           message: "The product detail chart is clipped.",
           pagePath: "/app/products/hat",
           panelId: "product.momentum",
-          panelLabel: "Product Momentum",
+          panelLabel: "Sales Momentum",
           context: { route: { path: "/app/products/hat" } },
         },
       });

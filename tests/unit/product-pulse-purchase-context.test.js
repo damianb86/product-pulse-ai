@@ -282,7 +282,7 @@ describe("product purchase context analysis", () => {
     expect(summary.total_units_sold).toBe(1);
   });
 
-  it("stores the purchase context summary on QuickScan candidate metrics without changing scoring", () => {
+  it("stores the purchase context summary on Catalog Scan candidate metrics without changing scoring", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
       settings: { risk: { minimumScore: 0 }, momentum: { minimumScore: 101 } },

@@ -175,4 +175,4 @@ The assistant should use “association”, “relationship”, “pattern”, o
 - Low-volume products may have high lift but low confidence.
 - Deleted or renamed related products may show title-only records.
 - Relationship impact is associative, not causal.
-- Product relationships are contextual signals and do not replace direct return, refund, review, evidence, or financial exposure signals.
+- Product relationships are contextual signals and do not replace direct return, refund, review, evidence, or estimated margin exposure signals.

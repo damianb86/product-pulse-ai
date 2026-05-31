@@ -8,18 +8,18 @@ Core scoring lives in `app/lib/product-pulse-scoring.js`.
 
 - Product Risk: `calculateProductScoreModel` -> `calculateRiskComponents`.
 - Financial Exposure: `calculateProductScoreModel` -> `calculateFinancialImpact`.
-- Diagnosis Confidence and Evidence Strength: `calculateProductScoreModel` -> `calculateDiagnosisConfidence`.
+- Diagnosis Confidence and Evidence Support: `calculateProductScoreModel` -> `calculateDiagnosisConfidence`.
 - Priority Score: `calculatePriorityScore`.
-- Product Momentum: `buildProductMomentum` in `app/lib/product-pulse-diagnosis.server.js`.
+- Sales Momentum: `buildProductMomentum` in `app/lib/product-pulse-diagnosis.server.js`.
 - Monthly Order Activity: `buildMonthlyOrderActivity` in `app/lib/product-pulse-diagnosis.server.js`.
 - Return Rate Prediction: `buildReturnRatePrediction` in `app/lib/product-pulse-diagnosis.server.js`.
-- Main Issue: QuickScan uses `getPrimaryIssue`; deep diagnosis uses `getMainIssueFromCounts`.
+- Main Issue: Catalog Scan uses `getPrimaryIssue`; Product Diagnosis uses `getMainIssueFromCounts`.
 - Negative Review Pressure is derived from review counts/rates and is not changed by relationship data.
 
 Persistence:
 
-- QuickScan calculates candidates in `app/lib/product-pulse-quick-scan.server.js` and upserts `ProductRiskSnapshot`.
-- Deep diagnosis recalculates deterministic metrics in `app/lib/product-pulse-diagnosis.server.js`, writes `ProductDiagnosis`, updates `ProductRiskSnapshot`, and records `ProductScoreHistory`.
+- Catalog Scan calculates candidates in `app/lib/product-pulse-quick-scan.server.js` and upserts `ProductRiskSnapshot`.
+- Product Diagnosis recalculates deterministic metrics in `app/lib/product-pulse-diagnosis.server.js`, writes `ProductDiagnosis`, updates `ProductRiskSnapshot`, and records `ProductScoreHistory`.
 - Product history is compressed by `app/lib/product-pulse-history.server.js`.
 - Relationship-aware recompute is provided by `app/lib/product-pulse-recalculation.server.js`.
 
@@ -130,7 +130,7 @@ Relationship data can later support separate models:
 
 - refund leakage prediction;
 - return/refund severity prediction;
-- financial exposure prediction.
+- estimated margin exposure prediction.
 
 For now, return/refund relationship data is stored beside the prediction and can be used as a severity feature, but the return-rate forecast still predicts returns.
 
@@ -154,11 +154,11 @@ Safety:
 
 Backfill note:
 
-Existing snapshots without `returnRefundRelationshipSummary` cannot reconstruct line-level relationships because raw orders, returns, and refunds are not stored as relational rows. They are still recalculated with the v2 scoring version, but relationship-aware Product Risk is available only after a new QuickScan or deep diagnosis stores the Phase 1 summary.
+Existing snapshots without `returnRefundRelationshipSummary` cannot reconstruct line-level relationships because raw orders, returns, and refunds are not stored as relational rows. They are still recalculated with the v2 scoring version, but relationship-aware Product Risk is available only after a new Catalog Scan or Product Diagnosis stores the Phase 1 summary.
 
 ## Metrics that should not change
 
-- Product Momentum remains commercial velocity and catalog share based.
+- Sales Momentum remains commercial velocity and catalog share based.
 - Negative Review Pressure remains review-sentiment based.
 - Monthly Order Activity still shows orders, returns, refunds, and revenue by time bucket.
 - Return Rate Prediction remains a return-rate model.
@@ -166,7 +166,7 @@ Existing snapshots without `returnRefundRelationshipSummary` cannot reconstruct 
 
 ## Known limitations
 
-- Deep diagnosis is product-scoped and may have weaker multiproduct order context than QuickScan.
+- Product Diagnosis is product-scoped and may have weaker multiproduct order context than Catalog Scan.
 - Exchange/replacement detection is text-based unless Shopify exposes richer data later.
 - ProductDiagnosis narratives from old diagnoses are not regenerated during recompute; new deep diagnoses include relationship-aware explanations in snapshot metrics.
 - Historical ProductScoreHistory points only gain relationship-aware compressed metrics when new snapshots or recompute-generated snapshots are recorded.

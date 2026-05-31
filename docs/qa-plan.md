@@ -17,11 +17,11 @@ ProductPulse AI uses layered QA: deterministic unit tests for scoring and valida
 - Connect sources empty/partial/strong states.
 - Products table filtering and empty state.
 - Diagnosis evidence and actions.
-- Billing credits and source health.
+- Billing diagnosis credits and source health.
 
 ## Integration
 - Catalog scan action creates a job result.
-- Diagnosis action consumes/blocks credits.
+- Diagnosis action consumes/blocks diagnosis credits.
 - Apply action validates product/action IDs.
 - Missing scope and API error view models render correctly.
 
@@ -29,7 +29,7 @@ ProductPulse AI uses layered QA: deterministic unit tests for scoring and valida
 - Open preview home.
 - Navigate to every ProductPulse screen.
 - Run scan in preview.
-- Open a product diagnosis.
+- Open a Product Diagnosis.
 - Validate narrow viewport usability.
 
 ## Accessibility

@@ -64,7 +64,7 @@
 - Shopify CLI validation requires login in non-interactive environments.
 - Real order/return scopes require clear App Store justification.
 - Product write actions require careful merchant confirmation and App Store review.
-- AI diagnosis requires provider credentials and output validation before production.
+- Product Diagnosis requires provider credentials and output validation before production.
 
 ## Credentials Needed
 - `SHOPIFY_API_KEY`

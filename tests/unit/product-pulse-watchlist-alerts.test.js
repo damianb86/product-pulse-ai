@@ -235,7 +235,7 @@ describe("ProductPulse watchlist alert helpers", () => {
             ],
             changes: [
               { id: "primary-issue", label: "Primary issue", delta: "Changed", from: "Buyer confusion", to: "Instability and returns" },
-              { id: "momentum-score", label: "Product Momentum", delta: "+9/100", direction: "up", from: "62/100", to: "71/100" },
+              { id: "momentum-score", label: "Sales Momentum", delta: "+9/100", direction: "up", from: "62/100", to: "71/100" },
               { id: "risk-score", label: "Product risk", delta: "+4", direction: "up", from: "68", to: "72" },
             ],
           },

@@ -295,9 +295,9 @@ function getSourceDetail({ source, record, available, connected, active, locked 
   if (connected && !active) {
     if (source.actionKind === "csv") {
       const displayFileName = getCsvImportDisplayFileName(record?.config);
-      return `${displayFileName} disabled; ignored by scans and diagnostics.`;
+      return `${displayFileName} disabled; ignored by Catalog Scan and Product Diagnosis.`;
     }
-    return "Disabled; ignored by scans and diagnostics.";
+    return "Disabled; ignored by Catalog Scan and Product Diagnosis.";
   }
   if (connected) {
     if (source.actionKind === "csv" && (record?.config?.fileName || record?.config?.displayFileName || record?.config?.normalizedFileName)) {

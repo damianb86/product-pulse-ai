@@ -261,7 +261,7 @@ export function createProductPulseAiActionDefinitions(
           targetId: "active-watchlist",
           targetLabel: "Active watchlist",
           proposedInput: input,
-          title: "Run watchlist diagnostics",
+          title: "Run Watchlist Product Diagnosis",
           summary: `Queue internal diagnosis jobs for ${products.length} active watched product${products.length === 1 ? "" : "s"}.`,
           reason: input.reason || "Refresh watched product risk with current ProductPulse data.",
           expectedResult: "ProductPulse will create diagnosis jobs for active watched products. Shopify product data will not be changed.",

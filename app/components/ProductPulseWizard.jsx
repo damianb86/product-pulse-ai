@@ -5,7 +5,6 @@ import { useLocation, useNavigate } from "react-router";
 const WIZARD_STORAGE_KEY = "productPulse.onboardingWizard.completed.v1";
 const DASHBOARD_ROUTE = "/app/dashboard";
 const CONNECT_ROUTE = "/app/connect";
-const SETTINGS_ROUTE = "/app/settings";
 const PRODUCTS_CANDIDATES_ROUTE = "/app/products?tab=candidates";
 const emptyWizardTargets = [];
 
@@ -14,18 +13,6 @@ const connectTargets = [
   { id: "judgemeAction", selector: '[data-pp-connect-source-action="judgemeReviews"]' },
   { id: "csvRow", selector: '[data-pp-connect-source-row="csvReviews"]' },
   { id: "csvAction", selector: '[data-pp-connect-source-action="csvReviews"]' },
-];
-
-const settingsTargets = [
-  {
-    id: "settingsCards",
-    selector: [
-      '[data-pp-settings-target="risk-thresholds"]',
-      '[data-pp-settings-target="momentum-inclusion"]',
-      '[data-pp-settings-target="evidence-lookback"]',
-    ].join(", "),
-    all: true,
-  },
 ];
 
 const productQuickScanTargets = [
@@ -37,7 +24,6 @@ const productCandidateTargets = [
   {
     id: "deepScanAction",
     selector: '[data-pp-products-run-deep-scan-selected]',
-    ancestorSelectors: [".ppProductsToolbar", ".ppProductsSecondaryActions"],
   },
 ];
 
@@ -87,7 +73,6 @@ const chatAssistantTargets = [
 const wizardSteps = [
   { id: "welcome", kind: "welcome", route: DASHBOARD_ROUTE },
   { id: "connectReviews", kind: "connect", route: CONNECT_ROUTE, targets: connectTargets },
-  { id: "settings", kind: "settings", route: SETTINGS_ROUTE, targets: settingsTargets },
   { id: "products", kind: "products", route: PRODUCTS_CANDIDATES_ROUTE },
   { id: "backgroundProcesses", kind: "backgroundProcesses", targets: backgroundProcessTargets },
   { id: "deepScanComplete", kind: "deepScanComplete", targets: deepScanCompleteTargets },
@@ -108,7 +93,7 @@ const modalCopy = {
   judgeme: {
     eyebrow: "Judge.me connection",
     title: "Connect Judge.me reviews",
-    body: "Paste the Judge.me private API token here. ProductPulse uses it to read review signals for QuickScan and deep product diagnostics.",
+    body: "Paste the Judge.me private API token here. ProductPulse uses it to read review signals for Catalog Scan and Product Diagnosis.",
   },
   csv: {
     eyebrow: "CSV upload",
@@ -121,17 +106,17 @@ const modalCopy = {
     body: "Review the detected mapping and sample rows. Saving the preview stores normalized review evidence for future scans.",
   },
   quickScanCsv: {
-    eyebrow: "QuickScan data",
-    title: "CSV is optional for QuickScan",
-    body: "You can run QuickScan without uploaded reviews. If you already have a CSV, adding it first makes preliminary risk signals stronger.",
+    eyebrow: "Catalog Scan data",
+    title: "CSV is optional for Catalog Scan",
+    body: "You can run Catalog Scan without uploaded reviews. If you already have a CSV, adding it first makes preliminary risk signals stronger.",
   },
   quickScanConfirm: {
-    eyebrow: "QuickScan confirmation",
+    eyebrow: "Catalog Scan confirmation",
     title: "Start the catalog scan",
-    body: "This queues a lightweight scan that finds candidate products. When candidates appear, select one and start a deep scan.",
+    body: "This queues a lightweight scan that finds candidate products. When candidates appear, select one and start a Product Diagnosis.",
   },
   deepScanConfirm: {
-    eyebrow: "Deep scan confirmation",
+    eyebrow: "Product Diagnosis confirmation",
     title: "Queue the selected product",
     body: "Confirm the analysis to generate product-level evidence, risk, and recommended actions for the selected candidate.",
   },
@@ -149,7 +134,6 @@ export function ProductPulseWizard() {
   const [quickScanStepCompleted, setQuickScanStepCompleted] = useState(false);
   const [deepScanStarted, setDeepScanStarted] = useState(false);
   const [completedDeepScanJob, setCompletedDeepScanJob] = useState(null);
-  const [settingsDirty, setSettingsDirty] = useState(false);
   const step = wizardSteps[stepIndex] || wizardSteps[0];
   const productsState = useProductsWizardState(active && step.kind === "products");
   const openModal = useOpenWizardModal(active);
@@ -180,6 +164,7 @@ export function ProductPulseWizard() {
   useEffect(() => {
     document.body.classList.toggle("ppWizardActive", active);
     document.body.classList.toggle("ppWizardConnectActive", active && step.kind === "connect");
+    document.body.classList.toggle("ppWizardProductsActive", active && step.kind === "products");
     document.body.classList.toggle("ppWizardBackgroundProcessesActive", active && step.kind === "backgroundProcesses");
     document.body.classList.toggle("ppWizardDeepScanCompleteActive", active && step.kind === "deepScanComplete");
     document.body.classList.toggle("ppWizardProductOverviewActive", active && step.kind === "productOverview");
@@ -188,6 +173,7 @@ export function ProductPulseWizard() {
     return () => {
       document.body.classList.remove("ppWizardActive");
       document.body.classList.remove("ppWizardConnectActive");
+      document.body.classList.remove("ppWizardProductsActive");
       document.body.classList.remove("ppWizardBackgroundProcessesActive");
       document.body.classList.remove("ppWizardDeepScanCompleteActive");
       document.body.classList.remove("ppWizardProductOverviewActive");
@@ -206,9 +192,7 @@ export function ProductPulseWizard() {
     const timeout = window.setTimeout(() => {
       const selector = step.kind === "connect"
         ? '[data-pp-connect-source-row="judgemeReviews"]'
-        : step.kind === "settings"
-          ? '[data-pp-settings-target="risk-thresholds"]'
-          : step.kind === "backgroundProcesses"
+        : step.kind === "backgroundProcesses"
             ? '[data-pp-background-process-popover], [data-pp-background-process-button]'
             : step.kind === "deepScanComplete"
               ? '[data-pp-job-completion-notice="product-diagnosis"]'
@@ -298,7 +282,6 @@ export function ProductPulseWizard() {
       setQuickScanStepCompleted(false);
       setDeepScanStarted(false);
       setCompletedDeepScanJob(null);
-      setSettingsDirty(false);
       setStepIndex(0);
       setActive(true);
       if (!isCurrentWizardRoute(location.pathname, location.search, wizardSteps[0])) {
@@ -309,15 +292,6 @@ export function ProductPulseWizard() {
     window.addEventListener("productpulse:wizard-start", handleStartWizard);
     return () => window.removeEventListener("productpulse:wizard-start", handleStartWizard);
   }, [location.pathname, location.search, navigate]);
-
-  useEffect(() => {
-    const handleSettingsDirtyState = (event) => {
-      setSettingsDirty(Boolean(event.detail?.dirty));
-    };
-
-    window.addEventListener("productpulse:settings-dirty-state", handleSettingsDirtyState);
-    return () => window.removeEventListener("productpulse:settings-dirty-state", handleSettingsDirtyState);
-  }, []);
 
   useEffect(() => {
     if (!active || step.kind !== "backgroundProcesses") return undefined;
@@ -337,34 +311,15 @@ export function ProductPulseWizard() {
     if (nextStep?.route) navigate(nextStep.route);
   }, [completeWizard, navigate, nextDisabled, stepIndex]);
 
-  useEffect(() => {
-    const handleSettingsLeaveAllowed = () => {
-      if (!active || step.kind !== "settings") return;
-      advanceWizard();
-    };
-
-    window.addEventListener("productpulse:wizard-settings-leave-allowed", handleSettingsLeaveAllowed);
-    return () => window.removeEventListener("productpulse:wizard-settings-leave-allowed", handleSettingsLeaveAllowed);
-  }, [active, advanceWizard, step.kind]);
-
   const handleNext = useCallback(() => {
-    if (step.kind === "settings" && settingsDirty) {
-      window.dispatchEvent(new CustomEvent("productpulse:wizard-request-settings-leave"));
-      return;
-    }
     if (step.kind === "backgroundProcesses" && !deepScanStarted && !completedDeepScanJob) {
       completeWizard();
       return;
     }
     advanceWizard();
-  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, settingsDirty, step.kind]);
+  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, step.kind]);
 
   const handleSkipStep = useCallback(() => {
-    if (step.kind === "settings" && settingsDirty) {
-      window.dispatchEvent(new CustomEvent("productpulse:wizard-request-settings-leave"));
-      return;
-    }
-
     if (step.kind === "products") {
       if (!quickScanStepCompleted) {
         setQuickScanStarted(false);
@@ -397,7 +352,7 @@ export function ProductPulseWizard() {
     }
 
     advanceWizard({ ignoreDisabled: true });
-  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, navigate, quickScanStepCompleted, settingsDirty, step.kind]);
+  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, navigate, quickScanStepCompleted, step.kind]);
 
   const handleBack = useCallback(() => {
     if (stepIndex <= 0) return;
@@ -422,9 +377,6 @@ export function ProductPulseWizard() {
             openModal={openModal}
             completion={connectCompletion}
           />
-        ) : null}
-        {step.kind === "settings" ? (
-          <SettingsWizardStep targetRects={targetRects} />
         ) : null}
         {step.kind === "products" ? (
           <ProductsWizardStep
@@ -482,8 +434,8 @@ function WelcomeWizardStep() {
         find product issues faster and decide what to fix next with stronger evidence.
       </p>
       <p>
-        This quick guide will show you where to connect review data, tune scan thresholds, run
-        QuickScan, and start a deep product scan from Candidates.
+        This quick guide will show you where to connect review data, run Catalog Scan, and start
+        Product Diagnosis from Candidates.
       </p>
       <div className="ppWizardProgress" aria-label="Wizard progress">
         <span className="isActive" />
@@ -558,54 +510,23 @@ function ConnectWizardStep({ targetRects, openModal, completion }) {
   );
 }
 
-function SettingsWizardStep({ targetRects }) {
-  const anchor = targetRects.settingsCards;
-  if (!anchor) {
-    return <WizardLoadingCard title="Opening Settings" body="We are locating the three scan configuration controls." />;
-  }
-
-  return (
-    <WizardTooltip
-      anchorRect={anchor}
-      className="ppWizardTooltip-settings"
-      title="Tune your scan rules"
-      eyebrow="Settings"
-      estimatedHeight={166}
-      forceSide="bottom"
-      hideArrow
-      centered
-      offsetY={66}
-      widthRatio={0.5}
-    >
-      <p>
-        Review Product risk thresholds, Product Momentum inclusion, and Evidence lookback. These
-        decide which products enter Candidates and how much historical evidence ProductPulse reads.
-      </p>
-      <p>
-        You can save changes or leave the defaults. When you are ready, use the fixed bar below to
-        continue to Products.
-      </p>
-    </WizardTooltip>
-  );
-}
-
 function ProductsWizardStep({ targetRects, productsState, quickScanStarted, quickScanJobActive, quickScanStepCompleted, openModal }) {
   if (openModal) return null;
 
   if (!quickScanStepCompleted || !productsState.hasCandidates) {
     const anchor = targetRects.quickScan;
     if (!anchor) {
-      return <WizardLoadingCard title="Opening Products" body="We are locating the Candidates tab and QuickScan button." />;
+      return <WizardLoadingCard title="Opening Products" body="We are locating the Candidates tab and Catalog Scan button." />;
     }
 
-    let quickScanTitle = "Run QuickScan";
-    let quickScanBody = "Click Run quick scan to create lightweight product-risk candidates from your catalog. The wizard stays open while confirmation modals appear.";
+    let quickScanTitle = "Run Catalog Scan";
+    let quickScanBody = "Click Run Catalog Scan to create lightweight product-risk candidates from your catalog. The wizard stays open while confirmation modals appear.";
     if (quickScanJobActive) {
-      quickScanTitle = "QuickScan is running";
-      quickScanBody = "ProductPulse is scanning the catalog. Keep the wizard open; when the QuickScan job finishes, this step will move to the candidate products.";
+      quickScanTitle = "Catalog Scan is running";
+      quickScanBody = "ProductPulse is scanning the catalog. Keep the wizard open; when the Catalog Scan job finishes, this step will move to the candidate products.";
     } else if (quickScanStarted) {
-      quickScanTitle = "Starting QuickScan";
-      quickScanBody = "ProductPulse is waiting for the QuickScan background job to start. Keep the wizard open while the scan modal stays visible.";
+      quickScanTitle = "Starting Catalog Scan";
+      quickScanBody = "ProductPulse is waiting for the Catalog Scan background job to start. Keep the wizard open while the scan modal stays visible.";
     }
 
     return (
@@ -622,14 +543,14 @@ function ProductsWizardStep({ targetRects, productsState, quickScanStarted, quic
 
   const anchor = targetRects.deepScanAction || targetRects.candidateRows;
   if (!anchor) {
-    return <WizardLoadingCard title="Candidates ready" body="We are locating the candidate rows and deep scan action." />;
+    return <WizardLoadingCard title="Candidates ready" body="We are locating the candidate rows and Product Diagnosis action." />;
   }
 
   return (
     <WizardTooltip
       anchorRect={anchor}
       className="ppWizardTooltip-products"
-      title="Select a candidate and run Deep Scan"
+      title="Select a candidate and run Product Diagnosis"
       eyebrow="Candidates"
       estimatedHeight={150}
       forceSide="bottom"
@@ -637,8 +558,8 @@ function ProductsWizardStep({ targetRects, productsState, quickScanStarted, quic
       offsetY={4}
     >
       <p>
-        Candidate products are QuickScan results that still need full AI diagnosis. Select one row,
-        then use the highlighted Run Deep Scan action in the toolbar to queue a deep scan for that product.
+        Candidate products are Catalog Scan results that still need Product Diagnosis. Select one row,
+        then use the highlighted Run Product Diagnosis action in the toolbar to queue a Product Diagnosis for that product.
       </p>
     </WizardTooltip>
   );
@@ -647,14 +568,14 @@ function ProductsWizardStep({ targetRects, productsState, quickScanStarted, quic
 function BackgroundProcessesWizardStep({ targetRects }) {
   const anchor = targetRects.backgroundProcessPopover || targetRects.backgroundProcessButton;
   if (!anchor) {
-    return <WizardLoadingCard title="Opening Background processes" body="We are opening the process monitor for the deep scan." />;
+    return <WizardLoadingCard title="Opening Background processes" body="We are opening the process monitor for the Product Diagnosis." />;
   }
 
   return (
       <WizardTooltip
         anchorRect={anchor}
         className="ppWizardTooltip-backgroundProcesses"
-        title="Track the Deep Scan"
+        title="Track the Product Diagnosis"
         eyebrow="Background processes"
         estimatedHeight={292}
         forceSide="left"
@@ -662,7 +583,7 @@ function BackgroundProcessesWizardStep({ targetRects }) {
         preferredWidth={408}
       >
       <p>
-        ProductPulse is running the deep diagnosis in the background. During this process, the
+        ProductPulse is running the Product Diagnosis in the background. During this process, the
         system reviews the product context, recent signals, review evidence, return patterns,
         support hints, and catalog metadata to understand what may be causing the risk.
       </p>
@@ -673,7 +594,7 @@ function BackgroundProcessesWizardStep({ targetRects }) {
       </p>
       <div className="ppWizardProcessingStatus" role="status" aria-live="polite">
         <span className="ppWizardInlineSpinner" aria-hidden="true" />
-        <span>Deep Scan is still running...</span>
+        <span>Product Diagnosis is still running...</span>
       </div>
     </WizardTooltip>
   );
@@ -682,14 +603,14 @@ function BackgroundProcessesWizardStep({ targetRects }) {
 function DeepScanCompleteWizardStep({ targetRects, completedJob }) {
   const anchor = targetRects.completionNoticeAction || targetRects.completionNotice;
   if (!anchor) {
-    return <WizardLoadingCard title="Deep Scan complete" body="We are locating the completion message for the finished product analysis." />;
+    return <WizardLoadingCard title="Product Diagnosis complete" body="We are locating the completion message for the finished Product Diagnosis." />;
   }
 
   return (
     <WizardTooltip
       anchorRect={anchor}
       className="ppWizardTooltip-deepScanComplete"
-      title="Deep Scan complete"
+      title="Product Diagnosis complete"
       eyebrow="Product ready"
       estimatedHeight={154}
       forceSide="bottom"
@@ -697,7 +618,7 @@ function DeepScanCompleteWizardStep({ targetRects, completedJob }) {
       offsetY={10}
     >
       <p>
-        {completedJob?.productTitle || completedJob?.displayTitle || "This product"} is ready to review. Click <strong>Open product</strong> to see the full diagnosis details.
+        {completedJob?.productTitle || completedJob?.displayTitle || "This product"} is ready to review. Click <strong>Open product</strong> to see the Product Diagnosis details.
       </p>
     </WizardTooltip>
   );
@@ -716,14 +637,14 @@ function ProductOverviewWizardStep({ targetRects }) {
       <WizardTooltip
         anchorRect={heroAnchor}
         className="ppWizardTooltip-productOverview"
-        title="Deep product analysis"
+        title="Product Diagnosis"
         eyebrow="Product details"
         estimatedHeight={164}
         preferredWidth={392}
         offsetY={-10}
       >
         <p>
-          This is the deep analysis detail page for the product. ProductPulse gathers the
+          This is the Product Diagnosis detail page for the product. ProductPulse gathers the
           available product, review, return, support, and Shopify signals here so you can read the
           diagnosis with the key metrics in one place.
         </p>
@@ -817,7 +738,7 @@ function ChatAssistantWizardStep({ targetRects }) {
     >
       <p>
         Pulse Guide is your intelligent chat companion for ProductPulse. Ask it questions about this
-        page, the product analysis, evidence, metrics, candidates, watchlists, or what to do next.
+        page, Product Diagnosis, evidence, metrics, candidates, watchlists, or what to do next.
       </p>
       <p>
         It can help you investigate details, understand what you are seeing, and move through tasks.
@@ -920,17 +841,14 @@ function useWizardSpotlightTargets(targets, enabled) {
   const [rects, setRects] = useState({});
   const rafRef = useRef(null);
   const targetsKey = useMemo(
-    () => targets.map((target) => `${target.id}:${target.selector}:${target.all ? "all" : "one"}:${(target.ancestorSelectors || []).join(",")}`).join("|"),
+    () => targets.map((target) => `${target.id}:${target.selector}:${target.all ? "all" : "one"}`).join("|"),
     [targets],
   );
 
   const measure = useCallback(() => {
     const nextRects = {};
     document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
-      element.classList.remove("ppWizardSpotlightTarget");
-    });
-    document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
-      element.classList.remove("ppWizardSpotlightAncestor");
+      clearWizardSpotlightElement(element);
     });
 
     targets.forEach((target) => {
@@ -941,10 +859,12 @@ function useWizardSpotlightTargets(targets, enabled) {
       if (!visibleElements.length) return;
 
       visibleElements.forEach((element) => {
+        const rect = getElementRect(element);
+        element.style.setProperty("--pp-wizard-target-top", `${rect.top}px`);
+        element.style.setProperty("--pp-wizard-target-left", `${rect.left}px`);
+        element.style.setProperty("--pp-wizard-target-width", `${rect.width}px`);
+        element.style.setProperty("--pp-wizard-target-height", `${rect.height}px`);
         element.classList.add("ppWizardSpotlightTarget");
-        (target.ancestorSelectors || []).forEach((selector) => {
-          element.closest(selector)?.classList.add("ppWizardSpotlightAncestor");
-        });
       });
       nextRects[target.id] = getUnionRect(visibleElements);
     });
@@ -955,10 +875,7 @@ function useWizardSpotlightTargets(targets, enabled) {
   useEffect(() => {
     if (!enabled) {
       document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
-        element.classList.remove("ppWizardSpotlightTarget");
-      });
-      document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
-        element.classList.remove("ppWizardSpotlightAncestor");
+        clearWizardSpotlightElement(element);
       });
       setRects((current) => (Object.keys(current).length ? {} : current));
       return undefined;
@@ -981,15 +898,20 @@ function useWizardSpotlightTargets(targets, enabled) {
       window.removeEventListener("resize", scheduleMeasure);
       window.removeEventListener("scroll", scheduleMeasure, true);
       document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
-        element.classList.remove("ppWizardSpotlightTarget");
-      });
-      document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
-        element.classList.remove("ppWizardSpotlightAncestor");
+        clearWizardSpotlightElement(element);
       });
     };
   }, [enabled, measure, targetsKey]);
 
   return rects;
+}
+
+function clearWizardSpotlightElement(element) {
+  element.classList.remove("ppWizardSpotlightTarget");
+  element.style.removeProperty("--pp-wizard-target-top");
+  element.style.removeProperty("--pp-wizard-target-left");
+  element.style.removeProperty("--pp-wizard-target-width");
+  element.style.removeProperty("--pp-wizard-target-height");
 }
 
 function useProductsWizardState(enabled) {
@@ -1087,9 +1009,9 @@ function getWizardTargets(step, hasCandidates, quickScanStepCompleted) {
 function getWizardControlLabels(step, productsState, deepScanStarted, quickScanStepCompleted, completedDeepScanJob) {
   if (step.kind === "products") {
     const next = !quickScanStepCompleted
-      ? "Run QuickScan first"
+      ? "Run Catalog Scan first"
       : productsState.hasCandidates
-        ? deepScanStarted ? "Next" : "Waiting for Deep Scan"
+        ? deepScanStarted ? "Next" : "Waiting for Product Diagnosis"
         : "Waiting for candidates";
     return {
       back: "Back",
@@ -1099,7 +1021,7 @@ function getWizardControlLabels(step, productsState, deepScanStarted, quickScanS
   if (step.kind === "backgroundProcesses") {
     return {
       back: "Back",
-      next: deepScanStarted && !completedDeepScanJob ? "Waiting for Deep Scan" : "Finish",
+      next: deepScanStarted && !completedDeepScanJob ? "Waiting for Product Diagnosis" : "Finish",
     };
   }
   if (step.kind === "deepScanComplete") {
@@ -1133,9 +1055,9 @@ function getWizardControlLabels(step, productsState, deepScanStarted, quickScanS
 }
 
 function getConnectCompletionMessage(provider) {
-  if (provider === "judgemeReviews") return "Judge.me was connected. When you are ready, click Next to configure Settings.";
-  if (provider === "csvReviews") return "CSV reviews were saved. When you are ready, click Next to configure Settings.";
-  return "Source saved. When you are ready, click Next to configure Settings.";
+  if (provider === "judgemeReviews") return "Judge.me was connected. When you are ready, click Next to continue to Products.";
+  if (provider === "csvReviews") return "CSV reviews were saved. When you are ready, click Next to continue to Products.";
+  return "Source saved. When you are ready, click Next to continue to Products.";
 }
 
 function getUnionRect(elements) {

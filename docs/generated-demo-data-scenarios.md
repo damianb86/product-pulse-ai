@@ -139,7 +139,7 @@ Product Relationships on GEN RELTEST Source Product:
 
 - Bought together should show GEN RELTEST Bought Together Product.
 - Attach rate should be 6 / 14 source orders when source-order basket context is used.
-- Lift may be higher when QuickScan has store-wide order context.
+- Lift may be higher when Catalog Scan has store-wide order context.
 - Risk impact should be positive because source returns/refunds are concentrated in bought-together orders while source solo orders are clean.
 - Bought before should show GEN RELTEST Bought Before Product with 4 customers.
 - Bought after should show GEN RELTEST Bought After Product with 4 customers.
@@ -170,11 +170,11 @@ Reviews and evidence:
 
 ## Recompute / Refresh Behavior
 
-The Settings generator creates Shopify products, Shopify orders, Shopify returns/refunds, and the CSV review source. It does not automatically run QuickScan or deep product diagnosis after the data is generated.
+The Settings generator creates Shopify products, Shopify orders, Shopify returns/refunds, and the CSV review source. It does not automatically run Catalog Scan or deep Product Diagnosis after the data is generated.
 
 After generation:
 
 - Run the Settings mock dataset stages through `manifest`, or run `all`.
-- Run QuickScan to refresh catalog-wide snapshots and Product Relationship Intelligence with store-wide context.
-- Open GEN RELTEST Source Product and run deep analysis to refresh the product detail metrics.
+- Run Catalog Scan to refresh catalog-wide snapshots and Product Relationship Intelligence with store-wide context.
+- Open GEN RELTEST Source Product and run Product Diagnosis to refresh the product detail metrics.
 - Open GEN RELTEST Return Refund Product and GEN RELTEST Refund Only Product for the dedicated resolution buckets.

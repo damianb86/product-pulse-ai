@@ -61,52 +61,43 @@ describe("ProductPulseWizard", () => {
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
   });
 
-  it("asks Settings to handle unsaved changes before moving to Products", async () => {
+  it("moves from Connect directly to Products", async () => {
     renderWizard();
 
     fireEvent.click(await screen.findByRole("button", { name: /next/i }));
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/settings"));
 
     act(() => {
       window.dispatchEvent(new CustomEvent("productpulse:settings-dirty-state", { detail: { dirty: true } }));
     });
+
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(screen.getByTestId("settings-leave-requests")).toHaveTextContent("1");
-    expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/settings");
-
-    act(() => {
-      window.dispatchEvent(new CustomEvent("productpulse:wizard-settings-leave-allowed"));
-    });
-
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
+    expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
   });
 
-  it("shows the QuickScan step even when candidate rows already exist", async () => {
+  it("shows the Catalog Scan step even when candidate rows already exist", async () => {
     window.__PP_WIZARD_TEST_HAS_CANDIDATES__ = true;
     renderWizard();
 
     fireEvent.click(await screen.findByRole("button", { name: /next/i }));
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/settings"));
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
-    expect(await screen.findByRole("dialog", { name: "Run QuickScan" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Select a candidate and run Deep Scan" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run QuickScan first" })).toBeDisabled();
+    expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run Catalog Scan first" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Run quick scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run Catalog Scan" }));
 
-    expect(await screen.findByRole("dialog", { name: "QuickScan is running" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Select a candidate and run Deep Scan" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Catalog Scan is running" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).not.toBeInTheDocument();
 
     finishQuickScan();
 
-    expect(await screen.findByRole("dialog", { name: "Select a candidate and run Deep Scan" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).toBeInTheDocument();
   });
 
   it("skips only the current step without completing the tour", async () => {
@@ -119,77 +110,73 @@ describe("ProductPulseWizard", () => {
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
   });
 
-  it("can skip the QuickScan and candidate steps independently", async () => {
+  it("can skip the Catalog Scan and candidate steps independently", async () => {
     window.__PP_WIZARD_TEST_HAS_CANDIDATES__ = true;
     renderWizard();
 
     fireEvent.click(await screen.findByRole("button", { name: /next/i }));
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/settings"));
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
-    expect(await screen.findByRole("dialog", { name: "Run QuickScan" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip step" }));
 
-    expect(await screen.findByRole("dialog", { name: "Select a candidate and run Deep Scan" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).toBeInTheDocument();
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip step" }));
 
     expect(await screen.findByRole("dialog", { name: "Background processes" })).toBeInTheDocument();
-    expect(await screen.findByRole("dialog", { name: "Track the Deep Scan" })).toHaveClass("isLeft");
+    expect(await screen.findByRole("dialog", { name: "Track the Product Diagnosis" })).toHaveClass("isLeft");
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
   });
 
-  it("moves through Settings, Products, and Background processes before finishing", async () => {
+  it("moves through Products and Background processes before finishing", async () => {
     renderWizard();
 
     fireEvent.click(await screen.findByRole("button", { name: /next/i }));
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/settings"));
-    expect(await screen.findByRole("dialog", { name: "Tune your scan rules" })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
-    expect(await screen.findByRole("dialog", { name: "Run QuickScan" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run QuickScan first" })).toBeDisabled();
+    expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run Catalog Scan first" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Run quick scan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run Catalog Scan" }));
 
-    expect(await screen.findByRole("dialog", { name: "QuickScan is running" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog", { name: "Select a candidate and run Deep Scan" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Catalog Scan is running" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).not.toBeInTheDocument();
 
     finishQuickScan();
 
-    expect(await screen.findByRole("dialog", { name: "Select a candidate and run Deep Scan" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Analyze selected (1)" })).toHaveClass("ppWizardSpotlightTarget");
-      expect(screen.getByTestId("candidate-toolbar")).toHaveClass("ppWizardSpotlightAncestor");
+      expect(screen.getByRole("button", { name: "Analyze selected (1)" })).toHaveStyle({ "--pp-wizard-target-top": "0px" });
     });
+    expect(screen.getByTestId("candidate-toolbar")).not.toHaveClass("ppWizardSpotlightAncestor");
+    expect(screen.getByRole("button", { name: "Add selected products to Watchlist (1)" })).not.toHaveClass("ppWizardSpotlightTarget");
     expect(screen.getByRole("button", { name: "Analyze Candidate Product" })).not.toHaveClass("ppWizardSpotlightTarget");
-    expect(screen.getByRole("button", { name: "Waiting for Deep Scan" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Waiting for Product Diagnosis" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Analyze selected (1)" }));
 
     expect(await screen.findByRole("dialog", { name: "Background processes" })).toBeInTheDocument();
-    expect(await screen.findByRole("dialog", { name: "Track the Deep Scan" })).toHaveClass("isLeft");
+    expect(await screen.findByRole("dialog", { name: "Track the Product Diagnosis" })).toHaveClass("isLeft");
     expect(screen.getByText(/AI-assisted reasoning and product-signal scoring/i)).toBeInTheDocument();
-    expect(screen.getByText("Deep Scan is still running...")).toBeInTheDocument();
+    expect(screen.getByText("Product Diagnosis is still running...")).toBeInTheDocument();
 
     completeDeepScan();
 
-    expect(await screen.findByRole("dialog", { name: "Deep Scan complete" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Deep analysis finished");
+    expect(await screen.findByRole("dialog", { name: "Product Diagnosis complete" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Product Diagnosis finished");
 
     fireEvent.click(screen.getByRole("link", { name: "Open product" }));
 
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products/gen-quietdesk-mini-fan"));
-    expect(await screen.findByRole("dialog", { name: "Deep product analysis" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Product Diagnosis" })).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Product actions" })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId("product-detail-hero")).toHaveClass("ppWizardSpotlightTarget");
@@ -321,7 +308,7 @@ function WizardHarness() {
       </aside>
       {deepScanNotice ? (
         <aside data-pp-job-completion-notice="product-diagnosis" role="status">
-          <strong>Deep analysis finished</strong>
+          <strong>Product Diagnosis finished</strong>
           <p>{deepScanNotice.productTitle} is ready to review.</p>
           <Link
             data-pp-job-completion-open-product="true"
@@ -353,7 +340,7 @@ function WizardHarness() {
         {jobsOpen ? (
           <section data-pp-background-process-popover role="dialog" aria-label="Background processes">
             <h2>Background processes</h2>
-            <p>Deep Scan is queued.</p>
+            <p>Product Diagnosis is queued.</p>
           </section>
         ) : null}
       </div>
@@ -395,7 +382,7 @@ function WizardHarness() {
           <div>
             <span data-testid="settings-leave-requests">{settingsLeaveRequests}</span>
             <section data-pp-settings-target="risk-thresholds">Product risk thresholds</section>
-            <section data-pp-settings-target="momentum-inclusion">Product Momentum inclusion</section>
+            <section data-pp-settings-target="momentum-inclusion">Sales Momentum inclusion</section>
             <section data-pp-settings-target="evidence-lookback">Evidence lookback</section>
           </div>
         ) : null}
@@ -436,10 +423,10 @@ function WizardHarness() {
         ) : location.pathname.startsWith("/app/products") ? (
           <div>
             <button data-pp-products-tab="candidates" type="button">Candidates</button>
-            <button data-pp-products-quick-scan type="button" onClick={startQuickScan}>Run quick scan</button>
+            <button data-pp-products-quick-scan type="button" onClick={startQuickScan}>Run Catalog Scan</button>
             {quickScanRunning ? (
-              <section role="status" aria-label="QuickScan running">
-                <h2>Fast product scan running</h2>
+              <section role="status" aria-label="Catalog Scan running">
+                <h2>Catalog Scan running</h2>
               </section>
             ) : null}
             {hasCandidates ? (
@@ -453,6 +440,13 @@ function WizardHarness() {
                     onClick={startDeepScan}
                   >
                     Analyze selected
+                  </button>
+                  <button
+                    className="ppSecondaryActionButton ppProductsToolbarIconButton ppProductsWatchlistBulkButton"
+                    type="button"
+                    aria-label="Add selected products to Watchlist (1)"
+                  >
+                    Watchlist
                   </button>
                 </div>
                 <table>

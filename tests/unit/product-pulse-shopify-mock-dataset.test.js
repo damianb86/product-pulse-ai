@@ -404,7 +404,7 @@ describe("Shopify mock dataset scopes", () => {
     expect(docs).toContain("exchange/replacement return on a source line");
     expect(docs).toContain("Medium White to Large");
     expect(docs).toContain("Rose to Black");
-    expect(docs).toContain("Run QuickScan to refresh catalog-wide snapshots");
+    expect(docs).toContain("Run Catalog Scan to refresh catalog-wide snapshots");
   });
 
   it("does not add new Shopify mutation operations to the generator", () => {

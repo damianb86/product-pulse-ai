@@ -28,7 +28,7 @@ Affected tables:
 AI suitability:
 
 - Safe to expose as a confirmed internal action for stored ProductPulse products.
-- Requires confirmation because it creates jobs and may consume diagnosis capacity/credits.
+- Requires confirmation because it creates jobs and may consume diagnosis capacity/diagnosis credits.
 - Does not directly mutate Shopify products.
 - Reversible: no, but repeated requests are mostly idempotent because the existing service reuses active jobs for the same product.
 
@@ -128,7 +128,7 @@ All mutating internal actions require confirmation. The assistant can create pro
 
 Confirmation levels:
 
-- `low`: add to watchlist, run product diagnosis, run watchlist diagnoses.
+- `low`: add to watchlist, run Product Diagnosis, run watchlist diagnoses.
 - `medium`: remove from watchlist, mark recommendation status.
 - `high`: archive/remove internal ProductPulse analysis.
 

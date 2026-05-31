@@ -33,14 +33,14 @@ Implication: relationship intelligence should use the existing scan/diagnosis pi
 
 Customer identity is not currently available in ProductPulse analysis events.
 
-Current Shopify order queries in QuickScan and deep diagnosis read:
+Current Shopify order queries in Catalog Scan and Product Diagnosis read:
 
 - order id;
 - order created/processed timestamps;
 - order line items;
 - returns;
 - refunds;
-- optional shipping/billing geography in deep diagnosis.
+- optional shipping/billing geography in Product Diagnosis.
 
 They do not read `customer`, `customer.id`, email, phone, customer name, or any stable local customer key.
 
@@ -68,9 +68,9 @@ Current code generally treats the order cohort date as:
 
 Relevant code paths:
 
-- QuickScan sales: `extractOrderLineItemEventsWithPaginatedQueries`.
-- QuickScan bulk orders: `buildOrdersBulkQuery`.
-- Deep diagnosis sales: `fetchShopifySalesEvents`.
+- Catalog Scan sales: `extractOrderLineItemEventsWithPaginatedQueries`.
+- Catalog Scan bulk orders: `buildOrdersBulkQuery`.
+- Product Diagnosis sales: `fetchShopifySalesEvents`.
 - Monthly order activity and purchase context: cohort month derived from order date.
 
 For relationship intelligence, order cohort date should use the same basis to avoid chart/scoring inconsistencies.
@@ -95,7 +95,7 @@ Current normalized sale events include:
 - line amount from `originalTotalSet.shopMoney.amount`;
 - order dates.
 
-Deep diagnosis also preserves compact `basketLineItems` on product-scoped sales when basket context is available.
+Product Diagnosis also preserves compact `basketLineItems` on product-scoped sales when basket context is available.
 
 ### Revenue data
 
@@ -132,8 +132,8 @@ Historical completeness is limited by the active scan/diagnosis window and wheth
 Current constraints:
 
 - There is no local raw order history table.
-- QuickScan can see broad shop order events within its configured window.
-- Deep diagnosis is product-scoped but can preserve basket line items for matched orders.
+- Catalog Scan can see broad shop order events within its configured window.
+- Product Diagnosis is product-scoped but can preserve basket line items for matched orders.
 - `ProductScoreHistory` stores product metric history, not raw relationship event history.
 - Relationships from older orders are unavailable unless they were included in a prior snapshot or source cache.
 
@@ -147,7 +147,7 @@ Product display data is available through:
 - `ProductRiskSnapshot.handle`;
 - product metrics such as vendor/type/collections/media where present;
 - live Product Detail image attachment from Shopify;
-- product catalog data loaded during QuickScan.
+- product catalog data loaded during Catalog Scan.
 
 Order line items do not provide reliable current product images or status. For future relationship UI, related product cards should join to `ProductRiskSnapshot` or the scanned product catalog when available. If a product was deleted or is not in ProductPulse snapshots, show a title-only related product with a warning.
 
@@ -189,8 +189,8 @@ Current support: supported.
 
 Inputs:
 
-- complete order line items from QuickScan;
-- `basketLineItems` from deep diagnosis;
+- complete order line items from Catalog Scan;
+- `basketLineItems` from Product Diagnosis;
 - product id and order id.
 
 This is the strongest initial relationship type because it does not require customer identity.
@@ -254,7 +254,7 @@ Whether related purchases change:
 - refund amount;
 - product risk;
 - diagnosis confidence;
-- financial exposure.
+- estimated margin exposure.
 
 Current support:
 
@@ -465,7 +465,7 @@ For same-order impact:
 
 ### Current same-order pipeline
 
-1. Use existing QuickScan order extraction to gather shop-wide sale events.
+1. Use existing Catalog Scan order extraction to gather shop-wide sale events.
 2. Group sale events by `shop + orderId`.
 3. Build a distinct product set for each order.
 4. For each product in the order, increment pair counts for every other product in that order.
@@ -474,12 +474,12 @@ For same-order impact:
 7. Join return/refund outcomes by `orderId + lineItemId` through existing return/refund relationship logic where available.
 8. Persist top relationships and compact trend/impact summaries in `ProductRiskSnapshot.metrics`.
 
-### Deep diagnosis pipeline
+### Product Diagnosis pipeline
 
 1. Use product-scoped sales events for the current product.
 2. Use each sale event's `basketLineItems` to calculate same-order related products.
 3. Mark relationship confidence lower when `basketLineItems` is missing.
-4. Do not calculate customer sequence relationships in deep diagnosis until customer key support exists.
+4. Do not calculate customer sequence relationships in Product Diagnosis until customer key support exists.
 5. Update the current product snapshot only.
 
 ### Future customer-sequence pipeline
@@ -499,8 +499,8 @@ Only after customer identity is safely available:
 
 The service should support:
 
-- one product recompute from deep diagnosis source events;
-- one shop recompute from QuickScan source events;
+- one product recompute from Product Diagnosis source events;
+- one shop recompute from Catalog Scan source events;
 - future scheduled recompute through `CatalogSignalJob`;
 - tenant isolation through server-derived `shop`;
 - bounded top-N relationships to avoid large metrics JSON payloads.

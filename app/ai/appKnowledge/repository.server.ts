@@ -85,7 +85,7 @@ export class AppKnowledgeRepository {
         logic: "Unknown in the curated app knowledge base.",
         inputs: [],
         thresholds: [],
-        interpretation: ["Ask about a documented score such as risk, confidence, impact, priority, coverage, or Product Momentum."],
+        interpretation: ["Ask about a documented score such as risk, confidence, impact, priority, coverage, or Sales Momentum."],
         caveats: ["The assistant should not invent missing formulas."],
         confidence: "low",
       };
@@ -133,7 +133,7 @@ export class AppKnowledgeRepository {
         whereShown: "Unknown in the curated app knowledge base.",
         supportingFormulas: [],
         inputs: [],
-        interpretation: ["Ask about a visible Product Detail card such as Overview, Recommended Actions, Product Momentum, Basket Context, Return pressure, Refund leakage, Lift, or Product relationship timeline."],
+        interpretation: ["Ask about a visible Product Detail card such as Overview, Recommended Actions, Sales Momentum, Basket Context, Return pressure, Refund leakage, Lift, or Product relationship timeline."],
         caveats: ["The assistant should not invent missing card definitions or formulas."],
         relatedMetrics: [],
         confidence: "low",

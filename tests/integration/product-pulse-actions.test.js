@@ -16,14 +16,14 @@ describe("ProductPulse actions", () => {
     });
   });
 
-  it("starts diagnosis and consumes one point", () => {
+  it("starts diagnosis and consumes one diagnosis credit", () => {
     expect(startProductDiagnosis("core-linen-trouser", 3)).toMatchObject({
       status: "success",
       creditsRemaining: 2,
     });
   });
 
-  it("blocks diagnosis without points", () => {
+  it("blocks diagnosis without diagnosis credits", () => {
     expect(startProductDiagnosis("core-linen-trouser", 0)).toMatchObject({
       status: "validation_error",
     });
@@ -120,7 +120,7 @@ describe("ProductPulse actions", () => {
     expect(analytics.actionPerformance.effectiveness).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "Product risk change", value: "Down 24 pts" }),
       expect.objectContaining({ label: "Post-fix return rate", value: "Down 7 pts" }),
-      expect.objectContaining({ label: "Margin at risk reduced", value: "$280 lower" }),
+      expect.objectContaining({ label: "Estimated Margin Exposure reduced", value: "$280 lower" }),
     ]));
   });
 
@@ -416,7 +416,7 @@ describe("ProductPulse actions", () => {
     expect(analytics.impactTrend.labels.at(-1)).toBe("May 20");
   });
 
-  it("builds analytics chart data from deep diagnosis products only", () => {
+  it("builds analytics chart data from Product Diagnosis products only", () => {
     const fullDiagnosisProduct = {
       id: "gid://shopify/Product/deep",
       handle: "deep-product",

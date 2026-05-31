@@ -84,7 +84,7 @@ Logic:
 
 Then confidence is capped by sample size, source independence, data quality, and reconstruction state.
 
-## Evidence Strength
+## Evidence Support
 
 Range: 0 to 100.
 
@@ -92,7 +92,7 @@ Formula:
 
 `evidenceStrengthScore = round(clamp(signalVolumeScore * 1.3 + independentSourceScore * 1.4 + sourceAgreementScore * 1.3 + recencyScore * 1.1, 0, 100))`
 
-Evidence strength is support strength, not risk.
+Evidence support is support strength, not risk.
 
 ## Impact / Estimated Impact
 
@@ -150,7 +150,7 @@ Caveats:
 
 ### Margin At Risk
 
-Margin at risk is estimated margin/cost exposure, rounded to money.
+Estimated Margin Exposure is estimated margin/cost exposure, rounded to money.
 
 Formula:
 
@@ -172,7 +172,7 @@ Defaults:
 
 ### Estimated Impact / Impact Score
 
-Estimated impact is the money value used as `impactScore`.
+Estimated Margin Exposure is the money value used as `impactScore`.
 
 Formula:
 
@@ -192,7 +192,7 @@ The impact range uses sample-size multipliers:
 
 ### Return And Refund Rates
 
-QuickScan stores return and refund rates as percentages.
+Catalog Scan stores return and refund rates as percentages.
 
 Formula:
 
@@ -241,7 +241,7 @@ Refund leakage is money-focused. Return pressure is friction-focused.
 
 ### Review Rating And Negative Review Rate
 
-For QuickScan CSV review ratings:
+For Catalog Scan CSV review ratings:
 
 - `reviewRating = roundRating(csvReviewRatingSum / csvReviewRatingCount)`
 - `negativeReviewRate = roundPercent(csvLowRatingCount / csvReviewRatingCount)`
@@ -260,7 +260,7 @@ Formula:
 
 Default `maxReferenceImpact` is 25000.
 
-## Product Momentum
+## Sales Momentum
 
 Implementation reference: `buildProductMomentum` in `app/lib/product-pulse-diagnosis.server.js`.
 
@@ -272,7 +272,7 @@ Formula:
 
 ### Velocity
 
-Velocity is the current Product Momentum sales velocity component.
+Velocity is the current Sales Momentum sales velocity component.
 
 Formula:
 
@@ -328,7 +328,7 @@ Fallback when only catalog rank is available:
 
 ### Lift
 
-Lift is a baseline comparison ratio. ProductPulse uses it in Product Momentum Catalog Share and in Product Relationship Intelligence.
+Lift is a baseline comparison ratio. ProductPulse uses it in Sales Momentum Catalog Share and in Product Relationship Intelligence.
 
 Catalog share lift:
 
@@ -368,7 +368,7 @@ Where:
 
 Recency exists in two ProductPulse scoring areas.
 
-Product Momentum recency:
+Sales Momentum recency:
 
 `recencyScore = clamp(base + recentShare * 10 + (unitsLast7Days >= 5 ? 4 : 0), 0, 96)`
 
@@ -382,7 +382,7 @@ Risk recency bonus:
 
 `recencyBonus = clamp(recentSignalUnits / signalEventCount * 6 + (recentSignalUnits >= 3 ? 1.5 : 0), 0, 5)`
 
-Evidence strength recency:
+Evidence support recency:
 
 `recencyScore = freshnessScore = clamp(recentSignalUnits > 0 ? 4 + min(6, recentSignalUnits / signalEventCount * 8) : 0, 0, 10)`
 
@@ -406,7 +406,7 @@ Recommended interpretation:
 
 - 70 or more: useful for watchlist inclusion.
 - 50 to 69: monitor if risk rises.
-- Below 50: no commercial follow-up by momentum alone.
+- Below 50: no commercial follow-up by Sales Momentum alone.
 
 ## Negative Review Pressure
 

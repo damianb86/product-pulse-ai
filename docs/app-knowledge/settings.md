@@ -10,7 +10,7 @@ Default: 18.
 
 Allowed range: 0 to 90.
 
-Effect: QuickScan keeps products with risk at or above this value, unless product momentum qualifies them separately.
+Effect: Catalog Scan keeps products with risk at or above this value, unless Sales Momentum qualifies them separately.
 
 ## Medium risk threshold
 
@@ -32,7 +32,7 @@ Allowed range: must be greater than medium threshold and no more than 100.
 
 Effect: Starts the high risk label in the UI.
 
-## Momentum minimum score
+## Sales Momentum minimum score
 
 Key: `momentum.minimumScore`
 
@@ -40,7 +40,7 @@ Default: 70.
 
 Allowed range: 0 to 100.
 
-Effect: QuickScan keeps products with Product Momentum at or above this value even when risk is below the minimum risk threshold.
+Effect: Catalog Scan keeps products with Sales Momentum at or above this value even when risk is below the minimum risk threshold.
 
 ## Analysis lookback days
 
@@ -50,7 +50,7 @@ Default: 60.
 
 Allowed range: 10 to 365.
 
-Effect: Controls how far back QuickScan and full diagnosis read orders, returns, refunds, and connected reviews.
+Effect: Controls how far back Catalog Scan and Product Diagnosis read orders, returns, refunds, and connected reviews.
 
 ## Watchlist settings
 

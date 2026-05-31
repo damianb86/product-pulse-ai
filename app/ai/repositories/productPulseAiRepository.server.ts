@@ -1044,9 +1044,9 @@ function getAiPurchaseContextConfidenceImpactText(context: AiProductPurchaseCont
 }
 
 function getAiPurchaseContextFinancialExposureImpactText(context: AiProductPurchaseContextSummary, exposure: Record<string, unknown>): string {
-  if (!context.available) return "Purchase context is unavailable for financial exposure.";
+  if (!context.available) return "Purchase context is unavailable for estimated margin exposure.";
   if (firstNumber(exposure.bulkQuantityExposure) > 0) return "Bulk or multi-unit orders increase potential unit exposure when bad events occur.";
-  return "Purchase context does not add material financial exposure.";
+  return "Purchase context does not add material estimated margin exposure.";
 }
 
 function getAiPurchaseContextReturnPressureImpactText(returnPressure: Record<string, unknown>): string {
@@ -1639,14 +1639,14 @@ function getAiRelationshipInterpretation(relationship: AiReturnRefundRelationshi
 }
 
 function getAiFinancialExposureInterpretation(exposure: AiFinancialExposureBreakdown): string {
-  if (!exposure.available) return "Financial exposure relationship breakdown is not available yet.";
+  if (!exposure.available) return "Estimated Margin Exposure relationship breakdown is not available yet.";
   if (exposure.confirmedRefundAmount > 0 && exposure.returnRelatedRiskAmount > 0) {
-    return "Financial exposure separates confirmed refunds from potential return-related risk.";
+    return "Estimated Margin Exposure separates confirmed refunds from potential return-related risk.";
   }
-  if (exposure.confirmedRefundAmount > 0) return "Financial exposure is mostly confirmed refund loss.";
-  if (exposure.returnRelatedRiskAmount > 0) return "Financial exposure is mostly potential return-related risk, not confirmed refund loss.";
+  if (exposure.confirmedRefundAmount > 0) return "Estimated Margin Exposure is mostly confirmed refund loss.";
+  if (exposure.returnRelatedRiskAmount > 0) return "Estimated Margin Exposure is mostly potential return-related risk, not confirmed refund loss.";
   if (exposure.unattributedRefundAmount > 0) return "Unattributed refunds are present and should be treated as lower-confidence financial context.";
-  return "No meaningful financial exposure is stored for this product.";
+  return "No meaningful estimated margin exposure is stored for this product.";
 }
 
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {

@@ -222,7 +222,7 @@ describe("return/refund relationship analysis", () => {
     expect(summary.relationship_unknown_count).toBe(0);
   });
 
-  it("stores the relationship summary and relationship-aware scoring factors on QuickScan candidate metrics", () => {
+  it("stores the relationship summary and relationship-aware scoring factors on Catalog Scan candidate metrics", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
       settings: { risk: { minimumScore: 0 }, momentum: { minimumScore: 101 } },

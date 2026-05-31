@@ -161,6 +161,6 @@ Set `AI_COST_DASHBOARD_ENABLED=true` to show the internal `AI Costs` menu item a
 
 ## MVP Limitations
 - Real third-party connectors are placeholders.
-- AI diagnosis is represented through deterministic fixtures and validated output contracts.
+- Product Diagnosis is represented through deterministic fixtures and validated output contracts.
 - Product write actions are stored as draft recommendations; production Shopify writes require explicit `write_products` scope and merchant confirmation.
 - Real Shopify billing is not enabled yet.

@@ -124,7 +124,7 @@ export function createAppKnowledgeToolDefinitions(
 
   const conceptTool: AiToolDefinition<ConceptInput, ReturnType<AppKnowledgeRepository["getConceptExplanation"]>> = {
     name: PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getAppConceptExplanation,
-    description: "Explain a real ProductPulse app concept such as QuickScan, Candidate, ProductAction, watchlist, or deep diagnosis.",
+    description: "Explain a real ProductPulse app concept such as Catalog Scan, Candidate, ProductAction, watchlist, or product diagnosis.",
     inputSchema: conceptInputSchema,
     readOnly: true,
     category: "app_knowledge",

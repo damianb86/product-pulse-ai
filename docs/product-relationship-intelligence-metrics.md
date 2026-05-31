@@ -18,7 +18,7 @@ Main exports:
 - `normalizeProductRelationshipSaleEvents`
 - `normalizeProductRelationshipImpactEvents`
 
-The module is read-only. It does not call Shopify, OpenAI, ChatKit, or write to Prisma. It consumes normalized order, return, and refund events produced by existing QuickScan and deep diagnosis flows.
+The module is read-only. It does not call Shopify, OpenAI, ChatKit, or write to Prisma. It consumes normalized order, return, and refund events produced by existing Catalog Scan and Product Diagnosis flows.
 
 ## Persistence
 
@@ -26,9 +26,9 @@ Relationship summaries are persisted under:
 
 `ProductRiskSnapshot.metrics.productRelationshipIntelligenceSummary`
 
-QuickScan calculates summaries shop-wide from the extracted order event set and stores the product-specific summary on each persisted candidate.
+Catalog Scan calculates summaries shop-wide from the extracted order event set and stores the product-specific summary on each persisted candidate.
 
-Deep diagnosis calculates the current product summary from product-scoped sales, returns, refunds, and available `basketLineItems`.
+Product Diagnosis calculates the current product summary from product-scoped sales, returns, refunds, and available `basketLineItems`.
 
 Product Detail serialization preserves the persisted summary for future phases, but Phase 2 does not render it.
 
@@ -251,14 +251,14 @@ Outputs are compact and top-N bounded. Raw order lists and customer journeys are
 
 ## Processing strategy
 
-QuickScan:
+Catalog Scan:
 
 1. Extract catalog and order events.
 2. Build product indexes and order/basket state.
 3. Calculate summaries for all products in the extracted event set.
 4. Attach each summary to persisted candidate metrics.
 
-Deep diagnosis:
+Product Diagnosis:
 
 1. Use product-scoped sales, returns, refunds, and basket line items.
 2. Calculate the current product summary.
@@ -266,8 +266,8 @@ Deep diagnosis:
 
 Recompute:
 
-- one product: rerun deep diagnosis;
-- one shop: rerun QuickScan;
+- one product: rerun Product Diagnosis;
+- one shop: rerun Catalog Scan;
 - scheduled recomputation: use existing job patterns in future phases.
 
 ## Privacy and PII

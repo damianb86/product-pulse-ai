@@ -326,35 +326,23 @@ export function BetaFeedbackProvider({ config, children }) {
   );
 }
 
-export function BetaFeedbackPanelControls({ panel, className = "", allowHide = true, showFeedback = true }) {
+export function BetaFeedbackPanelControls({ panel, className = "", allowHide = true }) {
   const feedback = useContext(BetaFeedbackContext);
   const normalizedPanel = normalizePanel(panel);
   if (!feedback?.enabled || !normalizedPanel) return null;
+  if (!allowHide) return null;
 
   return (
     <span className={`ppBetaFeedbackPanelControls ${className}`.trim()} data-beta-feedback-panel-id={normalizedPanel.id}>
-      {showFeedback ? (
-        <button
-          aria-label={`Beta feedback for ${normalizedPanel.label}`}
-          className="ppBetaFeedbackPanelButton ppBetaFeedbackPanelButton-feedback"
-          onClick={() => feedback.openFeedback(normalizedPanel)}
-          title="Beta feedback"
-          type="button"
-        >
-          <s-icon type="chat" size="small"></s-icon>
-        </button>
-      ) : null}
-      {allowHide ? (
-        <button
-          aria-label={`Hide ${normalizedPanel.label}`}
-          className="ppBetaFeedbackPanelButton ppBetaFeedbackPanelButton-hide"
-          onClick={() => feedback.requestPanelHide(normalizedPanel)}
-          title="Hide this panel"
-          type="button"
-        >
-          <s-icon type="hide" size="small"></s-icon>
-        </button>
-      ) : null}
+      <button
+        aria-label={`Hide ${normalizedPanel.label}`}
+        className="ppBetaFeedbackPanelButton ppBetaFeedbackPanelButton-hide"
+        onClick={() => feedback.requestPanelHide(normalizedPanel)}
+        title="Hide this panel"
+        type="button"
+      >
+        <s-icon type="hide" size="small"></s-icon>
+      </button>
     </span>
   );
 }

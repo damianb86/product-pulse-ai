@@ -13,8 +13,8 @@ const CATEGORY_LABELS = {
   reviews: "Reviews",
   returns: "Returns",
   refunds: "Refunds",
-  momentum: "Momentum",
-  impact: "Business impact",
+  momentum: "Sales Momentum",
+  impact: "Estimated Margin Exposure",
   evidence: "Evidence",
   catalog: "Catalog",
 };
@@ -350,7 +350,7 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
     ...base,
     eventType: currentPoint.source === "quickscan" ? "quickscan_completed" : "watchlist_baseline_captured",
     category: currentPoint.source === "watchlist-baseline" ? "watchlist" : "scan",
-    title: currentPoint.source === "quickscan" ? "QuickScan completed" : "Watchlist baseline captured",
+    title: currentPoint.source === "quickscan" ? "Catalog Scan completed" : "Watchlist baseline captured",
     summary: `${source} stored ${currentPoint.riskScore}/100 risk${currentPoint.primaryIssue ? ` for ${currentPoint.primaryIssue}` : ""}.`,
     severityTone: getRiskToneForScore(currentPoint.riskScore),
     importance: currentPoint.source === "quickscan" ? 42 : 34,
@@ -414,8 +414,8 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
     category: "momentum",
     eventTypeUp: "momentum_increased",
     eventTypeDown: "momentum_decreased",
-    titleUp: "Product Momentum increased",
-    titleDown: "Product Momentum decreased",
+    titleUp: "Sales Momentum increased",
+    titleDown: "Sales Momentum decreased",
     unit: "points",
     importance: 58,
     positiveUp: true,
@@ -426,8 +426,8 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
       ...base,
       eventType: "momentum_tier_changed",
       category: "momentum",
-      title: "Product Momentum tier changed",
-      summary: `Momentum moved from ${previousPoint.productMomentumTier} to ${currentPoint.productMomentumTier}.`,
+      title: "Sales Momentum tier changed",
+      summary: `Sales Momentum moved from ${previousPoint.productMomentumTier} to ${currentPoint.productMomentumTier}.`,
       severityTone: "info",
       importance: 64,
       beforeValue: { tier: previousPoint.productMomentumTier },
@@ -451,8 +451,8 @@ function buildTimelineEventsForScoreHistoryPair({ shop, product, current, previo
     category: "evidence",
     eventTypeUp: "evidence_strength_increased",
     eventTypeDown: "evidence_strength_decreased",
-    titleUp: "Evidence strength increased",
-    titleDown: "Evidence strength decreased",
+    titleUp: "Evidence support increased",
+    titleDown: "Evidence support decreased",
     unit: "points",
     importance: 52,
     positiveUp: true,
@@ -890,7 +890,7 @@ function addFinancialExposureEvent(events, { base, eventPrefix, previousPoint, c
     eventType: delta >= 0 ? "business_impact_increased" : "business_impact_decreased",
     category: "impact",
     title: "Estimated exposure changed",
-    summary: `Business impact estimate moved from ${formatMoney(previousValue)} to ${formatMoney(currentValue)} (${delta > 0 ? "+" : ""}${formatMoney(delta)}).`,
+    summary: `Estimated Margin Exposure moved from ${formatMoney(previousValue)} to ${formatMoney(currentValue)} (${delta > 0 ? "+" : ""}${formatMoney(delta)}).`,
     severityTone: delta >= 0 ? "warning" : "success",
     importance: Math.min(82, 58 + Math.round(Math.abs(percent) / 5)),
     beforeValue: { financialExposure: previousValue },
@@ -1062,10 +1062,10 @@ function getWatchCalculatedChangeSpec(change = {}) {
     return { eventType: direction === "down" ? "risk_score_decreased" : "risk_score_increased", category: "risk", title: direction === "down" ? "Risk decreased since last Watchlist run" : "Risk increased since last Watchlist run", tone: direction === "down" ? "success" : "warning", importance: 70 };
   }
   if (id.includes("momentum")) {
-    return { eventType: "momentum_changed", category: "momentum", title: "Product Momentum changed", tone: "info", importance: 58 };
+    return { eventType: "momentum_changed", category: "momentum", title: "Sales Momentum changed", tone: "info", importance: 58 };
   }
   if (id.includes("impact") || id.includes("exposure")) {
-    return { eventType: "business_impact_changed", category: "impact", title: "Business impact changed", tone: direction === "down" ? "success" : "warning", importance: 60 };
+    return { eventType: "business_impact_changed", category: "impact", title: "Estimated Margin Exposure changed", tone: direction === "down" ? "success" : "warning", importance: 60 };
   }
   if (id.includes("return")) {
     return { eventType: "return_pressure_changed", category: "returns", title: "Return pressure changed", tone: direction === "down" ? "success" : "warning", importance: 60 };
@@ -1540,7 +1540,7 @@ function summarizeIssueList(issues = [], mode = "detected") {
 
 function getTimelineSourceLabel(source = "") {
   const normalized = String(source || "").toLowerCase();
-  if (normalized === "quickscan") return "Shopify QuickScan";
+  if (normalized === "quickscan") return "Shopify Catalog Scan";
   if (normalized === "full-diagnosis") return "ProductPulse diagnosis";
   if (normalized === "full-diagnosis-reconstructed") return "ProductPulse reconstructed history";
   if (normalized === "watchlist-baseline") return "ProductPulse Watchlist";

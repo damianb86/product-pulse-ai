@@ -7,10 +7,10 @@ ProductPulse AI is a Shopify embedded app for ecommerce operators, catalog manag
 Primary workflows found in the codebase:
 
 - Connect or review source coverage.
-- Run Catalog Signal Scan / QuickScan from Dashboard or Products.
+- Run Catalog Scan / Catalog Scan from Dashboard or Products.
 - Review Dashboard ranking and “start here” recommendations.
 - Review Products and Candidates tables.
-- Queue deep AI Product Diagnosis for stored products.
+- Queue Product Diagnosis for stored products.
 - Open Product detail to inspect diagnosis, evidence, metrics, recommendations, actions, and history.
 - Track important products in Watchlist.
 - Use Analytics to interpret risk, impact, source coverage, issues, and trends.
@@ -21,7 +21,7 @@ Main entities:
 - `ProductPulseSource`: source availability/coverage.
 - `CatalogSignalJob`: scan, mock dataset, and diagnosis job state.
 - `ProductRiskSnapshot`: stored product-level risk snapshot.
-- `ProductDiagnosis`: deep diagnosis result with issues/evidence/recommendations.
+- `ProductDiagnosis`: Product Diagnosis result with issues/evidence/recommendations.
 - `ProductAction`: app-owned action/recommendation history.
 - `ProductWatchlistItem`, `ProductWatchSettings`, `ProductWatchActivity`: watchlist state, settings, and activity.
 - `ProductScoreHistory`: stored risk/momentum/history points.
@@ -29,40 +29,40 @@ Main entities:
 
 ## Analysis Modes
 
-### QuickScan / Catalog Signal Scan
+### Catalog Scan
 
 Implementation: `app/lib/product-pulse-quick-scan.server.js`, `runShopifyQuickScan`, `buildQuickScanCandidates`, `scoreProductAggregate`.
 
-QuickScan is a deterministic scan that reads Shopify catalog data, orders, refunds, returns, and connected CSV review ratings. It calculates product risk and Product Momentum without calling the AI model. It stores candidates in `ProductRiskSnapshot`.
+Catalog Scan is a deterministic scan that reads Shopify catalog data, orders, refunds, returns, and connected CSV review ratings. It calculates product risk and Sales Momentum without calling the AI model. It stores candidates in `ProductRiskSnapshot`.
 
 Key behavior:
 
 - Default analysis window comes from Settings, default 60 days.
 - Shopify data extraction uses Bulk Operations when possible, with paginated fallback.
-- If Shopify order access is denied, QuickScan falls back to catalog-only extraction and marks order data as unavailable.
-- CSV review ratings can be loaded and used for rating/count signals; QuickScan does not read full review text.
+- If Shopify order access is denied, Catalog Scan falls back to catalog-only extraction and marks order data as unavailable.
+- CSV review ratings can be loaded and used for rating/count signals; Catalog Scan does not read full review text.
 - Candidates are sorted by `quickScanCandidateScore = max(riskScore, productMomentum.score)`.
 - Only the top 50 persistable candidates are returned from scoring.
 - Persisted candidates satisfy `riskScore >= settings.risk.minimumScore` or `productMomentum.score >= settings.momentum.minimumScore`.
-- Products with completed full diagnoses are retained and ignored by QuickScan persistence so full diagnosis data is not overwritten.
+- Products with completed product diagnoses are retained and ignored by Catalog Scan persistence so Product Diagnosis data is not overwritten.
 
-### Deep AI Product Diagnosis
+### Product Diagnosis
 
 Implementation: `app/lib/product-pulse-jobs.server.js` (`queueProductDiagnosisForShop`, diagnosis queue worker) and `app/lib/product-pulse-diagnosis.server.js`.
 
-Deep diagnosis is a queued background job for one or more stored products. It uses deterministic ProductPulse metrics and source snippets, then uses AI for classification, likely-cause explanation, evidence synthesis, and recommendation generation. It persists `ProductDiagnosis`, updates `ProductRiskSnapshot`, records score history, and may create watchlist activity. It consumes diagnosis credit according to app workflow.
+Product Diagnosis is a queued background job for one or more stored products. It uses deterministic ProductPulse metrics and source snippets, then uses AI for classification, likely-cause explanation, evidence synthesis, and recommendation generation. It persists `ProductDiagnosis`, updates `ProductRiskSnapshot`, records score history, and may create watchlist activity. It consumes diagnosis credit according to app workflow.
 
 Limits:
 
 - Bulk diagnosis submissions are not capped by ProductPulse settings.
-- Deep diagnosis requires an existing ProductPulse snapshot; dashboard action returns “Run QuickScan before starting a product diagnosis” if none exists.
+- Product Diagnosis requires an existing ProductPulse snapshot; dashboard action returns “Run Catalog Scan before starting a Product Diagnosis” if none exists.
 
 ### Candidates
 
-Candidates are stored `ProductRiskSnapshot` rows from QuickScan that are not full diagnoses. Products table loads two views:
+Candidates are stored `ProductRiskSnapshot` rows from Catalog Scan that are not product diagnoses. Products table loads two views:
 
-- `analysis: "full"` for products with completed/queued full diagnosis data.
-- `analysis: "quickscan"` for QuickScan candidates.
+- `analysis: "full"` for products with completed/queued Product Diagnosis data.
+- `analysis: "quickscan"` for Catalog Scan candidates.
 
 Manual candidate creation exists via `addShopifyProductCandidateForShop`; it can create a snapshot for a Shopify product without running diagnosis.
 
@@ -78,7 +78,7 @@ Allowed statuses include `Watching` and `Paused`. Watch activity records product
 
 Implementation: `app/routes/app._index.jsx`, `getDashboardDataForShop`, `buildDashboardViewData`.
 
-Dashboard authenticates with Shopify, loads snapshots, current credit balance, active scan/diagnosis jobs, settings, product count, actions, latest diagnoses, images, and active jobs. It presents operational next steps, highest-risk products, product cards, jobs, issues, and KPIs.
+Dashboard authenticates with Shopify, loads snapshots, current diagnosis credit balance, active scan/diagnosis jobs, settings, product count, actions, latest diagnoses, images, and active jobs. It presents operational next steps, highest-risk products, product cards, jobs, issues, and KPIs.
 
 ### Analytics
 
@@ -144,7 +144,7 @@ Component caps:
 Risk labels:
 
 - Default scoring helper: `>= 75` High risk, `>= 55` Watch, `>= 35` Emerging, otherwise Healthy.
-- Settings UI labels: high/medium/low use configurable thresholds; defaults are high 75, medium 55, minimum QuickScan 18.
+- Settings UI labels: high/medium/low use configurable thresholds; defaults are high 75, medium 55, minimum Catalog Scan 18.
 
 Limitations:
 
@@ -169,7 +169,7 @@ Logic:
 
 Then confidence is capped by sample size, source independence, data quality, and reconstruction state.
 
-### Evidence Strength Score
+### Evidence Support Score
 
 Implementation: `calculateDiagnosisConfidence`.
 
@@ -220,7 +220,7 @@ Formula:
 
 `normalizedLogImpactScore = 100 * log1p(impactScore) / log1p(maxReferenceImpact)`, default max reference impact 25000.
 
-### Product Momentum
+### Sales Momentum
 
 Implementation: `app/lib/product-pulse-diagnosis.server.js`, `buildProductMomentum`.
 
@@ -256,19 +256,19 @@ Recommended use:
 
 ### Dashboard
 
-Purpose: operational home. Read it as "where should I start?" It shows priority products, KPIs, active jobs, credits, and top issues.
+Purpose: operational home. Read it as "where should I start?" It shows priority products, KPIs, active jobs, diagnosis credits, and top issues.
 
-Data flow: `app/routes/app._index.jsx` authenticates the Shopify admin session and calls `getDashboardDataForShop`, which combines stored snapshots, current credit ledger balance, active scan/diagnosis jobs, settings, Shopify catalog count, product images, actions, and latest completed diagnoses through `buildDashboardViewData`.
+Data flow: `app/routes/app._index.jsx` authenticates the Shopify admin session and calls `getDashboardDataForShop`, which combines stored snapshots, current diagnosis credit ledger balance, active scan/diagnosis jobs, settings, Shopify catalog count, product images, actions, and latest completed diagnoses through `buildDashboardViewData`.
 
 User actions: run a scan, queue diagnosis for a dashboard product, navigate to product detail, and inspect current jobs. The dashboard is a derived ProductPulse view; it does not expose raw source rows.
 
 ### Products
 
-Purpose: filterable product queue. Full-analysis table shows stored diagnoses; Candidates table shows QuickScan candidates.
+Purpose: filterable product queue. Full-analysis table shows stored diagnoses; Candidates table shows Catalog Scan candidates.
 
 Data flow: `app/routes/app.products.jsx` loads product view data from stored snapshots, diagnosis jobs, actions, settings, watchlist state, and source coverage.
 
-User actions: run fast product scan, bulk queue diagnoses, search Shopify products, add a Shopify product candidate, add/remove watchlist items, mark resolved/unresolved, and delete ProductPulse internal analysis. The delete action removes app-owned ProductPulse records, not the Shopify product.
+User actions: run Catalog Scan, bulk queue Product Diagnosis, search Shopify products, add a Shopify product candidate, add/remove watchlist items, mark resolved/unresolved, and delete ProductPulse internal Product Diagnosis. The delete action removes app-owned ProductPulse records, not the Shopify product.
 
 ### Product Detail
 
@@ -310,11 +310,11 @@ Purpose: internal/developer observability screens for AI turns, token usage, est
 
 ## Settings And Configuration
 
-- `risk.minimumScore`: default 18, allowed 0-90. QuickScan keeps products at or above this risk score unless momentum also qualifies them.
+- `risk.minimumScore`: default 18, allowed 0-90. Catalog Scan keeps products at or above this risk score unless momentum also qualifies them.
 - `risk.mediumThreshold`: default 55, must be above minimum and <= 95. Starts medium risk label.
 - `risk.highThreshold`: default 75, must be above medium and <= 100. Starts high risk label.
-- `momentum.minimumScore`: default 70, allowed 0-100. QuickScan keeps products with momentum at or above this even if risk is below minimum.
-- `analysis.lookbackDays`: default 60, allowed 10-365. Controls how far back QuickScan and full diagnostics read orders, returns, refunds, and connected reviews.
+- `momentum.minimumScore`: default 70, allowed 0-100. Catalog Scan keeps products with momentum at or above this even if risk is below minimum.
+- `analysis.lookbackDays`: default 60, allowed 10-365. Controls how far back Catalog Scan and Product Diagnosis read orders, returns, refunds, and connected reviews.
 - Watchlist `scanCadenceDays`: default 3, options 1, 2, 3, 7, 14.
 - Watchlist `triggerRule`: default `new_or_rising_risk`; options include new issue only, risk score increase, medium/high risk, any change.
 - Watchlist `summarySchedule`: default `daily_digest_8am`; options daily, weekly, immediate only, none.
@@ -322,7 +322,7 @@ Purpose: internal/developer observability screens for AI turns, token usage, est
 
 ## Unknowns
 
-- Exact merchant-facing billing and production credit rules beyond current internal credit ledger are not fully implemented.
+- Exact merchant-facing billing and production diagnosis credit rules beyond current internal diagnosis credit ledger are not fully implemented.
 - Some Analytics view-model formulas live in UI/data builder code and are documented conceptually here rather than as one exported formula.
 - Some recommendation generation rules are long and issue-specific in `product-pulse-diagnosis.server.js`; the knowledge layer should summarize supported behavior and avoid claiming every possible action template.
 - Legacy internal names still use “draft” in some app product action statuses and payload fields. In the current AI chat mutation path, confirmed saves create app-visible ProductPulse records and do not create final chat-only records.

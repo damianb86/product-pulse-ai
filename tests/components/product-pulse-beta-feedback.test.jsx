@@ -91,10 +91,12 @@ describe("BetaFeedbackProvider", () => {
     expect(screen.queryByRole("button", { name: "Beta feedback for Risk panel" })).not.toBeInTheDocument();
   });
 
-  it("submits contextual feedback with safe page and panel context", async () => {
+  it("submits global feedback with safe page context", async () => {
     renderLayer();
 
-    fireEvent.click(screen.getByRole("button", { name: "Beta feedback for Risk panel" }));
+    expect(screen.queryByRole("button", { name: "Beta feedback for Risk panel" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open beta feedback" }));
     fireEvent.change(screen.getByLabelText("Category"), { target: { value: "wrong_value" } });
     fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "The risk score does not match the chart." } });
     fireEvent.click(screen.getByRole("button", { name: "Send feedback" }));
@@ -107,15 +109,9 @@ describe("BetaFeedbackProvider", () => {
     expect(request.body).toMatchObject({
       category: "wrong_value",
       message: "The risk score does not match the chart.",
-      panelId: "product.riskHistory",
-      panelLabel: "Risk panel",
-      relatedEntity: {
-        type: "product",
-        id: "gid://shopify/Product/1",
-      },
+      source: "global",
       context: {
-        product: { title: "Wool hat", handle: "wool-hat" },
-        metric: { name: "Risk score", value: 82 },
+        product: { routeParam: "wool-hat", handle: "wool-hat", productGid: "" },
         route: {
           pathname: "/app/products/wool-hat",
           pageKey: "/app/products/wool-hat",

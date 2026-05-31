@@ -363,7 +363,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       level: denied ? "warn" : "error",
       event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_sales_failed",
       message: denied
-        ? "Shopify denied Order object access while reading sales; diagnosis will use stored QuickScan metrics and connected review data where needed."
+        ? "Shopify denied Order object access while reading sales; diagnosis will use stored Catalog Scan metrics and connected review data where needed."
         : "Shopify sales extraction failed; diagnosis will continue with refunds, returns and review evidence where available.",
       data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
     });
@@ -381,7 +381,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       level: denied ? "warn" : "error",
       event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_refunds_failed",
       message: denied
-        ? "Shopify denied Order object access while reading refunds; refund evidence will fall back to stored QuickScan metrics."
+        ? "Shopify denied Order object access while reading refunds; refund evidence will fall back to stored Catalog Scan metrics."
         : "Shopify refund extraction failed; diagnosis will continue with other evidence.",
       data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
     });
@@ -399,7 +399,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       level: denied ? "warn" : "error",
       event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_returns_failed",
       message: denied
-        ? "Shopify denied Order object access while reading returns; return evidence will fall back to stored QuickScan metrics."
+        ? "Shopify denied Order object access while reading returns; return evidence will fall back to stored Catalog Scan metrics."
         : "Shopify return extraction failed; diagnosis will continue with other evidence.",
       data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
     });
@@ -3670,7 +3670,7 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       diagnosisId: diagnosis.id,
       productGid: snapshot.productGid,
       actionType: "run-ai-diagnosis",
-      label: "Run AI Product Diagnosis",
+      label: "Run Product Diagnosis",
       status: "applied",
       payload: {
         diagnosisId: diagnosis.id,
@@ -3983,7 +3983,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     shop,
     jobId,
     event: "product_diagnosis.no_changes_reused",
-    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse refreshed deterministic date-based metrics and reused the previous deep diagnosis without AI calls or point consumption.",
+    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse refreshed deterministic date-based metrics and reused the previous Product Diagnosis without AI calls or diagnosis credit consumption.",
     data: {
       productGid: activitySnapshot.productGid,
       previousDiagnosisId: reusableDiagnosis.id,
@@ -4012,7 +4012,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     status: "skipped",
     skipped: true,
     skipReason: "no_changes_since_previous_diagnosis",
-    message: "No product, order, return, refund, review, or source changes were detected. Deterministic date-based metrics were refreshed, the previous deep diagnosis was reused, and no diagnostic point was consumed.",
+    message: "No product, order, return, refund, review, or source changes were detected. Deterministic date-based metrics were refreshed, the previous Product Diagnosis was reused, and no diagnosis credit was consumed.",
     diagnosisId: reusableDiagnosis.id,
     riskScore: activitySnapshot.riskScore,
     confidence: activitySnapshot.confidence,
@@ -4892,7 +4892,7 @@ function sanitizeIncrementalDiagnosisForAi(incremental = null) {
     sourceEvents: incremental.sourceEvents || null,
     aiEvidenceSnippetCount: incremental.aiEvidenceSnippetCount || 0,
     note: incremental.mode === "incremental"
-      ? "Evidence snippets contain only newly changed evidence since the previous deep diagnosis. Aggregated deterministic metrics include reused prior analysis plus new analysis."
+      ? "Evidence snippets contain only newly changed evidence since the previous Product Diagnosis. Aggregated deterministic metrics include reused prior analysis plus new analysis."
       : "This diagnosis analyzed the available product data for the configured window.",
   };
 }
@@ -6380,7 +6380,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (recipeSignals.fullDiagnosis.shouldRecommend) {
     recommendations.push({
       id: "run-full-diagnosis",
-      label: "Run full diagnosis",
+      label: "Run product diagnosis",
       type: "Diagnosis",
       effort: "Medium",
       status: "Ready",
@@ -7046,7 +7046,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     },
     monitoringCoverage: {
       shouldRecommend: Boolean(productMomentumScore >= 70 && missingSourceSignals.length),
-      reason: "This product has enough commercial momentum to deserve stronger monitoring coverage before issues become expensive.",
+      reason: "This product has enough Sales Momentum to deserve stronger monitoring coverage before issues become expensive.",
     },
     baselineScan: {
       shouldRecommend: Boolean(productMomentumScore >= 75 && Number(deterministic.riskScore || 0) < 50 && !hasActionableEvidence),
@@ -7054,11 +7054,11 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     },
     watchlist: {
       shouldRecommend: Boolean(productMomentumScore >= 75 && Number(deterministic.riskScore || 0) < 70),
-      reason: "Momentum is high enough that this product should be watched periodically even if risk is not currently high.",
+      reason: "Sales Momentum is high enough that this product should be watched periodically even if risk is not currently high.",
     },
     fullDiagnosis: {
       shouldRecommend: Boolean(productMomentumScore >= 70 && staleAnalysis),
-      reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh full diagnosis.",
+      reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh product diagnosis.",
     },
     qa: {
       shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && hasActionableEvidence && !aiSuppressesQa && (
@@ -7900,7 +7900,7 @@ function getRecommendationReasonCategory(action = {}, mainIssue = "") {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""} ${mainIssue || ""}`.toLowerCase();
   if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(value)) return "Retention";
   if (/\b(bundle|cross-sell|pairing|journey|upgrade|product relationship)\b/.test(value)) return "Product relationship";
-  if (/\b(momentum|watchlist|baseline)\b/.test(value)) return "Momentum";
+  if (/\b(momentum|watchlist|baseline)\b/.test(value)) return "Sales Momentum";
   if (/\b(seo|meta|handle)\b/.test(value)) return "SEO";
   if (/\b(variant|sku|option)\b/.test(value)) return "Variant issue";
   if (/\b(sentiment|subjective|fear|safety|emotion)\b/.test(value)) return "Sentiment";
@@ -8418,7 +8418,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   if (id === "add-to-watchlist") {
     return {
       ...common,
-      proposedChange: "Add this product to the Watchlist for periodic deep diagnostics.",
+      proposedChange: "Add this product to the Watchlist for periodic Product Diagnosis.",
       shopifyField: "ProductPulse Watchlist",
       expectedImpact: "Monitor commercially important products before small issues grow.",
       applicationRisk: "Low",
@@ -10201,7 +10201,7 @@ function buildFinalEvidence({ deterministic, ai, aiEvidenceSynthesisSections = [
     evidence.push({
       source: "Shopify order access",
       quote: "Order access was denied by Shopify for this app installation.",
-      weight: "ProductPulse reused stored QuickScan metrics where available.",
+      weight: "ProductPulse reused stored Catalog Scan metrics where available.",
     });
   }
 
@@ -13687,6 +13687,7 @@ function normalizeSeverity(value) {
 function buildMainFindingDetail(aiDetail, deterministic, contentAnalysis) {
   const base = normalizeMainFindingDetail(aiDetail || buildEvidenceSummary(deterministic));
   if (!contentAnalysis?.issues?.length) return base;
+  if (splitMainFindingParagraphs(base).length >= 5) return base;
   const contentLabels = contentAnalysis.issues
     .slice(0, 3)
     .map((issue) => issue.label || getContentIssueLabel(issue.code))
@@ -13698,15 +13699,15 @@ function buildMainFindingDetail(aiDetail, deterministic, contentAnalysis) {
 function normalizeMainFindingDetail(value) {
   const paragraphs = splitMainFindingParagraphs(value);
   if (!paragraphs.length) return "";
-  return paragraphs.slice(0, 3).join("\n\n");
+  return paragraphs.slice(0, 5).join("\n\n");
 }
 
 function appendMainFindingParagraph(value, paragraph) {
   const paragraphs = splitMainFindingParagraphs(value);
   const nextParagraph = String(paragraph || "").replace(/\s+/g, " ").trim();
   if (!nextParagraph) return normalizeMainFindingDetail(value);
-  if (paragraphs.length >= 3) return [...paragraphs.slice(0, 2), nextParagraph].join("\n\n");
-  return [...paragraphs, nextParagraph].slice(0, 3).join("\n\n");
+  if (paragraphs.length >= 5) return [...paragraphs.slice(0, 4), nextParagraph].join("\n\n");
+  return [...paragraphs, nextParagraph].slice(0, 5).join("\n\n");
 }
 
 function splitMainFindingParagraphs(value) {

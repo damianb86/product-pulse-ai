@@ -136,11 +136,11 @@ Navigation actions are validated server-side and emitted back as ChatKit client 
 
 Confirm/cancel responses are deterministic backend responses. They emit `action_result` widgets directly and do not make a second OpenAI call after the user clicks Confirm or Cancel.
 
-## Momentum And Chart Cards
+## Sales Momentum And Chart Cards
 
-No standalone momentum or chart card is implemented in this phase.
+No standalone Sales Momentum or chart card is implemented in this phase.
 
-The existing app has custom SVG charts in React screens, but the AI presentation schema does not expose validated trend series, chart image URLs, or weekly momentum buckets yet. The ChatKit adapter therefore renders metrics as compact cards/rows. A future chart block should define validated series, labels, units, caps, and optional backend-generated chart image URLs before any visual chart is added.
+The existing app has custom SVG charts in React screens, but the AI presentation schema does not expose validated trend series, chart image URLs, or weekly Sales Momentum buckets yet. The ChatKit adapter therefore renders metrics as compact cards/rows. A future chart block should define validated series, labels, units, caps, and optional backend-generated chart image URLs before any visual chart is added.
 
 ## Security Rules
 

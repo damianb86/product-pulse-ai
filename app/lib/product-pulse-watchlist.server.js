@@ -1176,7 +1176,7 @@ function buildWatchChangeReport({
       currentRunAt: current.capturedAt,
       previous: null,
       current,
-      narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, momentum and evidence against this stored point.",
+      narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, Sales Momentum and evidence against this stored point.",
       sourceChanges: [],
       sourceInsights: [],
       sections: [],
@@ -1542,7 +1542,7 @@ function buildWatchContentSourceChange(previousContent = {}, currentContent = {}
     direction: "neutral",
     tone: "blue",
     icon: "shopify-product",
-    detail: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous deep diagnosis.",
+    detail: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous Product Diagnosis.",
     items: [],
   };
 }
@@ -1693,7 +1693,7 @@ function buildWatchContentInsight(previousContent = {}, currentContent = {}) {
     title: "Product content changed",
     tone: "blue",
     metric: "PDP content updated",
-    summary: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous deep diagnosis.",
+    summary: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous Product Diagnosis.",
     bullets: [
       Number(currentContent.descriptionWordCount || 0) ? `Description now has ${currentContent.descriptionWordCount} words.` : "",
       Number(currentContent.contentQualityScore || 0) ? `Current content quality score: ${currentContent.contentQualityScore}.` : "",
@@ -1806,15 +1806,15 @@ function buildImpactChangeSection(previous, current) {
   const changes = [
     moneyWatchChange({
       id: "estimated-impact",
-      label: "Estimated impact",
+      label: "Estimated Margin Exposure",
       previous: previous.estimatedImpact,
       current: current.estimatedImpact,
       threshold: 1,
-      detail: "Estimated business exposure changed since the previous run.",
+      detail: "Estimated Margin Exposure changed since the previous run.",
     }),
     moneyWatchChange({
       id: "margin-at-risk",
-      label: "Margin at risk",
+      label: "Estimated Margin Exposure",
       previous: previous.marginAtRisk,
       current: current.marginAtRisk,
       threshold: 1,
@@ -1829,36 +1829,36 @@ function buildImpactChangeSection(previous, current) {
       detail: "Estimated revenue exposure changed for this watched product.",
     }),
   ].filter(Boolean);
-  return { id: "impact", title: "Financial exposure", tone: "orange", changes };
+  return { id: "impact", title: "Estimated Margin Exposure", tone: "orange", changes };
 }
 
 function buildMomentumChangeSection(previous, current) {
   const changes = [
     numericWatchChange({
       id: "momentum-score",
-      label: "Product Momentum",
+      label: "Sales Momentum",
       previous: previous.productMomentumScore,
       current: current.productMomentumScore,
       suffix: "/100",
       threshold: 1,
-      detail: "Commercial momentum changed based on recent sales velocity and catalog position.",
+      detail: "Sales Momentum changed based on recent sales velocity and catalog position.",
     }),
     textWatchChange({
       id: "momentum-tier",
-      label: "Momentum tier",
+      label: "Sales Momentum tier",
       previous: previous.productMomentumTier,
       current: current.productMomentumTier,
       detail: "The commercial attention category changed.",
     }),
     textWatchChange({
       id: "momentum-direction",
-      label: "Momentum direction",
+      label: "Sales Momentum direction",
       previous: previous.productMomentumDirection,
       current: current.productMomentumDirection,
       detail: "The product's sales movement label changed.",
     }),
   ].filter(Boolean);
-  return { id: "momentum", title: "Commercial momentum", tone: "green", changes };
+  return { id: "momentum", title: "Sales Momentum", tone: "green", changes };
 }
 
 function numericWatchChange({ id, label, previous, current, suffix = "", threshold = 1, detail }) {
@@ -1985,10 +1985,10 @@ function buildWatchChangeDeterministicNarrative({ productTitle = "This product",
   const hasReportedMovement = (Array.isArray(report.sourceChanges) && report.sourceChanges.length)
     || (Array.isArray(report.changes) && report.changes.length);
   if (report.status === "unchanged" || (noChangesReused && !hasReportedMovement)) {
-    return `${productTitle} did not show new orders, returns, refunds, reviews or meaningful calculated Watchlist movement since the previous run. Product risk, source evidence, financial exposure and commercial momentum stayed close to the last stored report.`;
+    return `${productTitle} did not show new orders, returns, refunds, reviews or meaningful calculated Watchlist movement since the previous run. Product risk, source evidence, Estimated Margin Exposure and Sales Momentum stayed close to the last stored report.`;
   }
   if (report.status === "baseline") {
-    return `${productTitle} now has a Watchlist baseline. Future runs will compare new returns, refunds, reviews, source language, product risk and momentum against this stored point.`;
+    return `${productTitle} now has a Watchlist baseline. Future runs will compare new returns, refunds, reviews, source language, product risk and Sales Momentum against this stored point.`;
   }
   const sourceChangeText = (report.sourceChanges || [])
     .slice(0, 4)
@@ -2077,7 +2077,7 @@ function buildWatchlistTrend(products = [], historyByProductGid = new Map(), pro
     calloutTitle: highestSeries
       ? `${highestSeries.productTitle} is currently highest at ${highestSeries.riskScore}/100`
       : "Waiting for score history",
-    calloutDetail: "Each line shows saved risk score movement for one watched product after scans or diagnostics.",
+    calloutDetail: "Each line shows saved risk score movement for one watched product after Catalog Scan or Product Diagnosis.",
   };
 }
 

@@ -24,7 +24,7 @@ export const action = async ({ request }) => {
     const productId = String(formData.get("productId") || "");
     const diagnosis = await queueProductDiagnosisForShop(session.shop, productId, { admin });
     if (diagnosis) return diagnosis;
-    return { status: "validation_error", message: "Run QuickScan before starting a product diagnosis." };
+    return { status: "validation_error", message: "Run Catalog Scan before starting a product diagnosis." };
   }
 
   return { status: "validation_error", message: "Unsupported dashboard action." };

@@ -22,10 +22,10 @@ export default function App() {
         <p className={styles.text}>Open this app from Shopify Admin or install it from a Shopify-owned surface.</p>
         <ul className={styles.list}>
           <li>
-            <strong>Catalog Signal Scan</strong>. Product, order, refund, return and review signals are ranked by product risk.
+            <strong>Catalog Scan</strong>. Product, order, refund, return and review signals are ranked by product risk.
           </li>
           <li>
-            <strong>AI Product Diagnosis</strong>. Deep diagnosis explains likely cause, evidence, impact and recommended actions.
+            <strong>Product Diagnosis</strong>. Product diagnosis explains likely cause, evidence, impact and recommended actions.
           </li>
           <li>
             <strong>Draft Shopify actions</strong>. Fit notes, FAQs, tags and support notes are prepared for merchant review.

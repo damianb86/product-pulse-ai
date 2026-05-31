@@ -101,13 +101,13 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
       shop,
       jobId: activeJob.id,
       event: "quick_scan.already_running",
-      message: "Fast product scan request reused the active background job.",
+      message: "Catalog Scan request reused the active background job.",
       data: { status: activeJob.status, source: activeJob.source },
     });
     return {
       status: "success",
       suppressBanner: true,
-      message: "Fast product scan is already running.",
+      message: "Catalog Scan is already running.",
       job: formatJob(activeJob),
     };
   }
@@ -127,7 +127,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     data: {
       shop,
       kind: FAST_PRODUCT_SCAN_KIND,
-      source: `Queued Shopify QuickScan - ${windowDays}-day order window`,
+      source: `Queued Shopify Catalog Scan - ${windowDays}-day order window`,
       status: "Queued",
       progress: 0,
       payload: {
@@ -139,7 +139,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
 
   const pointDebit = await debitStorePointsForShop(shop, {
     amount: 1,
-    reason: `QuickScan point debit quick-scan:${job.id}`,
+    reason: `Catalog Scan diagnosis credit debit quick-scan:${job.id}`,
     idempotencyKey: `quick-scan:${job.id}`,
     metadata: {
       source: "quick_scan",
@@ -148,10 +148,10 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     },
   });
   if (!["success", "already_recorded"].includes(pointDebit.status)) {
-    await markJobFailed(job.id, new Error(pointDebit.message || "Insufficient ProductPulse points."), "QuickScan not queued");
+    await markJobFailed(job.id, new Error(pointDebit.message || "Insufficient Diagnosis Credits."), "Catalog Scan not queued");
     return {
       status: "validation_error",
-      message: pointDebit.message || "QuickScan needs 1.0 point before it can start.",
+      message: pointDebit.message || "Catalog Scan needs 1.0 diagnosis credit before it can start.",
       pointBalance: pointDebit.balance,
     };
   }
@@ -161,7 +161,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     shop,
     jobId: job.id,
     event: "quick_scan.queued",
-    message: "QuickScan queued as a persistent background job.",
+    message: "Catalog Scan queued as a persistent background job.",
     data: {
       windowDays,
       scopeMode: "configured_analysis_lookback",
@@ -173,7 +173,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
   return {
     status: "success",
     suppressBanner: true,
-    message: "QuickScan started. ProductPulse is checking native Shopify product, order, refund and return signals.",
+    message: "Catalog Scan started. ProductPulse is checking native Shopify product, order, refund and return signals.",
     job: formatJob(job),
   };
 }
@@ -548,8 +548,8 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
     status: "success",
     suppressBanner: true,
     message: skippedForPoints
-      ? `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because credits were no longer available.`
-      : `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
+      ? `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because diagnosis credits were no longer available.`
+      : `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
     queuedCount: jobs.length,
     jobs: jobs.map(formatJob),
   };
@@ -645,8 +645,8 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
       progress: 100,
       source: "Canceled by user",
       errorMessage: cancellationRefund?.refunded
-        ? "Canceled from Background processes. Reserved diagnosis point was refunded."
-        : "Canceled from Background processes. Any points already consumed by the queued job are not automatically refunded.",
+        ? "Canceled from Background processes. Reserved diagnosis credit was refunded."
+        : "Canceled from Background processes. Any diagnosis credits already consumed by the queued job are not automatically refunded.",
       payload: cancellationPayload,
       finishedAt: new Date(),
     },
@@ -684,7 +684,7 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
   const amount = Number(payload.pointCost || payload.pointsConsumed || payload.creditsConsumed || 1);
   const refund = await creditStorePointsForShop(job.shop, {
     amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
-    reason: `Product diagnosis point refund product-diagnosis-cancel-refund:${job.id} - ${payload.productTitle || "selected product"}`,
+    reason: `Product diagnosis credit refund product-diagnosis-cancel-refund:${job.id} - ${payload.productTitle || "selected product"}`,
     idempotencyKey: `product-diagnosis-cancel-refund:${job.id}`,
     metadata: {
       source: "product_diagnosis_refund",
@@ -702,7 +702,7 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
       jobId: job.id,
       level: "error",
       event: "product_diagnosis.points_refund_failed",
-      message: refund.message || "Cancelled product diagnosis point refund could not be recorded.",
+      message: refund.message || "Cancelled Product Diagnosis credit refund could not be recorded.",
       data: {
         pointRefundStatus: refund.status,
         pointBalance: refund.balance || null,
@@ -866,7 +866,7 @@ export async function queueProductDiagnosisForShop(shop, productId, options = {}
   return {
     status: "success",
     suppressBanner: true,
-    message: `AI Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
+    message: `Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
     job: formatJob(job),
   };
 }
@@ -2631,7 +2631,7 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
     const pointDebit = await debitStorePointsForShop(shop, {
       db: tx,
       amount: 1,
-      reason: `Product diagnosis point debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+      reason: `Product diagnosis credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
       idempotencyKey: `product-diagnosis:${jobId}`,
       metadata: {
         source: "product_diagnosis",
@@ -2648,7 +2648,7 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
         id: jobId,
         shop,
         kind: PRODUCT_DIAGNOSIS_KIND,
-        source: `Queued AI Product Diagnosis - ${snapshot.productTitle}`,
+        source: `Queued Product Diagnosis - ${snapshot.productTitle}`,
         status: "Queued",
         progress: 0,
         payload: {
@@ -2748,8 +2748,8 @@ async function failStaleFastProductScans(shop) {
     },
     data: {
       status: "Failed",
-      errorMessage: "QuickScan worker timed out before completing.",
-      source: "QuickScan failed",
+      errorMessage: "Catalog Scan worker timed out before completing.",
+      source: "Catalog Scan failed",
       finishedAt: new Date(),
     },
   });
@@ -2765,7 +2765,7 @@ function ensureFastProductScanWorker(job, options = {}) {
         shop: job.shop,
         jobId: job.id,
         event: "quick_scan.worker_started",
-        message: "QuickScan worker started or rehydrated from an active persisted job.",
+        message: "Catalog Scan worker started or rehydrated from an active persisted job.",
         data: { status: job.status, source: job.source },
       });
       const admin = options.admin || await getOfflineAdmin(job.shop);
@@ -2782,7 +2782,7 @@ function ensureFastProductScanWorker(job, options = {}) {
         jobId: job.id,
         level: "error",
         event: "quick_scan.worker_failed",
-        message: "QuickScan worker failed.",
+        message: "Catalog Scan worker failed.",
         data: { error: serializeError(error) },
       });
       await markJobFailed(job.id, error);
@@ -2792,7 +2792,7 @@ function ensureFastProductScanWorker(job, options = {}) {
         shop: job.shop,
         jobId: job.id,
         event: "quick_scan.worker_stopped",
-        message: "QuickScan worker stopped.",
+        message: "Catalog Scan worker stopped.",
       });
     }
   }, 0);
@@ -2924,7 +2924,7 @@ function ensureProductDiagnosisQueueWorker(shop) {
             message: "Product diagnosis worker failed.",
             data: { error: serializeError(error), payload: job.payload },
           });
-          await markJobFailed(job.id, error, "AI Product Diagnosis failed");
+          await markJobFailed(job.id, error, "Product Diagnosis failed");
           await maybeSendWatchlistRunAlertForJob({
             ...job,
             status: "Failed",
@@ -2953,7 +2953,7 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
     data: {
       status: "Queued",
       progress: 0,
-      source: "Requeued AI Product Diagnosis after worker recovery",
+      source: "Requeued Product Diagnosis after worker recovery",
     },
   });
 
@@ -2972,7 +2972,7 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
       shop: job.shop,
       jobId: job.id,
       event: "product_diagnosis.requeued",
-      message: "Recovered running product diagnosis job and returned it to the queue.",
+      message: "Recovered running Product Diagnosis job and returned it to the queue.",
       data: { payload: job.payload },
     })));
   }
@@ -2998,7 +2998,7 @@ async function claimNextProductDiagnosisJob(shop) {
     data: {
       status: "Running",
       progress: 5,
-      source: `Running AI Product Diagnosis - ${nextJob.payload?.productTitle || "selected product"}`,
+      source: `Running Product Diagnosis - ${nextJob.payload?.productTitle || "selected product"}`,
       startedAt: new Date(),
     },
   });
@@ -3041,7 +3041,7 @@ async function runProductDiagnosisJob(job) {
 
   await updateProductDiagnosisJob(job.id, {
     progress: 18,
-    source: `Preparing AI Product Diagnosis - ${snapshot.productTitle}`,
+    source: `Preparing Product Diagnosis - ${snapshot.productTitle}`,
   });
 
   await updateProductDiagnosisJob(job.id, {
@@ -3063,7 +3063,7 @@ async function runProductDiagnosisJob(job) {
     progress: 92,
     source: diagnosis?.skipped
       ? `No product changes detected - reused diagnosis - ${snapshot.productTitle}`
-      : `Finalizing AI Product Diagnosis - ${snapshot.productTitle}`,
+      : `Finalizing Product Diagnosis - ${snapshot.productTitle}`,
   });
 
   await updateProductDiagnosisJob(job.id, {
@@ -3071,7 +3071,7 @@ async function runProductDiagnosisJob(job) {
     progress: 100,
     source: diagnosis?.skipped
       ? `No changes detected; previous diagnosis reused - ${snapshot.productTitle}`
-      : `AI Product Diagnosis completed - ${snapshot.productTitle}`,
+      : `Product Diagnosis completed - ${snapshot.productTitle}`,
     payload: {
       ...(job.payload || {}),
       imageUrl: job.payload?.imageUrl || productImage.imageUrl || "",
@@ -3092,7 +3092,7 @@ async function runProductDiagnosisJob(job) {
     jobId: job.id,
     event: "product_diagnosis.completed",
     message: diagnosis?.skipped && pointCharge.pointsConsumed <= 0
-      ? "Product diagnosis finished from cache because no source changes were detected. No point was consumed."
+      ? "Product diagnosis finished from cache because no source changes were detected. No diagnosis credit was consumed."
       : "Product diagnosis completed.",
     data: {
       durationMs: Date.now() - startedAt,
@@ -3156,7 +3156,7 @@ async function ensureProductDiagnosisPointDebit(job) {
 
   const pointDebit = await debitStorePointsForShop(job.shop, {
     amount: 1,
-    reason: `Product diagnosis point debit product-diagnosis:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+    reason: `Product diagnosis credit debit product-diagnosis:${job.id} - ${job.payload?.productTitle || "selected product"}`,
     idempotencyKey: `product-diagnosis:${job.id}`,
     metadata: {
       source: "product_diagnosis",
@@ -3173,14 +3173,14 @@ async function ensureProductDiagnosisPointDebit(job) {
       jobId: job.id,
       level: "error",
       event: "product_diagnosis.points_not_consumed",
-      message: pointDebit.message || "Product diagnosis points could not be consumed.",
+      message: pointDebit.message || "Product diagnosis credits could not be consumed.",
       data: {
         pointsConsumed: 1,
         pointDebitStatus: pointDebit.status,
         pointBalance: pointDebit.balance || null,
       },
     });
-    throw new Error(pointDebit.message || "Product diagnosis needs 1.0 point before it can start.");
+    throw new Error(pointDebit.message || "Product diagnosis needs 1.0 diagnosis credit before it can start.");
   }
 
   await updateProductDiagnosisJob(job.id, {
@@ -3202,7 +3202,7 @@ async function finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit) {
   if (!Number.isFinite(diagnosisPointsConsumed) || diagnosisPointsConsumed <= 0) {
     const refund = await creditStorePointsForShop(job.shop, {
       amount: normalizedChargedAmount,
-      reason: `Product diagnosis point refund product-diagnosis-refund:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+      reason: `Product diagnosis credit refund product-diagnosis-refund:${job.id} - ${job.payload?.productTitle || "selected product"}`,
       idempotencyKey: `product-diagnosis-refund:${job.id}`,
       metadata: {
         source: "product_diagnosis_refund",
@@ -3221,7 +3221,7 @@ async function finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit) {
         jobId: job.id,
         level: "error",
         event: "product_diagnosis.points_refund_failed",
-        message: refund.message || "Product diagnosis point refund could not be recorded.",
+        message: refund.message || "Product diagnosis credit refund could not be recorded.",
         data: {
           pointDebitStatus: pointDebit?.status || "unknown",
           pointRefundStatus: refund.status,
@@ -3281,7 +3281,7 @@ async function shopifyGraphql(admin, query, variables) {
   return json.data;
 }
 
-async function markJobFailed(jobId, error, source = "QuickScan failed") {
+async function markJobFailed(jobId, error, source = "Catalog Scan failed") {
   await prisma.catalogSignalJob.updateMany({
     where: {
       id: jobId,
@@ -3380,23 +3380,23 @@ function getProductAnalysisState(snapshot, latestDiagnosis = null) {
   if (hasFullDiagnosis) {
     return {
       depth: "full",
-      label: "Full diagnosis",
+      label: "Product diagnosis",
       tone: "success",
       icon: "wand",
       completedAt: toIso(completedAt),
       detail: completedAt
-        ? `Deep AI diagnosis completed ${formatJobDate(completedAt)}.`
-        : "Deep AI diagnosis completed.",
+        ? `Product Diagnosis completed ${formatJobDate(completedAt)}.`
+        : "Product Diagnosis completed.",
     };
   }
 
   return {
     depth: "quickscan",
-    label: "QuickScan only",
+    label: "Catalog Scan only",
     tone: "info",
     icon: "search",
     completedAt: null,
-    detail: "Preliminary Shopify scan only. Run product diagnosis for recommended actions.",
+    detail: "Preliminary Shopify scan only. Run Product Diagnosis for recommended actions.",
   };
 }
 
@@ -3534,7 +3534,7 @@ function getProductTableFilterOptions(
   return {
     analysis: [
       { value: "all", label: "All", count: analysisCounts.all },
-      { value: "quickscan", label: "QuickScan", count: analysisCounts.quickscan },
+      { value: "quickscan", label: "Catalog Scan", count: analysisCounts.quickscan },
       { value: "full", label: "Full diagnostic", count: analysisCounts.full },
     ],
     risks: [
@@ -4209,14 +4209,14 @@ function formatShopifyProductSearchResult(product, statusByProductGid = new Map(
 }
 
 function getProductPulseSearchStatusLabel(status) {
-  if (status === "full") return "Deep analysis completed";
-  if (status === "quickscan") return "QuickScan stored";
+  if (status === "full") return "Product Diagnosis completed";
+  if (status === "quickscan") return "Catalog Scan stored";
   return "Not in ProductPulse";
 }
 
 function getProductPulseSearchStatusDetail(status) {
-  if (status === "full") return "This product already has a completed deep product diagnosis in ProductPulse.";
-  if (status === "quickscan") return "This product is stored in ProductPulse with lightweight QuickScan signals only.";
+  if (status === "full") return "This product already has a completed Product Diagnosis in ProductPulse.";
+  if (status === "quickscan") return "This product is stored in ProductPulse with lightweight Catalog Scan signals only.";
   return "This Shopify product is not stored in ProductPulse yet. Run a diagnosis or add it to a workflow to start tracking it.";
 }
 
@@ -4292,7 +4292,7 @@ function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
     lastAnalysis: null,
     analysisDepth: "catalog",
     analysisLabel: "Not scanned",
-    analysisDetail: "No QuickScan or product diagnosis has been stored yet.",
+    analysisDetail: "No Catalog Scan or Product Diagnosis has been stored yet.",
     analysisTone: "neutral",
     analysisIcon: "product",
     analysisCompletedAt: null,
@@ -4998,8 +4998,8 @@ function getJobPointCost(job) {
 }
 
 function getJobDisplayName(kind) {
-  if (kind === FAST_PRODUCT_SCAN_KIND) return "Fast product scan";
-  if (kind === PRODUCT_DIAGNOSIS_KIND) return "AI Product Diagnosis";
+  if (kind === FAST_PRODUCT_SCAN_KIND) return "Catalog Scan";
+  if (kind === PRODUCT_DIAGNOSIS_KIND) return "Product Diagnosis";
   if (kind === SHOPIFY_MOCK_DATASET_KIND) return "Shopify mock dataset";
   return kind;
 }
@@ -5060,11 +5060,11 @@ function getJobDisplaySubtitle(job, productTitle) {
     return "Controlled Shopify test data";
   }
   if (job.kind !== PRODUCT_DIAGNOSIS_KIND || !productTitle) return job.errorMessage || job.source;
-  if (job.status === "Queued") return "Queued AI product diagnostics";
-  if (job.status === "Running") return "Running AI product diagnostics";
-  if (job.status === "Completed") return "AI product diagnostics completed";
-  if (job.status === "Failed") return "AI product diagnostics failed";
-  return "AI product diagnostics";
+  if (job.status === "Queued") return "Queued Product Diagnosis";
+  if (job.status === "Running") return "Running Product Diagnosis";
+  if (job.status === "Completed") return "Product Diagnosis completed";
+  if (job.status === "Failed") return "Product Diagnosis failed";
+  return "Product Diagnosis";
 }
 
 function formatJobLog(log) {
@@ -5483,7 +5483,7 @@ function getPrimaryRecommendedActionLabel(snapshot, metrics) {
   const recommendations = Array.isArray(metrics.recommendations) ? metrics.recommendations : [];
   const firstRecommendation = recommendations.find((item) => item?.label || item?.title);
   if (firstRecommendation) return firstRecommendation.label || firstRecommendation.title;
-  return getSnapshotRecommendedActions(snapshot, metrics)[0]?.label || "Review product diagnosis";
+  return getSnapshotRecommendedActions(snapshot, metrics)[0]?.label || "Review Product Diagnosis";
 }
 
 function getProductContentEvidenceValue(metrics) {
@@ -5650,7 +5650,7 @@ function getPdpContentSignalDetail(metrics) {
 
   return pieces.length
     ? `${pieces.join(". ")}.`
-    : "PDP copy and description quality require a full product diagnosis before this bar has detail.";
+    : "PDP copy and description quality require a Product Diagnosis before this bar has detail.";
 }
 
 function getReviewSignalValue(metrics) {

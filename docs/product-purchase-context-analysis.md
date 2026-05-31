@@ -55,7 +55,7 @@ The backend stores or returns `productPurchaseContextSummary` with:
 - `monthly_context`
 - `context_buckets`
 
-QuickScan writes this into `ProductRiskSnapshot.metrics.productPurchaseContextSummary` for persisted candidates. Deep diagnosis also adds it to diagnosis metrics and the updated snapshot metrics when basket context is available.
+Catalog Scan writes this into `ProductRiskSnapshot.metrics.productPurchaseContextSummary` for persisted candidates. Product Diagnosis also adds it to diagnosis metrics and the updated snapshot metrics when basket context is available.
 
 ## Formulas
 
@@ -173,7 +173,7 @@ Future Diagnosis Confidence use:
 
 Implemented Diagnosis Confidence use:
 
-- purchase-context confidence contributes to evidence strength;
+- purchase-context confidence contributes to evidence support;
 - mostly solo purchases can increase attribution confidence;
 - incomplete basket context and small samples reduce confidence;
 - multi-product baskets with weak refund attribution reduce product-specific confidence.
@@ -205,7 +205,7 @@ Recompute/backfill updates ProductPulse snapshot metrics with:
 - `productPurchaseContextFactors`;
 - `productPurchaseContextScoringImpact`;
 - `purchaseContextSignalBreakdown`;
-- updated risk, impact, confidence, evidence strength, and scoring version.
+- updated risk, impact, confidence, evidence support, and scoring version.
 
 Scopes:
 
@@ -304,7 +304,7 @@ ChatKit supports deterministic cards for:
 - No raw relational order persistence exists.
 - Shopify order access can be denied.
 - Very large orders may exceed line-item page limits.
-- Historical context starts after QuickScan or deep diagnosis stores this summary.
+- Historical context starts after Catalog Scan or Product Diagnosis stores this summary.
 - Co-purchase rates are window-based, not full-store lifetime rates.
 - Shopify bundle configuration is not detected.
 - Return/refund context by basket is available only when Phase 2 purchase-context segments were stored with enough data.

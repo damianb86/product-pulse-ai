@@ -156,7 +156,7 @@ const rawProducts = [
     },
     analysisDepth: "full",
     analysisLabel: "Full diagnosis",
-    analysisDetail: "Deep AI product diagnosis completed from Shopify signals and connected review data.",
+    analysisDetail: "Product Diagnosis completed from Shopify signals and connected review data.",
     sourceCoverage: ["Returns", "Refunds", "Judge.me", "CSV"],
     lastAnalysis: "2026-05-10",
     primaryIssue: "Fit runs small around waist and inseam",
@@ -226,7 +226,7 @@ const rawProducts = [
     },
     analysisDepth: "full",
     analysisLabel: "Full diagnosis",
-    analysisDetail: "Deep AI product diagnosis completed from Shopify signals and connected review data.",
+    analysisDetail: "Product Diagnosis completed from Shopify signals and connected review data.",
     sourceCoverage: ["Returns", "Refunds", "Judge.me"],
     lastAnalysis: "2026-05-09",
     primaryIssue: "Zipper failures after first use",
@@ -282,7 +282,7 @@ const rawProducts = [
       lastDetailedDiagnosisAt: null,
     },
     analysisDepth: "quickscan",
-    analysisLabel: "QuickScan only",
+    analysisLabel: "Catalog Scan only",
     analysisDetail: "Only the fast Shopify scan has run for this product.",
     sourceCoverage: ["Reviews", "CSV", "Products"],
     lastAnalysis: "2026-05-07",
@@ -340,7 +340,7 @@ const rawProducts = [
       lastDetailedDiagnosisAt: null,
     },
     analysisDepth: "quickscan",
-    analysisLabel: "QuickScan only",
+    analysisLabel: "Catalog Scan only",
     analysisDetail: "Only the fast Shopify scan has run for this product.",
     sourceCoverage: ["Products", "Reviews"],
     lastAnalysis: "Not analyzed",
@@ -429,7 +429,7 @@ export function buildDashboardViewData(productItems = products, options = {}) {
         tone: pendingActions.length ? "purple" : "green",
       },
       {
-        label: "Margin at risk",
+        label: "Estimated Margin Exposure",
         value: formatDashboardMoney(totalMarginAtRisk),
         detail: `${formatDashboardMoney(totalRevenueAtRisk)} revenue at risk`,
         icon: "cash-dollar",
@@ -541,7 +541,7 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
       {
         tone: hasFullDiagnosis ? "success" : "info",
         icon: hasFullDiagnosis ? "wand" : "search",
-        label: hasFullDiagnosis ? "Full diagnosis" : "QuickScan only",
+        label: hasFullDiagnosis ? "Full diagnosis" : "Catalog Scan only",
       },
       {
         tone: "warning",
@@ -568,29 +568,29 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
 
 function getDashboardStartActionTitle({ product, action, actionMode }) {
   if (actionMode === "pending-action") return action?.label || "Review recommended fix";
-  if (actionMode === "next-diagnosis") return "Run full product diagnosis";
+  if (actionMode === "next-diagnosis") return "Run Product Diagnosis";
   if (actionMode === "recheck") return "Re-check product";
-  return product ? "Analyze more products" : "Run QuickScan";
+  return product ? "Analyze more products" : "Run Catalog Scan";
 }
 
 function getDashboardStartEyebrow(actionMode) {
   if (actionMode === "pending-action") return "Recommended fix waiting for review";
-  if (actionMode === "next-diagnosis") return "Highest-priority QuickScan candidate";
+  if (actionMode === "next-diagnosis") return "Highest-priority Catalog Scan candidate";
   if (actionMode === "recheck") return "Previously changed product";
   return "No urgent product action";
 }
 
 function getDashboardStartCtaLabel(actionMode) {
   if (actionMode === "pending-action") return "Review recommended fix";
-  if (actionMode === "next-diagnosis") return "Run full diagnosis";
+  if (actionMode === "next-diagnosis") return "Run Product Diagnosis";
   if (actionMode === "recheck") return "Re-check product";
   return "Analyze more products";
 }
 
 function getDashboardStartCtaHint(actionMode) {
-  if (actionMode === "pending-action") return "Open the product diagnosis and review the recommended action.";
-  if (actionMode === "next-diagnosis") return "Queue a full AI diagnosis for the highest-priority QuickScan product.";
-  if (actionMode === "recheck") return "Run diagnostics again after applied changes or resolution.";
+  if (actionMode === "pending-action") return "Open the Product Diagnosis and review the recommended action.";
+  if (actionMode === "next-diagnosis") return "Queue a Product Diagnosis for the highest-priority Catalog Scan product.";
+  if (actionMode === "recheck") return "Run Product Diagnosis again after applied changes or resolution.";
   return "Open Products to find or scan the next product.";
 }
 
@@ -606,7 +606,7 @@ function buildDashboardWhyMetrics({ product, returnRate, refundRate, negativeRev
   }
   if (negativeReviews > 0) rows.push({ label: "negative reviews", value: formatDashboardNumber(negativeReviews), tone: "critical" });
   if (refundRate > 0) rows.push({ label: "refund rate", value: formatDashboardRate(refundRate), tone: refundRate >= 10 ? "critical" : "warning" });
-  rows.push({ label: "margin at risk", value: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")), tone: getDashboardMetric(product, "marginAtRisk") > 0 ? "info" : "neutral" });
+  rows.push({ label: "estimated margin exposure", value: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")), tone: getDashboardMetric(product, "marginAtRisk") > 0 ? "info" : "neutral" });
   if (Number(metrics.signalCount || metrics.issueCount || 0) > 0) rows.push({ label: "stored signals", value: formatDashboardNumber(metrics.signalCount || metrics.issueCount), tone: "neutral" });
   return rows.slice(0, 4);
 }
@@ -649,7 +649,7 @@ function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore
   const metrics = product.metrics || {};
   const reasons = [
     `${getRiskLabel(Number(product.riskScore || 0)).toLowerCase()} risk`,
-    `${formatDashboardMoney(getDashboardMetric(product, "marginAtRisk"))} margin at risk`,
+    `${formatDashboardMoney(getDashboardMetric(product, "marginAtRisk"))} estimated margin exposure`,
     `${formatDashboardNumber(metrics.signalCount || metrics.issueCount || 0)} signal${Number(metrics.signalCount || metrics.issueCount || 0) === 1 ? "" : "s"}`,
   ];
   if (Number(metrics.recentSignalUnits || 0) > 0) {
@@ -683,12 +683,12 @@ function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate
   }
   if (!pieces.length) {
     return hasFullDiagnosis
-      ? `${product.title} already has a full diagnosis and remains the highest-priority product to review.`
-      : `${product.title} is the highest-priority product without a full diagnosis. ProductPulse has scan data ready for review.`;
+      ? `${product.title} already has a Product Diagnosis and remains the highest-priority product to review.`
+      : `${product.title} is the highest-priority product without a Product Diagnosis. ProductPulse has scan data ready for review.`;
   }
   return hasFullDiagnosis
-    ? `${product.title} already has a full diagnosis and still ranks highest because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`
-    : `${product.title} is the highest-priority product without a full diagnosis because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`;
+    ? `${product.title} already has a Product Diagnosis and still ranks highest because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`
+    : `${product.title} is the highest-priority product without a Product Diagnosis because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`;
 }
 
 function buildDashboardActionRows(productList) {
@@ -1170,7 +1170,7 @@ function buildDashboardActionQueue(pendingActions) {
       label: "No pending actions",
       value: 0,
       valueLabel: "0",
-      detail: "Run product diagnosis to generate actionable fixes.",
+      detail: "Run Product Diagnosis to generate actionable fixes.",
       href: "/app/products",
       icon: "check",
       tone: "green",
@@ -1215,9 +1215,9 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
   if (totalProducts > 0) connectedLabels.add("Product data");
 
   const sources = [
-    { label: "Products", source: "Product data", icon: "product", connectedDetail: "Shopify product data is available by default and is used for title, description, tags, variants and catalog metadata.", missingDetail: "ProductPulse has not stored product data yet. Run QuickScan to begin catalog coverage." },
+    { label: "Products", source: "Product data", icon: "product", connectedDetail: "Shopify product data is available by default and is used for title, description, tags, variants and catalog metadata.", missingDetail: "ProductPulse has not stored product data yet. Run Catalog Scan to begin catalog coverage." },
     { label: "Reviews", source: "Reviews", icon: "star", connectedDetail: "Review evidence was found through connected review sources or CSV imports and can improve issue confidence.", missingDetail: "No review evidence has been found yet. Connect Judge.me or upload a reviews CSV to improve coverage." },
-    { label: "Returns", source: "Returns", icon: "return", connectedDetail: "Return evidence was found in stored diagnostics and can explain post-purchase friction.", missingDetail: "No return evidence has been found yet. Order access may be missing or no returns were found in the available window." },
+    { label: "Returns", source: "Returns", icon: "return", connectedDetail: "Return evidence was found in stored Product Diagnosis results and can explain post-purchase friction.", missingDetail: "No return evidence has been found yet. Order access may be missing or no returns were found in the available window." },
     { label: "Refunds", source: "Refunds", icon: "cash-dollar", connectedDetail: "Refund evidence was found and can contribute to financial pressure and operational risk.", missingDetail: "No refund evidence has been found yet. Refund access may be missing or no refunds were found in the available window." },
   ].map((source) => ({
     ...source,
@@ -1249,38 +1249,38 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
     tone: statusTone,
     icon: statusTone === "green" ? "check" : statusTone === "orange" ? "alert-triangle" : "x",
     detail: `${formatDashboardNumber(totalProducts)} / ${formatDashboardNumber(catalogTotal)} Shopify catalog products are currently inside ProductPulse.`,
-    coverageLine: `${formatDashboardNumber(fullDiagnoses.length)} full diagnostics · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only in ProductPulse`,
+    coverageLine: `${formatDashboardNumber(fullDiagnoses.length)} Product Diagnosis · ${formatDashboardNumber(quickScanOnly.length)} Catalog Scan only in ProductPulse`,
     catalogCoverage: {
       label: "Total catalog",
       percent: catalogStoredPercent,
       percentLabel: formatDashboardRate(catalogStoredPercent),
       tone: catalogTone,
       ariaLabel: `${formatDashboardRate(catalogStoredPercent)} of Shopify catalog products are currently analyzed in ProductPulse`,
-      detail: `${formatDashboardNumber(totalProducts)} of ${formatDashboardNumber(catalogTotal)} Shopify catalog products are in ProductPulse because QuickScan found evidence above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+).`,
+      detail: `${formatDashboardNumber(totalProducts)} of ${formatDashboardNumber(catalogTotal)} Shopify catalog products are in ProductPulse because Catalog Scan found evidence above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+).`,
       subline: `${formatDashboardNumber(missingCatalogStored)} catalog products are below threshold or not stored here.`,
       infoTitle: "What total catalog means",
-      infoDetail: `This compares the full Shopify catalog with the products stored in ProductPulse. A product enters ProductPulse when QuickScan detects evidence at or above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+). Products below that threshold do not appear in this dashboard and are not included in these analytics.`,
-      infoFootnote: "To analyze a product that is not listed, open Products, use Find Shopify product, search the live Shopify catalog, and run a full diagnosis.",
+      infoDetail: `This compares the full Shopify catalog with the products stored in ProductPulse. A product enters ProductPulse when Catalog Scan detects evidence at or above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+). Products below that threshold do not appear in this dashboard and are not included in these analytics.`,
+      infoFootnote: "To analyze a product that is not listed, open Products, use Find Shopify product, search the live Shopify catalog, and run a Product Diagnosis.",
     },
     productPulseCoverage: {
       label: "Products in ProductPulse",
       percent: storedFullPercent,
       percentLabel: `${formatDashboardRate(storedFullPercent)} full`,
-      secondaryLabel: `${formatDashboardNumber(quickScanOnly.length)} QuickScan only · ${formatDashboardRate(quickScanStoredPercent)}`,
+      secondaryLabel: `${formatDashboardNumber(quickScanOnly.length)} Catalog Scan only · ${formatDashboardRate(quickScanStoredPercent)}`,
       tone: storedAnalysisTone,
-      ariaLabel: `${formatDashboardRate(storedFullPercent)} of ProductPulse products have full diagnostics`,
-      detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(totalProducts)} ProductPulse products have full diagnostics. ${formatDashboardNumber(quickScanOnly.length)} remain QuickScan only.`,
-      subline: "QuickScan-only products have lightweight deterministic evidence and still need full diagnostics for final recommendations.",
-      infoTitle: "Full diagnostics vs QuickScan",
-      infoDetail: "This only measures products that are already inside ProductPulse. Full diagnostics combine Shopify product data, orders, returns/refunds, connected reviews and AI-generated recommendations. QuickScan-only products are candidates found by the lightweight scan but have not received the deep diagnosis yet.",
-      infoFootnote: "Run a full diagnosis from Products or from the product detail page to promote a QuickScan-only product.",
+      ariaLabel: `${formatDashboardRate(storedFullPercent)} of ProductPulse products have Product Diagnosis`,
+      detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(totalProducts)} ProductPulse products have Product Diagnosis. ${formatDashboardNumber(quickScanOnly.length)} remain Catalog Scan only.`,
+      subline: "Catalog Scan-only products have lightweight deterministic evidence and still need Product Diagnosis for final recommendations.",
+      infoTitle: "Product Diagnosis vs Catalog Scan",
+      infoDetail: "This only measures products that are already inside ProductPulse. Product Diagnosis combines Shopify product data, orders, returns/refunds, connected reviews and recommendations. Catalog Scan-only products are candidates found by Catalog Scan but have not received Product Diagnosis yet.",
+      infoFootnote: "Run a Product Diagnosis from Products or from the product detail page to promote a Catalog Scan-only product.",
     },
     recommendation: {
       tone: catalogTone,
       icon: catalogTone === "green" ? "check" : "alert-circle",
       text: catalogTone === "green"
-        ? "Full-diagnosis coverage is healthy. Keep running targeted diagnostics when new products or evidence appear."
-        : "Products below the QuickScan threshold may not appear in the table, but they can still carry hidden risk. ProductPulse recommends running full diagnostics on important products even when QuickScan did not flag them.",
+        ? "Product Diagnosis coverage is healthy. Keep running targeted Product Diagnosis when new products or evidence appear."
+        : "Products below the Catalog Scan threshold may not appear in the table, but they can still carry hidden risk. ProductPulse recommends running Product Diagnosis on important products even when Catalog Scan did not flag them.",
     },
     sources,
   };
@@ -1329,7 +1329,7 @@ function buildDashboardSuggestedFixes(productList) {
   if (fixes.length) return fixes.slice(0, 4);
   return [{
     icon: "wand",
-    label: productList.length ? "Run product diagnosis to unlock recommended actions" : "Run QuickScan to find products needing attention",
+    label: productList.length ? "Run Product Diagnosis to unlock recommended actions" : "Run Catalog Scan to find products needing attention",
     impact: productList.length ? "Needs diagnosis" : "No scan yet",
     tone: "info",
     href: productList.length ? "/app/products" : "/app/products",
@@ -1458,7 +1458,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
     lastUpdatedLabel: getAnalyticsLastUpdatedLabel(productList),
     kpis: [
       {
-        label: "Margin at risk",
+        label: "Estimated Margin Exposure",
         value: formatDashboardMoney(totals.marginAtRisk),
         detail: `${formatDashboardMoney(totals.revenueAtRisk)} revenue at risk`,
         icon: "cash-dollar",
@@ -1481,7 +1481,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       {
         label: "Catalog coverage",
         value: formatDashboardNumber(fullDiagnoses.length),
-        detail: `${formatAnalyticsPercent(totalProducts ? (fullDiagnoses.length / totalProducts) * 100 : 0)} full diagnoses / ${formatDashboardNumber(totalProducts)} stored products`,
+        detail: `${formatAnalyticsPercent(totalProducts ? (fullDiagnoses.length / totalProducts) * 100 : 0)} product diagnoses / ${formatDashboardNumber(totalProducts)} stored products`,
         icon: "product",
         tone: "purple",
       },
@@ -1543,8 +1543,8 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       totalProducts,
     }),
     businessImpact: {
-      title: `Estimated business impact (next ${windowDays} days)`,
-      subtitle: "Projected from the stored QuickScan and full diagnosis metrics.",
+      title: `Estimated Margin Exposure (next ${windowDays} days)`,
+      subtitle: "Projected from the stored Catalog Scan and Product Diagnosis metrics.",
       metrics: buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList, options }),
       calculation: buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productList, actionRows }),
     },
@@ -1769,7 +1769,7 @@ function buildAnalyticsDeepDiagnosisCharts(productList = [], { windowDays = 90 }
     .filter(hasDashboardFullDiagnosis);
   return {
     productCount: deepProducts.length,
-    productCountLabel: `${formatDashboardNumber(deepProducts.length)} deep diagnosis product${deepProducts.length === 1 ? "" : "s"}`,
+    productCountLabel: `${formatDashboardNumber(deepProducts.length)} Product Diagnosis product${deepProducts.length === 1 ? "" : "s"}`,
     riskMarginTrend: buildAnalyticsRiskMarginTrend(deepProducts, { windowDays }),
     issueDistribution: buildAnalyticsIssueDistributionByType(deepProducts),
     sourceCoverageMix: buildAnalyticsSourceCoverageMix(deepProducts),
@@ -1809,10 +1809,10 @@ function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {
           basisLabel: directSnapshots
             ? `${formatDashboardNumber(directSnapshots)} product snapshot${directSnapshots === 1 ? "" : "s"} recorded on this date.`
             : "Carried forward the latest saved exposure values available by this date.",
-          productCountLabel: `${formatDashboardNumber(products.length)} deep diagnosis product${products.length === 1 ? "" : "s"}`,
+          productCountLabel: `${formatDashboardNumber(products.length)} Product Diagnosis product${products.length === 1 ? "" : "s"}`,
         };
       }),
-      detail: "Built from saved score-history exposure values across deep diagnosis products.",
+      detail: "Built from saved score-history exposure values across Product Diagnosis products.",
     });
   }
 
@@ -1843,7 +1843,7 @@ function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {
       time: fallbackTimes[index],
       sourceLabel: "Reconstructed saved risk trend",
       basisLabel: "Estimated from stored risk trend values when full exposure history is not available.",
-      productCountLabel: `${formatDashboardNumber(products.length)} deep diagnosis product${products.length === 1 ? "" : "s"}`,
+      productCountLabel: `${formatDashboardNumber(products.length)} Product Diagnosis product${products.length === 1 ? "" : "s"}`,
     })),
     detail: "Reconstructed from saved risk trends when full exposure history is not available.",
   });
@@ -1865,7 +1865,7 @@ function buildAnalyticsRiskMarginTrendPayload({ labels = [], marginValues = [], 
     series: [
       {
         key: "marginAtRisk",
-        label: "Margin at risk (USD)",
+        label: "Estimated Margin Exposure (USD)",
         color: "green",
         axis: "left",
         values: marginValues,
@@ -2057,7 +2057,7 @@ function buildAnalyticsRiskBubbles(productList) {
       signalCount: Number(metrics.signalCount || metrics.issueCount || 0),
       returnRate: clampDashboardRate(metrics.returnRate),
       refundRate: clampDashboardRate(metrics.refundRate),
-      analysisLabel: hasDashboardFullDiagnosis(product) ? "Full diagnosis" : "QuickScan only",
+      analysisLabel: hasDashboardFullDiagnosis(product) ? "Full diagnosis" : "Catalog Scan only",
       quadrant: getAnalyticsRiskQuadrant(riskScore, impact, maxImpact),
       x: clampAnalyticsValue(riskScore, 3, 97),
       y: maxImpact ? clampAnalyticsValue(8 + (impact / maxImpact) * 82, 8, 92) : 12,
@@ -2122,7 +2122,7 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAt
       displayValue: formatDashboardMoney(marginValues[marginValues.length - 1] || 0),
       detail: usesSavedScoreHistory
         ? `Uses saved score-history dates for ${formatDashboardNumber(scoreHistoryProducts)} product${scoreHistoryProducts === 1 ? "" : "s"}; products without a dated score are not counted before their first stored point.`
-        : "Reconstructed timeline: current product margin exposure is weighted by each product's stored risk trend. The top KPI remains the current total margin at risk.",
+        : "Reconstructed timeline: current product margin exposure is weighted by each product's stored risk trend. The top KPI remains the current total estimated margin exposure.",
     },
     {
       label: "Products needing attention",
@@ -2460,7 +2460,7 @@ function buildAnalyticsActionPerformance(actionRows = []) {
   }, { suggested: 0, pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
 
   const rows = [
-    { label: "Suggested", value: counts.suggested, icon: "wand", tone: "purple", detail: "Actions generated from product diagnosis." },
+    { label: "Suggested", value: counts.suggested, icon: "wand", tone: "purple", detail: "Actions generated from Product Diagnosis." },
     { label: "Pending", value: counts.pending, icon: "clock", tone: "orange", detail: "Waiting for merchant review or approval." },
     { label: "Applied", value: counts.applied, icon: "check", tone: "green", detail: "Actions already applied to products or workflows." },
     { label: "Reviewed", value: counts.reviewed, icon: "view", tone: "blue", detail: "Manual follow-ups verified without applying a Shopify change." },
@@ -2654,7 +2654,7 @@ function buildAnalyticsFixEffectiveness(actionRows = []) {
       },
     }),
     summarizeAnalyticsFixEffect(effects, {
-      label: "Margin at risk reduced",
+      label: "Estimated Margin Exposure reduced",
       key: "marginAtRisk",
       formatter: formatDashboardMoneyChange,
       detail: (summary) => `${formatDashboardMoney(summary.before)} before vs. ${formatDashboardMoney(summary.after)} current margin exposure.`,
@@ -2787,7 +2787,7 @@ function buildAnalyticsCatalogCoverage(productList, { totalProducts, fullDiagnos
     productsWithReturns,
     rows: [
       { label: "Full diagnoses", value: full, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(full), tone: "purple" },
-      { label: "QuickScan only", value: quick, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(quick), tone: "blue" },
+      { label: "Catalog Scan only", value: quick, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(quick), tone: "blue" },
       { label: "Not analyzed", value: notAnalyzed, total: Math.max(analyzed + notAnalyzed, 1), valueLabel: formatDashboardNumber(notAnalyzed), tone: "slate" },
       { label: "No review signals yet", value: productsWithoutReviews, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(productsWithoutReviews), tone: productsWithoutReviews ? "slate" : "green" },
       { label: "Products with return signals", value: productsWithReturns, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(productsWithReturns), tone: productsWithReturns ? "orange" : "slate" },
@@ -2889,7 +2889,7 @@ function buildAnalyticsTopProductsAtRisk(productList, actionRows = []) {
           ? "Pending action"
           : hasDashboardFullDiagnosis(product)
             ? "Full diagnosis"
-            : "QuickScan only";
+            : "Catalog Scan only";
       return {
         id: product.id || product.handle || product.slug || product.title,
         title: product.title || product.productTitle || "Product",
@@ -2904,7 +2904,7 @@ function buildAnalyticsTopProductsAtRisk(productList, actionRows = []) {
         mainIssue: getDashboardIssueLabel(product.primaryIssue || product.metrics?.mainIssue || "Product quality"),
         confidence: Number(product.confidence || product.metrics?.confidence || 0),
         confidenceLabel: formatAnalyticsPercent(product.confidence || product.metrics?.confidence || 0),
-        recommendedAction: pendingAction?.label || appliedAction?.label || (hasDashboardFullDiagnosis(product) ? "Review diagnosis" : "Run full diagnosis"),
+        recommendedAction: pendingAction?.label || appliedAction?.label || (hasDashboardFullDiagnosis(product) ? "Review diagnosis" : "Run Product Diagnosis"),
         status,
         statusTone: status === "Resolved" ? "green" : status === "Pending action" ? "orange" : hasDashboardFullDiagnosis(product) ? "purple" : "blue",
         priorityScore: getDashboardPriorityScore(product, { maxMarginRisk }),
@@ -2921,7 +2921,7 @@ function buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts })
   if (!scannedTotal) {
     return [
       { label: "Full diagnosis", value: 0, percent: 0, pct: 0, displayValue: "0%" },
-      { label: "QuickScan only", value: 0, percent: 0, pct: 0, displayValue: "0%" },
+      { label: "Catalog Scan only", value: 0, percent: 0, pct: 0, displayValue: "0%" },
     ];
   }
   return [
@@ -2934,7 +2934,7 @@ function buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts })
       color: "purple",
     },
     {
-      label: "QuickScan only",
+      label: "Catalog Scan only",
       value: quick,
       percent: Math.round((quick / scannedTotal) * 100),
       pct: Math.round((quick / scannedTotal) * 100),
@@ -2957,7 +2957,7 @@ function buildAnalyticsTopInsights({ productList, issueDistribution, highRiskPro
     const highRiskImpact = highRiskProducts.reduce((sum, product) => sum + getDashboardMetric(product, "marginAtRisk"), 0);
     insights.push({
       icon: "alert-circle",
-      text: `${formatDashboardNumber(highRiskProducts.length)} high-risk product${highRiskProducts.length === 1 ? "" : "s"} represent ${formatDashboardMoney(highRiskImpact)} of estimated margin at risk.`,
+      text: `${formatDashboardNumber(highRiskProducts.length)} high-risk product${highRiskProducts.length === 1 ? "" : "s"} represent ${formatDashboardMoney(highRiskImpact)} of estimated margin exposure.`,
     });
   }
   const topSource = sourceContribution.rows[0];
@@ -2970,11 +2970,11 @@ function buildAnalyticsTopInsights({ productList, issueDistribution, highRiskPro
   const fullCoverage = totalProducts ? Math.round((fullDiagnoses.length / totalProducts) * 100) : 0;
   insights.push({
     icon: fullCoverage >= 50 ? "shield-check-mark" : "wand",
-    text: `${formatAnalyticsPercent(fullCoverage)} of stored products have a full diagnosis; remaining QuickScan products still need deep analysis before final recommendations.`,
+    text: `${formatAnalyticsPercent(fullCoverage)} of stored products have a Product Diagnosis; remaining Catalog Scan products still need Product Diagnosis before final recommendations.`,
   });
 
   if (!productList.length) {
-    return [{ icon: "info", text: "Run QuickScan to populate Analytics with product risk, impact and source contribution data." }];
+    return [{ icon: "info", text: "Run Catalog Scan to populate Analytics with product risk, impact and source contribution data." }];
   }
   return insights.slice(0, 4);
 }
@@ -2995,7 +2995,7 @@ function buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList }
       detail: "Projected revenue exposure from returns, refunds, reviews and basket context.",
     },
     {
-      label: "Margin at risk",
+      label: "Estimated Margin Exposure",
       value: formatDashboardMoney(totals.marginAtRisk),
       icon: "chart-line",
       tone: totals.marginAtRisk > 0 ? "green" : "blue",
@@ -3137,7 +3137,7 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
     windowLabel: `Next ${windowDays} days`,
     formulas: [
       { label: "Revenue at risk", expression: "max(projected lost revenue + return revenue exposure + review conversion revenue drag + relationship-adjusted refund exposure + basket/bulk revenue exposure, stored revenueAtRisk)" },
-      { label: "Margin at risk", expression: "max(projected lost margin + refund margin loss + return processing cost + review conversion margin drag + basket/bulk margin exposure, stored marginAtRisk)" },
+      { label: "Estimated Margin Exposure", expression: "max(projected lost margin + refund margin loss + return processing cost + review conversion margin drag + basket/bulk margin exposure, stored marginAtRisk)" },
       { label: "Potential returns", expression: "return units x analytics projection window / product source window" },
       { label: "Recommended actions", expression: "open actions + applied actions + reviewed actions + dismissed actions" },
     ],
@@ -3156,7 +3156,7 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
         ],
       },
       {
-        label: "Margin at risk",
+        label: "Estimated Margin Exposure",
         value: totals.marginAtRisk,
         valueLabel: formatDashboardMoney(totals.marginAtRisk),
         components: [
@@ -3216,7 +3216,7 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
     },
     assumptions: [
       `Projection window: ${windowDays} days`,
-      "Uses stored QuickScan and full diagnosis signals.",
+      "Uses stored Catalog Scan and Product Diagnosis signals.",
       "Uses observed returns and refunds where Shopify order data is available.",
       "Uses review drag only when negative review or rating signals exist.",
       "Uses conservative margin estimates when exact margin data is unavailable.",
@@ -3337,7 +3337,7 @@ export const jobs = [
 
 export const billing = {
   plan: "Pulse Starter",
-  includedScan: "Catalog Signal Scan",
+  includedScan: "Catalog Scan",
   creditsAvailable: 14,
   creditsUsed: 6,
   monthlyCredits: 20,
@@ -3396,10 +3396,10 @@ export function getProductBySlug(productId) {
 export function runCatalogSignalScan() {
   return {
     status: "success",
-    message: "Catalog Signal Scan queued. ProductPulse is refreshing product, return and review signals.",
+    message: "Catalog Scan queued. ProductPulse is refreshing product, return and review signals.",
     job: {
       id: "job-catalog-scan-now",
-      name: "Catalog Signal Scan",
+      name: "Catalog Scan",
       source: "ProductPulse",
       status: "Running",
       progress: 8,
@@ -3421,7 +3421,7 @@ export function startProductDiagnosis(productId, availableCredits = billing.cred
 
   return {
     status: "success",
-    message: `AI Product Diagnosis started for ${product.title}. 1.0 point was consumed.`,
+    message: `Product Diagnosis started for ${product.title}. 1.0 diagnosis credit was consumed.`,
     product,
     creditsRemaining: availableCredits - product.creditCost,
   };

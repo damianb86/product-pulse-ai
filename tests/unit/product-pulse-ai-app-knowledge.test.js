@@ -32,14 +32,14 @@ describe("ProductPulse AI app knowledge repository", () => {
     const repository = new AppKnowledgeRepository();
 
     const result = repository.search({
-      query: "how does quick analysis select candidates",
+      query: "how does Catalog Scan select candidates",
       limit: 3,
       audience: "merchant",
     });
 
     expect(result.results.length).toBeGreaterThan(0);
-    expect(result.results[0].title).toMatch(/QuickScan|candidates/i);
-    expect(JSON.stringify(result)).toContain("QuickScan");
+    expect(result.results[0].title).toMatch(/Catalog Scan|candidates/i);
+    expect(JSON.stringify(result)).toContain("Catalog Scan");
     expect(JSON.stringify(result)).not.toContain("app/lib/");
     expect(result.results[0].source).not.toHaveProperty("implementationRefs");
   });
@@ -64,9 +64,9 @@ describe("ProductPulse AI app knowledge repository", () => {
 
     const risk = repository.getScoreExplanation("risk score");
     const revenueAtRisk = repository.getScoreExplanation("Revenue at risk");
-    const marginAtRisk = repository.getScoreExplanation("margin at risk");
+    const marginAtRisk = repository.getScoreExplanation("estimated margin exposure");
     const refundRate = repository.getScoreExplanation("refund rate");
-    const candidateScore = repository.getScoreExplanation("QuickScan candidate score");
+    const candidateScore = repository.getScoreExplanation("Catalog Scan candidate score");
     const velocity = repository.getScoreExplanation("Velocity");
     const growth = repository.getScoreExplanation("Growth");
     const catalogShare = repository.getScoreExplanation("Catalog share");
@@ -126,7 +126,7 @@ describe("ProductPulse AI app knowledge repository", () => {
     const relationshipTimeline = repository.getProductDetailCardExplanation("Product relationship timeline");
     const lift = repository.getProductDetailCardExplanation("Lift");
     const returnPressure = repository.getProductDetailCardExplanation("Return pressure");
-    const financialExposure = repository.getProductDetailCardExplanation("Financial exposure");
+    const financialExposure = repository.getProductDetailCardExplanation("Estimated Margin Exposure");
     const search = repository.searchProductDetailCards({ query: "return refund relationship lift", limit: 4 });
     const unknown = repository.getProductDetailCardExplanation("magic card");
 
@@ -210,7 +210,7 @@ describe("ProductPulse AI app knowledge tools", () => {
     const result = await registry.executeAiTool(
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.getScoreExplanation,
       context,
-      { scoreName: "Product Momentum" },
+      { scoreName: "Sales Momentum" },
     );
     const rejected = await registry.executeAiTool(
       PRODUCT_PULSE_APP_KNOWLEDGE_TOOL_NAMES.searchAppKnowledge,
@@ -233,7 +233,7 @@ describe("ProductPulse AI app knowledge tools", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(result.data.scoreName).toBe("Product Momentum");
+    expect(result.data.scoreName).toBe("Sales Momentum");
     expect(result.data.formula).toContain("currentVelocity");
     expect(guidance.ok).toBe(true);
     expect(guidance.data.intent).toBe("product_information");

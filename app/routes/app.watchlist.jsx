@@ -104,8 +104,8 @@ export const action = async ({ request }) => {
     if (!creditPlan.queueItems.length) {
       await recordWatchActivityForShop(session.shop, {
         eventType: "watch_manual_scan_credit_exhausted",
-        title: "Manual watch diagnostics skipped",
-        detail: "The manual Watchlist scan could not queue diagnostics because the shop has no available credits.",
+        title: "Manual Watchlist Product Diagnosis skipped",
+        detail: "The manual Watchlist scan could not queue Product Diagnosis because the shop has no available diagnosis credits.",
         metadata: {
           triggeredBy: "watchlist-manual-run",
           forceEmail: true,
@@ -127,7 +127,7 @@ export const action = async ({ request }) => {
       });
       return {
         status: "validation_error",
-        message: "No watched product diagnostics were queued because this shop has no available credits.",
+        message: "No watched Product Diagnosis jobs were queued because this shop has no available diagnosis credits.",
         action: { id: "run-watch-scan" },
       };
     }
@@ -137,7 +137,7 @@ export const action = async ({ request }) => {
     if (result?.status === "success") {
       const queuedActivity = await recordWatchActivityForShop(session.shop, {
         eventType: "watch_manual_scan_queued",
-        title: "Manual watch diagnostics queued",
+        title: "Manual Watchlist Product Diagnosis queued",
         detail: `${result.queuedCount || productIds.length} deep product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued from Watchlist.`,
         metadata: {
           triggeredBy: "watchlist-manual-run",
@@ -161,7 +161,7 @@ export const action = async ({ request }) => {
       action: { id: "run-watch-scan" },
       message: result?.status === "success"
         ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued. A confirmation email will be sent when email alerts are enabled.`
-        : result?.message || "Watch diagnostics could not be queued.",
+        : result?.message || "Watchlist Product Diagnosis could not be queued.",
       suppressBanner: result?.status === "success",
     };
   }

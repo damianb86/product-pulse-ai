@@ -119,6 +119,11 @@ function dispatchProductPulseWizardEvent(detail) {
   window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail }));
 }
 
+function dispatchProductPulseWatchlistWizardEvent(detail) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:watchlist-wizard", { detail }));
+}
+
 function dispatchProductPulseWizardStart() {
   if (typeof window === "undefined") return;
   try {
@@ -168,7 +173,7 @@ export function DashboardScreen({ data, actionData }) {
     if (!startProduct || !dashboardCtaRequiresDiagnosis || pendingDashboardDiagnosis || startProductDiagnosisRunning) return;
     setDiagnosisConfirmation({
       mode: "single",
-      title: "Confirm product analysis",
+      title: "Confirm Product Diagnosis",
       products: [startProduct.handle || startProduct.productId || ""],
       productTitles: [startProduct.title],
       count: 1,
@@ -191,7 +196,7 @@ export function DashboardScreen({ data, actionData }) {
         <ProductPulseToast actionData={dashboardToastData} />
 
         <p className="ppDashboardSubtitle">
-          Current product quality status from product diagnostics, recommended actions and connected evidence.
+          Current product quality status from Product Diagnosis, recommended actions and connected evidence.
         </p>
 
         <div className="ppDashboardKpis" aria-label="Product quality overview">
@@ -233,7 +238,7 @@ export function DashboardScreen({ data, actionData }) {
                   <DashboardIcon type="search" tone="blue" />
                   <div className="ppStartCopy">
                     <span>No stored scan data yet</span>
-                    <h3>Run QuickScan first</h3>
+                    <h3>Run Catalog Scan first</h3>
                     <p>ProductPulse will populate this dashboard after it stores product risk snapshots from Shopify signals.</p>
                   </div>
                 </div>
@@ -249,7 +254,7 @@ export function DashboardScreen({ data, actionData }) {
                     </span>
                   ))}
                 </div>
-                <p>{startProduct?.whySummary || "ProductPulse ranks the next action by product risk, diagnosis confidence, financial exposure and open recommended actions."}</p>
+                <p>{startProduct?.whySummary || "ProductPulse ranks the next action by product risk, diagnosis confidence, estimated margin exposure and open recommended actions."}</p>
               </div>
 
               <div className="ppStartActionPanel">
@@ -261,7 +266,7 @@ export function DashboardScreen({ data, actionData }) {
                     onClick={handleRequestDashboardDiagnosis}
                   >
                     <s-icon type="wand" size="small"></s-icon>
-                    <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run full diagnosis"}</span>
+                    <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run Product Diagnosis"}</span>
                   </button>
                 ) : (
                   <Link className="ppPrimaryButton" to={startProductDiagnosisRunning ? diagnosisHref : dashboardCtaHref}>
@@ -269,7 +274,7 @@ export function DashboardScreen({ data, actionData }) {
                     <span>{startProductDiagnosisRunning ? "View running product" : startProduct?.actionLabel || "Analyze more products"}</span>
                   </Link>
                 )}
-                <span>{startProductDiagnosisRunning ? getDashboardDiagnosisJobLabel(startProduct.diagnosisJob) : startProduct?.actionHint || "Start with QuickScan"}</span>
+                <span>{startProductDiagnosisRunning ? getDashboardDiagnosisJobLabel(startProduct.diagnosisJob) : startProduct?.actionHint || "Start with Catalog Scan"}</span>
               </div>
             </div>
           </div>
@@ -1060,7 +1065,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     const selectedIds = Array.from(selectedProducts);
     setAnalysisConfirmation({
       mode: "bulk",
-      title: "Confirm selected product analysis",
+      title: "Confirm selected Product Diagnosis",
       products: selectedIds,
       productTitles: selectedProductRows.map((product) => product.title),
       count: selectedIds.length,
@@ -1094,7 +1099,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     setOpenActionProduct(null);
     setAnalysisConfirmation({
       mode: "single",
-      title: "Confirm product analysis",
+      title: "Confirm Product Diagnosis",
       products: [productId],
       productTitles: [product.title],
       count: 1,
@@ -1122,7 +1127,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     setShopifyProductSearchOpen(false);
     setAnalysisConfirmation({
       mode: "shopify-product",
-      title: "Confirm product analysis",
+      title: "Confirm Product Diagnosis",
       products: [product.id],
       productTitles: [product.title],
       count: 1,
@@ -1279,7 +1284,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
             <span>
               {rows.length > 0
                 ? `${rows.length} of ${count} ${productLabel}${totalAll !== count ? ` (${totalAll} stored)` : ""}`
-                : table === "candidates" ? "No candidates in this view" : "No full diagnostics in this view"}
+                : table === "candidates" ? "No candidates in this view" : "No Product Diagnosis results in this view"}
             </span>
             <div className="ppProductsTableTools">
               {showFindProduct && (
@@ -1347,7 +1352,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   />
                 </th>
                 <th>Trend</th>
-                <th>Momentum</th>
+                <th>Sales Momentum</th>
                 <th>Evidence</th>
                 <th>Main suspected issue</th>
                 <th>Sources</th>
@@ -1521,7 +1526,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   };
 
   const productsTableTabs = [
-    { id: "full", label: "Full diagnostics", count: productCount, icon: "chart-line" },
+    { id: "full", label: "Product Diagnosis", count: productCount, icon: "chart-line" },
     { id: "candidates", label: "Candidates", count: candidateCount, icon: "star" },
     { id: "resolved", label: "Resolved", count: resolvedCount, icon: "check" },
   ];
@@ -1563,12 +1568,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const renderActiveProductsTable = () => {
     if (activeProductsTab === "candidates") {
-      return renderProductTable({ table: "candidates", title: "Candidates", description: "Products captured by QuickScan or added manually, without a completed deep diagnosis yet.", rows: candidateRows, count: candidateCount, totalAll: candidateTotalAllProducts, currentPage: candidatePage, pageSize: candidateRowsPerPage, pages: candidateTotalPages, tableSortConfig: candidateSortConfig, tableTestId: "products-candidates-table", showFindProduct: true, searchState: { open: candidateSearchOpen, value: candidateSearchValue, inputRef: candidateTableSearchInputRef, setOpen: setCandidateSearchOpen, setValue: setCandidateSearchValue }, emptyTitle: "No candidates yet", emptyDescription: "Run QuickScan or add a Shopify product as a candidate without starting a diagnosis." });
+      return renderProductTable({ table: "candidates", title: "Candidates", description: "Products captured by Catalog Scan or added manually, without a completed Product Diagnosis yet.", rows: candidateRows, count: candidateCount, totalAll: candidateTotalAllProducts, currentPage: candidatePage, pageSize: candidateRowsPerPage, pages: candidateTotalPages, tableSortConfig: candidateSortConfig, tableTestId: "products-candidates-table", showFindProduct: true, searchState: { open: candidateSearchOpen, value: candidateSearchValue, inputRef: candidateTableSearchInputRef, setOpen: setCandidateSearchOpen, setValue: setCandidateSearchValue }, emptyTitle: "No candidates yet", emptyDescription: "Run Catalog Scan or add a Shopify product as a candidate without starting Product Diagnosis." });
     }
     if (activeProductsTab === "resolved") {
       return renderProductTable({ table: "resolved", title: "Resolved", description: "Products marked resolved after review or remediation.", rows: resolvedRows, count: resolvedCount, totalAll: resolvedTotalAllProducts, currentPage: resolvedPage, pageSize: resolvedRowsPerPage, pages: resolvedTotalPages, tableSortConfig: resolvedSortConfig, tableTestId: "products-resolved-table", searchState: { open: resolvedSearchOpen, value: resolvedSearchValue, inputRef: resolvedTableSearchInputRef, setOpen: setResolvedSearchOpen, setValue: setResolvedSearchValue }, emptyTitle: "No resolved products yet", emptyDescription: "Resolved products will appear here after you mark a diagnosis as resolved." });
     }
-    return renderProductTable({ table: "main", title: "Full diagnostics", description: "Products with completed or running deep AI diagnosis.", rows: productRows, count: productCount, totalAll: totalAllProducts, currentPage: page, pageSize: rowsPerPage, pages: totalPages, tableSortConfig: sortConfig, tableTestId: "products-table", showFindProduct: true, searchState: { open: searchOpen, value: searchValue, inputRef: productTableSearchInputRef, setOpen: setSearchOpen, setValue: setSearchValue }, emptyTitle: "No full diagnostics yet", emptyDescription: "Run product diagnosis from Candidates or find a Shopify product to start a deep analysis." });
+    return renderProductTable({ table: "main", title: "Product Diagnosis", description: "Products with completed or running Product Diagnosis.", rows: productRows, count: productCount, totalAll: totalAllProducts, currentPage: page, pageSize: rowsPerPage, pages: totalPages, tableSortConfig: sortConfig, tableTestId: "products-table", showFindProduct: true, searchState: { open: searchOpen, value: searchValue, inputRef: productTableSearchInputRef, setOpen: setSearchOpen, setValue: setSearchValue }, emptyTitle: "No Product Diagnosis results yet", emptyDescription: "Run Product Diagnosis from Candidates or find a Shopify product to start Product Diagnosis." });
   };
 
   return (
@@ -1577,7 +1582,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
         <div className="ppProductsContent">
           <div className="ppProductsHeader">
             <p className="ppDashboardSubtitle">
-              Browse products, review risk signals and run AI diagnosis.
+              Browse products, review risk signals and run Product Diagnosis.
             </p>
             <div className="ppProductsHeaderActions">
               <FastScanButton
@@ -1600,7 +1605,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
         <div className="ppProductsScanOverlay" role="status">
           <div>
             <span className="ppScanSpinner" aria-hidden="true" />
-            <h2>Fast product scan running</h2>
+            <h2>Catalog Scan running</h2>
             <p>
               ProductPulse is checking the catalog for potential quality signals. The backend job will keep running.
             </p>
@@ -1618,7 +1623,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           onAddCandidate={handleAddShopifyProductCandidate}
           onCancel={() => setShopifyProductSearchOpen(false)}
           onQueryChange={setShopifyProductSearchQuery}
-          actionLabel="Run diagnostics"
+          actionLabel="Run Product Diagnosis"
           addedProductIds={addedCandidateProductIds}
           addedActionLabel="Added to Candidates"
           addedStatusKind="candidate"
@@ -1706,6 +1711,10 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const atCapacity = watchedCount >= maxProducts;
   const hasActiveWatchlistDiagnosisJobs = rows.some((row) => getProductDiagnosisState(row));
   const overviewDashboard = useMemo(() => buildWatchlistOverviewDashboard(rows, runActivities, watchOverviewSort, selectedRunId), [rows, runActivities, watchOverviewSort, selectedRunId]);
+  const firstReportReadyProduct = useMemo(
+    () => rows.find((row) => row?.latestChangeReport && (row.watchlistHref || row.handle || row.productGid)) || null,
+    [rows],
+  );
 
   useEffect(() => {
     shopifyProductSearchSubmitRef.current = shopifyProductSearchFetcher.submit;
@@ -1737,11 +1746,29 @@ export function WatchlistScreen({ data = {}, actionData }) {
     if (actionData?.status === "success" && actionData?.action?.id === "add-watched-product") {
       setShopifyProductSearchOpen(false);
       setShopifyProductSearchQuery("");
+      dispatchProductPulseWatchlistWizardEvent({ type: "product-added" });
+    }
+    if (actionData?.status === "success" && actionData?.action?.id === "run-watch-scan") {
+      dispatchProductPulseWatchlistWizardEvent({ type: "scan-started" });
     }
     if (actionData?.status === "success" && ["pause-watched-product", "resume-watched-product", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistActionConfirmation(null);
     }
   }, [actionData]);
+
+  useEffect(() => {
+    if (!firstReportReadyProduct) return;
+    dispatchProductPulseWatchlistWizardEvent({
+      type: "report-ready",
+      productTitle: firstReportReadyProduct.title || "",
+      productHref: firstReportReadyProduct.watchlistHref || getWatchlistProductPageHref(firstReportReadyProduct),
+    });
+  }, [firstReportReadyProduct]);
+
+  const handleOpenWatchlistProductSearch = () => {
+    setShopifyProductSearchOpen(true);
+    dispatchProductPulseWatchlistWizardEvent({ type: "add-product-modal-opened" });
+  };
 
   const handleAddWatchedProduct = (product) => {
     if (pendingAdd || !product?.id || watchedProductIds.has(product.id)) return;
@@ -1764,7 +1791,13 @@ export function WatchlistScreen({ data = {}, actionData }) {
             <p className="ppDashboardSubtitle">Monitor up to {maxProducts} products with automatic rescans and email alerts.</p>
           </div>
           <div className="ppWatchlistHeaderActions">
-            <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={atCapacity || pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
+            <button
+              className="ppPrimaryButton ppWatchlistAddButton"
+              type="button"
+              disabled={atCapacity || pendingAdd}
+              onClick={handleOpenWatchlistProductSearch}
+              data-pp-watchlist-add-button="header"
+            >
               <ProductPulseGlyph type="binoculars" />
               {pendingAdd ? "Adding..." : "Add watched product"}
             </button>
@@ -1790,7 +1823,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
         />
 
         <s-section padding="none">
-          <div className="ppWatchlistTableWrap">
+          <div className="ppWatchlistTableWrap" data-pp-watchlist-table>
             <table className="ppWatchlistTable">
               <thead>
                 <tr>
@@ -1812,7 +1845,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
                           <h2>No watched products yet</h2>
                           <p>Add up to {maxProducts} Shopify products to monitor on the watch cadence.</p>
                         </div>
-                        <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={pendingAdd} onClick={() => setShopifyProductSearchOpen(true)}>
+                        <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={pendingAdd} onClick={handleOpenWatchlistProductSearch}>
                           <ProductPulseGlyph type="binoculars" />
                           Add watched product
                         </button>
@@ -1985,7 +2018,7 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
       </div>
       <div className="ppWatchOverviewMetricPack">
         <WatchOverviewTinyMetric label="Risk" value={row.riskDeltaLabel} tone={row.riskDeltaTone} />
-        <WatchOverviewTinyMetric label="Momentum" value={row.momentumDeltaLabel} tone={row.momentumDeltaTone} />
+        <WatchOverviewTinyMetric label="Sales Momentum" value={row.momentumDeltaLabel} tone={row.momentumDeltaTone} />
         <WatchOverviewTinyMetric label="Margin" value={row.marginDeltaLabel} tone={row.marginDeltaTone} />
       </div>
       <div className="ppWatchOverviewSourceDeltas" aria-label={`${row.title} source deltas`}>
@@ -2642,9 +2675,14 @@ function WatchlistProductRow({ product, onRequestAction, pending = false }) {
   const diagnosisState = getProductDiagnosisState(product);
   const watchlistProductHref = getWatchlistProductPageHref(product);
   const issueDisplay = getWatchlistIssueCellDisplay(product);
+  const hasWatchlistReport = Boolean(product.latestChangeReport);
 
   return (
-    <tr className={diagnosisState ? "isDiagnosing" : ""}>
+    <tr
+      className={diagnosisState ? "isDiagnosing" : ""}
+      data-pp-watchlist-product-row={product.productGid || product.id || product.handle || product.title || "product"}
+      data-pp-watchlist-ready-row={hasWatchlistReport ? "true" : undefined}
+    >
       <td>
         <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
           <span className="ppWatchlistProductImageWrap">
@@ -2700,6 +2738,12 @@ function WatchlistProductRow({ product, onRequestAction, pending = false }) {
             className="ppWatchActionsButton ppWatchActionsButton-report"
             to={watchlistProductHref}
             aria-label={`View Watchlist report for ${product.title}`}
+            data-pp-watchlist-view-report={hasWatchlistReport ? "true" : undefined}
+            onClick={() => dispatchProductPulseWatchlistWizardEvent({
+              type: "report-opened",
+              productTitle: product.title || "",
+              href: watchlistProductHref,
+            })}
           >
             <s-icon type="chart-line" size="small"></s-icon>
             <span>View report</span>
@@ -2806,7 +2850,11 @@ export function WatchlistProductScreen({ product }) {
       <ScreenShell className="ppDashboard ppWatchlistProductPage">
         <Link className="ppProductBackButton ppProductBackButtonStandalone" to="/app/watchlist"><s-icon type="arrow-left" size="small"></s-icon> Back to Watchlist</Link>
 
-        <section className="ppProductDetailHeroPanel ppWatchlistProductHeroPanel" aria-labelledby="watchlist-product-title">
+        <section
+          className="ppProductDetailHeroPanel ppWatchlistProductHeroPanel"
+          aria-labelledby="watchlist-product-title"
+          data-pp-watchlist-product-hero
+        >
           <span className="ppProductHeroImageWrap ppWatchlistProductHeroImageWrap">
             <ProductArt
               variant={product.variant || "shirt"}
@@ -2899,7 +2947,7 @@ function WatchlistProductEmptyState({ product }) {
         <h3>No Watchlist report data yet</h3>
         <p>
           Run a Watchlist scan or wait for the next scheduled scan to compare orders, returns, refunds, reviews,
-          risk, momentum and evidence for {product?.title || "this product"}.
+          risk, Sales Momentum and evidence for {product?.title || "this product"}.
         </p>
       </div>
     </section>
@@ -3072,7 +3120,7 @@ function WatchRecentRunsTimeline({ rows = [] }) {
   const canGoNewer = clampedWindowStart < maxStart;
 
   return (
-    <section className="ppWatchRecentRuns" aria-label="Recent Watchlist runs">
+    <section className="ppWatchRecentRuns" aria-label="Recent Watchlist runs" data-pp-watchlist-recent-runs>
       <h3>Recent runs</h3>
       <div className="ppWatchRecentRunsTrack">
         <button
@@ -3296,7 +3344,11 @@ function WatchSnapshotComparisonTable({ rows = [] }) {
 function WatchlistInsightReport({ report, statusTone, biggestChanges = [] }) {
   const hasRows = biggestChanges.length > 0;
   return (
-    <section className={`ppWatchlistInsightReport ppWatchlistInsightReport-${statusTone}`} aria-label="AI Watchlist insight">
+    <section
+      className={`ppWatchlistInsightReport ppWatchlistInsightReport-${statusTone}`}
+      aria-label="AI Watchlist insight"
+      data-pp-watchlist-product-insight
+    >
       <div className="ppWatchlistInsightNarrative">
         <span className="ppWatchlistInsightIcon" aria-hidden="true">
           <s-icon type="wand" size="small"></s-icon>
@@ -3422,7 +3474,7 @@ function getWatchlistFallbackReport(product = {}) {
     status: "baseline",
     title: "Watchlist baseline",
     summary: "ProductPulse saved the current product state as the Watchlist baseline.",
-    narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, momentum and evidence against this stored point.",
+    narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, Sales Momentum and evidence against this stored point.",
     headline: "No previous Watchlist data",
     changeCount: 0,
     previousRunAt: null,
@@ -3469,7 +3521,7 @@ function getWatchSnapshotComparisonRows(report = {}) {
     watchSnapshotNumericRow({ id: "return-rate", label: "Return rate", icon: "return", previous, current, field: "returnRatePercent", suffix: "%", deltaSuffix: " pp", lowerIsGood: true }),
     watchSnapshotNumericRow({ id: "refund-rate", label: "Refund rate", icon: "cash-dollar", previous, current, field: "refundRatePercent", suffix: "%", deltaSuffix: " pp", lowerIsGood: true }),
     watchSnapshotNumericRow({ id: "evidence-signals", label: "Evidence signals", icon: "chart-line", previous, current, field: "signalCount", higherIsGood: true }),
-    watchSnapshotNumericRow({ id: "momentum-score", label: "Momentum", hint: "(0-100)", icon: "wand", previous, current, field: "productMomentumScore", higherIsGood: true }),
+    watchSnapshotNumericRow({ id: "momentum-score", label: "Sales Momentum", hint: "(0-100)", icon: "wand", previous, current, field: "productMomentumScore", higherIsGood: true }),
   ];
   const extraRows = [
     watchSnapshotNumericRow({ id: "orders", label: "Orders", icon: "shopify-orders", previous, current, field: "orderCount", higherIsGood: true }),
@@ -3492,7 +3544,7 @@ function getWatchRunTrendCharts(report = {}) {
     { id: "risk-score", key: "riskScore", label: "Risk score (0-100)", color: "var(--pp-pulse-blue)", formatter: formatWatchTrendNumber },
     { id: "return-rate", key: "returnRatePercent", label: "Return rate (%)", color: "var(--pp-risk-red)", formatter: formatWatchTrendNumber },
     { id: "refund-rate", key: "refundRatePercent", label: "Refund rate (%)", color: "var(--pp-insight-violet)", formatter: formatWatchTrendNumber },
-    { id: "momentum", key: "productMomentumScore", label: "Momentum (0-100)", color: "var(--pp-success-green)", formatter: formatWatchTrendNumber },
+    { id: "momentum", key: "productMomentumScore", label: "Sales Momentum (0-100)", color: "var(--pp-success-green)", formatter: formatWatchTrendNumber },
   ].filter((series) => hasWatchTrendSeriesData(points, series.key));
 
   const activitySeries = [
@@ -3974,12 +4026,12 @@ function getWatchCategoryChangeCards(report = {}, sourceChanges = []) {
     }),
     buildWatchCategoryCard({
       id: "financial-exposure",
-      title: "Financial exposure",
+      title: "Estimated Margin Exposure",
       icon: "cash-dollar",
       tone: "orange",
       rows: [
-        watchCategoryCurrentValueRow({ id: "estimated-impact", label: "Est. impact", previous, current, field: "estimatedImpact", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
-        watchCategoryCurrentValueRow({ id: "margin-at-risk", label: "Margin at risk", previous, current, field: "marginAtRisk", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
+        watchCategoryCurrentValueRow({ id: "estimated-impact", label: "Est. margin exposure", previous, current, field: "estimatedImpact", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
+        watchCategoryCurrentValueRow({ id: "margin-at-risk", label: "Estimated Margin Exposure", previous, current, field: "marginAtRisk", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
         watchCategoryCurrentValueRow({ id: "revenue-at-risk", label: "Revenue at risk", previous, current, field: "revenueAtRisk", formatter: formatMoney, deltaFormatter: formatMoney, threshold: 1, lowerIsGood: true }),
       ],
     }),
@@ -4596,7 +4648,7 @@ function WatchlistTrendPanel({ trend = {} }) {
               </button>
             );
           }) : (
-            <span className="ppWatchTrendLegendEmpty">Run diagnostics to start storing score history.</span>
+            <span className="ppWatchTrendLegendEmpty">Run Product Diagnosis to start storing score history.</span>
           )}
         </div>
         <div className="ppWatchTrendCallout">
@@ -5005,7 +5057,7 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
   }, [actionData]);
 
   return (
-    <section className="ppWatchlistPanel ppWatchSettingsPanel">
+    <section className="ppWatchlistPanel ppWatchSettingsPanel" data-pp-watchlist-settings-panel>
       <div className="ppWatchlistPanelHeader">
         <h2>Watch settings</h2>
         {!editing ? <button type="button" onClick={() => setEditing(true)}>Edit</button> : null}
@@ -5086,7 +5138,13 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
             </Form>
             <Form method="post">
               <input type="hidden" name="_action" value="run-watch-scan" />
-              <button className="ppSecondaryButton ppWatchRunNowButton" type="submit" disabled={!activeWatchedCount || pendingAction === "run-watch-scan"}>
+              <button
+                className="ppSecondaryButton ppWatchRunNowButton"
+                type="submit"
+                disabled={!activeWatchedCount || pendingAction === "run-watch-scan"}
+                data-pp-watchlist-run-scan
+                onClick={() => dispatchProductPulseWatchlistWizardEvent({ type: "scan-started" })}
+              >
                 <s-icon type="refresh" size="small"></s-icon>
                 {pendingAction === "run-watch-scan" ? "Queueing..." : "Run scan now"}
               </button>
@@ -5229,13 +5287,13 @@ export function SettingsScreen({ data = {}, actionData }) {
             <span>ProductPulse controls</span>
             <h2>Workspace controls</h2>
             <p>
-              Tune how ProductPulse classifies product risk, keeps QuickScan candidates, and queues detailed AI diagnosis work.
+              Tune how ProductPulse classifies product risk, keeps Catalog Scan candidates, and queues Product Diagnosis work.
             </p>
           </div>
           <div className="ppSettingsHeroSummary" aria-label="Current risk threshold summary">
             <strong>{riskThresholds.highThreshold}+</strong>
             <span>High risk</span>
-            <small>QuickScan keeps products from {riskThresholds.minimumScore}+ product risk or {momentumThreshold}+ momentum.</small>
+            <small>Catalog Scan keeps products from {riskThresholds.minimumScore}+ product risk or {momentumThreshold}+ Sales Momentum.</small>
           </div>
         </div>
 
@@ -5260,7 +5318,7 @@ export function SettingsScreen({ data = {}, actionData }) {
                 <div className="ppSettingsStepTip">
                   <DashboardIcon type="spark" tone="purple" size="small" />
                   <p>
-                    These thresholds control how many products are kept after QuickScan and move forward for analysis.
+                    These thresholds control how many products are kept after Catalog Scan and move forward for analysis.
                   </p>
                 </div>
               </div>
@@ -5275,10 +5333,10 @@ export function SettingsScreen({ data = {}, actionData }) {
               <div className="ppSettingsStepHeader">
                 <div className="ppSettingsStepCopy">
                   <h2 id="settings-momentum-title">
-                    Product Momentum inclusion <span className="ppSettingsInfoDot" aria-hidden="true">i</span>
+                    Sales Momentum inclusion <span className="ppSettingsInfoDot" aria-hidden="true">i</span>
                   </h2>
                   <p>
-                    Product Momentum reflects how commercially important a product is right now.
+                    Sales Momentum reflects how commercially important a product is right now.
                     <br />
                     Products selling strongly can still be included even if risk is low.
                     <br />
@@ -5301,7 +5359,7 @@ export function SettingsScreen({ data = {}, actionData }) {
                     Evidence lookback <span className="ppSettingsInfoDot" aria-hidden="true">i</span>
                   </h2>
                   <p>
-                    Controls how far back ProductPulse reads orders, returns, refunds, and connected reviews for QuickScan and deep product diagnostics.
+                    Controls how far back ProductPulse reads orders, returns, refunds, and connected reviews for Catalog Scan and Product Diagnosis.
                     <br />
                     Shorter windows focus on fresher risk signals. Longer windows provide more volume but may dilute recent changes.
                   </p>
@@ -5481,7 +5539,7 @@ const PLANS_CREDIT_PLANS = [
     key: "free",
     name: "Free",
     basePriceCents: 0,
-    credits: "10 credits included",
+    credits: "10 diagnosis credits included",
     monthlyCredits: 10,
     limits: {
       deepDiagnostics: "10 total",
@@ -5497,7 +5555,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "starter",
     name: "Starter",
-    credits: "50 credits /mo",
+    credits: "50 diagnosis credits /mo",
     monthlyCredits: 50,
     limits: {
       deepDiagnostics: "50 /mo",
@@ -5513,7 +5571,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "growth",
     name: "Growth",
-    credits: "150 credits /mo",
+    credits: "150 diagnosis credits /mo",
     monthlyCredits: 150,
     badge: "Recommended",
     featured: true,
@@ -5532,7 +5590,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "pro",
     name: "Pro",
-    credits: "400 credits /mo",
+    credits: "400 diagnosis credits /mo",
     monthlyCredits: 400,
     unavailable: true,
     limits: {
@@ -5549,7 +5607,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "premium",
     name: "Premium",
-    credits: "1,000 credits /mo",
+    credits: "1,000 diagnosis credits /mo",
     monthlyCredits: 1000,
     badge: "Best value",
     premium: true,
@@ -5568,14 +5626,14 @@ const PLANS_CREDIT_PLANS = [
 ];
 
 const PLANS_CREDIT_FEATURES = [
-  { label: "Deep diagnostics", info: true, getValue: (plan) => plan.limits.deepDiagnostics },
+  { label: "Product Diagnosis", info: true, getValue: (plan) => plan.limits.deepDiagnostics },
   { icon: "assistant", label: "AI assistant", getValue: (plan) => plan.limits.aiAssistant },
   { icon: "chart", label: "Analytics dashboard", getValue: (plan) => plan.limits.analyticsDashboard },
   { icon: "timeline", label: "Metric timeline", getValue: (plan) => plan.limits.metricTimeline },
   { icon: "binoculars", label: "Products monitored in Watchlist", getValue: (plan) => plan.limits.watchlistProducts },
   { icon: "export", label: "Exports", getValue: (plan) => plan.limits.exports },
   { icon: "support", label: "Support level", getValue: (plan) => plan.limits.support },
-  { icon: "shield", label: "Can buy extra credits", getValue: (plan) => plan.limits.extraCredits },
+  { icon: "shield", label: "Can buy extra diagnosis credits", getValue: (plan) => plan.limits.extraCredits },
 ];
 
 const EXTRA_CREDIT_PACKS = [
@@ -5592,21 +5650,21 @@ const PLAN_USAGE_OPTIONS = [
     icon: "pulse",
     title: "Low usage",
     volume: "Under 50 / month",
-    detail: "Starter is a great way to get started with core diagnostics and insights.",
+    detail: "Starter is a great way to get started with Product Diagnosis and insights.",
   },
   {
     tone: "growth",
     icon: "heart",
     title: "Growing usage",
     volume: "50-200 / month",
-    detail: "Growth offers the best balance of credits, features, and flexibility.",
+    detail: "Growth offers the best balance of diagnosis credits, features, and flexibility.",
   },
   {
     tone: "heavy",
     icon: "bars",
     title: "Heavy usage",
     volume: "200+ / month",
-    detail: "Pro or Premium gives you more credits, exports, and the strongest support coverage.",
+    detail: "Pro or Premium gives you more diagnosis credits, exports, and the strongest support coverage.",
   },
 ];
 
@@ -5634,8 +5692,8 @@ function getPlansCreditActivityRows(pointSummary) {
   return entries.slice(0, 10).map((entry) => {
     const direction = entry?.direction === "debit" ? "debit" : "credit";
     return {
-      id: entry?.id || `${entry?.title || "credit"}-${entry?.createdAtIso || entry?.timeLabel || ""}`,
-      title: entry?.title || (direction === "debit" ? "Credit usage" : "Credit added"),
+      id: entry?.id || `${entry?.title || "diagnosis-credit"}-${entry?.createdAtIso || entry?.timeLabel || ""}`,
+      title: entry?.title || (direction === "debit" ? "Diagnosis credit usage" : "Diagnosis credit added"),
       detail: entry?.detail || entry?.reason || "",
       direction,
       typeLabel: direction === "debit" ? "Spent" : "Earned",
@@ -5687,7 +5745,7 @@ export function PlansCreditsScreen({ data = {} }) {
       })),
     },
   });
-  const creditPacksFeedbackPanel = buildBetaFeedbackPanel("plans.extraCreditPacks", "Extra credit packs", {
+  const creditPacksFeedbackPanel = buildBetaFeedbackPanel("plans.extraCreditPacks", "Extra diagnosis credit packs", {
     ...plansFeedbackContext,
     extraCreditPacks: EXTRA_CREDIT_PACKS.map((pack) => ({
       credits: pack.credits,
@@ -5695,7 +5753,7 @@ export function PlansCreditsScreen({ data = {} }) {
     })),
   });
   const billingFeedbackPanel = buildBetaFeedbackPanel("plans.billingInformation", "Billing information", plansFeedbackContext);
-  const creditActivityFeedbackPanel = buildBetaFeedbackPanel("plans.creditActivity", "Credit activity", {
+  const creditActivityFeedbackPanel = buildBetaFeedbackPanel("plans.creditActivity", "Diagnosis credit activity", {
     ...plansFeedbackContext,
     creditActivity: {
       rowCount: pointActivityRows.length,
@@ -5710,12 +5768,12 @@ export function PlansCreditsScreen({ data = {} }) {
   });
 
   return (
-    <FullWidthPage label="Plans & Credits" className="ppPlansPage">
+    <FullWidthPage label="Plans & Diagnosis Credits" className="ppPlansPage">
       <ScreenShell className="ppDashboard ppPlansScreen">
         <div className="ppPlansTopbar">
           <div>
-            <h1>Plans &amp; Credits</h1>
-            <p>Track ProductPulse credits for diagnostics and AI usage. Paid upgrades are disabled until Shopify Billing is configured.</p>
+            <h1>Plans &amp; Diagnosis Credits</h1>
+            <p>Track Diagnosis Credits for Product Diagnosis usage. Paid upgrades are disabled until Shopify Billing is configured.</p>
           </div>
         </div>
 
@@ -5724,7 +5782,7 @@ export function PlansCreditsScreen({ data = {} }) {
             <span>Free</span>
             <div>
               <strong>ProductPulse is running without paid billing in this build.</strong>
-              <p>Plan changes and credit-pack purchases remain unavailable until they are implemented through Shopify Billing or Shopify App Pricing.</p>
+              <p>Plan changes and diagnosis credit-pack purchases remain unavailable until they are implemented through Shopify Billing or Shopify App Pricing.</p>
             </div>
           </aside>
 
@@ -5736,7 +5794,7 @@ export function PlansCreditsScreen({ data = {} }) {
                 <b>{currentPlan.name}</b>
               </span>
               <span>
-                <small>Monthly credits</small>
+                <small>Monthly diagnosis credits</small>
                 <b>{formatInteger(currentPlan.monthlyCredits)}</b>
               </span>
               <span>
@@ -5754,7 +5812,7 @@ export function PlansCreditsScreen({ data = {} }) {
       <BetaFeedbackPanelFrame panel={planComparisonFeedbackPanel}>
         <section className="ppPlansMatrixCard" id="plans-comparison" aria-label="Plan comparison">
           <div className="ppPlansBetaFeedbackCorner">
-            <BetaFeedbackPanelControls panel={planComparisonFeedbackPanel} />
+            <BetaFeedbackPanelControls panel={planComparisonFeedbackPanel} allowHide={false} />
           </div>
           <div className="ppPlansMatrix">
             <div className="ppPlansFeatureHeading">Features</div>
@@ -5799,7 +5857,7 @@ export function PlansCreditsScreen({ data = {} }) {
 
       <p className="ppPlansSecureNote">
         <PlansCreditsIcon type="shield" />
-        Paid upgrades and purchasable credit packs will be enabled only through Shopify Billing.
+        Paid upgrades and purchasable diagnosis credit packs will be enabled only through Shopify Billing.
       </p>
 
       <section className="ppPlansLowerGrid">
@@ -5807,18 +5865,18 @@ export function PlansCreditsScreen({ data = {} }) {
           <div className="ppPlansPanel ppPlansCreditPacks">
             <header>
               <div>
-                <h2>Extra credit packs</h2>
-                <p>Credit-pack purchases are not available in this build.</p>
+                <h2>Extra diagnosis credit packs</h2>
+                <p>Diagnosis credit-pack purchases are not available in this build.</p>
               </div>
-              <BetaFeedbackPanelControls panel={creditPacksFeedbackPanel} />
+              <BetaFeedbackPanelControls panel={creditPacksFeedbackPanel} allowHide={false} />
             </header>
             <p className="ppPlansPackFootnote">
               <PlansCreditsIcon type="info" />
-              Extra credits can be added here after Shopify Billing or Shopify App Pricing is configured for the app.
+              Extra diagnosis credits can be added here after Shopify Billing or Shopify App Pricing is configured for the app.
             </p>
             <p className="ppPlansPackFootnote">
               <PlansCreditsIcon type="info" />
-              The current free credit balance is managed inside ProductPulse and is not a merchant charge.
+              The current free diagnosis credit balance is managed inside ProductPulse and is not a merchant charge.
             </p>
           </div>
         </BetaFeedbackPanelFrame>
@@ -5826,7 +5884,7 @@ export function PlansCreditsScreen({ data = {} }) {
         <div className="ppPlansPanel ppPlansFitPanel">
           <header>
             <h2>Which option fits best?</h2>
-            <p>Based on deep diagnoses per month</p>
+            <p>Based on product diagnoses per month</p>
           </header>
           <div className="ppPlansFitList">
             {PLAN_USAGE_OPTIONS.map((option) => (
@@ -5851,14 +5909,14 @@ export function PlansCreditsScreen({ data = {} }) {
         <section className="ppPlansBillingPanel" aria-label="Billing information">
           <div className="ppPlansBillingHeader">
             <h2>Billing information</h2>
-            <BetaFeedbackPanelControls panel={billingFeedbackPanel} />
+            <BetaFeedbackPanelControls panel={billingFeedbackPanel} allowHide={false} />
           </div>
           <div className="ppPlansBillingGrid">
             <article>
               <span className="ppPlansBillingIcon ppPlansBillingIcon-green" aria-hidden="true"><PlansCreditsIcon type="rollover" /></span>
               <div>
                 <strong>Rollover policy</strong>
-                <p>Free ProductPulse credits reset according to ProductPulse internal credit rules.</p>
+                <p>Free Diagnosis Credits reset according to ProductPulse internal diagnosis credit rules.</p>
               </div>
             </article>
             <article>
@@ -5871,9 +5929,9 @@ export function PlansCreditsScreen({ data = {} }) {
             <article>
               <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="gear" /></span>
               <div>
-                <strong>Manage credits</strong>
+                <strong>Manage diagnosis credits</strong>
                 <p>Plan changes, invoices and cancellation flows are disabled until Shopify Billing is connected.</p>
-                <Link to="/app/plans-and-credits">View credits <span aria-hidden="true">-&gt;</span></Link>
+                <Link to="/app/plans-and-credits">View diagnosis credits <span aria-hidden="true">-&gt;</span></Link>
               </div>
             </article>
           </div>
@@ -5881,13 +5939,13 @@ export function PlansCreditsScreen({ data = {} }) {
       </BetaFeedbackPanelFrame>
 
       <BetaFeedbackPanelFrame panel={creditActivityFeedbackPanel}>
-        <section className="ppPlansPanel ppPlansLedgerPanel" aria-label="Credit activity">
+        <section className="ppPlansPanel ppPlansLedgerPanel" aria-label="Diagnosis credit activity">
           <header>
             <div>
-              <h2>Credit activity</h2>
-              <p>Latest credits earned and spent across free grants, diagnostics and AI usage.</p>
+              <h2>Diagnosis credit activity</h2>
+              <p>Latest Diagnosis Credits earned and spent across free grants and Product Diagnosis usage.</p>
             </div>
-            <BetaFeedbackPanelControls panel={creditActivityFeedbackPanel} />
+            <BetaFeedbackPanelControls panel={creditActivityFeedbackPanel} allowHide={false} />
           </header>
           <div className="ppPlansLedgerTableWrap">
             <table className="ppPlansLedgerTable">
@@ -5914,7 +5972,7 @@ export function PlansCreditsScreen({ data = {} }) {
                   </tr>
                 )) : (
                   <tr>
-                    <td className="ppPlansLedgerEmpty" colSpan={5}>No credit activity yet.</td>
+                    <td className="ppPlansLedgerEmpty" colSpan={5}>No diagnosis credit activity yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -6165,7 +6223,7 @@ function RiskThresholdSlider({ thresholds, onChange }) {
         <input
           className="ppSettingsRiskRange ppSettingsRiskRange-min"
           type="range"
-          aria-label="Minimum QuickScan score"
+          aria-label="Minimum Catalog Scan score"
           min="0"
           max="100"
           step="1"
@@ -6224,7 +6282,7 @@ function MomentumInclusionSlider({ value, onChange }) {
       <div className="ppSettingsMomentumSliderRow">
         <input
           type="range"
-          aria-label="Minimum Product Momentum score"
+          aria-label="Minimum Sales Momentum score"
           min="0"
           max="100"
           step="1"
@@ -6402,9 +6460,9 @@ function QuickScanCsvReviewsModal({ onCancel, onContinue }) {
           </span>
           <div>
             <span>Recommended source</span>
-            <h2 id="quick-scan-csv-title">Add CSV reviews before QuickScan?</h2>
+            <h2 id="quick-scan-csv-title">Add CSV reviews before Catalog Scan?</h2>
             <p>
-              QuickScan can run without review data, but uploaded CSV reviews make the scan more useful when you already collect product reviews.
+              Catalog Scan can run without review data, but uploaded CSV reviews make the scan more useful when you already collect product reviews.
             </p>
           </div>
         </div>
@@ -6412,7 +6470,7 @@ function QuickScanCsvReviewsModal({ onCancel, onContinue }) {
         <div className="ppActionConfirmNotice ppQuickScanCsvNotice">
           <s-icon type="info" size="small"></s-icon>
           <p>
-            ProductPulse does not call your review provider during QuickScan. It only uses the normalized CSV review file uploaded in Connect.
+            ProductPulse does not call your review provider during Catalog Scan. It only uses the normalized CSV review file uploaded in Connect.
           </p>
         </div>
 
@@ -6420,8 +6478,8 @@ function QuickScanCsvReviewsModal({ onCancel, onContinue }) {
           <span>Recommended CSV fields</span>
           <ul>
             <li>Product handle or Shopify product ID so reviews can be matched to products.</li>
-            <li>Rating or stars so QuickScan can include review pressure in the preliminary score.</li>
-            <li>Review date and text are optional for QuickScan, but useful later for deep diagnosis.</li>
+            <li>Rating or stars so Catalog Scan can include review pressure in the preliminary score.</li>
+            <li>Review date and text are optional for Catalog Scan, but useful later for Product Diagnosis.</li>
           </ul>
         </div>
 
@@ -6445,8 +6503,8 @@ function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
               <span className="ppQuickScanBolt">⚡</span>
             </span>
             <div>
-              <span>QuickScan</span>
-              <h2 id="quick-scan-confirm-title">Confirm quick product scan</h2>
+              <span>Catalog Scan</span>
+              <h2 id="quick-scan-confirm-title">Confirm Catalog Scan</h2>
               <p>
                 ProductPulse will run a lightweight Shopify scan across the catalog to refresh preliminary risk signals.
               </p>
@@ -6461,9 +6519,9 @@ function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
             </span>
             <div>
               <span>Estimated cost</span>
-              <strong>1.0 point</strong>
+              <strong>1.0 diagnosis credit</strong>
             </div>
-            <small>QuickScan costs 1.0 point and runs as a background job.</small>
+            <small>Catalog Scan costs 1.0 diagnosis credit and runs as a background job.</small>
           </div>
 
           <div className="ppCostConfirmInfoGrid">
@@ -6482,7 +6540,7 @@ function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
               </span>
               <div>
                 <strong>What is skipped</strong>
-                <p>Products that already have a full AI product diagnosis will be ignored so their detailed analysis is not overwritten.</p>
+                <p>Products that already have a Product Diagnosis will be ignored so their detailed analysis is not overwritten.</p>
               </div>
             </div>
           </div>
@@ -6493,7 +6551,7 @@ function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
           <button className="ppPrimaryButton" type="button" onClick={onConfirm} disabled={pending}>
             <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
-            {pending ? "Starting QuickScan..." : "Accept cost and run QuickScan"}
+            {pending ? "Starting Catalog Scan..." : "Accept cost and run Catalog Scan"}
           </button>
         </div>
       </section>
@@ -6516,12 +6574,12 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
               <s-icon type="wand" size="large"></s-icon>
             </span>
             <div>
-              <span>AI Product Diagnosis</span>
+              <span>Product Diagnosis</span>
               <h2 id="analysis-confirm-title">{confirmation.title}</h2>
               <p>
                 {isSingle
-                  ? "ProductPulse will queue a detailed AI diagnosis for this product to refresh evidence, findings and recommended actions."
-                  : `ProductPulse will queue detailed AI diagnoses for ${confirmation.count} selected products. Jobs run in the background one at a time.`}
+                  ? "ProductPulse will queue Product Diagnosis for this product to refresh evidence, findings and recommended actions."
+                  : `ProductPulse will queue Product Diagnosis for ${confirmation.count} selected products. Jobs run in the background one at a time.`}
               </p>
             </div>
           </div>
@@ -6534,9 +6592,9 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
             </span>
             <div>
               <span>Estimated cost</span>
-              <strong>{formatPointValue(confirmation.credits)} point{confirmation.credits === 1 ? "" : "s"}</strong>
+              <strong>{formatPointValue(confirmation.credits)} diagnosis credit{confirmation.credits === 1 ? "" : "s"}</strong>
             </div>
-            <small>Product Diagnosis costs 1.0 point per product and runs as a background job.</small>
+            <small>Product Diagnosis costs 1.0 diagnosis credit per product and runs as a background job.</small>
           </div>
 
           <div className="ppCostConfirmInfoGrid">
@@ -6546,7 +6604,7 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
               </span>
               <div>
                 <strong>What happens</strong>
-                <p>We&apos;ll run a full diagnosis for {productLabel}, updating evidence, product findings and recommended actions.</p>
+                <p>We&apos;ll run a Product Diagnosis for {productLabel}, updating evidence, product findings and recommended actions.</p>
               </div>
             </div>
             <div className="ppCostConfirmCard ppCostConfirmCard-warning">
@@ -6574,7 +6632,7 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
 
           <div className="ppActionConfirmNotice ppCostConfirmNotice">
             <s-icon type="info" size="small"></s-icon>
-            <p>Existing product diagnosis data remains available until the new background job finishes.</p>
+            <p>Existing Product Diagnosis data remains available until the new background job finishes.</p>
           </div>
         </div>
 
@@ -6610,7 +6668,7 @@ function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
             <h2 id={titleId}>{removing ? "Remove watched product" : "Add watched product"}</h2>
             <p>
               {removing
-                ? "ProductPulse will stop monitoring this product on the Watchlist cadence. Existing diagnostics and history will stay available."
+                ? "ProductPulse will stop monitoring this product on the Watchlist cadence. Existing Product Diagnosis results and history will stay available."
                 : "ProductPulse will add this product to the Watchlist so it can be monitored by the configured automatic cadence."}
             </p>
           </div>
@@ -6672,7 +6730,7 @@ function WatchlistRowActionConfirmModal({ confirmation, pending, onCancel }) {
       ? pending ? "Resuming..." : "Resume watch"
       : pending ? "Pausing..." : "Pause watch";
   const detail = destructive
-    ? "ProductPulse will stop monitoring this product on the Watchlist cadence. Existing product diagnostics and Watchlist history will stay available."
+    ? "ProductPulse will stop monitoring this product on the Watchlist cadence. Existing Product Diagnosis results and Watchlist history will stay available."
     : kind === "resume"
       ? "ProductPulse will include this product again in automatic Watchlist scans and manual Watchlist runs."
       : "ProductPulse will stop automatic Watchlist scans for this product until you resume it.";
@@ -6724,10 +6782,10 @@ function DeleteProductAnalysisConfirmModal({ confirmation, pending, onCancel }) 
             <ProductPulseGlyph type="trash" />
           </span>
           <div>
-            <span>Delete local analysis</span>
-            <h2 id="delete-product-analysis-title">Delete product analysis?</h2>
+            <span>Delete local Product Diagnosis</span>
+            <h2 id="delete-product-analysis-title">Delete Product Diagnosis?</h2>
             <p>
-              ProductPulse will remove this product from the local analysis database. This does not delete or modify the Shopify product.
+              ProductPulse will remove this product from the local Product Diagnosis database. This does not delete or modify the Shopify product.
             </p>
           </div>
         </div>
@@ -6742,7 +6800,7 @@ function DeleteProductAnalysisConfirmModal({ confirmation, pending, onCancel }) 
         <div className="ppActionConfirmNotice ppDeleteAnalysisNotice">
           <s-icon type="info" size="small"></s-icon>
           <p>
-            Stored diagnostics, recommendations, action states, score history, Watchlist tracking and related ProductPulse jobs for this product will be removed.
+            Stored Product Diagnosis results, recommendations, action states, score history, Watchlist tracking and related ProductPulse jobs for this product will be removed.
             To analyze it again, use <strong>Find Shopify product</strong> from the Products table and run a new diagnosis.
           </p>
         </div>
@@ -6887,7 +6945,7 @@ function FastScanButton({ pending, onStart }) {
   return (
     <button className="ppQuickScanButton" data-pp-products-quick-scan type="button" disabled={pending} onClick={onStart}>
       <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
-      {pending ? "Scan running..." : "Run quick scan"}
+      {pending ? "Catalog Scan running..." : "Run Catalog Scan"}
     </button>
   );
 }
@@ -6902,7 +6960,7 @@ function ShopifyProductSearchModal({
   onQueryChange,
   title = "Find Shopify product",
   eyebrow = "Shopify catalog",
-  description = "Search the live Shopify catalog, select a product that has not appeared in QuickScan, and queue a full AI diagnosis.",
+  description = "Search the live Shopify catalog, select a product that has not appeared in Catalog Scan, and queue a Product Diagnosis.",
   actionLabel = "Run diagnosis",
   actionIcon = "wand",
   addedProductIds = [],
@@ -6914,10 +6972,18 @@ function ShopifyProductSearchModal({
   const normalizedQuery = query.trim();
   const hasQuery = normalizedQuery.length >= 2;
   const addedProductIdSet = addedProductIds instanceof Set ? addedProductIds : new Set(addedProductIds);
+  const watchlistAddMode = actionLabel === "Add to watchlist";
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
-      <section className="ppAnalysisConfirmModal ppShopifyProductSearchModal" role="dialog" aria-modal="true" aria-labelledby="shopify-product-search-title">
+      <section
+        className="ppAnalysisConfirmModal ppShopifyProductSearchModal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shopify-product-search-title"
+        data-pp-shopify-product-search-modal
+        data-pp-watchlist-add-modal={watchlistAddMode ? "true" : undefined}
+      >
         <div className="ppAnalysisConfirmHeader">
           <span className="ppAnalysisConfirmIcon" aria-hidden="true">
             <s-icon type="search" size="small"></s-icon>
@@ -6938,6 +7004,7 @@ function ShopifyProductSearchModal({
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder="Search by title, handle, product ID or SKU"
+              data-pp-shopify-product-search-input
             />
           </div>
         </label>
@@ -6998,7 +7065,7 @@ function ShopifyProductSearchModal({
                         className="ppShopifyProductResultRunAction"
                         icon={actionIcon}
                         label={actionLabel}
-                        tooltip="Run diagnostics and move this product into Full diagnostics while the job runs."
+                        tooltip="Run Product Diagnosis and move this product into Product Diagnosis while the job runs."
                         iconOnly={Boolean(onAddCandidate)}
                         onClick={() => onAnalyze(product)}
                       />
@@ -7105,7 +7172,7 @@ function getProductSearchStatus(product = {}, alreadyAdded = false, addedStatusK
         icon: "check",
         tone: "added",
         label: "Added to Candidates",
-        detail: "This product is now listed in Candidates. You can still run diagnostics from this modal.",
+        detail: "This product is now listed in Candidates. You can still run Product Diagnosis from this modal.",
       };
     }
     return {
@@ -7120,16 +7187,16 @@ function getProductSearchStatus(product = {}, alreadyAdded = false, addedStatusK
     return {
       icon: "wand",
       tone: "full",
-      label: product.productPulseStatusLabel || "Deep analysis completed",
-      detail: product.productPulseStatusDetail || "This product already has a completed deep product diagnosis in ProductPulse.",
+      label: product.productPulseStatusLabel || "Product Diagnosis completed",
+      detail: product.productPulseStatusDetail || "This product already has a completed Product Diagnosis in ProductPulse.",
     };
   }
   if (status === "quickscan") {
     return {
       icon: "search",
       tone: "quickscan",
-      label: product.productPulseStatusLabel || "QuickScan stored",
-      detail: product.productPulseStatusDetail || "This product is stored in ProductPulse with lightweight QuickScan signals only.",
+      label: product.productPulseStatusLabel || "Catalog Scan stored",
+      detail: product.productPulseStatusDetail || "This product is stored in ProductPulse with lightweight Catalog Scan signals only.",
     };
   }
   return {
@@ -7410,10 +7477,10 @@ function getProductAnalysisDisplay(product = {}) {
   if (depth === "full") {
     return {
       depth: "full",
-      label: product.analysisLabel || "Full diagnosis",
+      label: product.analysisLabel || "Product diagnosis",
       icon: product.analysisIcon || "wand",
       tone: product.analysisTone || "success",
-      detail: product.analysisDetail || "Deep AI product diagnosis completed. Recommended actions can be reviewed and applied.",
+      detail: product.analysisDetail || "Product Diagnosis completed. Recommended actions can be reviewed and applied.",
       completedAt: product.analysisCompletedAt || metrics.lastDetailedDiagnosisAt || null,
     };
   }
@@ -7431,10 +7498,10 @@ function getProductAnalysisDisplay(product = {}) {
 
   return {
     depth: "quickscan",
-    label: product.analysisLabel || "QuickScan only",
+    label: product.analysisLabel || "Catalog Scan only",
     icon: product.analysisIcon || "search",
     tone: product.analysisTone || "info",
-    detail: product.analysisDetail || "Only the fast Shopify scan has run. Run product diagnosis to unlock recommended actions.",
+    detail: product.analysisDetail || "Only the fast Shopify scan has run. Run Product Diagnosis to unlock recommended actions.",
     completedAt: null,
   };
 }
@@ -7443,7 +7510,7 @@ function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true,
   const triggerRef = useRef(null);
   const [open, setOpen] = useState(false);
   const analysis = getProductAnalysisDisplay(product);
-  const popoverTitle = completionOnly && analysis.depth === "full" ? "Deep analysis completed" : getAnalysisPopoverTitle(analysis);
+  const popoverTitle = completionOnly && analysis.depth === "full" ? "Product Diagnosis completed" : getAnalysisPopoverTitle(analysis);
   const popoverDetail = completionOnly
     ? formatProductAnalysisDate(analysis.completedAt || product.lastAnalysis)
     : analysis.detail;
@@ -7479,7 +7546,7 @@ function ProductAnalysisStatusBadge({ product, detail = false, showLabel = true,
 
 function getAnalysisPopoverTitle(analysis) {
   if (analysis.depth === "full") return "Deep Analysis completed";
-  if (analysis.depth === "quickscan") return "Fast Analysis completed";
+  if (analysis.depth === "quickscan") return "Catalog Scan completed";
   return "No analysis completed";
 }
 
@@ -7603,7 +7670,7 @@ function getProductDetailModel(product) {
     hasFullDiagnosis,
     activeDiagnosisJob,
     diagnosisInProgress: Boolean(activeDiagnosisJob),
-    diagnosisButtonLabel: hasFullDiagnosis ? "Re-run product diagnosis" : "Run product diagnosis",
+    diagnosisButtonLabel: hasFullDiagnosis ? "Re-run Product Diagnosis" : "Run Product Diagnosis",
     riskLabel: product.riskLabel,
     riskBadgeTone: getBadgeToneFromRiskTone(product.riskTone),
     riskScoreLabel: riskDisplay.label,
@@ -7680,11 +7747,11 @@ function getProductDetailModel(product) {
     mainFindingTitle: mainFinding?.title || (issueText ? getMainFindingTitle(issueCategory) : "No ProductPulse issue stored for this product"),
     mainFindingDetail: mainFinding?.detail || (issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
-      : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run QuickScan to create risk signals before deep diagnosis.`),
-    recommendedFix: hasFullDiagnosis ? (firstAction?.title || firstAction?.label || "No deterministic action yet") : "Run full product diagnosis",
+      : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run Catalog Scan to create risk signals before Product Diagnosis.`),
+    recommendedFix: hasFullDiagnosis ? (firstAction?.title || firstAction?.label || "No deterministic action yet") : "Run Product Diagnosis",
     recommendedFixDetail: hasFullDiagnosis
       ? (firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.")
-      : "Recommended actions are intentionally locked until this product has a completed deep diagnosis.",
+      : "Recommended actions are intentionally locked until this product has a completed Product Diagnosis.",
     evidenceSources,
     timeline: normalizeProductTimeline(product.timeline),
     detectedIssues: detectedIssueRows,
@@ -7787,8 +7854,8 @@ function getProductTimelineCategoryLabel(category = "") {
     reviews: "Reviews",
     returns: "Returns",
     refunds: "Refunds",
-    momentum: "Momentum",
-    impact: "Business impact",
+    momentum: "Sales Momentum",
+    impact: "Estimated Margin Exposure",
     evidence: "Evidence",
     catalog: "Catalog",
   };
@@ -9053,7 +9120,7 @@ function normalizeProductMomentum(momentum = null) {
       growthLabel: display.growthLabel || formatSignedPercent(Number(display.growthPercent || 0)),
       catalogPositionLabel: display.catalogPositionLabel || (catalog.topCatalogPercent ? `Top ${catalog.topCatalogPercent}%` : "Catalog baseline pending"),
       trendLabel: display.trendLabel || "Sales trend unavailable",
-      recommendedUse: display.recommendedUse || "Run deep diagnosis again after new sales.",
+      recommendedUse: display.recommendedUse || "Run Product Diagnosis again after new sales.",
     },
     flags: momentum.flags || {},
   };
@@ -9438,7 +9505,7 @@ function getDiagnosisConfidenceFootnote(detail = {}) {
 function getFinancialExposureDetail(detail = {}) {
   const breakdown = detail.financialExposureBreakdown || {};
   if (breakdown.hasRelationshipSummary) return `${formatMoney(breakdown.confirmedRefundAmount || 0)} confirmed refunds`;
-  return `${formatMoney(detail.marginAtRisk)} margin at risk`;
+  return `${formatMoney(detail.marginAtRisk)} estimated margin exposure`;
 }
 
 function getPurchaseContextCompactLine(detail = {}) {
@@ -9542,7 +9609,6 @@ function getProductDetailInsightCards(detail = {}) {
   const customerSignalCount = getCustomerSignalCount(detail);
   const momentumScore = detail.productMomentum ? Number(detail.productMomentum.score || 0) : 0;
   const averageRatingCard = getAverageRatingCardData(detail);
-  const retentionHealthCard = getRetentionHealthInsightCardData(detail);
 
   return [
     {
@@ -9559,7 +9625,7 @@ function getProductDetailInsightCards(detail = {}) {
       help: getProductRiskInsightHelp(detail),
     },
     {
-      title: "Financial exposure",
+      title: "Estimated Margin Exposure",
       meta: "Revenue exposure trend",
       value: formatMoney(detail.estimatedImpact),
       detail: getFinancialExposureDetail(detail),
@@ -9582,16 +9648,15 @@ function getProductDetailInsightCards(detail = {}) {
       chartStyle: "area",
       chartTone: returnPressureCard.chartTone,
     },
-    ...(retentionHealthCard ? [retentionHealthCard] : []),
     {
-      title: "Product Momentum",
+      title: "Sales Momentum",
       meta: detail.productMomentum?.inputs?.weeklyUnitsLast8Weeks?.length
         ? "Last 8 weekly units"
         : detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks?.length
           ? "Last 4 weekly units"
           : "Commercial trend",
       value: detail.productMomentum ? (detail.productMomentum.direction || detail.productMomentum.tier) : "Needs diagnosis",
-      detail: detail.productMomentum ? `${formatInteger(momentumScore)} / 100` : "Momentum unavailable",
+      detail: detail.productMomentum ? `${formatInteger(momentumScore)} / 100` : "Sales Momentum unavailable",
       footnote: detail.productMomentum
         ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
         : "Run diagnosis to calculate sales strength",
@@ -9627,7 +9692,7 @@ function getProductDetailInsightCards(detail = {}) {
       chartTone: "maroon",
     },
     {
-      title: "Evidence strength",
+      title: "Evidence support",
       meta: "Evidence quality trend",
       value: detail.evidenceStrengthScore ? `${formatInteger(detail.evidenceStrengthScore)} / 100` : formatInteger(sourceCount),
       detail: `${formatInteger(sourceCount)} ${sourceCount === 1 ? "source" : "sources"} · ${formatInteger(detail.signalCount)} stored signals`,
@@ -9687,58 +9752,6 @@ function getProductDetailInsightCards(detail = {}) {
       chartTone: "slate",
     },
   ];
-}
-
-function getRetentionHealthInsightCardData(detail = {}) {
-  const retention = detail.productRetention || normalizeProductRetention(null);
-  if (!hasProductRetentionData(retention)) return null;
-  const summary = retention.summary || {};
-  const healthScore = toNullableFiniteNumber(summary.retentionHealthScore);
-  const hasScore = healthScore != null;
-  const trendValues = getRetentionHealthInsightSeries(retention, healthScore);
-  const repeatText = summary.repeatPurchaseRate90d == null
-    ? "Repeat rate unavailable"
-    : `${formatRetentionRate(summary.repeatPurchaseRate90d)} 90d repeat`;
-  const ltvText = summary.productLtv90Cents
-    ? `${formatRetentionMoneyCents(summary.productLtv90Cents)} LTV`
-    : "LTV unavailable";
-  return {
-    title: "Retention health",
-    meta: "Customer retention trend",
-    value: hasScore ? `${formatInteger(healthScore)} / 100` : "Low sample",
-    detail: summary.hasEnoughData
-      ? `${formatInteger(summary.totalCustomersAnalyzed)} cohort customers`
-      : `${formatInteger(summary.totalProductOrdersAnalyzed)} product orders`,
-    footnote: `${repeatText} · ${ltvText}`,
-    tone: getRetentionHealthInsightTone(healthScore, summary),
-    sparkline: trendValues,
-    icon: "product-momentum",
-    chartStyle: "area",
-    chartTone: "teal",
-    help: {
-      what: "Shows repeat-purchase and LTV health for customers whose first purchase of this product starts a retention cohort.",
-      why: "It highlights clear retention opportunity or strength without changing Product Risk, which remains focused on product friction.",
-      graph: "Read it left to right. A rising line means retention health is improving across stored diagnosis runs or mature product cohorts.",
-    },
-  };
-}
-
-function getRetentionHealthInsightTone(score = null, summary = {}) {
-  if (score == null || summary.hasEnoughData === false) return "neutral";
-  if (score >= 70) return "green";
-  if (score >= 45) return "blue";
-  return "orange";
-}
-
-function getRetentionHealthInsightSeries(retention = {}, fallbackScore = null) {
-  const values = (Array.isArray(retention.retentionHealthTrend) ? retention.retentionHealthTrend : [])
-    .map((point) => Number(point.retentionHealthScore))
-    .filter((value) => Number.isFinite(value));
-  if (values.length >= 2) return values;
-  const fallback = Number(fallbackScore);
-  const safeFallback = Number.isFinite(fallback) ? fallback : 0;
-  if (values.length === 1) return [values[0], values[0]];
-  return [safeFallback, safeFallback];
 }
 
 function getProductRiskInsightHelp(detail = {}) {
@@ -10192,6 +10205,17 @@ function getMainFindingTitle(issueCategory) {
   return `${issueCategory} signals need review`;
 }
 
+const MAIN_FINDING_QUESTION_HEADINGS = [
+  "What is wrong?",
+  "Why do we believe that?",
+  "What should we do now?",
+  "How much does it matter?",
+  "¿Qué está mal?",
+  "¿Por qué creemos eso?",
+  "¿Qué deberíamos hacer ahora?",
+  "¿Cuánto importa?",
+];
+
 function getMainFindingParagraphs(value) {
   const raw = String(value || "").replace(/\r/g, "\n").trim();
   if (!raw) return [];
@@ -10200,7 +10224,20 @@ function getMainFindingParagraphs(value) {
     .filter(Boolean);
   return (paragraphs.length ? paragraphs : [raw.replace(/\n+/g, " ").replace(/\s+/g, " ").trim()])
     .filter(Boolean)
-    .slice(0, 3);
+    .slice(0, 5);
+}
+
+function renderMainFindingTextBlock(value = "") {
+  const text = String(value || "").trim();
+  const heading = MAIN_FINDING_QUESTION_HEADINGS.find((candidate) => text.toLowerCase().startsWith(candidate.toLowerCase()));
+  if (!heading) return renderAnalysisText(text);
+  const answer = text.slice(heading.length).trimStart();
+  return (
+    <>
+      <strong className="ppMainFindingQuestionHeading">{heading}</strong>
+      {answer ? <> {renderAnalysisText(answer)}</> : null}
+    </>
+  );
 }
 
 function getProductEvidenceSources(product) {
@@ -12221,7 +12258,7 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       editable: false,
       target: "ProductPulse Watchlist",
       operation: "Add to Watchlist",
-      intro: "This adds the product to periodic Watchlist monitoring so future deep diagnostics can track changes over time.",
+      intro: "This adds the product to periodic Watchlist monitoring so future Product Diagnosis results can track changes over time.",
       confirmationTitle: "Confirm Watchlist addition",
       confirmationDetail: "ProductPulse will add this product to the Watchlist if there is an available slot.",
       applyLabel: "Add to Watchlist",
@@ -13400,7 +13437,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     : detail.hasFullDiagnosis
       ? "Re-analyze"
       : hasNoStoredDiagnosis
-        ? "Run diagnostics"
+        ? "Run Product Diagnosis"
         : detail.diagnosisButtonLabel;
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -13449,7 +13486,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     const productId = detail.productGid || product.productGid || product.id || product.slug || product.handle || "";
     setDiagnosisConfirmation({
       mode: "single",
-      title: "Confirm product analysis",
+      title: "Confirm Product Diagnosis",
       products: [productId],
       productTitles: [detail.title],
       count: 1,
@@ -13675,7 +13712,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           <h2>{detail.mainFindingTitle}</h2>
           <div className="ppMainFindingText">
             {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
-              <p key={`${detail.slug}-main-finding-${index}`}>{renderAnalysisText(paragraph)}</p>
+              <p key={`${detail.slug}-main-finding-${index}`}>{renderMainFindingTextBlock(paragraph)}</p>
             ))}
           </div>
         </div>
@@ -13701,7 +13738,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <span>
               {detail.hasFullDiagnosis
                 ? `${visibleRecommendedActionCount} action${visibleRecommendedActionCount === 1 ? "" : "s"}${minimizedRecommendedActions.length ? ` / ${minimizedRecommendedActions.length} minimized` : ""}${ignoredIssues.size ? ` / ${ignoredIssues.size} ignored issue${ignoredIssues.size === 1 ? "" : "s"}` : ""}`
-                : "Run full diagnosis to unlock actions"}
+                : "Run Product Diagnosis to unlock actions"}
             </span>
           </div>
           <div className="ppBetaFeedbackHeaderActions">
@@ -13749,7 +13786,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             <div className="ppRecommendedActionList">
               {!detail.hasFullDiagnosis ? (
                 <EmptyProductDetailState
-                  message="Recommended actions will appear after you run the full product diagnosis for this product."
+                  message="Recommended actions will appear after you run the Product Diagnosis for this product."
                   variant="recommendedActions"
                 />
               ) : visibleRecommendedActions.length === 0 && minimizedRecommendedActions.length === 0 && (
@@ -14236,7 +14273,7 @@ export function ProductMetricTimelinesScreen({ product }) {
 
         {!timelineModel.hasData && (
           <div className="ppMetricTimelineEmpty">
-            <EmptyProductDetailState message="No dated metric history is stored for this product yet. Run diagnostics over time to build aligned metric timelines." />
+            <EmptyProductDetailState message="No dated metric history is stored for this product yet. Run Product Diagnosis over time to build aligned metric timelines." />
           </div>
         )}
       </ScreenShell>
@@ -15144,7 +15181,7 @@ function getProductMetricTimelineDefinitions() {
     },
     {
       key: "financial-exposure",
-      title: "Financial exposure",
+      title: "Estimated Margin Exposure",
       subtitle: "Revenue exposure trend",
       icon: "financial-exposure",
       glyph: "financial-exposure",
@@ -15193,7 +15230,7 @@ function getProductMetricTimelineDefinitions() {
     },
     {
       key: "product-momentum",
-      title: "Product Momentum",
+      title: "Sales Momentum",
       subtitle: "Commercial activity trend",
       icon: "product-momentum",
       glyph: "product-momentum",
@@ -15219,7 +15256,7 @@ function getProductMetricTimelineDefinitions() {
     },
     {
       key: "evidence-strength",
-      title: "Evidence strength",
+      title: "Evidence support",
       subtitle: "Evidence quality trend",
       icon: "product-momentum",
       glyph: "product-momentum",
@@ -18047,16 +18084,16 @@ function getReturnRefundResolutionBuckets(relationship = {}) {
 
 function ProductDeepDiagnosisDataPlaceholder({ detail }) {
   return (
-    <section className="ppProductDeepDiagnosisPlaceholder" aria-label="Full diagnosis required for commercial charts">
+    <section className="ppProductDeepDiagnosisPlaceholder" aria-label="Product diagnosis required for commercial charts">
       <span className="ppProductDeepDiagnosisPlaceholderIcon" aria-hidden="true">
         <s-icon type="wand" size="large"></s-icon>
       </span>
       <div>
-        <span>Full diagnosis needed</span>
+        <span>Product diagnosis needed</span>
         <h2>Commercial charts are not available yet</h2>
         <p>
-          Monthly order activity and return-rate prediction are unlocked after a full product diagnosis.
-          Run the full diagnosis for {detail.title} to calculate order history, return behavior and forward-looking return risk from stored Shopify evidence.
+          Monthly order activity and return-rate prediction are unlocked after a Product Diagnosis.
+          Run the Product Diagnosis for {detail.title} to calculate order history, return behavior and forward-looking return risk from stored Shopify evidence.
         </p>
       </div>
     </section>
@@ -18070,10 +18107,10 @@ function ProductNoDiagnosisPanel({ detail, pending = false, onRunDiagnosis }) {
     ? getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)
     : pending
       ? "Queueing..."
-      : "Run diagnostics";
+      : "Run Product Diagnosis";
 
   return (
-    <section className="ppProductNoDiagnosisPanel" aria-label="No product diagnosis data">
+    <section className="ppProductNoDiagnosisPanel" aria-label="No Product Diagnosis data">
       <span className="ppProductNoDiagnosisIcon" aria-hidden="true">
         <s-icon type="wand" size="large"></s-icon>
       </span>
@@ -18081,7 +18118,7 @@ function ProductNoDiagnosisPanel({ detail, pending = false, onRunDiagnosis }) {
         <span>No diagnosis data</span>
         <h2>No data for this product yet</h2>
         <p>
-          This product does not have a QuickScan or full diagnosis stored yet. Run diagnostics to calculate
+          This product does not have a Catalog Scan or Product Diagnosis stored yet. Run Product Diagnosis to calculate
           product risk, customer signals, order context and recommended actions from the available evidence.
         </p>
       </div>
@@ -18300,7 +18337,7 @@ function ProductOrderActivityPanel({ detail }) {
                 </div>
               </div>
             ) : (
-              <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run product diagnosis after order access is available." />
+              <EmptyProductDetailState message="No monthly Shopify order activity is stored yet. Run Product Diagnosis after order access is available." />
             )}
           </>
         </ProductDetailPanelCollapseRegion>
@@ -18405,7 +18442,7 @@ function ProductReturnRatePredictionPanel({ detail }) {
                 </div>
               </div>
             ) : (
-              <EmptyProductDetailState message="No return-rate prediction is available yet. Run product diagnosis after Shopify order and return data is available." />
+              <EmptyProductDetailState message="No return-rate prediction is available yet. Run Product Diagnosis after Shopify order and return data is available." />
             )}
           </>
         </ProductDetailPanelCollapseRegion>
@@ -19740,9 +19777,9 @@ function getProductRetentionWarningLabel(summary = {}, run = null) {
 function getProductRetentionEmptyMessage(summary = {}, run = null) {
   const errorMessage = firstNonEmptyString(summary.errorMessage, run?.errorMessage);
   if (errorMessage) {
-    return `Product retention calculation failed: ${truncateText(errorMessage, 180)} Re-run product diagnosis to calculate retention metrics.`;
+    return `Product retention calculation failed: ${truncateText(errorMessage, 180)} Re-run Product Diagnosis to calculate retention metrics.`;
   }
-  return "No product retention metrics are stored yet. Run product diagnosis after Shopify order evidence is available.";
+  return "No product retention metrics are stored yet. Run Product Diagnosis after Shopify order evidence is available.";
 }
 
 function formatProductRetentionStatus(status = "") {
@@ -19766,7 +19803,7 @@ function ProductMomentumPanel({ detail }) {
   const momentum = detail.productMomentum;
   const panel = buildBetaFeedbackPanel(
     "product.momentum",
-    "Product Momentum",
+    "Sales Momentum",
     buildProductBetaFeedbackContext(detail, {}, {
       momentum: momentum ? {
         score: momentum.score,
@@ -19786,24 +19823,24 @@ function ProductMomentumPanel({ detail }) {
   if (!momentum) {
     return (
       <BetaFeedbackPanelFrame panel={panel}>
-        <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
+        <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Sales Momentum">
           <div className="ppProductMomentumHeader">
             <div>
               <span>Commercial signal</span>
-              <h2>Product Momentum</h2>
+              <h2>Sales Momentum</h2>
               <p>Commercial strength is calculated from recent Shopify order velocity, growth and catalog position.</p>
             </div>
             <div className="ppBetaFeedbackHeaderActions">
               <BetaFeedbackPanelControls panel={panel} />
               <ProductDetailPanelCollapseButton
                 collapsed={collapsed}
-                label="Product Momentum"
+                label="Sales Momentum"
                 onToggle={() => setCollapsed((current) => !current)}
               />
             </div>
           </div>
           <ProductDetailPanelCollapseRegion collapsed={collapsed}>
-            <EmptyProductDetailState message="Run product diagnosis to calculate Product Momentum for this product." />
+            <EmptyProductDetailState message="Run Product Diagnosis to calculate Sales Momentum for this product." />
           </ProductDetailPanelCollapseRegion>
         </section>
       </BetaFeedbackPanelFrame>
@@ -19821,18 +19858,18 @@ function ProductMomentumPanel({ detail }) {
 
   return (
     <BetaFeedbackPanelFrame panel={panel}>
-      <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Product Momentum">
+      <section className={`ppProductMomentumPanel${collapsed ? " isCollapsed" : ""}`} aria-label="Sales Momentum">
         <div className="ppProductMomentumHeader">
           <div>
             <span>Commercial signal</span>
-            <h2>Product Momentum</h2>
+            <h2>Sales Momentum</h2>
             <p>This score answers whether the product matters commercially right now. It is separate from Product Risk.</p>
           </div>
           <div className="ppBetaFeedbackHeaderActions">
             <BetaFeedbackPanelControls panel={panel} />
             <ProductDetailPanelCollapseButton
               collapsed={collapsed}
-              label="Product Momentum"
+              label="Sales Momentum"
               onToggle={() => setCollapsed((current) => !current)}
             />
           </div>
@@ -19939,8 +19976,8 @@ function getProductMomentumComponentHelp(componentKey, momentum = {}) {
     },
   };
   return helpers[componentKey] || {
-    description: "Product Momentum component used in the commercial score.",
-    detail: "Higher values increase Product Momentum when the source data is reliable.",
+    description: "Sales Momentum component used in the commercial score.",
+    detail: "Higher values increase Sales Momentum when the source data is reliable.",
   };
 }
 
@@ -19954,7 +19991,7 @@ function ProductMomentumWeeklyChart({ momentum }) {
   }));
 
   return (
-    <div className="ppProductMomentumWeeklyChart" role="img" aria-label={`Last 4 weekly units sold for ${momentum.tier} Product Momentum`}>
+    <div className="ppProductMomentumWeeklyChart" role="img" aria-label={`Last 4 weekly units sold for ${momentum.tier} Sales Momentum`}>
       <span className="ppProductMomentumWeeklyYAxisTitle">Units sold</span>
       <div className="ppProductMomentumWeeklyYAxis" aria-hidden="true">
         {ticks.map((tick) => <span key={tick.key} style={{ top: tick.top }}>{formatInteger(tick.value)}</span>)}
@@ -21730,7 +21767,7 @@ function getProductRiskHistoryChangeLabel(change, hasSavedHistory) {
 }
 
 function getProductRiskHistoryWindowLabel(points = [], hasSavedHistory = false) {
-  if (!hasSavedHistory) return "Saved history appears after QuickScan or deep diagnostics run again.";
+  if (!hasSavedHistory) return "Saved history appears after Catalog Scan or Product Diagnosis runs again.";
   const first = points[0];
   const last = points[points.length - 1];
   if (first?.recordedAt && last?.recordedAt && first.recordedAt !== last.recordedAt) {
@@ -21741,8 +21778,8 @@ function getProductRiskHistoryWindowLabel(points = [], hasSavedHistory = false) 
 
 function getProductRiskHistorySourceLabel(source) {
   const normalized = String(source || "").toLowerCase();
-  if (normalized.includes("full")) return "Deep diagnosis";
-  if (normalized.includes("quick")) return "QuickScan";
+  if (normalized.includes("full")) return "Product diagnosis";
+  if (normalized.includes("quick")) return "Catalog Scan";
   if (normalized.includes("watch")) return "Watchlist scan";
   return source ? String(source) : "ProductPulse";
 }
@@ -21762,7 +21799,7 @@ export function AnalyticsScreen({ data }) {
   const [businessImpactOpen, setBusinessImpactOpen] = useState(false);
   const [impactBreakdownKey, setImpactBreakdownKey] = useState(analyticsView.impactBreakdown?.defaultKey || "collection");
   const kpis = analyticsView.kpis || [];
-  const businessImpact = analyticsView.businessImpact || { title: "Estimated business impact", subtitle: "", metrics: [] };
+  const businessImpact = analyticsView.businessImpact || { title: "Estimated Margin Exposure", subtitle: "", metrics: [] };
   const riskBubbles = analyticsView.riskBubbles || [];
   const impactTrend = analyticsView.impactTrend || { series: [], labels: [] };
   const actionImpactTrend = analyticsView.actionImpactTrend || { series: [], labels: [] };
@@ -21785,7 +21822,7 @@ export function AnalyticsScreen({ data }) {
         <div className="ppAnalyticsTopbar">
           <div>
             <h1>Analytics</h1>
-            <p>Visualize product quality risk, issue trends and estimated impact.</p>
+            <p>Visualize product quality risk, issue trends and estimated margin exposure.</p>
           </div>
           <div className="ppAnalyticsActions">
             <span><s-icon type="calendar" size="small"></s-icon>{analyticsView.windowLabel || "Stored scan window"}</span>
@@ -21811,15 +21848,15 @@ export function AnalyticsScreen({ data }) {
         </div>
 
         <div className="ppAnalyticsChartGrid">
-          <AnalyticsPanel title="Risk vs. margin impact" subtitle="X: product risk · Y: margin at risk · Bubble size: revenue at risk" className="ppAnalyticsPanelRiskMargin">
+          <AnalyticsPanel title="Risk vs. margin impact" subtitle="X: product risk · Y: estimated margin exposure · Bubble size: revenue at risk" className="ppAnalyticsPanelRiskMargin">
             <RiskRevenueBubbleChart bubbles={riskBubbles} />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Margin at risk over time" subtitle="Current total vs. reconstructed trend-weighted exposure" className="ppAnalyticsPanelTrend">
-            <AnalyticsTrendChart chart={impactTrend} ariaLabel="Margin at risk over time" />
+          <AnalyticsPanel title="Estimated Margin Exposure over time" subtitle="Current total vs. reconstructed trend-weighted exposure" className="ppAnalyticsPanelTrend">
+            <AnalyticsTrendChart chart={impactTrend} ariaLabel="Estimated Margin Exposure over time" />
           </AnalyticsPanel>
 
-          <AnalyticsPanel title="Issue impact by type" subtitle="Issue types ranked by business exposure, not just raw signal volume" className="ppAnalyticsPanelIssueImpact">
+          <AnalyticsPanel title="Issue impact by type" subtitle="Issue types ranked by Estimated Margin Exposure, not just raw signal volume" className="ppAnalyticsPanelIssueImpact">
             <IssueImpactTable rows={issueImpact.rows} />
           </AnalyticsPanel>
 
@@ -21959,11 +21996,11 @@ function getPreviewWatchlistData(data = {}) {
           },
           {
             id: "financial",
-            title: "Financial exposure",
+            title: "Estimated Margin Exposure",
             tone: "purple",
             changes: [
               { id: "revenue-at-risk", label: "Revenue at risk", from: "$1,799", to: "$1,801", delta: "+$2", direction: "up", detail: "Revenue exposure increased slightly based on latest evidence." },
-              { id: "margin-at-risk", label: "Margin at risk", from: "$320", to: "$329", delta: "+$9", direction: "up", detail: "Margin exposure moved with the current product state." },
+              { id: "margin-at-risk", label: "Estimated Margin Exposure", from: "$320", to: "$329", delta: "+$9", direction: "up", detail: "Margin exposure moved with the current product state." },
             ],
           },
         ],
@@ -22059,7 +22096,7 @@ function getDashboardKpiHelp(kpi = {}) {
   if (label.includes("products needing")) {
     return {
       title: "Products needing attention",
-      body: "Products currently showing medium or high operational risk from stored diagnostics and evidence. Use this to decide what needs review first.",
+      body: "Products currently showing medium or high operational risk from stored Product Diagnosis results and evidence. Use this to decide what needs review first.",
     };
   }
   if (label.includes("pending recommended")) {
@@ -22068,9 +22105,9 @@ function getDashboardKpiHelp(kpi = {}) {
       body: "Recommended actions still waiting for a decision, review, or application. This excludes actions already applied, dismissed, or reviewed.",
     };
   }
-  if (label.includes("margin at risk")) {
+  if (label.includes("estimated margin exposure")) {
     return {
-      title: "Margin at risk",
+      title: "Estimated Margin Exposure",
       body: "Estimated product margin exposed by current risk signals. The supporting text separates the broader revenue exposure from the margin estimate.",
     };
   }
@@ -22437,7 +22474,7 @@ function DashboardPriorityProducts({ products }) {
             <h2>Priority products</h2>
             <span>Products with important open actions, ranked by priority and exposure.</span>
           </div>
-          <BetaFeedbackPanelControls panel={panel} />
+          <BetaFeedbackPanelControls panel={panel} allowHide={false} />
         </div>
         <div className="ppPriorityProductList">
           {rows.length ? rows.map((product) => (
@@ -22445,7 +22482,7 @@ function DashboardPriorityProducts({ products }) {
               <span className={`ppPriorityProductRank ppPriorityProductRank-${product.riskTone || "neutral"}`}>{product.rank}</span>
               <span>
                 <strong>{product.title}</strong>
-                <small>{product.riskLabel} · {product.marginAtRiskLabel} margin at risk · {product.issueLabel}</small>
+                <small>{product.riskLabel} · {product.marginAtRiskLabel} estimated margin exposure · {product.issueLabel}</small>
               </span>
               <em>{product.actionLabel}</em>
               <s-icon type="chevron-right" size="small"></s-icon>
@@ -22483,7 +22520,7 @@ function DashboardActionQueue({ queue }) {
             <h2>Action queue</h2>
             <span>{queue?.detail || "Recommended actions waiting for review."}</span>
           </div>
-          <BetaFeedbackPanelControls panel={panel} />
+          <BetaFeedbackPanelControls panel={panel} allowHide={false} />
         </div>
         <div className="ppActionQueueTotal">
           <strong>{queue?.totalLabel || "0"}</strong>
@@ -22528,13 +22565,13 @@ function DashboardTopActiveIssues({ issues }) {
             <h2>Top active issue types</h2>
             <span>Ranked by affected products and margin exposure, not raw signal count.</span>
           </div>
-          <BetaFeedbackPanelControls panel={panel} />
+          <BetaFeedbackPanelControls panel={panel} allowHide={false} />
         </div>
         <div className="ppTopIssueTable" role="table" aria-label="Top active issue types">
           <div role="row">
             <span role="columnheader">Issue type</span>
             <span role="columnheader">Products affected</span>
-            <span role="columnheader">Margin at risk</span>
+            <span role="columnheader">Estimated Margin Exposure</span>
           </div>
           {rows.map((issue) => (
             <div role="row" key={issue.label}>
@@ -22574,7 +22611,7 @@ function DashboardCoverageSummary({ summary }) {
             <h2>Data coverage / scan coverage</h2>
             <span>{summary?.detail || "Coverage updates as products are scanned and sources connect."}</span>
           </div>
-          <BetaFeedbackPanelControls panel={panel} />
+          <BetaFeedbackPanelControls panel={panel} allowHide={false} />
         </div>
         <div className="ppCoverageSummaryGrid">
           <div className={`ppCoverageSummaryStatus ppCoverageSummaryStatus-${summary?.tone || "blue"}`}>
@@ -22583,7 +22620,7 @@ function DashboardCoverageSummary({ summary }) {
             </span>
             <span className="ppCoverageStatusCopy">
               <strong>{summary?.statusLabel || "No scan data"}</strong>
-              <small>{summary?.coverageLine || "Run QuickScan to build coverage."}</small>
+              <small>{summary?.coverageLine || "Run Catalog Scan to build coverage."}</small>
             </span>
             <div className="ppCoverageStatusSources ppCoverageSourcePills">
               {sources.map((source) => (
@@ -22595,13 +22632,13 @@ function DashboardCoverageSummary({ summary }) {
             metric={catalog}
             fallbackLabel="Total catalog"
             fallbackAriaLabel="ProductPulse coverage across the Shopify catalog"
-            fallbackDetail="Products below the QuickScan threshold may not appear in ProductPulse, but can still carry hidden risk."
+            fallbackDetail="Products below the Catalog Scan threshold may not appear in ProductPulse, but can still carry hidden risk."
           />
           <DashboardCoverageMetricCard
             metric={productPulseCoverage}
             fallbackLabel="Products in ProductPulse"
-            fallbackAriaLabel="Full diagnostics coverage inside ProductPulse"
-            fallbackDetail="QuickScan-only products have lightweight deterministic signals and still need full diagnostics for final recommendations."
+            fallbackAriaLabel="Product Diagnosis coverage inside ProductPulse"
+            fallbackDetail="Catalog Scan-only products have lightweight deterministic signals and still need Product Diagnosis for final recommendations."
           />
         </div>
         {summary?.recommendation && (
@@ -22684,7 +22721,7 @@ function DashboardCoverageSourcePill({ source }) {
       <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppCoverageSourcePopover" width={300} estimatedHeight={130}>
         <strong>{source.label} {connected ? "connected" : "not connected"}</strong>
         <span>{source.detail || (connected
-          ? `${source.label} evidence was found in stored product diagnostics and contributes to coverage quality.`
+          ? `${source.label} evidence was found in stored Product Diagnosis results and contributes to coverage quality.`
           : `${source.label} evidence has not been found yet. Connect or import this source to improve diagnosis confidence.`)}</span>
       </FloatingTablePopover>
     </button>
@@ -22783,7 +22820,7 @@ function ProductMomentumCell({ product }) {
         <Link
           className="ppMomentumMissingTrigger"
           to={href}
-          aria-label={`Product Momentum unavailable for ${product.title}`}
+          aria-label={`Sales Momentum unavailable for ${product.title}`}
           onFocus={showPopover}
           onMouseEnter={showPopover}
           onMouseLeave={closePopover}
@@ -22805,8 +22842,8 @@ function ProductMomentumCell({ product }) {
               <ProductPulseGlyph type="product-momentum" />
             </span>
             <div>
-              <strong>Product momentum</strong>
-              <p>Run a deep product diagnosis to calculate current commercial strength.</p>
+              <strong>Sales Momentum</strong>
+              <p>Run a Product Diagnosis to calculate current commercial strength.</p>
             </div>
           </div>
           <Link className="ppInsightToastFooterAction" to={href}>
@@ -22834,7 +22871,7 @@ function ProductMomentumCell({ product }) {
       <Link
         className={`ppMomentumTrigger ppMomentumTrigger-${getProductMomentumBarsTone(momentum)}`}
         to={href}
-        aria-label={`Open Product Momentum for ${product.title}`}
+        aria-label={`Open Sales Momentum for ${product.title}`}
         onFocus={showPopover}
         onMouseEnter={showPopover}
         onMouseLeave={closePopover}
@@ -22858,7 +22895,7 @@ function ProductMomentumCell({ product }) {
           <span className="ppInsightToastIcon ppInsightToastIcon-blue" aria-hidden="true">
             <ProductPulseGlyph type="product-momentum" />
           </span>
-          <strong>Product momentum</strong>
+          <strong>Sales Momentum</strong>
         </div>
         <div className="ppMomentumToastHero">
           <div>
@@ -23078,7 +23115,7 @@ function normalizeProductEvidenceDetails(product) {
   const tone = rawDetails.tone || getEvidenceTone(product, signalCount);
   const values = bars.length ? bars.map((bar) => Number(bar.value || 0)) : product.signalBars || [];
   const mainIssue = rawDetails.mainIssue || product.issue || "Product quality";
-  const recommendedAction = rawDetails.recommendedAction || product.recommendedAction || "Review product diagnosis";
+  const recommendedAction = rawDetails.recommendedAction || product.recommendedAction || "Review Product Diagnosis";
   const topEvidence = rawDetails.topEvidence?.length
     ? rawDetails.topEvidence
     : bars
@@ -23149,7 +23186,7 @@ function buildFallbackSignalDetails(product) {
     sourceCount,
     strengthLabel,
     mainIssue: product.issue || "Product quality",
-    recommendedAction: product.recommendedAction || "Review product diagnosis",
+    recommendedAction: product.recommendedAction || "Review Product Diagnosis",
     summary: `${strengthLabel} evidence · ${signalCount} signal${signalCount === 1 ? "" : "s"} · ${sourceCount} source${sourceCount === 1 ? "" : "s"}`,
     bars: fallbackBars.map(([label, detail], index) => ({
       label,
@@ -23463,7 +23500,7 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
         <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={232} estimatedHeight={248} placement="bottom-end" role="menu">
           <Link role="menuitem" to={product.href} onClick={onClose}>
             <s-icon type="view" size="small"></s-icon>
-            View diagnostics
+            View Product Diagnosis
           </Link>
           <button role="menuitem" type="button" onClick={handleCopy}>
             <s-icon type="duplicate" size="small"></s-icon>
@@ -23876,7 +23913,7 @@ function getInsightMetricHelp(title) {
         why: "It is the fastest way to understand whether the product itself needs attention before looking at money or operational context.",
         graph: "Read it left to right. A rising line means product risk is increasing; a falling line means the product is improving. Relationship-aware notes only appear when refunds can be safely attributed.",
       };
-    case "Product Momentum":
+    case "Sales Momentum":
       return {
         what: "Shows the product's commercial strength from sales velocity, growth, catalog share, trend consistency and recent activity.",
         why: "It separates commercial traction from quality risk, so a strong seller with quality issues is easier to spot.",
@@ -23888,16 +23925,16 @@ function getInsightMetricHelp(title) {
         why: "It helps decide whether the diagnosis is ready for action or still needs more connected evidence. Unattributed refunds reduce confidence instead of being over-blamed on the product.",
         graph: "Read it left to right. A rising line means the evidence behind the diagnosis is getting stronger.",
       };
-    case "Financial exposure":
+    case "Estimated Margin Exposure":
       return {
         what: "Shows estimated money at risk while separating confirmed refunds from return-related risk and unattributed refund uncertainty.",
-        why: "It turns product signals into business impact without implying every return is already a confirmed financial loss.",
-        graph: "Read it left to right. Higher points mean more financial exposure, so a downward line is usually healthier.",
+        why: "It turns product signals into estimated margin exposure without implying every return is already a confirmed financial loss.",
+        graph: "Read it left to right. Higher points mean more estimated margin exposure, so a downward line is usually healthier.",
       };
     case "Return pressure":
       return {
         what: "Shows product friction from returned units, linked return+refund cases, return-only cases, exchanges and pending returns.",
-        why: "It keeps return pressure focused on customer friction instead of mixing in refund dollars, which belong to Refund leakage and Financial exposure.",
+        why: "It keeps return pressure focused on customer friction instead of mixing in refund dollars, which belong to Refund leakage and Estimated Margin Exposure.",
         graph: "Read it left to right. A rising line means return-related friction is building around this product.",
       };
     case "Refund leakage":
@@ -23906,7 +23943,7 @@ function getInsightMetricHelp(title) {
         why: "It highlights confirmed financial loss after purchase while keeping product-attributed and weakly attributed money separate.",
         graph: "Read it left to right. A rising line means refunds are taking a larger share of sales.",
       };
-    case "Evidence strength":
+    case "Evidence support":
       return {
         what: "Shows how broad and useful the product evidence is, combining connected source coverage with the amount of stored signal data.",
         why: "It tells the user how much trust to place in the diagnosis and whether more data sources would improve it.",
@@ -23945,7 +23982,7 @@ function getInsightMetricHelp(title) {
     default:
       return {
         what: "Shows a product-specific signal summary calculated from stored evidence.",
-        why: "It adds context that helps explain the product diagnosis.",
+        why: "It adds context that helps explain the Product Diagnosis.",
         graph: "Read it left to right to understand whether this signal is increasing, cooling or staying stable over time.",
       };
   }
@@ -23955,17 +23992,17 @@ function getInsightMetricIcon(title) {
   switch (title) {
     case "Product risk":
       return "product-risk";
-    case "Product Momentum":
+    case "Sales Momentum":
       return "product-momentum";
     case "Diagnosis confidence":
       return "diagnostic-confidence";
-    case "Financial exposure":
+    case "Estimated Margin Exposure":
       return "financial-exposure";
     case "Return pressure":
       return "shopify-returns";
     case "Refund leakage":
       return "refund-leakage";
-    case "Evidence strength":
+    case "Evidence support":
       return "ai-evidence-synthesis";
     case "Customer signals":
       return "customer-language-analysis";
@@ -24493,7 +24530,7 @@ function RefundEvidencePanel({ source, product, reportHref }) {
         <EvidenceSourceStatCard icon="refund-leakage" label="Refunded units" value={formatInteger(metrics.refundUnits || refundInsights.total || 0)} detail={`${formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} refund rate`} tone="blue" />
         <EvidenceSourceStatCard icon="refund-leakage" label="Refund amount" value={formatMoney(metrics.refundAmount || refundInsights.refundAmount || 0)} detail="Stored refund value" tone="red" />
         <EvidenceSourceStatCard icon="refund-leakage" label="Refund pressure" value={formatPercent(metrics.refundRate || refundInsights.refundRate || 0)} detail={`${formatInteger(metrics.soldUnits || refundInsights.soldUnits || 0)} sold units baseline`} tone={Number(metrics.refundRate || refundInsights.refundRate || 0) >= 20 ? "red" : "amber"} />
-        <EvidenceSourceStatCard icon="financial-exposure" label="Margin at risk" value={formatMoney(metrics.marginAtRisk || 0)} detail={`${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`} tone="teal" />
+        <EvidenceSourceStatCard icon="financial-exposure" label="Estimated Margin Exposure" value={formatMoney(metrics.marginAtRisk || 0)} detail={`${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`} tone="teal" />
       </div>
 
       <div className="ppEvidenceHeroMetricStrip ppEvidenceHeroMetricStrip-four">
@@ -24840,7 +24877,7 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
         source={source}
         title="AI evidence synthesis"
         eyebrow="Synthesis"
-        summary="Technical interpretation of the stored product diagnosis across reviews, refunds, orders, product content and variants."
+        summary="Technical interpretation of the stored Product Diagnosis across reviews, refunds, orders, product content and variants."
       />
 
       <section className="ppEvidenceReportSectionCard">
@@ -24867,7 +24904,7 @@ function AiEvidenceSynthesisPanel({ source, product, reportHref }) {
       <div className="ppEvidenceMetricGrid">
         <EvidenceMetricCard card={{ label: "Signal count", value: formatInteger(product.metrics?.signalCount || source.points.length), detail: "Total stored diagnostic evidence for this product.", icon: "duplicate", tone: "blue" }} />
         <EvidenceMetricCard card={{ label: "Model confidence", value: `${formatInteger(product.confidence || 0)}%`, detail: "Diagnosis confidence stored with the current product snapshot.", icon: "diagnostic-confidence", tone: Number(product.confidence || 0) >= 80 ? "teal" : "amber" }} />
-        <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(product.metrics?.estimatedImpact || product.estimatedImpact || 0), detail: "Business exposure is shown separately from Product Risk.", icon: "financial-exposure", tone: "violet" }} />
+        <EvidenceMetricCard card={{ label: "Estimated Margin Exposure", value: formatMoney(product.metrics?.estimatedImpact || product.estimatedImpact || 0), detail: "Estimated Margin Exposure is shown separately from Product Risk.", icon: "financial-exposure", tone: "violet" }} />
         <EvidenceMetricCard card={{ label: "Freshness", value: detailEvidenceFreshness(product), detail: "Most recent stored signal or diagnosis timestamp.", icon: "calendar", tone: "blue" }} />
       </div>
     </div>
@@ -24886,7 +24923,7 @@ function VariantTemporalInsightChart({ data = null }) {
             <p>No dated variant sales or review timeline is stored yet.</p>
           </div>
         </div>
-        <EmptyProductDetailState message="Run a deep diagnosis after Shopify order evidence is available to compare variants over time." />
+        <EmptyProductDetailState message="Run a Product Diagnosis after Shopify order evidence is available to compare variants over time." />
       </div>
     );
   }
@@ -27168,7 +27205,7 @@ function EvidenceMetricCard({ card }) {
 
 function getEvidenceMetricCardPopover(card = {}) {
   const title = card.popoverTitle || `${card.label}: ${card.value}`;
-  const body = card.popoverBody || card.popoverDetail || `This card summarizes ${String(card.label || "this evidence").toLowerCase()} for the selected evidence source. ProductPulse uses it as an early reading of what was found and why it may matter for product diagnosis.`;
+  const body = card.popoverBody || card.popoverDetail || `This card summarizes ${String(card.label || "this evidence").toLowerCase()} for the selected evidence source. ProductPulse uses it as an early reading of what was found and why it may matter for Product Diagnosis.`;
   const items = Array.isArray(card.popoverItems) ? card.popoverItems : [];
   if (items.length) return { title, body, items };
 
@@ -27191,7 +27228,7 @@ function getEvidenceMetricWhyItMatters(card = {}) {
   if (label.includes("emotion") || label.includes("sentiment") || label.includes("language") || label.includes("reaction")) return "Customer language helps explain the reason behind a metric and can reveal subjective or emerging patterns.";
   if (label.includes("variant") || label.includes("scope") || label.includes("sku") || label.includes("option")) return "Affected scope shows whether the issue is broad or concentrated in a specific variant, option or SKU.";
   if (label.includes("description") || label.includes("content") || label.includes("tag") || label.includes("collection")) return "Product content can create or reduce expectation gaps before the shopper buys.";
-  if (label.includes("impact") || label.includes("margin") || label.includes("revenue")) return "Financial exposure is tracked separately from product risk so prioritization can consider business impact without inflating severity.";
+  if (label.includes("impact") || label.includes("margin") || label.includes("revenue")) return "Estimated Margin Exposure is tracked separately from product risk so prioritization can consider estimated margin exposure without inflating severity.";
   return "This finding adds context to the source tab and helps explain the evidence behind the diagnosis.";
 }
 
@@ -27302,8 +27339,8 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
           <div className="ppEvidenceReportSummary">
             <EvidenceMetricCard card={{ label: "Product risk", value: `${detail.riskScore}/100`, detail: detail.riskTrendLabel, icon: "product-risk", tone: detail.riskBadgeTone }} />
             <EvidenceMetricCard card={{ label: "Diagnosis confidence", value: `${detail.confidence}%`, detail: detail.confidenceLabel, icon: "diagnostic-confidence", tone: "blue" }} />
-            <EvidenceMetricCard card={{ label: "Financial exposure", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} margin at risk`, icon: "financial-exposure", tone: "teal" }} />
-            <EvidenceMetricCard card={{ label: "Evidence strength", value: `${detail.evidenceStrengthScore || 0}/100`, detail: `${detail.signalCount} stored signals`, icon: "duplicate", tone: "violet" }} />
+            <EvidenceMetricCard card={{ label: "Estimated Margin Exposure", value: formatMoney(detail.estimatedImpact), detail: `${formatMoney(detail.marginAtRisk)} estimated margin exposure`, icon: "financial-exposure", tone: "teal" }} />
+            <EvidenceMetricCard card={{ label: "Evidence support", value: `${detail.evidenceStrengthScore || 0}/100`, detail: `${detail.signalCount} stored signals`, icon: "duplicate", tone: "violet" }} />
           </div>
         </div>
 
@@ -27335,10 +27372,10 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
               <code>confidence_score = min(coverage + independent_sources + effective_sample + match + agreement + freshness - penalties, caps)</code>
             </article>
             <article>
-              <h3>Financial exposure model</h3>
+              <h3>Estimated Margin Exposure model</h3>
               <p>
-                Financial exposure is money, not product severity. It separates observed loss, projected return
-                loss, review conversion drag, revenue at risk and margin at risk. Sparse samples show a likely
+                Estimated Margin Exposure is money, not product severity. It separates observed loss, projected return
+                loss, review conversion drag, revenue at risk and estimated margin exposure. Sparse samples show a likely
                 range around the expected estimate.
               </p>
               <code>impact_score = observed_loss + projected_return_loss + review_conversion_drag</code>
@@ -27346,8 +27383,8 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
             <article>
               <h3>Action priority model</h3>
               <p>
-                Action priority combines severity, reliability and normalized financial exposure so operational
-                triage can prioritize high-risk products with enough evidence and meaningful business exposure.
+                Action priority combines severity, reliability and normalized estimated margin exposure so operational
+                triage can prioritize high-risk products with enough evidence and meaningful Estimated Margin Exposure.
               </p>
               <code>priority_score = 0.50 * risk_score + 0.25 * confidence_score + 0.25 * normalized_log_impact_score</code>
             </article>
@@ -27368,8 +27405,8 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
               footer={scoreModel.confidenceFooter}
             />
             <EvidenceScoreBreakdownCard
-              title="Financial exposure calculation"
-              subtitle="Stored financial exposure from Shopify and connected evidence."
+              title="Estimated Margin Exposure calculation"
+              subtitle="Stored estimated margin exposure from Shopify and connected evidence."
               total={formatMoney(detail.estimatedImpact)}
               rows={scoreModel.impactRows}
               footer={scoreModel.impactFooter}
@@ -27669,7 +27706,7 @@ function getEvidenceReportCheckContext(kind, item = {}, product = {}) {
       scope: "Financial pressure",
       tone: getEvidenceReportPressureTone(metrics.refundRate),
       question: "How much of the product concern shows up as refunded money or units?",
-      conclusion: `Refund evidence shows ${itemDetail}. This supports financial exposure and priority, but ProductPulse still needs return, review or content evidence before calling it a root cause.`,
+      conclusion: `Refund evidence shows ${itemDetail}. This supports estimated margin exposure and priority, but ProductPulse still needs return, review or content evidence before calling it a root cause.`,
     };
   }
   if (kind === "return_reasons") {
@@ -27936,7 +27973,7 @@ function getEvidenceReportSourceTarget(source = "", sourceSections = []) {
   }
 
   const mainSections = [
-    { key: "score-calculation", id: "evidence-report-score-calculation", labels: ["score calculation", "score", "product risk", "diagnosis confidence", "financial exposure"] },
+    { key: "score-calculation", id: "evidence-report-score-calculation", labels: ["score calculation", "score", "product risk", "diagnosis confidence", "estimated margin exposure"] },
     { key: "issues-detected", id: "evidence-report-issues-detected", labels: ["issues detected", "issues"] },
     { key: "evidence-sources", id: "evidence-report-evidence-sources", labels: ["evidence sources", "sources", "evidence"] },
     { key: "recommendations-and-checks", id: "evidence-report-recommendations-and-checks", labels: ["recommendations and checks", "recommendations", "checks", "actions"] },
@@ -28065,7 +28102,7 @@ function getEvidenceReportRiskRows(product = {}, detail = {}) {
     },
     {
       key: "supportingSignals",
-      label: "Evidence strength",
+      label: "Evidence support",
       weight: getSignalSupportRiskWeight(product, metrics),
       detail: `${formatInteger(metrics.signalCount)} total signals across ${formatInteger(product.sourceCoverage?.length || detail.evidenceSources?.length)} sources. This reconstructs confidence-style support, not financial impact.`,
       tone: "teal",
@@ -28255,9 +28292,9 @@ function getEvidenceReportImpactRows(product = {}, detail = {}) {
     },
     {
       key: "margin",
-      label: "Margin at risk",
+      label: "Estimated Margin Exposure",
       value: formatMoney(detail.marginAtRisk),
-      detail: avgUnitRevenue ? `${formatMoney(avgUnitRevenue)} average unit revenue used where available.` : "Uses stored margin at risk or a conservative share of revenue at risk.",
+      detail: avgUnitRevenue ? `${formatMoney(avgUnitRevenue)} average unit revenue used where available.` : "Uses stored estimated margin exposure or a conservative share of revenue at risk.",
       tone: "teal",
     },
     {
@@ -28277,7 +28314,7 @@ function getRiskScoreFooter(metrics = {}, detail = {}, riskRows = [], hasPersist
   const rawScore = components.rawScore ?? components.calculated ?? components.rawRisk;
   const componentTotal = riskRows.reduce((sum, row) => sum + Number(String(row.value || "").replace(/[^0-9.-]/g, "") || 0), 0);
   if (hasPersistedRiskComponents && Number.isFinite(Number(rawScore))) {
-    return `${detail.scoreCalculationStatus || "Score calculated from persisted components"}. Raw component sum: ${formatScorePoints(rawScore)} points. Final product risk: ${detail.riskScore}/100. Financial exposure is excluded from product risk.`;
+    return `${detail.scoreCalculationStatus || "Score calculated from persisted components"}. Raw component sum: ${formatScorePoints(rawScore)} points. Final product risk: ${detail.riskScore}/100. Estimated Margin Exposure is excluded from product risk.`;
   }
   if (hasPersistedRiskComponents && componentTotal > 0) {
     return `${detail.scoreCalculationStatus || "Score calculated from persisted components"}. Persisted component total: ${formatScorePoints(componentTotal)} risk units. Final product risk: ${detail.riskScore}/100.`;
@@ -28285,7 +28322,7 @@ function getRiskScoreFooter(metrics = {}, detail = {}, riskRows = [], hasPersist
   if (componentTotal > 0) {
     return `Score breakdown reconstructed. Rows sum to ${formatScorePoints(componentTotal)} points, matching the persisted ${detail.riskScore}/100 product risk from stored metrics.`;
   }
-  return "No score components are available yet. Run QuickScan or a full product diagnosis to persist scoring evidence.";
+  return "No score components are available yet. Run Catalog Scan or a Product Diagnosis to persist scoring evidence.";
 }
 
 function getConfidenceFooter(metrics = {}, detail = {}) {
@@ -28301,7 +28338,7 @@ function getImpactFooter(metrics = {}, detail = {}) {
   const revenue = getEstimatedRevenueValue(metrics);
   const margin = getEstimatedMarginValue(metrics);
   const range = getFinancialExposureRangeLabel(detail);
-  return `Final financial exposure: ${formatMoney(detail.estimatedImpact)}. Revenue at risk is ${formatMoney(revenue)} and margin at risk is ${formatMoney(margin)}. Likely range: ${range}.`;
+  return `Final estimated margin exposure: ${formatMoney(detail.estimatedImpact)}. Revenue at risk is ${formatMoney(revenue)} and estimated margin exposure is ${formatMoney(margin)}. Likely range: ${range}.`;
 }
 
 function getReturnRiskWeight(metrics = {}) {
@@ -28527,7 +28564,7 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Refund amount", formatMoney(metrics.refundAmount || 0), "Stored refund value from Shopify", "refund-leakage", "red");
     add("Refund pressure", formatPercent(metrics.refundRate), `${formatInteger(metrics.soldUnits)} sold units baseline`, "refund-leakage", Number(metrics.refundRate || 0) > 20 ? "red" : "amber");
     add("Top refund reason", topReasons[0]?.label || "No reason stored", topReasons[0]?.detail || "Primary refund signal", "target", "violet", topReasons[0]?.badge ? { badge: topReasons[0].badge } : {});
-    add("Margin at risk", formatMoney(metrics.marginAtRisk || 0), `${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`, "financial-exposure", "teal");
+    add("Estimated Margin Exposure", formatMoney(metrics.marginAtRisk || 0), `${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`, "financial-exposure", "teal");
     add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
   } else if (normalized.includes("review") || normalized.includes("judge")) {
     add("Total reviews", formatInteger(metrics.reviewCount || metrics.csvReviewCount || metrics.judgeMeReviewCount), `${formatInteger(metrics.negativeReviewCount)} negative reviews`, "star", "blue");
@@ -28675,7 +28712,7 @@ function getEvidenceMetricPopoverBody({ source, label, value, detail, metrics = 
     return `${sourceName} shows ${valueText}. ${detailText}. This matters because returns are confirmed post-purchase friction and are weighted with smoothing against the store baseline.`;
   }
   if (metricName.includes("refund")) {
-    return `${sourceName} shows ${valueText}. ${detailText}. Refunds are treated as a supporting product-quality signal and as financial exposure, but they do not directly inflate product risk by dollar amount.`;
+    return `${sourceName} shows ${valueText}. ${detailText}. Refunds are treated as a supporting product-quality signal and as estimated margin exposure, but they do not directly inflate product risk by dollar amount.`;
   }
   if (metricName.includes("rating") || metricName.includes("review")) {
     return `${sourceName} shows ${valueText}. ${detailText}. Reviews contribute through rating pressure, negative review rate and language patterns when enough product-matched rows exist.`;
@@ -28697,7 +28734,7 @@ function getEvidenceMetricPopoverBody({ source, label, value, detail, metrics = 
     return `${sourceName} shows ${valueText}. ${detailText}. Product content and catalog metadata help explain whether shoppers can understand what they are buying before checkout.`;
   }
   if (metricName.includes("margin") || metricName.includes("revenue") || metricName.includes("impact")) {
-    return `${sourceName} shows ${valueText}. ${detailText}. Financial exposure is used for action priority and is kept separate from product risk severity.`;
+    return `${sourceName} shows ${valueText}. ${detailText}. Estimated Margin Exposure is used for action priority and is kept separate from product risk severity.`;
   }
 
   return `${sourceName} shows ${valueText}. ${detailText}. This matters because it gives the merchant a source-level clue about what may be influencing product risk, confidence or priority for ${product.title || "this product"}.`;
@@ -29140,7 +29177,7 @@ function RecommendedActionsCompleteModal({ productTitle, onClose }) {
         <span>Product actions complete</span>
         <h2 id="actions-complete-title">All recommended actions are handled</h2>
         <p>
-          You have reviewed, applied, or dismissed every open recommendation for {productTitle}. Keep monitoring this product and run another deep diagnosis in the next few days to confirm how the evidence evolves.
+          You have reviewed, applied, or dismissed every open recommendation for {productTitle}. Keep monitoring this product and run another Product Diagnosis in the next few days to confirm how the evidence evolves.
         </p>
         <button className="ppPrimaryButton" type="button" onClick={onClose}>
           <s-icon type="check" size="small"></s-icon>
@@ -29430,7 +29467,7 @@ function inferActionApproval(action = {}) {
 function inferActionReasonCategory(action = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""}`.toLowerCase();
   if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(normalized)) return "Retention";
-  if (/\b(momentum|watchlist|baseline)\b/.test(normalized)) return "Momentum";
+  if (/\b(momentum|watchlist|baseline)\b/.test(normalized)) return "Sales Momentum";
   if (/\b(seo|meta|handle)\b/.test(normalized)) return "SEO";
   if (/\b(variant|sku|option)\b/.test(normalized)) return "Variant issue";
   if (/\b(sentiment|subjective|safety|emotion)\b/.test(normalized)) return "Sentiment";
@@ -32031,10 +32068,10 @@ function AnalyticsInfoPopover({ info }) {
 
 function getAnalyticsPanelInfo(title = "") {
   const normalizedTitle = String(title).toLowerCase();
-  if (normalizedTitle.includes("margin at risk over time")) {
+  if (normalizedTitle.includes("estimated margin exposure over time")) {
     return {
-      title: "Margin at risk over time",
-      body: "The top KPI is current total margin at risk. The timeline uses saved score history when available and only falls back to reconstructed risk trends when dated history is missing.",
+      title: "Estimated Margin Exposure over time",
+      body: "The top KPI is current total estimated margin exposure. The timeline uses saved score history when available and only falls back to reconstructed risk trends when dated history is missing.",
       items: [
         "Trend-weighted margin uses saved margin exposure by date when available.",
         "Products needing attention, high, medium and low use the products axis on the right.",
@@ -32047,19 +32084,19 @@ function getAnalyticsPanelInfo(title = "") {
       title: "Risk and margin trend",
       body: "Shows how current deep-diagnosis exposure moves over time using saved score history when available, then stored risk trend reconstruction as a fallback.",
       items: [
-        "Margin at risk uses the left axis.",
+        "Estimated Margin Exposure uses the left axis.",
         "Revenue at risk uses the right axis.",
-        "Only products with full product diagnosis data are included.",
+        "Only products with Product Diagnosis data are included.",
       ],
     };
   }
   if (normalizedTitle.includes("issue impact")) {
     return {
       title: "Issue impact by type",
-      body: "Ranks issue clusters by business impact so the largest product-quality problems are not hidden behind raw signal counts.",
+      body: "Ranks issue clusters by estimated margin exposure so the largest product-quality problems are not hidden behind raw signal counts.",
       items: [
         "Products affected counts unique products per issue type.",
-        "Margin at risk is allocated across the relevant issue clusters on each product.",
+        "Estimated Margin Exposure is allocated across the relevant issue clusters on each product.",
         "Average confidence summarizes the stored diagnosis confidence behind that issue type.",
       ],
     };
@@ -32099,10 +32136,10 @@ function getAnalyticsPanelInfo(title = "") {
   if (normalizedTitle.includes("catalog coverage")) {
     return {
       title: "Catalog coverage",
-      body: "Explains how much of the stored product set is represented by QuickScan and full diagnosis data.",
+      body: "Explains how much of the stored product set is represented by Catalog Scan and Product Diagnosis data.",
       items: [
         "Full diagnoses have AI-generated product-level findings.",
-        "QuickScan only products have deterministic lightweight scan data.",
+        "Catalog Scan only products have deterministic lightweight scan data.",
         "Missing reviews or returns rows identify data coverage gaps that affect confidence.",
       ],
     };
@@ -32120,17 +32157,17 @@ function getAnalyticsPanelInfo(title = "") {
   if (normalizedTitle.includes("top products at risk")) {
     return {
       title: "Top products at risk",
-      body: "Ranks stored products by operational priority so teams can move from analytics into product diagnosis.",
+      body: "Ranks stored products by operational priority so teams can move from analytics into Product Diagnosis.",
       items: [
-        "Priority uses product risk, diagnosis confidence and normalized financial exposure.",
-        "Each row links directly to the product diagnosis page.",
+        "Priority uses product risk, diagnosis confidence and normalized estimated margin exposure.",
+        "Each row links directly to the Product Diagnosis page.",
       ],
     };
   }
   if (normalizedTitle.includes("risk signals over time")) {
     return {
       title: "Risk signals over time",
-      body: "Shows how stored product-quality signals are moving across the current scan window. It uses saved QuickScan and full diagnosis trend arrays, not synthetic forecast data.",
+      body: "Shows how stored product-quality signals are moving across the current scan window. It uses saved Catalog Scan and Product Diagnosis trend arrays, not synthetic forecast data.",
       items: [
         "Red, amber and green lines separate high, medium and low risk buckets.",
         "Each point is built from the available signal trend stored for products in that bucket.",
@@ -32142,8 +32179,8 @@ function getAnalyticsPanelInfo(title = "") {
       title: "Issue distribution by type",
       body: "Groups all detected issues into readable issue clusters and sums the stored signal count behind each cluster.",
       items: [
-        "Full diagnosis issues are used first when available.",
-        "QuickScan products fall back to their primary issue and signal count.",
+        "Product diagnosis issues are used first when available.",
+        "Catalog Scan products fall back to their primary issue and signal count.",
       ],
     };
   }
@@ -32173,16 +32210,16 @@ function getAnalyticsPanelInfo(title = "") {
       body: "Plots products by product risk and estimated margin exposure. Bubble size uses revenue at risk so high-revenue products remain visible even when margin exposure is lower.",
       items: [
         "X-axis: product risk, starting slightly below the lowest plotted product and ending at 100.",
-        "Y-axis: estimated margin at risk for that product.",
+        "Y-axis: estimated margin exposure for that product.",
         "Bubble size: estimated revenue at risk.",
         "Quadrants: Fix now, Monitor, Review later and Low priority.",
-        "Hover a bubble for product details; click it to open the product diagnosis page.",
+        "Hover a bubble for product details; click it to open the Product Diagnosis page.",
       ],
     };
   }
-  if (normalizedTitle.includes("margin at risk by collection")) {
+  if (normalizedTitle.includes("estimated margin exposure by collection")) {
     return {
-      title: "Margin at risk by collection",
+      title: "Estimated Margin Exposure by collection",
       body: "Aggregates product-level margin exposure into Shopify collections or product-type fallbacks.",
       items: [
         "A product in multiple stored collections can contribute proportionally to more than one collection.",
@@ -32193,10 +32230,10 @@ function getAnalyticsPanelInfo(title = "") {
   if (normalizedTitle.includes("analysis coverage")) {
     return {
       title: "Analysis coverage by depth",
-      body: "Compares how many stored products only have QuickScan results against how many already have a full AI product diagnosis.",
+      body: "Compares how many stored products only have Catalog Scan results against how many already have a Product Diagnosis.",
       items: [
-        "QuickScan only means the product has lightweight Shopify-native risk scoring.",
-        "Full diagnosis means the deeper product-specific analysis has been completed.",
+        "Catalog Scan only means the product has lightweight Shopify-native risk scoring.",
+        "Product diagnosis means the deeper product-specific analysis has been completed.",
       ],
     };
   }
@@ -32210,9 +32247,9 @@ function getAnalyticsPanelInfo(title = "") {
       ],
     };
   }
-  if (normalizedTitle.includes("estimated business impact")) {
+  if (normalizedTitle.includes("estimated margin exposure")) {
     return {
-      title: "Estimated business impact",
+      title: "Estimated Margin Exposure",
       body: "Projects where product-quality work could reduce revenue leakage over the visible analysis window.",
       items: [
         "Uses stored refund value, projected return exposure, review pressure and eligible recommended actions.",
@@ -32303,7 +32340,7 @@ function AnalyticsRiskMarginTrendChart({ chart, rangeKey = "30d" }) {
           </span>
         ))}
       </div>
-      <svg className="ppAnalyticsRiskMarginTrendSvg" viewBox={`0 0 ${layout.viewBoxWidth} ${layout.viewBoxHeight}`} role="img" aria-label="Risk and margin trend for deep diagnosis products">
+      <svg className="ppAnalyticsRiskMarginTrendSvg" viewBox={`0 0 ${layout.viewBoxWidth} ${layout.viewBoxHeight}`} role="img" aria-label="Risk and margin trend for Product Diagnosis products">
         {getAnalyticsDualAxisTicks(leftAxisMax, layout).map((tick, index) => (
           <g key={`left-${tick.label}-${index}`}>
             <line className="ppChartGridLine" x1={layout.left} y1={tick.y} x2={layout.right} y2={tick.y} />
@@ -32534,7 +32571,7 @@ function AnalyticsIssueDistributionPanel({ distribution }) {
   return (
     <AnalyticsPanel
       title="Issue distribution by type"
-      subtitle="Signal clusters across deep diagnosis products"
+      subtitle="Signal clusters across Product Diagnosis products"
       className="ppAnalyticsPanelIssueDistribution"
       action={action}
     >
@@ -32570,7 +32607,7 @@ function AnalyticsSourceCoverageMixPanel({ mix }) {
   return (
     <AnalyticsPanel
       title="Source coverage mix"
-      subtitle="Where deep diagnosis signals come from"
+      subtitle="Where Product Diagnosis signals come from"
       className="ppAnalyticsPanelSourceCoverageMix"
     >
       {rows.length ? (
@@ -33063,7 +33100,7 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
       </div>
       <div className="ppAnalyticsTrendSide">
         {summary && (
-          <div className="ppAnalyticsTrendContext" aria-label="Margin at risk comparison">
+          <div className="ppAnalyticsTrendContext" aria-label="Estimated Margin Exposure comparison">
             <span><b>Current total</b>{summary.currentTotalLabel || "$0"}</span>
             <span><b>Trend-weighted now</b>{summary.trendWeightedLabel || "$0"}</span>
             <small>{summary.detail}</small>
@@ -33092,7 +33129,7 @@ function IssueImpactTable({ rows }) {
           <tr>
             <th>Issue type</th>
             <th>Products affected</th>
-            <th>Margin at risk</th>
+            <th>Estimated Margin Exposure</th>
             <th>Signals</th>
             <th>Avg confidence</th>
           </tr>
@@ -33213,7 +33250,7 @@ function CatalogCoveragePanel({ coverage }) {
     <div className="ppCatalogCoverage">
       <div className="ppCatalogCoverageHero">
         <strong>{coverage?.analyzedLabel || "0 stored products analyzed"}</strong>
-        <span>Analytics only reflects products stored by QuickScan or manual diagnosis.</span>
+        <span>Analytics only reflects products stored by Catalog Scan or manual diagnosis.</span>
       </div>
       <div className="ppCatalogCoverageRows">
         {rows.map((row) => {
@@ -33265,7 +33302,7 @@ function TopProductsAtRiskTable({ rows }) {
           <tr>
             <th>Product</th>
             <th>Risk</th>
-            <th>Margin at risk</th>
+            <th>Estimated Margin Exposure</th>
             <th>Revenue at risk</th>
             <th>Main issue</th>
             <th>Confidence</th>
@@ -33342,7 +33379,7 @@ function RiskRevenueBubbleChart({ bubbles }) {
                 className={`ppRiskBubble ppRiskBubble-${bubble.tone}`}
                 to={bubble.href || "/app/products"}
                 style={{ left: `${position.x}%`, bottom: `${position.y}%`, width: `${bubble.size}px`, height: `${bubble.size}px` }}
-                aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, margin at risk ${formatMoney(bubble.impact || 0)}, revenue at risk ${formatMoney(bubble.revenueAtRisk || 0)}`}
+                aria-label={`${bubble.label}: open product detail. Risk ${bubble.riskScore}, estimated margin exposure ${formatMoney(bubble.impact || 0)}, revenue at risk ${formatMoney(bubble.revenueAtRisk || 0)}`}
                 onMouseEnter={(event) => showBubble(event, bubble)}
                 onFocus={(event) => showBubble(event, bubble)}
                 onMouseLeave={() => setActiveBubble(null)}
@@ -33450,13 +33487,13 @@ function RiskBubbleFloatingPopover({ bubble, position }) {
     >
       <strong>{bubble.label}</strong>
       <span><b>{bubble.riskLabel || "Risk"}</b> product risk: {bubble.riskScore}/100</span>
-      <span><b>Margin at risk:</b> {formatMoney(bubble.impact || 0)}</span>
+      <span><b>Estimated Margin Exposure:</b> {formatMoney(bubble.impact || 0)}</span>
       <span><b>Revenue at risk:</b> {formatMoney(bubble.revenueAtRisk || 0)}</span>
       <span><b>Quadrant:</b> {bubble.quadrant || "Priority review"}</span>
       <span><b>Main issue:</b> {bubble.issueLabel || "Product quality"}</span>
       <span><b>Signals:</b> {formatInteger(bubble.signalCount || 0)} stored signals</span>
       <span><b>Rates:</b> {formatPercent(bubble.returnRate || 0)} returns / {formatPercent(bubble.refundRate || 0)} refunds</span>
-      <em>{bubble.analysisLabel || "Stored product analysis"}. Click to open product details.</em>
+      <em>{bubble.analysisLabel || "Stored Product Diagnosis"}. Click to open product details.</em>
     </div>
   );
 }
@@ -33507,14 +33544,14 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
             <s-icon type="cash-dollar" size="small"></s-icon>
           </span>
           <div>
-            <div className="ppBusinessImpactModalBadges" aria-label="Business impact model attributes">
+            <div className="ppBusinessImpactModalBadges" aria-label="Estimated Margin Exposure model attributes">
               {[calculation.windowLabel || windowLabel, "Stored signals", "Projection model", "Not accounting total"].map((badge) => (
                 <span key={badge}>{badge}</span>
               ))}
             </div>
-            <h2 id="business-impact-title">How ProductPulse calculates business impact</h2>
+            <h2 id="business-impact-title">How ProductPulse calculates estimated margin exposure</h2>
             <p>
-              Business impact estimates exposure for the selected projection window from stored product risk signals, returns, refunds, reviews, margin data, basket context and recommended actions.
+              Estimated Margin Exposure estimates exposure for the selected projection window from stored product risk signals, returns, refunds, reviews, margin data, basket context and recommended actions.
             </p>
           </div>
         </div>
@@ -33588,7 +33625,7 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
           <div>
             <h3>How to interpret this</h3>
             <p>
-              This estimate is designed for prioritization. It shows where product issues may create financial exposure over the selected projection window. It is not a replacement for accounting, payout, tax or profit reporting.
+              This estimate is designed for prioritization. It shows where product issues may create estimated margin exposure over the selected projection window. It is not a replacement for accounting, payout, tax or profit reporting.
             </p>
           </div>
           <div>
@@ -33611,7 +33648,7 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
                   <th>Risk</th>
                   <th>Confidence</th>
                   <th>Revenue at risk</th>
-                  <th>Margin at risk</th>
+                  <th>Estimated Margin Exposure</th>
                   <th>Refund value</th>
                   <th>Returns</th>
                   <th>Calculated</th>
@@ -33633,7 +33670,7 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
               </tbody>
             </table>
             {!(calculation.productRows || []).length && (
-              <p>No product-level calculation rows are available yet. Run QuickScan or product diagnostics to populate this table.</p>
+              <p>No product-level calculation rows are available yet. Run Catalog Scan or Product Diagnosis to populate this table.</p>
             )}
           </div>
         )}
@@ -33641,7 +33678,7 @@ function BusinessImpactInfoModal({ businessImpact, windowLabel, onClose }) {
         <div className="ppImpactAuditNote">
           <span>Audit note</span>
           <p>
-            ProductPulse stores the calculation components separately from product risk. Risk explains severity, confidence explains reliability, and business impact estimates exposure. Those numbers should be reviewed together before prioritizing operational work.
+            ProductPulse stores the calculation components separately from product risk. Risk explains severity, confidence explains reliability, and estimated margin exposure estimates exposure. Those numbers should be reviewed together before prioritizing operational work.
           </p>
         </div>
 
@@ -33670,13 +33707,13 @@ function buildBusinessImpactModalFallbackCalculation(metrics = [], windowLabel =
     windowLabel,
     formulas: [
       { label: "Revenue at risk", expression: "max(projected lost revenue + return revenue exposure + review conversion revenue drag + relationship-adjusted refund exposure + basket/bulk revenue exposure, stored revenueAtRisk)" },
-      { label: "Margin at risk", expression: "max(projected lost margin + refund margin loss + return processing cost + review conversion margin drag + basket/bulk margin exposure, stored marginAtRisk)" },
+      { label: "Estimated Margin Exposure", expression: "max(projected lost margin + refund margin loss + return processing cost + review conversion margin drag + basket/bulk margin exposure, stored marginAtRisk)" },
       { label: "Potential returns", expression: "return units x analytics projection window / product source window" },
       { label: "Recommended actions", expression: "open actions + applied actions + reviewed actions + dismissed actions" },
     ],
     currentBreakdown: [
       { label: "Revenue at risk", valueLabel: revenueMetric?.value || "$0", components: [{ label: "Current displayed estimate", valueLabel: revenueMetric?.detail || "No revenue exposure stored yet" }] },
-      { label: "Margin at risk", valueLabel: marginMetric?.value || "$0", components: [{ label: "Current displayed estimate", valueLabel: marginMetric?.detail || "No margin exposure stored yet" }] },
+      { label: "Estimated Margin Exposure", valueLabel: marginMetric?.value || "$0", components: [{ label: "Current displayed estimate", valueLabel: marginMetric?.detail || "No margin exposure stored yet" }] },
       { label: "Potential returns", valueLabel: returnsMetric?.value || "~0", components: [{ label: "Current displayed estimate", valueLabel: returnsMetric?.detail || "No return projection stored yet" }] },
       { label: "Recommended actions", valueLabel: actionsMetric?.value || "0", components: [{ label: "Current displayed estimate", valueLabel: actionsMetric?.detail || "No action status stored yet" }] },
     ],

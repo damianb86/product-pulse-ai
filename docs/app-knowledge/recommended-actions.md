@@ -10,7 +10,7 @@ Implementation references:
 
 Where recommendations live:
 
-- Deep diagnosis can store recommendations inside `ProductDiagnosis`.
+- Product Diagnosis can store recommendations inside `ProductDiagnosis`.
 - Confirmed AI app mutations can create or update real `ProductAction` rows.
 - Product detail reads these ProductPulse records and displays them in the app.
 

@@ -55,7 +55,7 @@ All tools are:
 
 `product_pulse_get_interaction_guidance` is used when the merchant request is broad or ambiguous. It returns supported next-step options and example prompts for product information, methodology explanations, watchlist work, creating ProductPulse actions, editing ProductPulse actions, and safe alternatives to direct Shopify mutations.
 
-`product_pulse_get_product_detail_card_explanation` and `product_pulse_search_product_detail_cards` are used when the merchant asks what a visible product-page card, metric tile, timeline label, relationship metric, title, or subtitle means. They cover Overview, Recommended Actions, Product Momentum, Basket Context, Return pressure, Refund leakage, Lift, Return/refund resolution, Product relationship timeline, rates, and related detail cards.
+`product_pulse_get_product_detail_card_explanation` and `product_pulse_search_product_detail_cards` are used when the merchant asks what a visible product-page card, metric tile, timeline label, relationship metric, title, or subtitle means. They cover Overview, Recommended Actions, Sales Momentum, Basket Context, Return pressure, Refund leakage, Lift, Return/refund resolution, Product relationship timeline, rates, and related detail cards.
 
 ## Merchant vs Developer Output
 
@@ -78,17 +78,17 @@ The scoring knowledge currently documents:
 - source coverage;
 - risk score;
 - confidence score;
-- evidence strength;
-- impact / estimated impact;
+- evidence support;
+- impact / estimated margin exposure;
 - revenue at risk;
-- margin at risk;
+- estimated margin exposure;
 - return rate;
 - refund rate;
 - review rating;
 - negative review rate;
-- QuickScan candidate score;
+- Catalog Scan candidate score;
 - priority score;
-- Product Momentum;
+- Sales Momentum;
 - Velocity;
 - Growth;
 - Catalog share;
@@ -133,7 +133,7 @@ Unknown or partially documented behavior should stay explicit. The assistant sho
 
 Known current unknowns:
 
-- merchant-facing billing and final credit rules beyond the internal credit ledger;
+- merchant-facing billing and final diagnosis credit rules beyond the internal diagnosis credit ledger;
 - some Analytics view-model formulas that are documented conceptually but not as one exported formula;
 - the full set of issue-specific recommendation templates.
 

@@ -13,7 +13,7 @@
 - `read_returns` is needed for return reasons and return-quality signals.
 - `write_products` is needed for merchant-confirmed product description, tag and catalog updates.
 - `read_customers` is needed to read Shopify customer IDs as safe same-customer keys for before/after product relationship analytics.
-- Development mode adds `write_orders`, `write_returns`, `write_customers` and `write_inventory` for the Settings mock dataset generator, which creates controlled test customers, orders, refunds, returns and inventory-backed products in Shopify for repeatable diagnostics QA.
+- Development mode adds `write_orders`, `write_returns`, `write_customers` and `write_inventory` for the Settings mock dataset generator, which creates controlled test customers, orders, refunds, returns and inventory-backed products in Shopify for repeatable Product Diagnosis QA.
 - Local `SCOPES` can add extra scopes, but required scopes are merged from `app/lib/product-pulse-scopes.js` at app boot so stale env values do not remove required permissions from OAuth requests.
 - Shopify can report only the write scope in a granted session even when that write scope includes equivalent read access. ProductPulse treats `write_products`, `write_orders`, `write_customers` and `write_returns` as satisfying `read_products`, `read_orders`, `read_customers` and `read_returns` for development mock dataset validation.
 - The Settings mock dataset generator is staged and resumable: products, customers, orders, returns/refunds, CSV reviews and the manifest can be run separately. ProductPulse reuses existing GEN products, RELTEST customers and generated orders instead of creating duplicates.
@@ -49,7 +49,7 @@ Writes are disabled in MVP. Future gated writes:
 ## Rate Limits
 - Batch scans should paginate and checkpoint.
 - Future production jobs should back off on throttling and resume from cursors.
-- AI diagnosis should run after deterministic evidence collection, not while paging unbounded source data.
+- Product Diagnosis should run after deterministic evidence collection, not while paging unbounded source data.
 
 ## Multi-Shop Isolation
 - Every app-owned table includes `shop`.

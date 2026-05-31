@@ -223,12 +223,6 @@
     0 18px 52px rgba(var(--pp-shadow-rgb), 0.18) !important;
 }
 
-.ppWizardSpotlightAncestor {
-  position: relative !important;
-  z-index: 2147481550 !important;
-  overflow: visible !important;
-}
-
 .ppGlobalTopbarPopover.ppWizardSpotlightTarget {
   position: absolute !important;
 }
@@ -295,12 +289,24 @@ button.ppWizardSpotlightTarget,
     0 12px 28px rgba(var(--pp-shadow-rgb), 0.14);
 }
 
+.ppWizardProductsActive [data-pp-products-run-deep-scan-selected].ppWizardSpotlightTarget {
+  position: fixed !important;
+  top: var(--pp-wizard-target-top) !important;
+  left: var(--pp-wizard-target-left) !important;
+  z-index: 2147481600 !important;
+  width: var(--pp-wizard-target-width) !important;
+  height: var(--pp-wizard-target-height) !important;
+  pointer-events: auto !important;
+}
+
 .ppWizardBackgroundProcessesActive .ppGlobalTopbar {
   z-index: 2147481510;
+  pointer-events: none !important;
 }
 
 .ppWizardBackgroundProcessesActive .ppGlobalTopbarPopover {
   z-index: 2147481520;
+  pointer-events: none !important;
 }
 
 .ppWizardBackgroundProcessesActive .ppGlobalTopbarJobsButton.ppWizardSpotlightTarget,
@@ -545,6 +551,112 @@ button.ppWizardSpotlightTarget,
   box-shadow:
     0 0 0 5px rgba(var(--pp-primary-green-rgb), 0.22),
     0 18px 46px rgba(var(--pp-shadow-rgb), 0.26) !important;
+}
+
+.ppWatchlistWizardIntroModal {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 2147482100;
+  width: min(540px, calc(100vw - 32px));
+  padding: 22px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 26px 70px rgba(var(--pp-shadow-rgb), 0.2);
+  color: var(--pp-slate-700);
+  pointer-events: auto;
+  transform: translate(-50%, calc(-50% - 30px));
+}
+
+.ppWatchlistWizardIntroModal h2 {
+  margin: 0 0 10px;
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.18;
+}
+
+.ppWatchlistWizardIntroModal p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13.5px;
+  line-height: 1.48;
+}
+
+.ppWatchlistWizardIntroModal p + p {
+  margin-top: 9px;
+}
+
+.ppWatchlistWizardActive .ppAnalysisConfirmOverlay {
+  z-index: 2147482150;
+  background: transparent;
+}
+
+.ppWatchlistWizardActive .ppAnalysisConfirmModal {
+  position: relative;
+  z-index: 2147482160;
+}
+
+.ppWatchlistWizardActive .ppChatKitAssistant,
+.ppWatchlistWizardActive .ppChatKitAssistant-open {
+  z-index: 2147480900 !important;
+  pointer-events: none;
+}
+
+.ppWatchlistWizardSettingsActive .ppWatchlistScreen {
+  padding-bottom: 132px;
+}
+
+.ppWatchlistWizardSettingsActive [data-pp-watchlist-settings-panel],
+.ppWatchlistWizardSettingsActive [data-pp-watchlist-run-scan] {
+  scroll-margin-top: 128px;
+  scroll-margin-bottom: 168px;
+}
+
+.ppWatchlistTableWrap.ppWizardSpotlightTarget,
+.ppWatchSettingsPanel.ppWizardSpotlightTarget,
+.ppWatchlistProductHeroPanel.ppWizardSpotlightTarget,
+.ppWatchlistInsightReport.ppWizardSpotlightTarget,
+.ppWatchRecentRuns.ppWizardSpotlightTarget {
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  box-shadow:
+    0 0 0 4px rgba(var(--pp-primary-green-rgb), 0.14),
+    0 20px 54px rgba(var(--pp-shadow-rgb), 0.18) !important;
+}
+
+.ppWatchlistTable tr.ppWizardSpotlightTarget td {
+  background: var(--pp-cloud-white) !important;
+  color: var(--pp-slate-800);
+}
+
+.ppWatchlistTable tr.ppWizardSpotlightTarget td:first-child {
+  box-shadow: inset 3px 0 var(--pp-primary-green);
+}
+
+.ppWatchlistWizardReportActive [data-pp-watchlist-ready-row].ppWizardSpotlightTarget,
+.ppWatchlistWizardReportActive [data-pp-watchlist-ready-row].ppWizardSpotlightTarget * {
+  pointer-events: none !important;
+}
+
+.ppWatchlistWizardReportActive [data-pp-watchlist-view-report].ppWizardSpotlightTarget {
+  position: relative !important;
+  z-index: 2147481600 !important;
+  pointer-events: auto !important;
+  box-shadow:
+    0 0 0 4px rgba(var(--pp-primary-green-rgb), 0.18),
+    0 14px 32px rgba(var(--pp-shadow-rgb), 0.2) !important;
+}
+
+.ppWatchlistWizardProductHeroActive [data-pp-watchlist-product-hero].ppWizardSpotlightTarget,
+.ppWatchlistWizardProductHeroActive [data-pp-watchlist-product-hero].ppWizardSpotlightTarget *,
+.ppWatchlistWizardProductHeroActive [data-pp-watchlist-product-insight].ppWizardSpotlightTarget,
+.ppWatchlistWizardProductHeroActive [data-pp-watchlist-product-insight].ppWizardSpotlightTarget *,
+.ppWatchlistWizardRecentRunsActive [data-pp-watchlist-recent-runs].ppWizardSpotlightTarget,
+.ppWatchlistWizardRecentRunsActive [data-pp-watchlist-recent-runs].ppWizardSpotlightTarget * {
+  pointer-events: none !important;
 }
 
 @media (max-width: 680px) {

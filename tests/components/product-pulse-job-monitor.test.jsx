@@ -97,28 +97,28 @@ describe("ProductPulseJobMonitor", () => {
             {
               id: "deep-diagnosis-1",
               icon: "wand",
-              title: "Deep diagnosis",
+              title: "Product Diagnosis",
               detail: "GEN Aura Ceramic Dinner Set",
               amount: -1,
-              amountLabel: "-1 credit",
+              amountLabel: "-1 diagnosis credit",
               timeLabel: "2m ago",
             },
             {
               id: "quick-scan-1",
               icon: "search",
-              title: "QuickScan",
+              title: "Catalog Scan",
               detail: "60-day scan window",
               amount: -1,
-              amountLabel: "-1 credit",
+              amountLabel: "-1 diagnosis credit",
               timeLabel: "28m ago",
             },
             {
               id: "initial-balance",
               icon: "product",
-              title: "Free plan credits",
+              title: "Free plan diagnosis credits",
               detail: "Initial balance",
               amount: 100,
-              amountLabel: "+100 credits",
+              amountLabel: "+100 diagnosis credits",
               timeLabel: "1h ago",
             },
           ],
@@ -127,34 +127,34 @@ describe("ProductPulseJobMonitor", () => {
       { onProductSearch: (query) => productSearchQueries.push(query) },
     );
 
-    const creditsButton = screen.getByRole("button", { name: "95.0 ProductPulse credits available" });
+    const creditsButton = screen.getByRole("button", { name: "95.0 Diagnosis Credits available" });
     expect(creditsButton).toBeVisible();
 
     fireEvent.click(creditsButton);
-    const creditsDialog = screen.getByRole("dialog", { name: "Credit details" });
+    const creditsDialog = screen.getByRole("dialog", { name: "Diagnosis credit details" });
     expect(within(creditsDialog).getByText("Total remaining")).toBeVisible();
     expect(within(creditsDialog).getByText("95")).toBeVisible();
-    expect(within(creditsDialog).getAllByText("credits")[0]).toBeVisible();
+    expect(within(creditsDialog).getByText("Diagnosis Credits")).toBeVisible();
     expect(within(creditsDialog).getByText("Current plan")).toBeVisible();
     expect(within(creditsDialog).getByText("Free plan")).toBeVisible();
     expect(within(creditsDialog).getByText("Does not renew")).toBeVisible();
     expect(within(creditsDialog).getByText("Usage this period")).toBeVisible();
-    expect(creditsDialog).toHaveTextContent("5 / 100 credits used");
+    expect(creditsDialog).toHaveTextContent("5 / 100 diagnosis credits used");
     expect(within(creditsDialog).getByText("5% used")).toBeVisible();
-    expect(within(creditsDialog).getByText("Recent credit activity")).toBeVisible();
-    expect(within(creditsDialog).getByText("Deep diagnosis")).toBeVisible();
+    expect(within(creditsDialog).getByText("Recent diagnosis credit activity")).toBeVisible();
+    expect(within(creditsDialog).getByText("Product Diagnosis")).toBeVisible();
     expect(within(creditsDialog).getByText("GEN Aura Ceramic Dinner Set")).toBeVisible();
-    expect(within(creditsDialog).getAllByText("-1 credit")).toHaveLength(2);
+    expect(within(creditsDialog).getAllByText("-1 diagnosis credit")).toHaveLength(2);
     expect(within(creditsDialog).getByText("2m ago")).toBeVisible();
-    expect(within(creditsDialog).getByText("QuickScan")).toBeVisible();
+    expect(within(creditsDialog).getByText("Catalog Scan")).toBeVisible();
     expect(within(creditsDialog).getByText("60-day scan window")).toBeVisible();
     expect(within(creditsDialog).getByText("28m ago")).toBeVisible();
-    expect(within(creditsDialog).getByText("Free plan credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("Free plan diagnosis credits")).toBeVisible();
     expect(within(creditsDialog).getByText("Initial balance")).toBeVisible();
-    expect(within(creditsDialog).getByText("+100 credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("+100 diagnosis credits")).toBeVisible();
     expect(within(creditsDialog).getByText("1h ago")).toBeVisible();
-    expect(within(creditsDialog).getByRole("link", { name: "Review credits" })).toHaveAttribute("href", "/app/plans-and-credits");
-    expect(within(creditsDialog).getByRole("link", { name: /View credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(within(creditsDialog).getByRole("link", { name: "Review diagnosis credits" })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(within(creditsDialog).getByRole("link", { name: /View diagnosis credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
 
     fireEvent.click(screen.getByRole("button", { name: /search products/i }));
     fireEvent.change(screen.getByPlaceholderText("Product title, handle, issue..."), {
@@ -178,9 +178,9 @@ describe("ProductPulseJobMonitor", () => {
         {
           id: "job-active",
           kind: "product-diagnosis",
-          name: "AI Product Diagnosis",
+          name: "Product Diagnosis",
           displayTitle: "Core Linen Trouser",
-          displaySubtitle: "Running AI product diagnostics",
+          displaySubtitle: "Running Product Diagnosis",
           status: "Running",
           progress: 14,
           productHref: "/app/products/core-linen-trouser",
@@ -192,9 +192,9 @@ describe("ProductPulseJobMonitor", () => {
         {
           id: "job-active",
           kind: "product-diagnosis",
-          name: "AI Product Diagnosis",
+          name: "Product Diagnosis",
           displayTitle: "Core Linen Trouser",
-          displaySubtitle: "Running AI product diagnostics",
+          displaySubtitle: "Running Product Diagnosis",
           status: "Running",
           progress: 14,
           productHref: "/app/products/core-linen-trouser",
@@ -206,7 +206,7 @@ describe("ProductPulseJobMonitor", () => {
           kind: "product-diagnosis",
           name: "Completed scan",
           displayTitle: "Trail Run Vest",
-          displaySubtitle: "AI product diagnostics completed",
+          displaySubtitle: "Product Diagnosis completed",
           status: "Completed",
           productHref: "/app/products/trail-run-vest",
           startedAtIso: new Date(Date.now() - 15000).toISOString(),
@@ -231,9 +231,9 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getByText("Trail Run Vest")).toBeVisible();
     expect(screen.getByText(/Started /)).toBeVisible();
     expect(screen.getByText(/Completed /)).toBeVisible();
-    expect(screen.getAllByText("1.0 point").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1.0 diagnosis credit").length).toBeGreaterThan(0);
     expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobElapsed")).not.toBeInTheDocument();
-    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1\.0 point.*s/);
+    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1\.0 diagnosis credit.*s/);
     expect(screen.getByRole("link", { name: /View all background processes/i })).toHaveAttribute("href", "/app/background-processes");
     expect(document.querySelector(".ppGlobalTopbarJobProgress")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");
@@ -276,7 +276,7 @@ describe("ProductPulseJobMonitor", () => {
       kind: "product-diagnosis",
       name: "Completed scan",
       displayTitle: `Background Process ${index + 1}`,
-      displaySubtitle: "AI product diagnostics completed",
+      displaySubtitle: "Product Diagnosis completed",
       status: "Completed",
       productHref: `/app/products/background-process-${index + 1}`,
       startedAtIso: new Date(Date.now() - (index + 2) * 1000).toISOString(),
@@ -301,7 +301,7 @@ describe("ProductPulseJobMonitor", () => {
           name: "Product diagnosis",
           displayTitle: "Linen Shirt",
           status: "Failed",
-          source: "AI product diagnostics",
+          source: "Product Diagnosis",
           errorMessage: "Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.",
           startedAtIso: new Date(Date.now() - 20000).toISOString(),
           updatedAtIso: new Date(Date.now() - 1000).toISOString(),
@@ -316,14 +316,14 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("shows the product analysis completion toast after a running diagnosis finishes", async () => {
+  it("shows the Product Diagnosis completion toast after a running diagnosis finishes", async () => {
     const wizardEvents = [];
     const handleWizardEvent = (event) => wizardEvents.push(event.detail);
     window.addEventListener("productpulse:wizard", handleWizardEvent);
     const runningJob = {
       id: "job-finished-toast",
       kind: "product-diagnosis",
-      name: "AI Product Diagnosis",
+      name: "Product Diagnosis",
       displayTitle: "GEN QuietDesk Mini Fan",
       status: "Running",
       productHref: "/app/products/gen-quietdesk-mini-fan",
@@ -340,7 +340,7 @@ describe("ProductPulseJobMonitor", () => {
 
     try {
       renderMonitor(() => monitor);
-      expect(screen.queryByText("Deep analysis finished")).not.toBeInTheDocument();
+      expect(screen.queryByText("Product Diagnosis finished")).not.toBeInTheDocument();
 
       monitor = {
         activeJobs: [],
@@ -359,7 +359,7 @@ describe("ProductPulseJobMonitor", () => {
       });
 
       const notice = await screen.findByRole("status");
-      expect(notice).toHaveTextContent("Deep analysis finished");
+      expect(notice).toHaveTextContent("Product Diagnosis finished");
       expect(notice).toHaveTextContent("GEN QuietDesk Mini Fan is ready to review.");
       expect(notice).toHaveAttribute("data-pp-job-completion-notice", "product-diagnosis");
       expect(screen.getByAltText("GEN QuietDesk Mini Fan product photo")).toHaveAttribute("src", "https://cdn.example.com/gen-quietdesk-mini-fan.jpg");
@@ -376,7 +376,7 @@ describe("ProductPulseJobMonitor", () => {
       activeJobs: [
         {
           id: "job-active",
-          name: "QuickScan",
+          name: "Catalog Scan",
           status: "Running",
           source: "Reading Shopify catalog",
           startedAtIso: new Date(Date.now() - 5000).toISOString(),
@@ -386,7 +386,7 @@ describe("ProductPulseJobMonitor", () => {
       recentJobs: [
         {
           id: "job-active",
-          name: "QuickScan",
+          name: "Catalog Scan",
           status: "Running",
           source: "Reading Shopify catalog",
           startedAtIso: new Date(Date.now() - 5000).toISOString(),
@@ -396,7 +396,7 @@ describe("ProductPulseJobMonitor", () => {
           id: "job-completed",
           name: "Completed scan",
           status: "Completed",
-          source: "QuickScan completed",
+          source: "Catalog Scan completed",
           startedAtIso: new Date(Date.now() - 15000).toISOString(),
           updatedAtIso: new Date().toISOString(),
           finishedAtIso: new Date().toISOString(),

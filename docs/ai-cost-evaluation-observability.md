@@ -41,7 +41,7 @@ Supported configuration:
 
 Estimates are marked as estimates and stored in the internal trace. Missing usage or unknown pricing produces a non-crashing trace with `missingUsage` or `missingPricing`.
 
-Persistent usage events live in `AiUsageEvent`. New chat turns, product diagnosis AI calls, CSV mapping calls, watchlist narratives, and connection-test AI calls write compact token and cost metadata there. The cost dashboard also reads legacy chat traces and development job logs so older local data can still appear without double-counting message IDs or job IDs already covered by usage events.
+Persistent usage events live in `AiUsageEvent`. New chat turns, Product Diagnosis AI calls, CSV mapping calls, watchlist narratives, and connection-test AI calls write compact token and cost metadata there. The cost dashboard also reads legacy chat traces and development job logs so older local data can still appear without double-counting message IDs or job IDs already covered by usage events.
 
 ## Cost Guardrails
 

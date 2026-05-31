@@ -354,7 +354,7 @@ describe("ProductPulse product job helpers", () => {
         id: "job-1",
         shop: "test.myshopify.com",
         kind: "product-diagnosis",
-        source: "Queued AI Product Diagnosis - GEN EchoLock Voice Safe",
+        source: "Queued Product Diagnosis - GEN EchoLock Voice Safe",
         status: "Running",
         progress: 42,
         payload: {
@@ -399,9 +399,9 @@ describe("ProductPulse product job helpers", () => {
       logs: 2,
     });
     expect(stats.kindCounts).toMatchObject({
-      "AI Product Diagnosis": 1,
+      "Product Diagnosis": 1,
       "Shopify mock dataset": 1,
-      "Fast product scan": 1,
+      "Catalog Scan": 1,
     });
   });
 

@@ -19,11 +19,11 @@ The primary user is an ecommerce operator, catalog manager, CX lead or founder w
 1. Merchant opens the app in Shopify Admin.
 2. Merchant connects or reviews data sources in Connect sources.
 3. App displays a Data coverage score and missing-source guidance.
-4. Merchant runs Catalog Signal Scan.
+4. Merchant runs Catalog Scan.
 5. Running jobs shows import, grouping, scoring and recommendation jobs.
 6. Dashboard ranks products by risk and recommends where to start.
 7. Merchant opens Products and chooses a product.
-8. Merchant runs AI Product Diagnosis, spending one credit.
+8. Merchant runs Product Diagnosis, spending one diagnosis credit.
 9. Diagnosis shows likely cause, evidence, impact, issues and recommended actions.
 10. Merchant applies draft actions such as product tag, PDP copy, FAQ, fit note or support note.
 11. Analyses keeps history of completed and running diagnoses.
@@ -34,11 +34,11 @@ ProductPulse AI detects why certain products generate returns, bad reviews or pu
 
 ## MVP
 - Embedded Shopify app using Shopify CLI, React Router, App Bridge and Polaris web components.
-- PostgreSQL-backed Prisma schema for sessions, sources, jobs, risk snapshots, diagnoses, actions and credit ledger.
+- PostgreSQL-backed Prisma schema for sessions, sources, jobs, risk snapshots, diagnoses, actions and diagnosis credit ledger.
 - Mocked but realistic local data model for products, sources, jobs, analytics and diagnoses.
 - Deterministic risk scoring helpers for return rate, refund rate, review sentiment, signal coverage and impact.
 - Visual and interactive screens for Connect sources, Running jobs, Dashboard, Products, Product diagnosis, Analytics, Analyses and Sources & Billing.
-- Server actions for Catalog Signal Scan, product diagnosis credit validation and applying draft actions.
+- Server actions for Catalog Scan, Product Diagnosis credit validation and applying draft actions.
 - QA automation with unit, component, integration, E2E and accessibility tests.
 - Documentation, fixtures, mocks, CI and Docker setup.
 
@@ -46,7 +46,7 @@ ProductPulse AI detects why certain products generate returns, bad reviews or pu
 - Live background workers for imports and AI jobs.
 - Real connectors for Gorgias, Zendesk, Return Prime, Loop Returns, Yotpo, Loox and ProductPulse Q&A Block.
 - Real billing and recurring app subscriptions.
-- Bulk diagnosis queue with credit reservation.
+- Bulk diagnosis queue with diagnosis credit reservation.
 - Theme app extension for PDP Q&A and public notes.
 - Production AI gateway with prompt versioning, schema validation and usage metering.
 - Multi-language issue classification and recommendation copy.

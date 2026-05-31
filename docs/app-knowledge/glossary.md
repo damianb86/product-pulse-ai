@@ -1,16 +1,16 @@
 # Glossary
 
-QuickScan:
+Catalog Scan:
 
 - Deterministic catalog scan that creates product candidates without calling the AI model.
 
-Deep Product Diagnosis:
+Product Diagnosis:
 
 - Queued diagnosis job that uses deterministic metrics and AI synthesis to create diagnosis, evidence, and recommendations.
 
 Candidate:
 
-- Stored ProductPulse product snapshot that qualifies by risk or momentum and may need review or diagnosis.
+- Stored ProductPulse product snapshot that qualifies by risk or Sales Momentum and may need review or diagnosis.
 
 Risk score:
 
@@ -28,11 +28,11 @@ Priority:
 
 - 0-100 blend of risk, confidence, and log-normalized impact.
 
-Product Momentum:
+Sales Momentum:
 
 - 0-100 commercial activity signal based on velocity, growth, catalog share, trend consistency, and recency.
 
-Evidence strength:
+Evidence support:
 
 - 0-100 score for support strength behind a finding, not the risk itself.
 
