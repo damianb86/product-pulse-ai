@@ -1,0 +1,13 @@
+<svg width="256" height="256" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="aiGradient" x1="8" y1="8" x2="59" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0F6B3F"/>
+      <stop offset="0.48" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#7C5CFF"/>
+    </linearGradient>
+  </defs>
+  <path d="M14.5 47.8L12.4 56.2L21.2 52.8C25.1 55.1 29.5 56.4 34.3 56.4C47.6 56.4 58 46.3 58 33.6C58 21 47.6 10.8 34.3 10.8C21 10.8 10.2 21 10.2 33.6C10.2 39 12.1 43.9 14.5 47.8Z" stroke="url(#aiGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M24.4 17.4C25.9 22.3 28.8 24.9 33.4 26.1C28.8 27.4 25.9 30 24.4 34.9C22.9 30 20 27.4 15.4 26.1C20 24.9 22.9 22.3 24.4 17.4Z" fill="url(#aiGradient)"/>
+  <path d="M39.8 19.4C40.5 21.5 41.9 22.9 44.1 23.5C41.9 24.1 40.5 25.5 39.8 27.6C39.1 25.5 37.7 24.1 35.5 23.5C37.7 22.9 39.1 21.5 39.8 19.4Z" fill="url(#aiGradient)" opacity="0.92"/>
+  <path d="M28.5 42H34.2L37.1 33.4L42.6 48.3L46.5 42H52.8" stroke="url(#aiGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

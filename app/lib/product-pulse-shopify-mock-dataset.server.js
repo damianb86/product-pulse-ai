@@ -10,6 +10,7 @@ export const SHOPIFY_MOCK_DATASET_SOURCE_KEY = "mockDataset";
 export const SHOPIFY_MOCK_DATASET_STAGES = [
   "all",
   "products",
+  "customers",
   "orders",
   "outcomes",
   "reviews",
@@ -19,6 +20,7 @@ export const SHOPIFY_MOCK_DATASET_STAGES = [
 export const SHOPIFY_MOCK_DATASET_STAGE_LABELS = {
   all: "Run remaining setup",
   products: "Create products",
+  customers: "Create customers",
   orders: "Create orders",
   outcomes: "Create returns and refunds",
   reviews: "Generate CSV reviews",
@@ -31,6 +33,8 @@ export const REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES = [
   "read_orders",
   "read_all_orders",
   "write_orders",
+  "read_customers",
+  "write_customers",
   "read_returns",
   "write_returns",
   "read_locations",
@@ -40,11 +44,20 @@ const GENERATED_TAG = "productpulse-gen";
 const GENERATED_ORDER_TAG = "productpulse-gen-order";
 const GENERATED_EVOLUTION_ORDER_TAG = "productpulse-gen-evolution-order";
 const GENERATED_REVIEW_SOURCE = "ProductPulse mock reviews";
-const DEFAULT_ORDER_COUNT = 120;
-const DEFAULT_EVOLUTION_ORDER_COUNT = 26;
+const RELTEST_TAG = "RELTEST";
+const RELTEST_ORDER_TAG = "productpulse-reltest-order";
+const RELTEST_CUSTOMER_TAG = "productpulse-reltest-customer";
+const LEGACY_ORDER_COUNT = 120;
+const EXTRA_STRESS_ORDER_COUNT = 80;
+const BASE_ORDER_COUNT = LEGACY_ORDER_COUNT + EXTRA_STRESS_ORDER_COUNT;
+const RELTEST_SEQUENCE_ORDER_COUNT = 12;
+const RELTEST_ORDER_COUNT = 13 + RELTEST_SEQUENCE_ORDER_COUNT;
+const DEFAULT_ORDER_COUNT = BASE_ORDER_COUNT + RELTEST_ORDER_COUNT;
+const DEFAULT_EVOLUTION_ORDER_COUNT = 41;
 export const SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS = {
   all: DEFAULT_ORDER_COUNT,
   products: 0,
+  customers: 0,
   orders: DEFAULT_ORDER_COUNT,
   outcomes: DEFAULT_ORDER_COUNT,
   reviews: 0,
@@ -64,7 +77,8 @@ const GENERATED_ORDER_RETURN_LINE_ITEMS_PAGE_SIZE = 8;
 const GENERATED_ORDER_REFUND_LINE_ITEMS_PAGE_SIZE = 8;
 const STAGE_PROGRESS = {
   products: [5, 25],
-  orders: [25, 70],
+  customers: [25, 32],
+  orders: [32, 70],
   outcomes: [70, 86],
   reviews: [86, 93],
   evolution: [35, 95],
@@ -73,6 +87,7 @@ const STAGE_PROGRESS = {
 const SHOPIFY_SCOPE_READ_EQUIVALENTS = {
   read_products: ["write_products"],
   read_orders: ["write_orders"],
+  read_customers: ["write_customers"],
   read_returns: ["write_returns"],
 };
 
@@ -439,13 +454,13 @@ const MOCK_PRODUCTS = [
         <p>Choose tactile or linear switch feel before checkout.</p>
       </section>
     `,
-    tags: ["GEN", GENERATED_TAG, "keyboard", "premium", "high-momentum"],
+    tags: ["GEN", GENERATED_TAG, "keyboard", "premium", "high-sales-momentum"],
     options: [{ name: "Switch", values: ["Tactile", "Linear"] }],
     variants: [
       { options: { Switch: "Tactile" }, price: "149.00", sku: "GEN-KBD-TAC" },
       { options: { Switch: "Linear" }, price: "149.00", sku: "GEN-KBD-LIN" },
     ],
-    story: "A commercially important product with rising sales, high momentum and mostly positive reviews. It should enter the app through momentum even without high risk.",
+    story: "A commercially important product with rising sales, high Sales Momentum and mostly positive reviews. It should enter the app through momentum even without high risk.",
     orderPattern: "Slow launch, then accelerating recent sales with occasional multi-unit purchases.",
     returnRefundPattern: "Very low returns/refunds; maybe a rare price/value complaint but no repeated defect.",
     reviewPattern: "Recent reviews are longer and enthusiastic about build quality, switches and included accessories. A few customers mention price but not enough to create high risk.",
@@ -457,13 +472,593 @@ const MOCK_PRODUCTS = [
     ],
     expectedActions: [
       "Add to Watchlist.",
-      "Create baseline scan or run full diagnosis if QuickScan only.",
+      "Create baseline scan or run product diagnosis if Catalog Scan only.",
       "No urgent customer-facing fix.",
     ],
     themes: ["premium", "solid", "switches", "fast shipping"],
     reviewProfile: { count: 44, negativeRate: 0.1, average: 4.5 },
   },
+  {
+    key: "voice-lock-safe",
+    title: "GEN EchoLock Voice Safe",
+    productType: "Home Security",
+    vendor: "ProductPulse Lab",
+    seoTitle: "EchoLock Voice Safe",
+    seoDescription: "Compact voice-activated safe with keypad backup and removable shelf.",
+    descriptionHtml: `
+      <section>
+        <h2>Voice-activated compact safe</h2>
+        <p>Stores passports, keys and small valuables with voice unlock, keypad backup and a removable shelf.</p>
+        <p>Voice unlock should be trained in a quiet room before first use.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, "home-security", "voice-unlock", "edge-case", "stress-test"],
+    options: [{ name: "Finish", values: ["Matte Black", "Oak"] }],
+    variants: [
+      { options: { Finish: "Matte Black" }, price: "96.00", sku: "GEN-SAFE-BLK" },
+      { options: { Finish: "Oak" }, price: "104.00", sku: "GEN-SAFE-OAK" },
+    ],
+    story: "A safety-sensitive product with contradictory customer language. Some buyers say voice unlock is convenient, while others say the Oak finish opens to a television voice, refuses the registered owner after a cold, or drains batteries overnight.",
+    orderPattern: "Sparse early demand, then a gift-season spike followed by concentrated recent Oak purchases from a creator video.",
+    returnRefundPattern: "Returns and refunds are not about appearance. They mention voice recognition, false opens, lockouts, battery drain and anxiety around security.",
+    reviewPattern: "Reviews swing between trust and alarm: one buyer says it saved them time, another says it opened for the wrong voice, another says the keypad worked but the spoken phrase did not.",
+    stressCase: "Tests whether the system treats security language as high severity without inventing a universal product defect when the Oak variant is the stronger signal.",
+    expectedFindings: [
+      "Security and trust language should be treated as serious evidence.",
+      "Oak finish should show stronger variant concentration than Matte Black.",
+      "Contradictory reviews should not collapse into one generic sentiment issue.",
+    ],
+    expectedActions: [
+      "Supplier / QA review.",
+      "Add compatibility and training guidance.",
+      "Consider pausing the affected variant if confidence is high.",
+    ],
+    themes: ["voice unlock", "false open", "battery", "security"],
+    reviewProfile: { count: 52, negativeRate: 0.58, average: 2.5 },
+  },
+  {
+    key: "cooling-pillow",
+    title: "GEN FrostPulse Cooling Pillow",
+    productType: "Bedding",
+    vendor: "ProductPulse Lab",
+    seoTitle: "FrostPulse Cooling Pillow",
+    seoDescription: "Cooling pillow with removable gel insert and two loft choices.",
+    descriptionHtml: `
+      <article>
+        <h2>Cooling pillow with removable insert</h2>
+        <p>Includes a washable cover, removable cooling insert and two loft profiles for different sleep positions.</p>
+        <p>The insert should be aired out before first use.</p>
+      </article>
+    `,
+    tags: ["GEN", GENERATED_TAG, "bedding", "cooling", "odor", "comfort-mismatch"],
+    options: [
+      { name: "Loft", values: ["Low Loft", "High Loft"] },
+      { name: "Cover", values: ["Ice Blue", "Graphite"] },
+    ],
+    variants: [
+      { options: { Loft: "Low Loft", Cover: "Ice Blue" }, price: "58.00", sku: "GEN-PILLOW-LOW-ICE" },
+      { options: { Loft: "High Loft", Cover: "Ice Blue" }, price: "64.00", sku: "GEN-PILLOW-HIGH-ICE" },
+      { options: { Loft: "Low Loft", Cover: "Graphite" }, price: "58.00", sku: "GEN-PILLOW-LOW-GPH" },
+      { options: { Loft: "High Loft", Cover: "Graphite" }, price: "64.00", sku: "GEN-PILLOW-HIGH-GPH" },
+    ],
+    story: "A comfort product where the evidence points in opposite directions. Some customers say the insert is icy and damp, others say it warms up quickly, while High Loft reviews also mention neck angle.",
+    orderPattern: "Steady baseline, a hot-weather growth wave, then recent purchases split between High Loft and Ice Blue after an ad claiming all-night cooling.",
+    returnRefundPattern: "Returns mix subjective comfort with concrete odor, dampness and neck-pressure notes. Refunds often mention customers keeping the cover but rejecting the insert.",
+    reviewPattern: "Language is deliberately inconsistent: too cold, not cold, wet, chemical smell, great after airing out, and High Loft too tall.",
+    stressCase: "Tests whether the app can explain mixed evidence instead of forcing one neat defect story.",
+    expectedFindings: [
+      "High Loft and Ice Blue should appear in variant-level evidence.",
+      "Comfort and odor should be separated from objective damage.",
+      "AI synthesis should describe the contradiction instead of overfitting one complaint.",
+    ],
+    expectedActions: [
+      "Add expectation-setting note.",
+      "Add care/setup guidance for airing the insert.",
+      "Review High Loft positioning if returns concentrate there.",
+    ],
+    themes: ["too cold", "not cold", "odor", "high loft"],
+    reviewProfile: { count: 48, negativeRate: 0.5, average: 2.9 },
+  },
+  {
+    key: "inflatable-standing-desk",
+    title: "GEN LiftAir Inflatable Standing Desk",
+    productType: "Furniture",
+    vendor: "ProductPulse Lab",
+    seoTitle: "LiftAir Inflatable Standing Desk",
+    seoDescription: "Portable inflatable standing desk riser with compact pump.",
+    descriptionHtml: `
+      <section>
+        <h2>Portable inflatable desk riser</h2>
+        <p>Inflates into a temporary standing-height desk surface and packs flat for small spaces.</p>
+        <p>Use on a stable table and keep sharp objects away from the air chamber.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, "furniture", "portable-desk", "air-leak", "extreme-test"],
+    options: [{ name: "Kit", values: ["Starter", "Tall Kit", "Travel Kit"] }],
+    variants: [
+      { options: { Kit: "Starter" }, price: "69.00", sku: "GEN-LIFTAIR-START" },
+      { options: { Kit: "Tall Kit" }, price: "89.00", sku: "GEN-LIFTAIR-TALL" },
+      { options: { Kit: "Travel Kit" }, price: "76.00", sku: "GEN-LIFTAIR-TRAVEL" },
+    ],
+    story: "An intentionally strange furniture product that sells because it sounds clever, then creates operational and safety language: wobble, slow air loss, laptops sliding and customers unsure whether it is a joke or a real desk.",
+    orderPattern: "Small novelty baseline, sharp growth from social traffic, then recent Tall Kit orders with high quantity variance.",
+    returnRefundPattern: "Returns mention air leaks, unstable height and fear of equipment damage. Refunds happen when buyers keep the pump but cannot ship the inflated desk back cleanly.",
+    reviewPattern: "Reviews should look messy: one buyer loves the tiny apartment use case, another says it sighed itself flat during a call, another says the Tall Kit is both too tall and not tall enough.",
+    stressCase: "Tests extreme product plausibility, safety-adjacent wording and whether return notes can drive a real diagnostic even when reviews sound absurd.",
+    expectedFindings: [
+      "Air leak and wobble themes should dominate recent evidence.",
+      "Tall Kit should have stronger return pressure than other kits.",
+      "Recommendations should include QA and copy clarification, not only sentiment handling.",
+    ],
+    expectedActions: [
+      "Supplier / QA review.",
+      "Add weight and stability limits.",
+      "Consider pausing Tall Kit if return concentration remains high.",
+    ],
+    themes: ["wobble", "air leak", "tilt", "tall kit"],
+    reviewProfile: { count: 50, negativeRate: 0.66, average: 2.2 },
+  },
+  {
+    key: "smart-luggage-tag",
+    title: "GEN LoopLink Smart Luggage Tag",
+    productType: "Travel Accessories",
+    vendor: "ProductPulse Lab",
+    seoTitle: "LoopLink Smart Luggage Tag",
+    seoDescription: "QR and Bluetooth luggage tag for travel contact recovery.",
+    descriptionHtml: `
+      <article>
+        <h2>Smart travel recovery tag</h2>
+        <p>Combines QR contact recovery with short-range Bluetooth alerts and a privacy-forward owner profile.</p>
+        <p>Location updates depend on scan events and nearby device signals.</p>
+      </article>
+    `,
+    tags: ["GEN", GENERATED_TAG, "travel", "privacy", "tracking", "source-integrity"],
+    options: [{ name: "Color", values: ["Carbon", "Citrus", "Cloud"] }],
+    variants: [
+      { options: { Color: "Carbon" }, price: "29.00", sku: "GEN-LOOP-CARBON" },
+      { options: { Color: "Citrus" }, price: "29.00", sku: "GEN-LOOP-CITRUS" },
+      { options: { Color: "Cloud" }, price: "29.00", sku: "GEN-LOOP-CLOUD" },
+    ],
+    story: "A travel accessory where orders look healthy but review language mixes true recovery wins with privacy fear, wrong-city alerts and one review that appears to describe a pet collar instead of luggage.",
+    orderPattern: "Low baseline, strong travel-season bundles, then recent family-pack purchases with multiple units per order.",
+    returnRefundPattern: "Returns and refunds mention QR privacy, wrong location notifications, dead batteries and confusion about whether the tag is real GPS.",
+    reviewPattern: "Positive reviews say the tag recovered a suitcase. Negative reviews say it pinged the wrong airport, exposed too much profile info, or sounds like it came from another product feed.",
+    stressCase: "Tests product/source ambiguity, privacy language, bundle quantity math and whether the app distinguishes scan-based tracking from promised GPS.",
+    expectedFindings: [
+      "Tracking expectation mismatch should be visible.",
+      "Citrus and Carbon should have different evidence themes.",
+      "Source-integrity warnings should remain separate from native Shopify return evidence.",
+    ],
+    expectedActions: [
+      "Clarify GPS versus scan-based updates.",
+      "Review privacy copy and QR profile defaults.",
+      "Check review source mapping if unrelated language appears.",
+    ],
+    themes: ["wrong location", "qr privacy", "battery", "not gps"],
+    reviewProfile: { count: 45, negativeRate: 0.47, average: 3.1 },
+  },
+  {
+    key: "coffee-alarm-brewer",
+    title: "GEN WhisperBrew Coffee Alarm Clock",
+    productType: "Small Appliance",
+    vendor: "ProductPulse Lab",
+    seoTitle: "WhisperBrew Coffee Alarm Clock",
+    seoDescription: "Bedside alarm clock with timed single-cup coffee brewing.",
+    descriptionHtml: `
+      <section>
+        <h2>Bedside coffee alarm</h2>
+        <p>Schedules a single-cup brew near wake time with quiet alarm tones and a removable water tank.</p>
+        <p>Use only on a stable, water-resistant surface.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, "small-appliance", "alarm", "coffee", "timing-risk"],
+    options: [{ name: "Color", values: ["Cream", "Graphite"] }],
+    variants: [
+      { options: { Color: "Cream" }, price: "118.00", sku: "GEN-BREW-CREAM" },
+      { options: { Color: "Graphite" }, price: "122.00", sku: "GEN-BREW-GRAPH" },
+    ],
+    story: "A weird but plausible appliance with timing contradictions. Some buyers love waking up to coffee, while others say it brewed hours early, stayed silent, produced condensation or made the room smell burnt.",
+    orderPattern: "Gift-driven baseline, a recent morning-routine campaign and uneven repeat purchases from buyers ordering multiple units for offices.",
+    returnRefundPattern: "Returns mention schedule drift, wet nightstands and alarm silence. Refunds mention keeping the cup tray but losing trust in the timed brew function.",
+    reviewPattern: "Reviews move from delight to alarm: great ritual, brewed at 3 a.m., clock lost minutes, coffee was cold, then a positive review says the Graphite unit was perfect after firmware reset.",
+    stressCase: "Tests whether contradictory language, appliance trust and time-based complaints produce a useful diagnosis without generating fake precision.",
+    expectedFindings: [
+      "Timing and condensation evidence should be separated.",
+      "Cream should show stronger cosmetic/stain notes than Graphite.",
+      "Recent negative reviews should outweigh older novelty praise.",
+    ],
+    expectedActions: [
+      "Supplier / QA review.",
+      "Add setup and surface warning guidance.",
+      "Create internal support note for firmware reset language.",
+    ],
+    themes: ["early brew", "clock drift", "condensation", "alarm silent"],
+    reviewProfile: { count: 47, negativeRate: 0.6, average: 2.4 },
+  },
+  {
+    key: "reltest-source-product",
+    title: "GEN RELTEST Source Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Source Product",
+    seoDescription: "Source product for ProductPulse relationship, basket and return/refund analytics testing.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST source product</h2>
+        <p>Deterministic source product used to test bought-together relationships, purchase context, quantity buckets and return/refund impact.</p>
+        <p>Search RELTEST after generating the Settings dataset and inspect this product first.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "basket-test", "risk-impact-test"],
+    options: [{ name: "Pack", values: ["Standard", "Extended", "Bulk"] }],
+    variants: [
+      { options: { Pack: "Standard" }, price: "40.00", sku: "GEN-RELTEST-SRC-STD" },
+      { options: { Pack: "Extended" }, price: "46.00", sku: "GEN-RELTEST-SRC-EXT" },
+      { options: { Pack: "Bulk" }, price: "38.00", sku: "GEN-RELTEST-SRC-BULK" },
+    ],
+    story: "The anchor product for deterministic relationship analytics. It has exactly controlled solo orders, basket orders, multi-unit quantities, one bulk order, one multi-variant same-product order and same-customer before/after sequences.",
+    orderPattern: "Fourteen current-window source orders: eight solo orders and six multi-product baskets. Eleven are single-unit source purchases, two are two-unit source purchases and one is a four-unit bulk purchase.",
+    returnRefundPattern: "Source returns/refunds are concentrated in bought-together orders so relationship risk impact can compare baskets against clean solo orders.",
+    reviewPattern: "Reviews mention bundle confusion, quantity expectations and variant mixups so customer language supports purchase-context diagnosis.",
+    stressCase: "Tests relationship impact, purchase context, multi-variant basket handling and deterministic source-product inspection.",
+    expectedFindings: [
+      "Bought-together relationship with GEN RELTEST Bought Together Product.",
+      "Purchase context should show 8 solo orders and 6 basket orders for the source product.",
+      "Bought-before relationship with GEN RELTEST Bought Before Product.",
+      "Bought-after relationship with GEN RELTEST Bought After Product.",
+      "Return/refund pressure is higher when the source product is bought with the related product.",
+    ],
+    expectedActions: [
+      "Inspect Product Relationships.",
+      "Inspect Purchase Context.",
+      "Inspect Return & Refund Resolution.",
+    ],
+    themes: ["reltest", "basket", "relationship", "source"],
+    reviewProfile: { count: 12, negativeRate: 0.5, average: 3.1 },
+  },
+  {
+    key: "reltest-bought-together-product",
+    title: "GEN RELTEST Bought Together Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bought Together Product",
+    seoDescription: "Related product bought together with the RELTEST source product.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bought-together product</h2>
+        <p>Deterministic related product that appears in six source-product basket orders.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "bought-together-test"],
+    options: [{ name: "Bundle Role", values: ["Companion"] }],
+    variants: [{ options: { "Bundle Role": "Companion" }, price: "18.00", sku: "GEN-RELTEST-TOGETHER" }],
+    story: "The main same-order related product for Product Relationship Intelligence tests.",
+    orderPattern: "Appears with the RELTEST source product in six deterministic current-window orders and does not appear in the four source solo orders.",
+    returnRefundPattern: "Some co-purchase orders also have source returns or refunds, creating measurable risk impact for the pair.",
+    reviewPattern: "Mostly positive reviews with a small amount of bundle expectation language.",
+    stressCase: "Tests bought-together counts, attach rate, lift when store-wide context is available and related-product display.",
+    expectedFindings: [
+      "Should appear as bought together from the RELTEST source product.",
+      "Co-order count should be easy to verify manually.",
+    ],
+    expectedActions: [
+      "Review bundle placement and relationship risk impact.",
+    ],
+    themes: ["reltest", "bought together", "companion", "bundle"],
+    reviewProfile: { count: 8, negativeRate: 0.13, average: 4.4 },
+  },
+  {
+    key: "reltest-bought-before-product",
+    title: "GEN RELTEST Bought Before Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bought Before Product",
+    seoDescription: "Deterministic before-purchase relationship product for RELTEST customer sequence tests.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bought-before product</h2>
+        <p>This product is bought first by the same RELTEST customers who later buy the source product.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "before-sequence-test"],
+    options: [{ name: "Sequence Role", values: ["Before"] }],
+    variants: [{ options: { "Sequence Role": "Before" }, price: "22.00", sku: "GEN-RELTEST-BEFORE" }],
+    story: "Generated to prove previous-purchase relationships from safe Shopify customer IDs.",
+    orderPattern: "Four deterministic RELTEST customers buy this product first, then buy GEN RELTEST Source Product 16 days later.",
+    returnRefundPattern: "No deterministic return/refund pattern; this product isolates same-customer before-purchase sequence evidence.",
+    reviewPattern: "A small number of neutral-positive reviews keep the product easy to find while source-product sequence evidence comes from orders.",
+    stressCase: "Tests previous-purchase relationships with customer identity extracted from Shopify order.customer.id.",
+    expectedFindings: [
+      "Should appear as bought before GEN RELTEST Source Product when customer identity is available.",
+    ],
+    expectedActions: [
+      "Inspect Product Relationships for Bought before.",
+    ],
+    themes: ["reltest", "before", "customer identity", "sequence"],
+    reviewProfile: { count: 4, negativeRate: 0, average: 4.5 },
+  },
+  {
+    key: "reltest-bought-after-product",
+    title: "GEN RELTEST Bought After Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bought After Product",
+    seoDescription: "Deterministic after-purchase relationship product for RELTEST customer sequence tests.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bought-after product</h2>
+        <p>This product is bought later by the same RELTEST customers who previously bought the source product.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "relationship-test", "after-sequence-test"],
+    options: [{ name: "Sequence Role", values: ["After"] }],
+    variants: [{ options: { "Sequence Role": "After" }, price: "24.00", sku: "GEN-RELTEST-AFTER" }],
+    story: "Generated to prove next-purchase relationships from safe Shopify customer IDs.",
+    orderPattern: "The same four deterministic RELTEST customers buy this product 15 days after buying GEN RELTEST Source Product.",
+    returnRefundPattern: "No deterministic return/refund pattern; this product isolates same-customer after-purchase sequence evidence.",
+    reviewPattern: "A small number of neutral-positive reviews keep the product searchable while source-product sequence evidence comes from orders.",
+    stressCase: "Tests next-purchase relationships with customer identity extracted from Shopify order.customer.id.",
+    expectedFindings: [
+      "Should appear as bought after GEN RELTEST Source Product when customer identity is available.",
+    ],
+    expectedActions: [
+      "Inspect Product Relationships for Bought after.",
+    ],
+    themes: ["reltest", "after", "customer identity", "sequence"],
+    reviewProfile: { count: 4, negativeRate: 0, average: 4.5 },
+  },
+  {
+    key: "reltest-multi-variant-product",
+    title: "GEN RELTEST Multi Variant Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Multi Variant Product",
+    seoDescription: "Basket companion used by RELTEST purchase context tests.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST multi-variant product</h2>
+        <p>Generated companion product with multiple variants for basket and variant Product Diagnosis.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "basket-test", "variant-test"],
+    options: [{ name: "Fit", values: ["Alpha", "Beta"] }],
+    variants: [
+      { options: { Fit: "Alpha" }, price: "16.00", sku: "GEN-RELTEST-MULTI-A" },
+      { options: { Fit: "Beta" }, price: "16.00", sku: "GEN-RELTEST-MULTI-B" },
+    ],
+    story: "Companion product for basket context tests and variant-language reviews.",
+    orderPattern: "Appears in deterministic RELTEST basket orders only when explicitly selected by the appended RELTEST plans.",
+    returnRefundPattern: "No dedicated return/refund pattern; it provides clean basket context.",
+    reviewPattern: "Reviews mention variant comparison and confusion without driving the source product's main outcome buckets.",
+    stressCase: "Tests variant-rich basket data without changing CSV shape.",
+    expectedFindings: [
+      "Can appear as a co-purchased product when included in RELTEST basket orders.",
+    ],
+    expectedActions: [
+      "Inspect basket line items and variant labels.",
+    ],
+    themes: ["reltest", "multi variant", "basket", "variant"],
+    reviewProfile: { count: 6, negativeRate: 0.17, average: 4.0 },
+  },
+  {
+    key: "reltest-bulk-quantity-product",
+    title: "GEN RELTEST Bulk Quantity Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Bulk Quantity Product",
+    seoDescription: "Basket companion used to make bulk purchase context easy to inspect.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST bulk quantity product</h2>
+        <p>Companion product for deterministic bulk and basket purchase context tests.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "basket-test", "bulk-test"],
+    options: [{ name: "Pack", values: ["Case"] }],
+    variants: [{ options: { Pack: "Case" }, price: "12.00", sku: "GEN-RELTEST-BULK-COMP" }],
+    story: "Companion product that makes RELTEST basket orders easier to identify.",
+    orderPattern: "Appears in one RELTEST basket order while the source product has a separate four-unit bulk source order.",
+    returnRefundPattern: "No dedicated outcome pattern.",
+    reviewPattern: "Short reviews mention case quantity clarity.",
+    stressCase: "Tests that source-product bulk buckets come from the source quantity, not unrelated basket companions.",
+    expectedFindings: [
+      "Source bulk order should be counted from the source line quantity.",
+    ],
+    expectedActions: [
+      "Inspect Purchase Context quantity distribution.",
+    ],
+    themes: ["reltest", "bulk", "quantity", "basket"],
+    reviewProfile: { count: 5, negativeRate: 0.2, average: 3.8 },
+  },
+  {
+    key: "reltest-return-refund-product",
+    title: "GEN RELTEST Return Refund Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Return Refund Product",
+    seoDescription: "Dedicated product for return plus refund and return-only resolution buckets.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST return/refund product</h2>
+        <p>Dedicated product for deterministic Return & Refund Resolution buckets: returned and refunded, and returned without refund.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "return-refund-test", "resolution-test"],
+    options: [{ name: "Resolution Case", values: ["Standard"] }],
+    variants: [{ options: { "Resolution Case": "Standard" }, price: "34.00", sku: "GEN-RELTEST-RETURN-REFUND" }],
+    story: "Dedicated product for return/refund relationship analysis.",
+    orderPattern: "Two deterministic orders are generated: one returned and refunded, one returned without refund.",
+    returnRefundPattern: "One line item should land in returned_and_refunded and one should land in returned_not_refunded.",
+    reviewPattern: "Negative reviews mention defects and resolution expectations aligned with return notes.",
+    stressCase: "Tests return/refund matching by exact order line item without changing outcome shape.",
+    expectedFindings: [
+      "Return + refund bucket should be non-zero.",
+      "Return-only bucket should be non-zero.",
+    ],
+    expectedActions: [
+      "Inspect Return & Refund Resolution.",
+    ],
+    themes: ["reltest", "return", "refund", "resolution"],
+    reviewProfile: { count: 8, negativeRate: 0.63, average: 2.6 },
+  },
+  {
+    key: "reltest-refund-only-product",
+    title: "GEN RELTEST Refund Only Product",
+    productType: "RELTEST Diagnostics",
+    vendor: "ProductPulse Lab",
+    seoTitle: "RELTEST Refund Only Product",
+    seoDescription: "Dedicated product for refund-without-return resolution buckets.",
+    descriptionHtml: `
+      <section>
+        <h2>RELTEST refund-only product</h2>
+        <p>Dedicated product for deterministic refund without return testing.</p>
+      </section>
+    `,
+    tags: ["GEN", GENERATED_TAG, RELTEST_TAG, "return-refund-test", "refund-only-test"],
+    options: [{ name: "Resolution Case", values: ["Refund Only"] }],
+    variants: [{ options: { "Resolution Case": "Refund Only" }, price: "28.00", sku: "GEN-RELTEST-REFUND-ONLY" }],
+    story: "Dedicated product for refund-only relationship analysis.",
+    orderPattern: "One deterministic order is generated and receives a line-item refund with no return.",
+    returnRefundPattern: "The line item should land in refunded_without_return.",
+    reviewPattern: "Reviews mention compensation and support goodwill without a physical return.",
+    stressCase: "Tests refund-only resolution without adding order-level refund structures.",
+    expectedFindings: [
+      "Refund-only bucket should be non-zero.",
+    ],
+    expectedActions: [
+      "Inspect Return & Refund Resolution.",
+    ],
+    themes: ["reltest", "refund only", "goodwill", "resolution"],
+    reviewProfile: { count: 6, negativeRate: 0.5, average: 3.0 },
+  },
 ];
+
+export const SHOPIFY_MOCK_DATASET_PRODUCT_COUNT = MOCK_PRODUCTS.length;
+
+const RELTEST_SEQUENCE_CUSTOMER_COUNT = 4;
+const RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT = 13;
+const RELTEST_GENERAL_CUSTOMER_COUNT = 7;
+const RELTEST_CUSTOMER_COUNT = RELTEST_SEQUENCE_CUSTOMER_COUNT
+  + RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT
+  + RELTEST_GENERAL_CUSTOMER_COUNT;
+const RELTEST_GENERAL_CUSTOMER_START = RELTEST_SEQUENCE_CUSTOMER_COUNT + RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT + 1;
+
+const RELTEST_CUSTOMERS = Object.freeze(Array.from({ length: RELTEST_CUSTOMER_COUNT }, (_, index) => {
+  const number = String(index + 1).padStart(3, "0");
+  const customerNumber = index + 1;
+  const roleTag = customerNumber <= RELTEST_SEQUENCE_CUSTOMER_COUNT
+    ? "reltest-sequence-customer"
+    : customerNumber < RELTEST_GENERAL_CUSTOMER_START
+      ? "reltest-isolated-order-customer"
+      : "reltest-general-order-customer";
+  return {
+    key: `reltest-customer-${number}`,
+    label: `RELTEST_CUSTOMER_${number}`,
+    tags: [
+      RELTEST_TAG,
+      RELTEST_CUSTOMER_TAG,
+      `reltest-customer-${number}`,
+      roleTag,
+    ],
+    note: `ProductPulse RELTEST deterministic customer profile (${roleTag}). Safe mock data only.`,
+  };
+}));
+
+export const SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT = RELTEST_CUSTOMERS.length;
+
+const STRESS_PRODUCT_KEYS = new Set([
+  "voice-lock-safe",
+  "cooling-pillow",
+  "inflatable-standing-desk",
+  "smart-luggage-tag",
+  "coffee-alarm-brewer",
+]);
+
+const RELTEST_PRODUCT_KEYS = Object.freeze([
+  "reltest-source-product",
+  "reltest-bought-together-product",
+  "reltest-bought-before-product",
+  "reltest-bought-after-product",
+  "reltest-multi-variant-product",
+  "reltest-bulk-quantity-product",
+  "reltest-return-refund-product",
+  "reltest-refund-only-product",
+]);
+
+const RELTEST_OUTCOME_PLANS = Object.freeze([
+  {
+    orderTag: "reltest-risk-return-refund",
+    type: "return",
+    productKey: "reltest-source-product",
+    returnReason: "OTHER",
+    note: "Other: RELTEST source felt confusing when bought with the companion product and the buyer returned it.",
+    theme: "reltest-risk-impact",
+  },
+  {
+    orderTag: "reltest-risk-return-refund",
+    type: "refund",
+    productKey: "reltest-source-product",
+    note: "RELTEST refund after source product was returned from a bought-together basket.",
+    theme: "reltest-risk-impact",
+    quantity: 1,
+  },
+  {
+    orderTag: "reltest-risk-return-only",
+    type: "return",
+    productKey: "reltest-source-product",
+    returnReason: "NOT_AS_DESCRIBED",
+    note: "Not as described: RELTEST bundle context made the source product look like a different kit.",
+    theme: "reltest-risk-impact",
+  },
+  {
+    orderTag: "reltest-risk-refund-only",
+    type: "refund",
+    productKey: "reltest-source-product",
+    note: "RELTEST goodwill refund on source product from bought-together basket without a return.",
+    theme: "reltest-risk-impact",
+    quantity: 1,
+  },
+  {
+    orderTag: "reltest-source-together-multi-variant",
+    type: "return",
+    productKey: "reltest-source-product",
+    returnReason: "OTHER",
+    note: "Exchange requested: customer returned the Standard Pack and the shop sent the Extended Pack variant as a replacement without a refund.",
+    theme: "reltest-variant-exchange",
+  },
+  {
+    orderTag: "reltest-return-refund-both",
+    type: "return",
+    productKey: "reltest-return-refund-product",
+    returnReason: "OTHER",
+    note: "Other: RELTEST return/refund product arrived defective and customer requested a return.",
+    theme: "reltest-return-refund-linked",
+  },
+  {
+    orderTag: "reltest-return-refund-both",
+    type: "refund",
+    productKey: "reltest-return-refund-product",
+    note: "RELTEST refund issued after the returned defective unit was matched to the same line item.",
+    theme: "reltest-return-refund-linked",
+    quantity: 1,
+  },
+  {
+    orderTag: "reltest-return-only",
+    type: "return",
+    productKey: "reltest-return-refund-product",
+    returnReason: "OTHER",
+    note: "Other: RELTEST item was returned but no refund has been issued yet.",
+    theme: "reltest-return-only",
+  },
+  {
+    orderTag: "reltest-refund-only",
+    type: "refund",
+    productKey: "reltest-refund-only-product",
+    note: "RELTEST goodwill refund issued without a physical return.",
+    theme: "reltest-refund-only",
+    quantity: 1,
+  },
+]);
 
 export function getMissingShopifyMockDatasetScopes(scopeString) {
   const granted = new Set(String(scopeString || "").split(",").map((scope) => scope.trim()).filter(Boolean));
@@ -539,14 +1134,30 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
   await updateProgress(context, 3, `Preparing Shopify mock dataset stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[requestedStage]}.`);
   const shopInfo = await getShopInfo(admin);
   const location = await getPrimaryLocation(admin);
-  let products = await loadOrCreateMockProducts(context, location, shopInfo.currencyCode, {
-    createMissing: shouldRunMockDatasetStage(requestedStage, "products"),
-  });
+  const needsProducts = requestedStage !== "customers";
+  const createMissingProducts = shouldRunMockDatasetStage(requestedStage, "products")
+    || ["orders", "reviews", "evolution"].includes(requestedStage);
+  let products = needsProducts
+    ? await loadOrCreateMockProducts(context, location, shopInfo.currencyCode, {
+      createMissing: createMissingProducts,
+    })
+    : [];
+
+  let customers = [];
+  const shouldPrepareCustomers = shouldRunMockDatasetStage(requestedStage, "customers")
+    || ["orders", "evolution", "all"].includes(requestedStage);
+  if (shouldPrepareCustomers) {
+    await updateProgress(context, 25, "Creating or reusing RELTEST customer profiles for generated Shopify orders.");
+    customers = await loadOrCreateMockCustomers(context, { createMissing: true });
+  } else if (["manifest"].includes(requestedStage)) {
+    customers = await loadOrCreateMockCustomers(context, { createMissing: false, recordStage: false });
+  }
 
   let orders = [];
   if (shouldRunMockDatasetStage(requestedStage, "orders")) {
-    await updateProgress(context, 25, `Creating or resuming ${DEFAULT_ORDER_COUNT} historical Shopify orders.`);
-    orders = await loadOrCreateMockOrders(context, products, location, shopInfo.currencyCode, orderDelayMs);
+    await updateProgress(context, 32, `Creating or resuming ${DEFAULT_ORDER_COUNT} historical Shopify orders.`);
+    if (!customers.length) customers = await loadOrCreateMockCustomers(context, { createMissing: true });
+    orders = await loadOrCreateMockOrders(context, products, customers, location, shopInfo.currencyCode, orderDelayMs);
   } else if (requestedStage === "outcomes") {
     orders = await loadExistingMockOrders(context, products, shopInfo.currencyCode, { includeOutcomes: true });
   } else if (["manifest", "all"].includes(requestedStage)) {
@@ -597,9 +1208,11 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
   if (shouldRunMockDatasetStage(requestedStage, "evolution")) {
     await markMockDatasetStageRunning(context, "evolution");
     await updateProgress(context, 35, "Creating recent evolution orders, outcomes and CSV review updates.");
+    if (!customers.length) customers = await loadOrCreateMockCustomers(context, { createMissing: true });
     evolution = await createMockEvolutionBatch(context, products, location, shopInfo.currencyCode, {
       baseCreatedAt: createdAt,
       orderDelayMs,
+      customers,
     });
     reviewRows = buildReviewRows(products, createdAt);
     const evolutionReviewRows = buildEvolutionReviewRows(products, evolution, reviewRows.length + 2);
@@ -635,6 +1248,7 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
     runId,
     createdAt,
     products,
+    customers,
     orders,
     outcomes,
     reviewRows,
@@ -650,6 +1264,7 @@ export async function runShopifyMockDatasetJob({ shop, admin, jobId, stage = "al
       runId,
       createdAt,
       products,
+      customers,
       orders,
       outcomes,
       reviewRows,
@@ -821,18 +1436,182 @@ function serializeProductForState(product) {
   };
 }
 
-async function loadOrCreateMockOrders(context, products, location, currencyCode, orderDelayMs) {
+async function loadOrCreateMockCustomers(context, { createMissing = false, recordStage = true } = {}) {
+  if (recordStage) await markMockDatasetStageRunning(context, "customers");
+  const existingCustomers = await fetchGeneratedReltestCustomers(context);
+  const existingByKey = new Map(existingCustomers.map((customer) => [getReltestCustomerKey(customer), customer]).filter(([key]) => key));
+  const customers = [];
+  const missing = [];
+
+  for (const spec of RELTEST_CUSTOMERS) {
+    const existing = existingByKey.get(spec.key);
+    if (existing) {
+      customers.push(normalizeExistingReltestCustomer(spec, existing));
+      await recordJobLog({
+        shop: context.shop,
+        jobId: context.jobId,
+        event: "mock_dataset.customer_reused",
+        message: `Reused existing RELTEST customer: ${spec.label}.`,
+        data: { customerId: existing.id, key: spec.key },
+      });
+      continue;
+    }
+
+    if (!createMissing) {
+      missing.push(spec.label);
+      continue;
+    }
+
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.customer_create_started",
+      message: `Creating RELTEST customer: ${spec.label}.`,
+      data: { key: spec.key },
+    });
+    const createdCustomer = await createMockCustomer(context, spec);
+    customers.push(createdCustomer);
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: "mock_dataset.customer_created",
+      message: `Created RELTEST customer: ${spec.label}.`,
+      data: { customerId: createdCustomer.id, key: spec.key },
+    });
+    if (recordStage) {
+      await updateProgressForStage(context, "customers", customers.length, RELTEST_CUSTOMERS.length, `Prepared ${customers.length} of ${RELTEST_CUSTOMERS.length} RELTEST customers.`);
+    }
+  }
+
+  if (missing.length) {
+    throw new Error(`RELTEST customers are missing. Run the customers stage first: ${missing.join(", ")}`);
+  }
+
+  if (recordStage) await markMockDatasetStageComplete(context, "customers", {
+    customerCount: customers.length,
+    customers: customers.map(serializeCustomerForState),
+  });
+  return customers;
+}
+
+async function fetchGeneratedReltestCustomers(context) {
+  const data = await shopifyGraphql(context.admin, `#graphql
+    query ProductPulseReltestCustomers($query: String!, $customersFirst: Int!) {
+      customers(first: $customersFirst, query: $query) {
+        nodes {
+          id
+          tags
+        }
+      }
+    }
+  `, {
+    query: `tag:${RELTEST_CUSTOMER_TAG}`,
+    customersFirst: Math.max(RELTEST_CUSTOMERS.length * 3, 12),
+  }, "Fetch existing RELTEST customers");
+  return data?.customers?.nodes || [];
+}
+
+function getReltestCustomerKey(customer = {}) {
+  return (customer.tags || [])
+    .map((tag) => String(tag || "").trim())
+    .find((tag) => /^reltest-customer-\d{3}$/i.test(tag))
+    ?.toLowerCase() || null;
+}
+
+function normalizeExistingReltestCustomer(spec, customer) {
+  return {
+    ...spec,
+    id: customer.id,
+    tags: customer.tags || spec.tags,
+  };
+}
+
+async function createMockCustomer(context, spec) {
+  const customerInput = {
+    note: spec.note,
+    tags: [...spec.tags, `run-${context.runSuffix}`],
+  };
+  const data = await shopifyGraphql(context.admin, `#graphql
+    mutation ProductPulseCreateMockCustomer($input: CustomerInput!) {
+      customerCreate(input: $input) {
+        customer {
+          id
+          tags
+        }
+        userErrors { field message }
+      }
+    }
+  `, { input: customerInput }, `Create RELTEST customer ${spec.label}`);
+  assertNoUserErrors(data?.customerCreate?.userErrors, `Create RELTEST customer ${spec.label}`);
+  return normalizeExistingReltestCustomer(spec, data.customerCreate.customer);
+}
+
+function serializeCustomerForState(customer) {
+  return {
+    key: customer.key,
+    label: customer.label,
+    id: customer.id,
+    tags: customer.tags,
+  };
+}
+
+function getReltestCustomerProfileKey(number) {
+  return `reltest-customer-${String(number).padStart(3, "0")}`;
+}
+
+function getGeneralOrderCustomerProfileKey(index) {
+  const offset = Math.abs(Number(index) || 0) % RELTEST_GENERAL_CUSTOMER_COUNT;
+  return getReltestCustomerProfileKey(RELTEST_GENERAL_CUSTOMER_START + offset);
+}
+
+function getCustomerProfileKeyForOrderPlan(plan = {}) {
+  if (plan.customerProfileKey) return plan.customerProfileKey;
+  const reltestOrderIndex = Number(plan.index) - BASE_ORDER_COUNT;
+  if ((plan.tags || []).includes(RELTEST_ORDER_TAG)
+    && reltestOrderIndex >= 0
+    && reltestOrderIndex < RELTEST_ISOLATED_ORDER_CUSTOMER_COUNT) {
+    return getReltestCustomerProfileKey(RELTEST_SEQUENCE_CUSTOMER_COUNT + reltestOrderIndex + 1);
+  }
+  return getGeneralOrderCustomerProfileKey(Number.isInteger(plan.evolutionIndex) ? plan.evolutionIndex : plan.index);
+}
+
+function ensureOrderPlanCustomerProfileKey(plan) {
+  const customerProfileKey = getCustomerProfileKeyForOrderPlan(plan);
+  return {
+    ...plan,
+    customerProfileKey,
+  };
+}
+
+function attachCustomersToOrderPlans(orderPlans, customers = []) {
+  const customersByKey = new Map(customers.map((customer) => [customer.key, customer]));
+  return orderPlans.map((rawPlan) => {
+    const plan = ensureOrderPlanCustomerProfileKey(rawPlan);
+    const customer = customersByKey.get(plan.customerProfileKey);
+    if (!customer?.id) throw new Error(`Missing RELTEST customer for order plan ${plan.index + 1}: ${plan.customerProfileKey}`);
+    return {
+      ...plan,
+      customerId: customer.id,
+      customerLabel: customer.label,
+    };
+  });
+}
+
+async function loadOrCreateMockOrders(context, products, customers, location, currencyCode, orderDelayMs) {
   await markMockDatasetStageRunning(context, "orders");
-  const orderPlans = buildOrderPlans(products, currencyCode);
-  const existingOrders = await fetchGeneratedOrders(context, products, orderPlans, currencyCode);
+  const orderPlans = attachCustomersToOrderPlans(buildOrderPlans(products, currencyCode), customers);
+  const fetchedExistingOrders = await fetchGeneratedOrders(context, products, orderPlans, currencyCode);
+  const { reusableOrders: existingOrders, skippedIndexes } = await splitReusableGeneratedOrders(context, fetchedExistingOrders, "historical mock orders");
   const existingByIndex = new Map(existingOrders.map((order) => [order.plan?.index, order]).filter(([index]) => Number.isInteger(index)));
   const orders = [];
   let createdCount = 0;
   let reusedCount = 0;
+  let skippedLegacyCustomerlessCount = 0;
 
   for (let index = 0; index < orderPlans.length; index += 1) {
     const plan = orderPlans[index];
     const existing = existingByIndex.get(plan.index);
+    const replacingCustomerlessOrder = skippedIndexes.has(plan.index);
     if (existing) {
       orders.push(existing);
       reusedCount += 1;
@@ -846,11 +1625,24 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
         });
       }
     } else {
+      if (replacingCustomerlessOrder) {
+        skippedLegacyCustomerlessCount += 1;
+        await recordJobLog({
+          shop: context.shop,
+          jobId: context.jobId,
+          level: "warning",
+          event: "mock_dataset.order_replacing_customerless",
+          message: `Creating a customer-attributed replacement for legacy customerless mock order ${index + 1} of ${orderPlans.length}.`,
+          data: { generatedOrderIndex: plan.index + 1, phase: plan.phase },
+        });
+      }
       await recordJobLog({
         shop: context.shop,
         jobId: context.jobId,
         event: "mock_dataset.order_create_started",
-        message: `Creating mock order ${index + 1} of ${orderPlans.length}.`,
+        message: replacingCustomerlessOrder
+          ? `Creating replacement mock order ${index + 1} of ${orderPlans.length}.`
+          : `Creating mock order ${index + 1} of ${orderPlans.length}.`,
         data: {
           generatedOrderIndex: plan.index + 1,
           phase: plan.phase,
@@ -900,6 +1692,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
           preparedOrders: orders.length,
           createdCount,
           reusedCount,
+          skippedLegacyCustomerlessCount,
           lastOrderIndex: index + 1,
         },
       });
@@ -914,6 +1707,7 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
       preparedOrders: orders.length,
       createdCount,
       reusedCount,
+      skippedLegacyCustomerlessCount,
       lastOrderIndex: orderPlans.length,
     },
   });
@@ -922,8 +1716,9 @@ async function loadOrCreateMockOrders(context, products, location, currencyCode,
 
 async function loadExistingMockOrders(context, products, currencyCode, { includeOutcomes = false } = {}) {
   const plans = buildOrderPlans(products, currencyCode);
-  const orders = await fetchGeneratedOrders(context, products, plans, currencyCode, { includeOutcomes });
-  if (!orders.length) {
+  const fetchedOrders = await fetchGeneratedOrders(context, products, plans, currencyCode, { includeOutcomes });
+  const { reusableOrders: orders } = await splitReusableGeneratedOrders(context, fetchedOrders, "historical mock orders");
+  if (!fetchedOrders.length) {
     throw new Error("No generated mock orders were found. Run the orders stage before creating returns, refunds or the manifest.");
   }
   await recordJobLog({
@@ -931,9 +1726,36 @@ async function loadExistingMockOrders(context, products, currencyCode, { include
     jobId: context.jobId,
     event: "mock_dataset.orders_loaded",
     message: `Loaded ${orders.length} existing generated mock orders from Shopify.`,
-    data: { orderCount: orders.length, includeOutcomes },
+    data: { orderCount: orders.length, skippedCustomerlessOrders: fetchedOrders.length - orders.length, includeOutcomes },
   });
   return orders;
+}
+
+async function splitReusableGeneratedOrders(context, orders, label) {
+  const customerlessOrders = [];
+  const reusableOrders = [];
+  for (const order of orders || []) {
+    if (order.customerId) reusableOrders.push(order);
+    else customerlessOrders.push(order);
+  }
+  const skippedIndexes = new Set(customerlessOrders.map((order) => order.plan?.index).filter((index) => Number.isInteger(index)));
+  const skippedEvolutionIndexes = new Set(customerlessOrders.map((order) => order.plan?.evolutionIndex).filter((index) => Number.isInteger(index)));
+  if (!customerlessOrders.length) return { reusableOrders, skippedOrders: [], skippedIndexes, skippedEvolutionIndexes };
+  const examples = customerlessOrders.slice(0, 5).map((order) => order.name).filter(Boolean).join(", ");
+  await recordJobLog({
+    shop: context.shop,
+    jobId: context.jobId,
+    level: "warning",
+    event: "mock_dataset.customerless_orders_skipped",
+    message: `Skipped ${customerlessOrders.length} existing ${label} without customers; the dataset job will continue with reusable or missing orders.`,
+    data: {
+      skippedCustomerlessOrders: customerlessOrders.length,
+      examples,
+      generatedOrderIndexes: [...skippedIndexes].map((index) => index + 1).slice(0, 25),
+      evolutionOrderIndexes: [...skippedEvolutionIndexes].map((index) => index + 1).slice(0, 25),
+    },
+  });
+  return { reusableOrders, skippedOrders: customerlessOrders, skippedIndexes, skippedEvolutionIndexes };
 }
 
 async function fetchGeneratedOrders(context, products, orderPlans, currencyCode, { includeOutcomes = false } = {}) {
@@ -1008,6 +1830,9 @@ function buildGeneratedOrdersQuery(includeOutcomes) {
           processedAt
           note
           tags
+          customer {
+            id
+          }
           lineItems(first: $lineItemsFirst) {
             nodes {
               id
@@ -1153,9 +1978,11 @@ function normalizeExistingMockOrder(order, plansByIndex, productsByVariantId, cu
     id: order.id,
     name: order.name,
     processedAt: order.processedAt,
+    customerId: order.customer?.id || null,
+    customerKey: order.customer?.id || null,
     transactions: order.transactions || [],
     lineItems,
-    plan: { ...plan, currencyCode },
+    plan: { ...plan, currencyCode, customerId: order.customer?.id || plan.customerId || null },
     existingOutcomes: {
       returns: existingReturns,
       refunds: existingRefunds,
@@ -1267,19 +2094,31 @@ async function createMockProduct(context, spec, location, currencyCode) {
   };
 }
 
-function buildOrderPlans(products, currencyCode) {
-  const start = Date.now() - 300 * 24 * 60 * 60 * 1000;
-  const step = (300 * 24 * 60 * 60 * 1000) / DEFAULT_ORDER_COUNT;
+function buildOrderPlans(products, currencyCode, { now = Date.now() } = {}) {
+  const start = now - 300 * 24 * 60 * 60 * 1000;
   const byKey = new Map(products.map((product) => [product.key, product]));
 
-  return Array.from({ length: DEFAULT_ORDER_COUNT }, (_, index) => {
-    const progress = index / Math.max(1, DEFAULT_ORDER_COUNT - 1);
-    const date = new Date(start + index * step + (index % 9) * 60 * 60 * 1000);
-    const primary = byKey.get(getPrimaryProductKeyForOrder(index, progress));
-    const bundledProducts = getSecondaryProductKeysForOrder(index, progress)
+  const basePlans = Array.from({ length: BASE_ORDER_COUNT }, (_, index) => {
+    const stressOrder = index >= LEGACY_ORDER_COUNT;
+    const sequenceIndex = stressOrder ? index - LEGACY_ORDER_COUNT : index;
+    const sequenceCount = stressOrder ? EXTRA_STRESS_ORDER_COUNT : LEGACY_ORDER_COUNT;
+    const progress = sequenceIndex / Math.max(1, sequenceCount - 1);
+    const phase = getOrderPhase(progress);
+    const step = (300 * 24 * 60 * 60 * 1000) / sequenceCount;
+    const dateOffset = stressOrder
+      ? 33 * 60 * 1000 + (index % 11) * 45 * 60 * 1000
+      : (index % 9) * 60 * 60 * 1000;
+    const date = new Date(start + sequenceIndex * step + dateOffset);
+    const primaryKey = stressOrder
+      ? getStressPrimaryProductKeyForOrder(sequenceIndex, progress)
+      : getPrimaryProductKeyForOrder(sequenceIndex, progress);
+    const secondaryKeys = stressOrder
+      ? getStressSecondaryProductKeysForOrder(sequenceIndex, progress)
+      : getSecondaryProductKeysForOrder(sequenceIndex, progress);
+    const orderProducts = [...new Set([primaryKey, ...secondaryKeys].filter(Boolean))]
       .map((key) => byKey.get(key))
       .filter(Boolean);
-    const items = [primary, ...bundledProducts].filter(Boolean).map((product, itemIndex) => {
+    const items = orderProducts.map((product, itemIndex) => {
       const variant = pickVariantForOrder(product, index + itemIndex);
       return {
         productKey: product.key,
@@ -1295,15 +2134,21 @@ function buildOrderPlans(products, currencyCode) {
     const total = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     return {
       index,
-      phase: getOrderPhase(progress),
+      phase,
       processedAt: date.toISOString(),
       currencyCode,
-      note: `ProductPulse generated order ${index + 1}. ${getOrderPhase(progress)} phase. Controlled mock dataset for diagnostics.`,
+      note: stressOrder
+        ? `ProductPulse generated order ${index + 1}. ${phase} phase. Extreme mock stress dataset for Product Diagnosis.`
+        : `ProductPulse generated order ${index + 1}. ${phase} phase. Controlled mock dataset for Product Diagnosis.`,
       tags: [GENERATED_ORDER_TAG, `ppgen-order-${index + 1}`, `run-${products[0]?.handle?.split("-").pop() || "mock"}`],
       items,
       total,
     };
   });
+  return [
+    ...basePlans,
+    ...buildReltestOrderPlans(products, currencyCode, now, basePlans.length),
+  ].map(ensureOrderPlanCustomerProfileKey);
 }
 
 function getOrderPhase(progress) {
@@ -1368,12 +2213,68 @@ function getPrimaryProductKeyForOrder(index, progress) {
   return cycle[index % cycle.length];
 }
 
+function getStressPrimaryProductKeyForOrder(index, progress) {
+  const phaseCycles = {
+    baseline: [
+      "voice-lock-safe",
+      "cooling-pillow",
+      "smart-luggage-tag",
+      "coffee-alarm-brewer",
+      "inflatable-standing-desk",
+      "smart-luggage-tag",
+      "cooling-pillow",
+      "voice-lock-safe",
+    ],
+    growth: [
+      "coffee-alarm-brewer",
+      "inflatable-standing-desk",
+      "cooling-pillow",
+      "smart-luggage-tag",
+      "voice-lock-safe",
+      "inflatable-standing-desk",
+      "coffee-alarm-brewer",
+      "cooling-pillow",
+    ],
+    friction: [
+      "inflatable-standing-desk",
+      "voice-lock-safe",
+      "coffee-alarm-brewer",
+      "cooling-pillow",
+      "smart-luggage-tag",
+      "inflatable-standing-desk",
+      "voice-lock-safe",
+      "coffee-alarm-brewer",
+    ],
+    current: [
+      "coffee-alarm-brewer",
+      "voice-lock-safe",
+      "smart-luggage-tag",
+      "inflatable-standing-desk",
+      "cooling-pillow",
+      "coffee-alarm-brewer",
+      "voice-lock-safe",
+      "smart-luggage-tag",
+    ],
+  };
+  const cycle = phaseCycles[getOrderPhase(progress)];
+  return cycle[index % cycle.length];
+}
+
 function getSecondaryProductKeysForOrder(index, progress) {
   const phase = getOrderPhase(progress);
   const keys = [];
   if (index % 9 === 0) keys.push(phase === "current" ? "premium-keyboard" : "puzzle-calm");
   if (index % 14 === 0) keys.push(phase === "friction" ? "travel-mug-leak" : "soft-yoga-mat");
   if (index % 22 === 0) keys.push(phase === "growth" ? "smart-planter" : "ceramic-dinner-set");
+  return [...new Set(keys)];
+}
+
+function getStressSecondaryProductKeysForOrder(index, progress) {
+  const phase = getOrderPhase(progress);
+  const keys = [];
+  if (index % 6 === 0) keys.push(phase === "baseline" ? "puzzle-calm" : "smart-luggage-tag");
+  if (index % 10 === 0) keys.push(phase === "current" ? "coffee-alarm-brewer" : "cooling-pillow");
+  if (index % 13 === 0) keys.push(phase === "friction" ? "voice-lock-safe" : "inflatable-standing-desk");
   return [...new Set(keys)];
 }
 
@@ -1388,6 +2289,30 @@ function pickVariantForOrder(product, index) {
     const rose = variants.find((variant) => variant.title.toLowerCase().includes("rose"));
     if (index % 2 === 0 && rose) return rose;
   }
+  if (product.key === "voice-lock-safe") {
+    const oak = variants.find((variant) => variant.title.toLowerCase().includes("oak"));
+    if (index % 3 !== 0 && oak) return oak;
+  }
+  if (product.key === "cooling-pillow") {
+    const high = variants.find((variant) => variant.title.toLowerCase().includes("high loft"));
+    if (index % 2 === 0 && high) return high;
+    const ice = variants.find((variant) => variant.title.toLowerCase().includes("ice blue"));
+    if (index % 3 === 0 && ice) return ice;
+  }
+  if (product.key === "inflatable-standing-desk") {
+    const tall = variants.find((variant) => variant.title.toLowerCase().includes("tall kit"));
+    if (index % 2 === 0 && tall) return tall;
+  }
+  if (product.key === "smart-luggage-tag") {
+    const citrus = variants.find((variant) => variant.title.toLowerCase().includes("citrus"));
+    if (index % 4 < 2 && citrus) return citrus;
+    const carbon = variants.find((variant) => variant.title.toLowerCase().includes("carbon"));
+    if (index % 4 === 2 && carbon) return carbon;
+  }
+  if (product.key === "coffee-alarm-brewer") {
+    const cream = variants.find((variant) => variant.title.toLowerCase().includes("cream"));
+    if (index % 2 === 0 && cream) return cream;
+  }
   return variants[index % variants.length];
 }
 
@@ -1396,7 +2321,85 @@ function getOrderQuantity(productKey, index, progress) {
   if (productKey === "premium-keyboard" && progress > 0.7 && index % 4 === 0) return 2;
   if (productKey === "ceramic-dinner-set" && progress > 0.42 && progress < 0.72 && index % 5 === 0) return 2;
   if (productKey === "linen-shirt-fit" && progress > 0.68 && index % 8 === 0) return 2;
+  if (productKey === "smart-luggage-tag" && index % 5 === 0) return 3;
+  if (productKey === "cooling-pillow" && index % 6 === 0) return 2;
+  if (productKey === "coffee-alarm-brewer" && progress > 0.7 && index % 7 === 0) return 2;
   return 1;
+}
+
+function buildReltestOrderPlans(products, currencyCode, now, startIndex) {
+  const byKey = new Map(products.map((product) => [product.key, product]));
+  const runTag = `run-${products[0]?.handle?.split("-").pop() || "mock"}`;
+  const specs = [
+    { daysAgo: 34, tags: ["reltest-source-solo-01", "reltest-solo", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 32, tags: ["reltest-source-solo-02", "reltest-solo", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Extended", quantity: 1 }] },
+    { daysAgo: 30, tags: ["reltest-source-solo-03", "reltest-solo", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 28, tags: ["reltest-source-solo-bulk", "reltest-solo", "reltest-bulk"], items: [{ key: "reltest-source-product", variantHint: "Bulk", quantity: 4 }] },
+    { daysAgo: 24, tags: ["reltest-source-together-01", "reltest-basket", "reltest-bought-together"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 22, tags: ["reltest-source-together-02", "reltest-basket", "reltest-bought-together", "reltest-risk-return-refund"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 20, tags: ["reltest-source-together-03", "reltest-basket", "reltest-bought-together", "reltest-risk-return-only"], items: [{ key: "reltest-source-product", variantHint: "Extended", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 16, tags: ["reltest-source-together-04", "reltest-basket", "reltest-bought-together"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 2 }, { key: "reltest-bulk-quantity-product", variantHint: "Case", quantity: 1 }] },
+    { daysAgo: 12, tags: ["reltest-source-together-multi-variant", "reltest-basket", "reltest-bought-together", "reltest-multi-variant-source"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }, { key: "reltest-source-product", variantHint: "Extended", quantity: 1 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 8, tags: ["reltest-source-together-05", "reltest-basket", "reltest-bought-together", "reltest-risk-refund-only"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 2 }, { key: "reltest-bought-together-product", variantHint: "Companion", quantity: 1 }] },
+    { daysAgo: 18, tags: ["reltest-return-refund-both"], items: [{ key: "reltest-return-refund-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 10, tags: ["reltest-return-only"], items: [{ key: "reltest-return-refund-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 6, tags: ["reltest-refund-only"], items: [{ key: "reltest-refund-only-product", variantHint: "Refund Only", quantity: 1 }] },
+    { daysAgo: 58, customerProfileKey: "reltest-customer-001", tags: ["reltest-sequence-before-01", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 42, customerProfileKey: "reltest-customer-001", tags: ["reltest-sequence-source-01", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 27, customerProfileKey: "reltest-customer-001", tags: ["reltest-sequence-after-01", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+    { daysAgo: 55, customerProfileKey: "reltest-customer-002", tags: ["reltest-sequence-before-02", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 39, customerProfileKey: "reltest-customer-002", tags: ["reltest-sequence-source-02", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Extended", quantity: 1 }] },
+    { daysAgo: 24, customerProfileKey: "reltest-customer-002", tags: ["reltest-sequence-after-02", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+    { daysAgo: 52, customerProfileKey: "reltest-customer-003", tags: ["reltest-sequence-before-03", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 36, customerProfileKey: "reltest-customer-003", tags: ["reltest-sequence-source-03", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Standard", quantity: 1 }] },
+    { daysAgo: 21, customerProfileKey: "reltest-customer-003", tags: ["reltest-sequence-after-03", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+    { daysAgo: 49, customerProfileKey: "reltest-customer-004", tags: ["reltest-sequence-before-04", "reltest-bought-before-sequence"], items: [{ key: "reltest-bought-before-product", variantHint: "Before", quantity: 1 }] },
+    { daysAgo: 33, customerProfileKey: "reltest-customer-004", tags: ["reltest-sequence-source-04", "reltest-source-sequence", "reltest-single-unit"], items: [{ key: "reltest-source-product", variantHint: "Bulk", quantity: 1 }] },
+    { daysAgo: 18, customerProfileKey: "reltest-customer-004", tags: ["reltest-sequence-after-04", "reltest-bought-after-sequence"], items: [{ key: "reltest-bought-after-product", variantHint: "After", quantity: 1 }] },
+  ];
+
+  return specs.map((spec, reltestIndex) => {
+    const index = startIndex + reltestIndex;
+    const items = spec.items.map((itemSpec, itemIndex) => {
+      const product = byKey.get(itemSpec.key);
+      if (!product) throw new Error(`Missing generated RELTEST product for order plan: ${itemSpec.key}`);
+      const variant = pickReltestVariant(product, itemSpec.variantHint, reltestIndex + itemIndex);
+      return {
+        productKey: product.key,
+        productTitle: product.title,
+        handle: product.handle,
+        variantId: variant.id,
+        variantTitle: variant.title,
+        sku: variant.sku,
+        quantity: itemSpec.quantity,
+        unitPrice: Number(variant.price || 0),
+      };
+    });
+    const processedAt = new Date(now - spec.daysAgo * 24 * 60 * 60 * 1000 + reltestIndex * 75 * 60 * 1000);
+      return {
+        index,
+        phase: "current",
+        processedAt: processedAt.toISOString(),
+        currencyCode,
+        note: `ProductPulse generated order ${index + 1}. current phase. RELTEST deterministic scenario: ${spec.tags[0]}.`,
+        tags: [GENERATED_ORDER_TAG, RELTEST_ORDER_TAG, `ppgen-order-${index + 1}`, runTag, ...spec.tags],
+        customerProfileKey: spec.customerProfileKey || null,
+        items,
+        total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
+      };
+  });
+}
+
+function pickReltestVariant(product, hint, fallbackIndex) {
+  const variants = product.variants || [];
+  if (!variants.length) throw new Error(`Product ${product.title} has no variants after creation.`);
+  if (hint) {
+    const normalizedHint = String(hint).toLowerCase();
+    const matched = variants.find((variant) => String(variant.title || "").toLowerCase().includes(normalizedHint)
+      || String(variant.sku || "").toLowerCase().includes(normalizedHint));
+    if (matched) return matched;
+  }
+  return variants[fallbackIndex % variants.length];
 }
 
 async function createMockOrder(context, plan, location, currencyCode) {
@@ -1408,8 +2411,7 @@ async function createMockOrder(context, plan, location, currencyCode) {
     test: true,
     note: plan.note,
     tags: plan.tags,
-    shippingAddress: buildAddress(plan.index),
-    billingAddress: buildAddress(plan.index),
+    ...(plan.customerId ? { customer: { toAssociate: { id: plan.customerId } } } : {}),
     fulfillment: location?.id ? {
       locationId: location.id,
       notifyCustomer: false,
@@ -1420,7 +2422,7 @@ async function createMockOrder(context, plan, location, currencyCode) {
     lineItems: plan.items.map((item) => ({
       variantId: item.variantId,
       quantity: item.quantity,
-      requiresShipping: true,
+      requiresShipping: false,
     })),
     transactions: [{
       kind: "SALE",
@@ -1444,23 +2446,26 @@ async function createMockOrder(context, plan, location, currencyCode) {
       $lineItemsFirst: Int!,
       $fulfillmentsFirst: Int!,
       $fulfillmentLineItemsFirst: Int!
-    ) {
-      orderCreate(order: $order, options: $options) {
-        order {
-          id
-          name
-          processedAt
-          lineItems(first: $lineItemsFirst) {
-            nodes {
+      ) {
+        orderCreate(order: $order, options: $options) {
+          order {
+            id
+            name
+            processedAt
+            customer {
               id
-              title
-              quantity
-              variant {
+            }
+            lineItems(first: $lineItemsFirst) {
+              nodes {
                 id
+                title
+                quantity
+                variant {
+                  id
+                }
               }
             }
-          }
-          fulfillments(first: $fulfillmentsFirst) {
+            fulfillments(first: $fulfillmentsFirst) {
             id
             fulfillmentLineItems(first: $fulfillmentLineItemsFirst) {
               nodes {
@@ -1509,14 +2514,16 @@ async function createMockOrder(context, plan, location, currencyCode) {
     };
   });
 
-  return {
-    id: order.id,
-    name: order.name,
-    processedAt: order.processedAt,
-    transactions: order.transactions || [],
-    lineItems,
-    plan,
-  };
+    return {
+      id: order.id,
+      name: order.name,
+      processedAt: order.processedAt,
+      customerId: order.customer?.id || plan.customerId || null,
+      customerKey: order.customer?.id || plan.customerId || null,
+      transactions: order.transactions || [],
+      lineItems,
+      plan: { ...plan, customerId: order.customer?.id || plan.customerId || null },
+    };
 }
 
 async function createMockReturnsAndRefunds(context, orders, currencyCode, { existingOutcomes = {}, onOutcome } = {}) {
@@ -1553,6 +2560,11 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
     "soft-yoga-mat": 4,
     "smart-planter": 3,
     "desk-fan-mismatch": 1,
+    "voice-lock-safe": 7,
+    "cooling-pillow": 6,
+    "inflatable-standing-desk": 8,
+    "smart-luggage-tag": 5,
+    "coffee-alarm-brewer": 7,
   }));
   const refundTargets = new Map(Object.entries({
     "ceramic-dinner-set": 7,
@@ -1560,6 +2572,11 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
     "smart-planter": 4,
     "earbuds-color": 2,
     "linen-shirt-fit": 2,
+    "voice-lock-safe": 4,
+    "cooling-pillow": 4,
+    "inflatable-standing-desk": 5,
+    "smart-luggage-tag": 3,
+    "coffee-alarm-brewer": 4,
   }));
   const returnCounts = new Map(returns.map((outcome) => outcome.productKey).filter(Boolean).map((productKey) => [
     productKey,
@@ -1573,7 +2590,7 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (returns.length >= 36) break;
+    if (areOutcomeTargetsSatisfied(returnTargets, returnCounts)) break;
     if (!lineItem.fulfillmentLineItemId || usedLineItems.has(lineItem.id)) continue;
     const target = returnTargets.get(lineItem.productKey) || 0;
     const productReturnCount = returnCounts.get(lineItem.productKey) || 0;
@@ -1598,7 +2615,7 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
 
   for (const candidate of returnCandidates) {
     const { order, lineItem } = candidate;
-    if (refunds.length >= 24) break;
+    if (areOutcomeTargetsSatisfied(refundTargets, refundCounts)) break;
     if (usedLineItems.has(lineItem.id)) continue;
     const target = refundTargets.get(lineItem.productKey) || 0;
     const productRefundCount = refundCounts.get(lineItem.productKey) || 0;
@@ -1621,13 +2638,86 @@ async function createMockReturnsAndRefunds(context, orders, currencyCode, { exis
     }
   }
 
-  return { returns, refunds };
+  return createReltestReturnsAndRefunds(context, orders, currencyCode, returns, refunds, onOutcome);
 }
 
-async function createMockEvolutionBatch(context, products, location, currencyCode, { baseCreatedAt, orderDelayMs }) {
+async function createReltestReturnsAndRefunds(context, orders, currencyCode, returns, refunds, onOutcome) {
+  const outcomeKeys = new Set([
+    ...returns.map((outcome) => `return:${outcome.orderId}:${outcome.lineItemId}`),
+    ...refunds.map((outcome) => `refund:${outcome.orderId}:${outcome.lineItemId}`),
+  ]);
+
+  for (const plan of RELTEST_OUTCOME_PLANS) {
+    const order = orders.find((candidate) => orderHasTag(candidate, plan.orderTag));
+    if (!order) continue;
+    const lineItem = order.lineItems.find((item) => item.productKey === plan.productKey);
+    if (!lineItem) continue;
+    const outcomeKey = `${plan.type}:${order.id}:${lineItem.id}`;
+    if (outcomeKeys.has(outcomeKey)) continue;
+    if (plan.type === "return" && !lineItem.fulfillmentLineItemId) continue;
+
+    await recordJobLog({
+      shop: context.shop,
+      jobId: context.jobId,
+      event: `mock_dataset.reltest_${plan.type}_create_started`,
+      message: `Creating RELTEST ${plan.type} for ${lineItem.productTitle || lineItem.title}.`,
+      data: { orderName: order.name, orderTag: plan.orderTag, lineItemId: lineItem.id, productKey: lineItem.productKey },
+    });
+
+    if (plan.type === "return") {
+      const result = await createReturn(context, order, lineItem, plan);
+      if (result?.id) {
+        outcomeKeys.add(outcomeKey);
+        returns.push({
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId: lineItem.id,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          returnReason: plan.returnReason,
+          note: plan.note,
+          theme: plan.theme,
+          id: result.id,
+        });
+        await onOutcome?.({ returns, refunds });
+      }
+    }
+
+    if (plan.type === "refund") {
+      const result = await createRefund(context, order, lineItem, plan, currencyCode);
+      if (result?.id) {
+        outcomeKeys.add(outcomeKey);
+        refunds.push({
+          orderId: order.id,
+          orderName: order.name,
+          lineItemId: lineItem.id,
+          productKey: lineItem.productKey,
+          productTitle: lineItem.productTitle,
+          note: plan.note,
+          theme: plan.theme,
+          quantity: plan.quantity || 1,
+          id: result.id,
+        });
+        await onOutcome?.({ returns, refunds });
+      }
+    }
+  }
+
+  return { returns: dedupeOutcomes(returns), refunds: dedupeOutcomes(refunds) };
+}
+
+function orderHasTag(order, tag) {
+  return (order.plan?.tags || []).some((value) => String(value || "").toLowerCase() === String(tag || "").toLowerCase());
+}
+
+function areOutcomeTargetsSatisfied(targets, counts) {
+  return [...targets.entries()].every(([productKey, target]) => Number(counts.get(productKey) || 0) >= Number(target || 0));
+}
+
+async function createMockEvolutionBatch(context, products, location, currencyCode, { baseCreatedAt, orderDelayMs, customers = [] }) {
   const batchId = "recent-watchlist-evolution-v1";
   const createdAt = new Date();
-  const plans = buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId);
+  const plans = attachCustomersToOrderPlans(buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId), customers);
   const orders = await loadOrCreateMockEvolutionOrders(context, plans, location, currencyCode, orderDelayMs);
   const ordersWithOutcomes = await fetchGeneratedEvolutionOrders(context, products, plans, currencyCode, { includeOutcomes: true });
   const outcomes = await createEvolutionReturnsAndRefunds(context, ordersWithOutcomes, plans, currencyCode);
@@ -1656,15 +2746,18 @@ async function createMockEvolutionBatch(context, products, location, currencyCod
 }
 
 async function loadOrCreateMockEvolutionOrders(context, plans, location, currencyCode, orderDelayMs) {
-  const existingOrders = await fetchGeneratedEvolutionOrders(context, [], plans, currencyCode);
+  const fetchedExistingOrders = await fetchGeneratedEvolutionOrders(context, [], plans, currencyCode);
+  const { reusableOrders: existingOrders, skippedEvolutionIndexes } = await splitReusableGeneratedOrders(context, fetchedExistingOrders, "recent evolution mock orders");
   const existingByIndex = new Map(existingOrders.map((order) => [order.plan?.evolutionIndex, order]).filter(([index]) => Number.isInteger(index)));
   const orders = [];
   let createdCount = 0;
   let reusedCount = 0;
+  let skippedLegacyCustomerlessCount = 0;
 
   for (let index = 0; index < plans.length; index += 1) {
     const plan = plans[index];
     const existing = existingByIndex.get(plan.evolutionIndex);
+    const replacingCustomerlessOrder = skippedEvolutionIndexes.has(plan.evolutionIndex);
     if (existing) {
       orders.push(existing);
       reusedCount += 1;
@@ -1676,11 +2769,24 @@ async function loadOrCreateMockEvolutionOrders(context, plans, location, currenc
         data: { orderName: existing.name, evolutionIndex: plan.evolutionIndex + 1, productKeys: plan.items.map((item) => item.productKey) },
       });
     } else {
+      if (replacingCustomerlessOrder) {
+        skippedLegacyCustomerlessCount += 1;
+        await recordJobLog({
+          shop: context.shop,
+          jobId: context.jobId,
+          level: "warning",
+          event: "mock_dataset.evolution_order_replacing_customerless",
+          message: `Creating a customer-attributed replacement for legacy customerless recent evolution order ${index + 1} of ${plans.length}.`,
+          data: { evolutionIndex: plan.evolutionIndex + 1, productKeys: plan.items.map((item) => item.productKey) },
+        });
+      }
       await recordJobLog({
         shop: context.shop,
         jobId: context.jobId,
         event: "mock_dataset.evolution_order_create_started",
-        message: `Creating recent evolution order ${index + 1} of ${plans.length}.`,
+        message: replacingCustomerlessOrder
+          ? `Creating replacement recent evolution order ${index + 1} of ${plans.length}.`
+          : `Creating recent evolution order ${index + 1} of ${plans.length}.`,
         data: {
           evolutionIndex: plan.evolutionIndex + 1,
           processedAt: plan.processedAt,
@@ -1704,6 +2810,7 @@ async function loadOrCreateMockEvolutionOrders(context, plans, location, currenc
     await updateProgressForStage(context, "evolution", index + 1, plans.length + 8, `Prepared ${index + 1} of ${plans.length} recent evolution orders.`, {
       evolutionCreatedOrders: createdCount,
       evolutionReusedOrders: reusedCount,
+      evolutionSkippedCustomerlessOrders: skippedLegacyCustomerlessCount,
     });
   }
 
@@ -1830,8 +2937,10 @@ function normalizeExistingEvolutionOrder(order, plansByIndex, productsByVariantI
     id: order.id,
     name: order.name,
     processedAt: order.processedAt,
+    customerId: order.customer?.id || null,
+    customerKey: order.customer?.id || null,
     lineItems,
-    plan: { ...plan, currencyCode },
+    plan: { ...plan, currencyCode, customerId: order.customer?.id || plan.customerId || null },
     existingOutcomes: {
       returns: existingReturns,
       refunds: existingRefunds,
@@ -1924,10 +3033,10 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
     { key: "travel-mug-leak", daysAgo: 11, count: 1, outcome: "return", note: "Other: New gasket batch leaked immediately during commute.", reason: "OTHER", theme: "leak" },
     { key: "soft-yoga-mat", daysAgo: 10, count: 1 },
     { key: "ceramic-dinner-set", daysAgo: 9, count: 1 },
-    { key: "linen-shirt-fit", daysAgo: 8, count: 1, variantHint: "M", outcome: "return", note: "Medium White still runs small after one cold wash.", reason: "SIZE_TOO_SMALL", theme: "fit" },
+    { key: "linen-shirt-fit", daysAgo: 8, count: 1, variantHint: "M", outcome: "return", note: "Exchange requested: Medium White still runs small after one cold wash, so support sent size Large.", reason: "SIZE_TOO_SMALL", theme: "fit-exchange" },
     { key: "smart-planter", daysAgo: 8, count: 1, outcome: "refund", note: "Compatibility refund: buyer only has 5 GHz Wi-Fi and missed the setup limitation.", theme: "compatibility" },
     { key: "travel-mug-leak", daysAgo: 7, count: 1, outcome: "return", note: "Other: Lid seal failed near a laptop and customer asked for a return.", reason: "OTHER", theme: "leak" },
-    { key: "earbuds-color", daysAgo: 7, count: 1, variantHint: "Rose", outcome: "return", note: "Rose variant still looks copper compared with current PDP photos.", reason: "COLOR", theme: "color" },
+    { key: "earbuds-color", daysAgo: 7, count: 1, variantHint: "Rose", outcome: "return", note: "Exchange requested: Rose variant still looks copper compared with current PDP photos, so support sent Black.", reason: "COLOR", theme: "color-exchange" },
     { key: "desk-fan-mismatch", daysAgo: 6, count: 1 },
     { key: "night-watch-print", daysAgo: 6, count: 1, outcome: "return", note: "Other: The darker print made the hallway feel frightening after installation.", reason: "OTHER", theme: "fear" },
     { key: "premium-keyboard", daysAgo: 6, count: 1 },
@@ -1944,6 +3053,21 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
     { key: "linen-shirt-fit", daysAgo: 1, count: 1 },
     { key: "premium-keyboard", daysAgo: 1, count: 2 },
     { key: "earbuds-color", daysAgo: 1, count: 1 },
+    { key: "voice-lock-safe", daysAgo: 10, count: 1, variantHint: "Oak", outcome: "return", note: "Other: Oak voice safe opened to a television phrase and ignored the registered owner the next morning.", reason: "OTHER", theme: "voice-security" },
+    { key: "voice-lock-safe", daysAgo: 4, count: 1, variantHint: "Oak", outcome: "refund", note: "Refund after customer stopped trusting Oak voice unlock because of false-open and battery-drain reports.", theme: "voice-security" },
+    { key: "voice-lock-safe", daysAgo: 1, count: 1, variantHint: "Matte" },
+    { key: "cooling-pillow", daysAgo: 9, count: 2, variantHint: "High", outcome: "return", note: "Not as described: High Loft Ice Blue was too tall, smelled sharp, and stopped cooling by morning.", reason: "NOT_AS_DESCRIBED", theme: "cooling-comfort" },
+    { key: "cooling-pillow", daysAgo: 3, count: 1, variantHint: "Ice", outcome: "refund", note: "Partial refund after buyer kept the cover but rejected the damp cooling insert.", theme: "cooling-odor" },
+    { key: "cooling-pillow", daysAgo: 1, count: 1, variantHint: "Low" },
+    { key: "inflatable-standing-desk", daysAgo: 8, count: 1, variantHint: "Tall", outcome: "return", note: "Other: Tall Kit lost air during a call and the laptop started sliding toward the edge.", reason: "OTHER", theme: "tall-kit-wobble" },
+    { key: "inflatable-standing-desk", daysAgo: 4, count: 1, variantHint: "Tall", outcome: "refund", note: "Refund after video showed the Tall Kit deflating under normal typing pressure.", theme: "air-leak" },
+    { key: "inflatable-standing-desk", daysAgo: 2, count: 1, variantHint: "Travel" },
+    { key: "smart-luggage-tag", daysAgo: 7, count: 3, variantHint: "Citrus", outcome: "return", note: "Not as described: Citrus tag exposed more QR profile detail than expected and still was not live GPS.", reason: "NOT_AS_DESCRIBED", theme: "qr-privacy" },
+    { key: "smart-luggage-tag", daysAgo: 3, count: 2, variantHint: "Carbon", outcome: "refund", note: "Refund for wrong-city location alert during travel and scan-based tracking confusion.", theme: "tracking-expectation" },
+    { key: "smart-luggage-tag", daysAgo: 1, count: 2, variantHint: "Cloud" },
+    { key: "coffee-alarm-brewer", daysAgo: 6, count: 1, variantHint: "Cream", outcome: "return", note: "Other: Cream unit brewed before the alarm, stained the side, and left condensation on the nightstand.", reason: "OTHER", theme: "cream-condensation" },
+    { key: "coffee-alarm-brewer", daysAgo: 2, count: 1, variantHint: "Graphite", outcome: "refund", note: "Goodwill refund for clock drift and silent alarm after firmware reset did not hold.", theme: "schedule-drift" },
+    { key: "coffee-alarm-brewer", daysAgo: 1, count: 2, variantHint: "Cream" },
   ];
 
   return specs.map((spec, index) => {
@@ -1969,7 +3093,7 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
       theme: spec.theme,
       quantity: 1,
     }] : [];
-    return {
+    return ensureOrderPlanCustomerProfileKey({
       index: 1000 + index,
       evolutionIndex: index,
       phase: "evolution",
@@ -1980,7 +3104,7 @@ function buildEvolutionOrderPlans(products, currencyCode, createdAt, batchId) {
       items,
       outcomes,
       total: items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0),
-    };
+    });
   });
 }
 
@@ -2027,6 +3151,11 @@ function getEvolutionExpectedChange(productKey) {
     "ceramic-dinner-set": "Improves: new sales without damage refunds should show packaging risk cooling.",
     "desk-fan-mismatch": "Source-integrity issue grows through reviews, not orders or returns.",
     "premium-keyboard": "Improves momentum with clean orders and positive reviews; should remain low risk.",
+    "voice-lock-safe": "Worsens: recent Oak voice-lock evidence should raise a safety/trust issue with variant concentration.",
+    "cooling-pillow": "Mixed: recent High Loft and insert complaints should keep the synthesis honest about contradictory cooling evidence.",
+    "inflatable-standing-desk": "Worsens sharply: Tall Kit wobble and air-loss returns should surface as a QA and copy-clarity issue.",
+    "smart-luggage-tag": "Mixed: bundle sales continue, but tracking and QR privacy complaints should separate expectation mismatch from source integrity.",
+    "coffee-alarm-brewer": "Worsens: fresh timing and condensation evidence should outweigh older novelty praise.",
   };
   return changes[productKey] || "Recent evolution added for watchlist testing.";
 }
@@ -2072,14 +3201,18 @@ function getReturnReasonForLineItem(lineItem, order, productReturnCount) {
   }
   if (lineItem.productKey === "linen-shirt-fit" && lineItem.variantTitle?.includes("M") && phase !== "baseline") {
     const notes = [
-      "Medium runs small around shoulders and sleeves.",
+      "Exchange requested: Medium White runs small around shoulders, so the customer returned it and the shop sent size Large.",
       "The fit copy says relaxed, but the Medium White shirt is tight after washing.",
       "I ordered my usual Medium and could not button the chest comfortably.",
     ];
     return { returnReason: "SIZE_TOO_SMALL", note: notes[productReturnCount % notes.length], theme: "fit" };
   }
   if (lineItem.productKey === "earbuds-color" && lineItem.variantTitle?.toLowerCase().includes("rose") && phase !== "baseline") {
-    return { returnReason: "COLOR", note: "Rose color looks copper and not like the product images.", theme: "color" };
+    const notes = [
+      "Exchange requested: Rose color looks copper, so the customer returned it and the shop sent the Black variant.",
+      "Rose color looks copper and not like the product images.",
+    ];
+    return { returnReason: "COLOR", note: notes[productReturnCount % notes.length], theme: "color" };
   }
   if (lineItem.productKey === "soft-yoga-mat" && productReturnCount < 4) {
     return { returnReason: "OTHER", note: "Too soft for balance poses; expected a firmer yoga surface.", theme: "softness" };
@@ -2089,6 +3222,63 @@ function getReturnReasonForLineItem(lineItem, order, productReturnCount) {
   }
   if (lineItem.productKey === "desk-fan-mismatch" && phase === "current") {
     return { returnReason: "WRONG_ITEM", note: "The product is a fan, but the review context and support note I saw referred to a snowboard.", theme: "source-mismatch" };
+  }
+  if (lineItem.productKey === "voice-lock-safe" && phase !== "baseline") {
+    const oak = lineItem.variantTitle?.toLowerCase().includes("oak");
+    const notes = oak ? [
+      "Other: Oak voice safe opened when a TV said a similar phrase, then refused my own voice after I had a cold.",
+      "Not as described: Oak finish unit heard the wrong person but ignored the registered unlock phrase twice.",
+      "Other: Battery dropped overnight and the voice lock made me less confident storing documents.",
+    ] : [
+      "Other: Voice unlock worked one day and then locked me out until keypad reset.",
+      "Not as described: It is a safe, but I do not trust a lock that argues with my voice.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: oak ? "oak-voice-security" : "voice-security" };
+  }
+  if (lineItem.productKey === "cooling-pillow" && phase !== "baseline") {
+    const high = lineItem.variantTitle?.toLowerCase().includes("high loft");
+    const notes = high ? [
+      "Other: High Loft pushed my neck up while the cooling insert felt damp and then warm.",
+      "Not as described: High Loft Ice Blue was too tall, smelled sharp, and was not cooling by morning.",
+    ] : [
+      "Other: The pillow was icy at first, then weirdly hot, and the insert smelled like a pool bag.",
+      "Not as described: Cooling claim was inconsistent; one side felt wet and the other side felt warm.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: high ? "high-loft-comfort" : "cooling-odor" };
+  }
+  if (lineItem.productKey === "inflatable-standing-desk" && phase !== "baseline") {
+    const tall = lineItem.variantTitle?.toLowerCase().includes("tall kit");
+    const notes = tall ? [
+      "Other: Tall Kit slowly lost air during a call and the laptop started sliding toward the edge.",
+      "Not as described: Tall Kit was too wobbly for typing but somehow still not tall enough for standing.",
+      "Other: The desk sighed itself flat after lunch. Funny once, not useful for work.",
+    ] : [
+      "Other: Air chamber would not hold pressure and the surface tilted toward the keyboard.",
+      "Not as described: Portable idea is clever, but the desk flexed too much for normal work.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: tall ? "tall-kit-wobble" : "air-leak" };
+  }
+  if (lineItem.productKey === "smart-luggage-tag" && phase !== "baseline") {
+    const citrus = lineItem.variantTitle?.toLowerCase().includes("citrus");
+    const notes = citrus ? [
+      "Other: Citrus QR profile showed more contact detail than expected and made the buyer nervous.",
+      "Not as described: Citrus tag reported the bag in a city I never visited, then updated two days late.",
+    ] : [
+      "Other: The tag is not GPS but the page made it sound more live than scan-based tracking.",
+      "Not as described: Battery and location alerts were inconsistent across the trip.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: citrus ? "qr-privacy" : "tracking-expectation" };
+  }
+  if (lineItem.productKey === "coffee-alarm-brewer" && phase !== "baseline") {
+    const cream = lineItem.variantTitle?.toLowerCase().includes("cream");
+    const notes = cream ? [
+      "Other: Cream unit brewed before the alarm, left condensation rings, and stained the side panel.",
+      "Not as described: It made coffee at 3 a.m. once and stayed silent on the morning I needed it.",
+    ] : [
+      "Other: Clock drifted enough that the brew time moved around all week.",
+      "Not as described: Alarm was quiet, coffee was cold, and the timing felt random.",
+    ];
+    return { returnReason: productReturnCount % 2 === 0 ? "OTHER" : "NOT_AS_DESCRIBED", note: notes[productReturnCount % notes.length], theme: cream ? "cream-condensation" : "schedule-drift" };
   }
   return null;
 }
@@ -2114,6 +3304,42 @@ function getRefundReasonForLineItem(lineItem, order, productRefundCount) {
   }
   if (lineItem.productKey === "linen-shirt-fit" && lineItem.variantTitle?.includes("M") && phase === "current") {
     return { note: "Partial refund for Medium White fit complaint after wash shrinkage.", theme: "fit", quantity: 1 };
+  }
+  if (lineItem.productKey === "voice-lock-safe" && ["friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund after voice lock opened to a similar voice phrase and customer no longer trusted the safe.",
+      "Goodwill refund for Oak unit battery drain and false-open report.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "voice-security", quantity: 1 };
+  }
+  if (lineItem.productKey === "cooling-pillow" && ["growth", "friction", "current"].includes(phase)) {
+    const notes = [
+      "Partial refund after customer kept the cover but rejected the cooling insert because of odor.",
+      "Refund for High Loft neck-angle complaint plus damp cooling insert report.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "cooling-comfort", quantity: 1 };
+  }
+  if (lineItem.productKey === "inflatable-standing-desk" && ["friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund issued after air chamber leak made the desk unsafe for a laptop.",
+      "Partial refund because buyer kept the pump but the Tall Kit would not hold pressure.",
+      "Refund for wobble complaint after customer sent video of the desk deflating.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "air-leak", quantity: 1 };
+  }
+  if (lineItem.productKey === "smart-luggage-tag" && ["friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund for scan-based tracking expectation mismatch; customer thought it was live GPS.",
+      "Privacy refund after QR profile exposed more owner detail than expected.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "tracking-privacy", quantity: 1 };
+  }
+  if (lineItem.productKey === "coffee-alarm-brewer" && ["growth", "friction", "current"].includes(phase)) {
+    const notes = [
+      "Refund after timed brew ran hours early and left condensation on the nightstand.",
+      "Goodwill refund for schedule drift and silent alarm complaint.",
+    ];
+    return { note: notes[productRefundCount % notes.length], theme: "schedule-drift", quantity: 1 };
   }
   return null;
 }
@@ -2212,7 +3438,7 @@ function buildReviewRows(products, createdAt) {
     const count = product.reviewProfile.count;
     for (let index = 0; index < count; index += 1) {
       const progress = index / Math.max(1, count - 1);
-      const ageDays = Math.round(295 - (index / Math.max(1, count - 1)) * 285);
+      const ageDays = getReviewAgeDays(product, index, count);
       const date = new Date(createdAt.getTime() - ageDays * 24 * 60 * 60 * 1000);
       const phase = getOrderPhase(progress);
       const negative = shouldMakeNegativeReview(product, index, progress);
@@ -2236,6 +3462,28 @@ function buildReviewRows(products, createdAt) {
   });
 }
 
+export const __productPulseShopifyMockDatasetTestHooks = {
+  MOCK_PRODUCTS,
+  RELTEST_CUSTOMERS,
+  RELTEST_PRODUCT_KEYS,
+  RELTEST_ORDER_TAG,
+  RELTEST_ORDER_COUNT,
+  SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
+  RELTEST_OUTCOME_PLANS,
+  attachCustomersToOrderPlans,
+  buildEvolutionOrderPlans,
+  buildOrderPlans,
+  buildReviewRows,
+};
+
+function getReviewAgeDays(product, index, count) {
+  const progress = index / Math.max(1, count - 1);
+  if (STRESS_PRODUCT_KEYS.has(product.key)) {
+    return Math.max(0, Math.round(330 - progress * 330));
+  }
+  return Math.round(295 - progress * 285);
+}
+
 function shouldMakeNegativeReview(product, index, progress) {
   if (product.key === "puzzle-calm") return index === 11 || index === 27;
   if (product.key === "premium-keyboard") return progress < 0.25 && index % 9 === 0;
@@ -2247,6 +3495,17 @@ function shouldMakeNegativeReview(product, index, progress) {
   if (product.key === "linen-shirt-fit") return progress > 0.42 ? index % 2 === 0 || index % 6 === 0 : index % 10 === 0;
   if (product.key === "ceramic-dinner-set") return progress > 0.35 && progress < 0.78 ? index % 2 === 0 : index % 12 === 0;
   if (product.key === "desk-fan-mismatch") return progress > 0.68 ? true : index % 10 === 0;
+  if (product.key === "voice-lock-safe") return progress > 0.25 ? index % 2 === 0 || index % 5 === 0 : index % 7 === 0;
+  if (product.key === "cooling-pillow") return index % 3 === 0 || (progress > 0.5 && index % 2 === 0) || (progress > 0.82 && index % 5 === 0);
+  if (product.key === "inflatable-standing-desk") return progress > 0.28 ? index % 2 === 0 || index % 3 === 0 : index % 6 === 0;
+  if (product.key === "smart-luggage-tag") return progress > 0.35 ? index % 2 === 0 || index % 7 === 0 : index % 8 === 0;
+  if (product.key === "coffee-alarm-brewer") return progress > 0.32 ? index % 2 === 0 || index % 3 === 0 : index % 6 === 0;
+  if (product.key === "reltest-source-product") return [2, 4, 6, 8, 10, 11].includes(index);
+  if (product.key === "reltest-bought-together-product") return index === 5;
+  if (product.key === "reltest-multi-variant-product") return index === 2;
+  if (product.key === "reltest-bulk-quantity-product") return index === 3;
+  if (product.key === "reltest-return-refund-product") return index % 2 === 0 || index === 7;
+  if (product.key === "reltest-refund-only-product") return index % 2 === 0;
   const threshold = Math.round(product.reviewProfile.count * product.reviewProfile.negativeRate);
   return index < threshold;
 }
@@ -2256,6 +3515,12 @@ function getReviewRating(product, index, negative, progress) {
   if (product.key === "travel-mug-leak" && progress > 0.55) return index % 3 === 0 ? 1 : 2;
   if (product.key === "night-watch-print" && progress > 0.65) return index % 3 === 0 ? 1 : 2;
   if (product.key === "desk-fan-mismatch" && progress > 0.68) return index % 4 === 0 ? 1 : 2;
+  if (product.key === "voice-lock-safe" && progress > 0.45) return index % 4 === 0 ? 1 : 2;
+  if (product.key === "inflatable-standing-desk" && progress > 0.4) return index % 3 === 0 ? 1 : 2;
+  if (product.key === "coffee-alarm-brewer" && progress > 0.5) return index % 3 === 0 ? 1 : 2;
+  if (product.key === "reltest-return-refund-product") return index % 3 === 0 ? 1 : 2;
+  if (product.key === "reltest-refund-only-product") return index % 2 === 0 ? 2 : 3;
+  if (product.key === "reltest-source-product") return index % 4 === 0 ? 2 : 3;
   return index % 2 === 0 ? 2 : 3;
 }
 
@@ -2269,6 +3534,17 @@ function getNegativeReviewTitle(product, progress) {
     "linen-shirt-fit": "Medium White runs small",
     "ceramic-dinner-set": progress > 0.78 ? "Packaging seems improved now" : "Arrived broken despite looking beautiful",
     "desk-fan-mismatch": progress > 0.68 ? "This review seems attached to the wrong product" : "Fan is smaller than expected",
+    "voice-lock-safe": progress > 0.55 ? "Opened for the wrong voice" : "Voice lock feels inconsistent",
+    "cooling-pillow": "Cooling evidence is all over the place",
+    "inflatable-standing-desk": "The desk slowly deflated",
+    "smart-luggage-tag": progress > 0.55 ? "Wrong city and privacy worries" : "Not live GPS like I expected",
+    "coffee-alarm-brewer": progress > 0.55 ? "Brewed at the wrong time" : "Great idea, unreliable timing",
+    "reltest-source-product": "RELTEST bundle made the source confusing",
+    "reltest-bought-together-product": "Bundle wording needs context",
+    "reltest-multi-variant-product": "Variant mix was unclear",
+    "reltest-bulk-quantity-product": "Quantity expectation was unclear",
+    "reltest-return-refund-product": "Returned and waiting on resolution",
+    "reltest-refund-only-product": "Refund helped but I did not return it",
   };
   return titles[product.key] || "Not what I expected";
 }
@@ -2277,6 +3553,12 @@ function getPositiveReviewTitle(product, progress) {
   if (product.key === "premium-keyboard") return "Excellent build quality";
   if (product.key === "puzzle-calm") return "Clear listing and great gift";
   if (product.key === "ceramic-dinner-set" && progress > 0.78) return "Arrived safely after packaging change";
+  if (product.key === "voice-lock-safe") return "Convenient after careful setup";
+  if (product.key === "cooling-pillow") return "Comfortable once aired out";
+  if (product.key === "inflatable-standing-desk") return "Clever for tiny spaces";
+  if (product.key === "smart-luggage-tag") return "Recovered my suitcase";
+  if (product.key === "coffee-alarm-brewer") return "Morning ritual worked";
+  if (product.key?.startsWith("reltest-")) return "RELTEST scenario behaved as expected";
   return "Good product overall";
 }
 
@@ -2304,6 +3586,21 @@ function getReviewText(product, index, negative, progress, phase) {
       "desk-fan-mismatch": phase === "baseline"
         ? "The fan is small, quiet and useful on a desk. The USB cable was in the box and the airflow was enough for a keyboard area."
         : "The actual fan works for a small workspace. My concern is not the fan itself; it is that later reviews on the listing do not always seem to describe this product.",
+      "voice-lock-safe": phase === "baseline"
+        ? "The Matte Black safe worked after I trained the phrase twice. The keypad backup was clear, and for a closet safe it felt convenient."
+        : "After retraining in a quiet room, the safe opened reliably for me. I would still make the voice setup warning louder because small changes in voice seem to matter.",
+      "cooling-pillow": "After airing out the insert for a day, the Low Loft pillow felt comfortable. It was cool at first, then normal, which is what I wanted rather than an ice pack.",
+      "inflatable-standing-desk": "For a tiny apartment, the Starter kit was useful as a temporary riser. I would not put a heavy monitor on it, but the lightweight laptop setup worked for short sessions.",
+      "smart-luggage-tag": "The Cloud tag helped a baggage desk contact me after a scan. I understood it was not live GPS, so the delayed update did not surprise me.",
+      "coffee-alarm-brewer": "The Graphite unit brewed near my alarm time after setup, and waking up to the smell was fun. I keep it on a tray because it is still a water appliance.",
+      "reltest-source-product": "RELTEST source order matched the scenario. The source product was easy to inspect and the basket context was visible in the related order.",
+      "reltest-bought-together-product": "RELTEST companion product was bought with the source product and the bundle made sense in this order.",
+      "reltest-bought-before-product": "RELTEST before product exists for sequence testing, and the generated Shopify order is tied to the same fake customer who later buys the source product.",
+      "reltest-bought-after-product": "RELTEST after product exists for sequence testing, and the generated Shopify order is tied to the same fake customer who previously bought the source product.",
+      "reltest-multi-variant-product": "RELTEST multi-variant product made the basket easier to inspect because the Alpha and Beta variant labels were clear.",
+      "reltest-bulk-quantity-product": "RELTEST bulk companion product had clear case quantity expectations.",
+      "reltest-return-refund-product": "RELTEST resolution product was useful for checking how a return and refund are matched on the same line item.",
+      "reltest-refund-only-product": "RELTEST refund-only product helped verify a goodwill refund without a physical return.",
     };
     return positives[product.key] || `The product matched the listing. ${product.themes[0]} and ${product.themes[1]} were as expected.`;
   }
@@ -2348,6 +3645,63 @@ function getReviewText(product, index, negative, progress, phase) {
       "This review talks about snowboard bindings and boots, not a fan. Something is mismatched in the review feed because the text mentions snow conditions, edge hold and bindings while this product is clearly a USB desk fan.",
       "I bought this little desk fan, but several reviews mention boards, boots and mountain conditions. The product may be fine, but I do not trust the rating data because it looks attached to another listing.",
       "The listing says desk fan, but the review examples mention a snowboard, powder days and bindings. Please fix the review feed before using this text to rewrite the PDP.",
+    ],
+    "voice-lock-safe": [
+      "The Oak voice safe opened when the TV said a phrase that only sounded close to mine, then refused my actual voice after I had a cold. That is too strange for something sold as a safe.",
+      "I like the idea, but the lock made me trust it less. One review says it saved time, mine locked me out, and support told me to retrain it in a silent room.",
+      "Battery dropped overnight and the voice sensor behaved differently every morning. The keypad worked, so the box is not useless, but the voice claim is the risk.",
+      "Matte Black was okay for my partner, Oak failed for me. This feels variant or microphone-batch specific and should not be summarized as normal user error.",
+    ],
+    "cooling-pillow": [
+      "The pillow was too cold for ten minutes, then warm, then somehow damp. I cannot tell if the insert is brilliant or broken, but the page promises a simple cooling story that my sleep did not match.",
+      "High Loft Ice Blue lifted my neck too high and smelled sharp. Another reviewer says it was not cold enough, while mine felt like a cold wet towel at first.",
+      "The Low Loft cover felt nice, but the gel insert smelled like a pool bag. I kept the cover and stopped using the insert, which makes the product hard to rate honestly.",
+      "It is not exactly bad and not exactly good. I woke up warm on one side and chilly on the other, so the cooling claim needs a lot more expectation-setting.",
+    ],
+    "inflatable-standing-desk": [
+      "The Tall Kit slowly sighed itself flat during a video call. My laptop started sliding and I spent the rest of the meeting holding the corner like a steering wheel.",
+      "This product sounds fake but it is real enough to be annoying. It inflated, wobbled, worked for ten minutes, then tilted toward the keyboard.",
+      "Starter kit was clever for a tiny desk, but the Tall Kit is both too tall for typing and not tall enough for standing. I know that sounds impossible; that is what happened.",
+      "The pump is useful, the desk chamber is not. Air leaked from the seam and I do not want to test gravity with a laptop again.",
+    ],
+    "smart-luggage-tag": [
+      "I thought this was live GPS. The tag updated only after scans and once showed a city I never visited, so the travel anxiety got worse instead of better.",
+      "Citrus QR profile looked cute, but the scan page exposed more contact detail than I expected. The product needs clearer privacy defaults before a stranger scans it.",
+      "One review talks about a collar and walking routes, not luggage. If that text belongs to a different source, please do not use it to rewrite this travel tag listing.",
+      "It did help one bag get returned, but the Carbon tag battery warning appeared right before a trip. The evidence is mixed in a way the page does not explain.",
+    ],
+    "coffee-alarm-brewer": [
+      "The Cream unit brewed at 3 a.m. and the alarm stayed silent at 7. I woke up to cold coffee, a wet nightstand and a burnt smell that made no sense.",
+      "Graphite worked after reset for two days, then the clock drifted again. The idea is charming, but time is the one feature this product cannot be casual about.",
+      "It brewed before the alarm and stained the Cream side panel. The cup tray is fine, but I do not trust the schedule near books or electronics.",
+      "Some mornings it was delightful, some mornings it sounded like it was whispering steam into the dark. The listing should warn about condensation and firmware reset steps.",
+    ],
+    "reltest-source-product": [
+      "RELTEST source product became confusing when it was bought with the companion item. The order looked like a bundle, but the source page did not explain what belonged together.",
+      "I bought two source variants in the same RELTEST order to compare them. The variant labels were visible, but the page should explain why shoppers might buy both.",
+      "The RELTEST source product was fine alone, but the bought-together basket made the kit expectations unclear and led me to request a return.",
+      "The bulk source quantity was easy to trigger, but it needs clearer guidance for customers buying four units at once.",
+    ],
+    "reltest-bought-together-product": [
+      "RELTEST companion product is useful, but the source page should make the relationship more explicit so the bundle does not feel accidental.",
+      "The bought-together item made sense after checkout, but before purchase I was not sure whether it was required or optional.",
+    ],
+    "reltest-multi-variant-product": [
+      "RELTEST variant labels were close enough that I had to read the order details twice. This is useful for testing variant confusion evidence.",
+      "Alpha and Beta sounded too similar in the RELTEST basket, so the variant context should stay visible in analysis.",
+    ],
+    "reltest-bulk-quantity-product": [
+      "RELTEST bulk companion order made me question whether case quantity belonged to this item or the source product.",
+      "The case quantity was not defective, but the basket made quantity expectations easy to misread.",
+    ],
+    "reltest-return-refund-product": [
+      "RELTEST return/refund product arrived defective and I expected the refund to match the returned line item exactly.",
+      "I returned the RELTEST resolution product but did not see a refund yet, so this should remain a return-only case.",
+      "The product issue was concrete: defective part, return requested, and support should connect the refund to the same line item.",
+    ],
+    "reltest-refund-only-product": [
+      "Support refunded the RELTEST refund-only product without asking me to return it, which should not be counted as a returned item.",
+      "The refund solved the goodwill issue, but there was no physical return and the product stayed with me.",
     ],
   };
   const options = negativeTexts[product.key] || [`The product had issues with ${product.themes.join(", ")}.`];
@@ -2443,7 +3797,7 @@ function buildEvolutionReviewRows(products, evolution, startSourceRow = 2) {
       key: "premium-keyboard",
       daysAgo: 1,
       rating: 5,
-      title: "Momentum feels deserved",
+      title: "Sales Momentum feels deserved",
       body: "The keyboard feels premium and the switch options were clear before ordering. I bought a second unit because the build quality, accessories, and delivery matched the page exactly.",
       phase: "evolution_improving",
     },
@@ -2462,6 +3816,86 @@ function buildEvolutionReviewRows(products, evolution, startSourceRow = 2) {
       title: "Rose still needs real-life photos",
       body: "The earbuds sound fine, but Rose is warmer and more copper than expected. This feels like a media and variant expectation issue rather than a general electronics quality problem.",
       phase: "evolution_variant_media",
+    },
+    {
+      key: "voice-lock-safe",
+      daysAgo: 4,
+      rating: 1,
+      title: "Oak opened for the wrong phrase",
+      body: "The Oak voice safe opened when a TV voice sounded close to my phrase, then ignored me after I had a cold. I would treat this as a trust issue, not just a setup issue.",
+      phase: "evolution_security_spike",
+    },
+    {
+      key: "voice-lock-safe",
+      daysAgo: 1,
+      rating: 4,
+      title: "Matte Black worked after retraining",
+      body: "My Matte Black unit worked after I retrained the phrase in a quiet room. The contrast with Oak complaints makes me wonder whether the microphone batch or finish is part of the issue.",
+      phase: "evolution_variant_split",
+    },
+    {
+      key: "cooling-pillow",
+      daysAgo: 5,
+      rating: 2,
+      title: "Too cold, then too warm",
+      body: "The High Loft Ice Blue pillow felt icy and damp for a few minutes, then warmed up before morning. I kept the cover but stopped using the insert because the experience was too inconsistent.",
+      phase: "evolution_mixed_comfort",
+    },
+    {
+      key: "cooling-pillow",
+      daysAgo: 2,
+      rating: 5,
+      title: "Low Loft worked after airing out",
+      body: "Low Loft Graphite was comfortable after I aired out the insert for a day. The setup note matters because without that step the first smell would have made me return it.",
+      phase: "evolution_recovery_signal",
+    },
+    {
+      key: "inflatable-standing-desk",
+      daysAgo: 6,
+      rating: 1,
+      title: "Tall Kit deflated during a call",
+      body: "The Tall Kit slowly lost air while I was typing and my laptop slid toward the edge. The portable idea is clever, but this needs a stability limit and QA review before I would trust it.",
+      phase: "evolution_qa_spike",
+    },
+    {
+      key: "inflatable-standing-desk",
+      daysAgo: 2,
+      rating: 2,
+      title: "Travel Kit is funny but unstable",
+      body: "The Travel Kit packed flat and made me laugh, then tilted toward my keyboard. It is not only a sentiment problem; the surface needs clearer weight and use limits.",
+      phase: "evolution_copy_and_qa",
+    },
+    {
+      key: "smart-luggage-tag",
+      daysAgo: 5,
+      rating: 2,
+      title: "Citrus QR privacy surprised me",
+      body: "The Citrus tag looked bright and easy to scan, but the profile page exposed more contact detail than I expected. The page should make QR privacy defaults obvious.",
+      phase: "evolution_privacy",
+    },
+    {
+      key: "smart-luggage-tag",
+      daysAgo: 1,
+      rating: 3,
+      title: "Recovered one bag, confused another",
+      body: "One Cloud tag helped recover a suitcase, while a Carbon tag showed a delayed wrong-city alert. This is mixed tracking evidence, not a simple good or bad product story.",
+      phase: "evolution_mixed_tracking",
+    },
+    {
+      key: "coffee-alarm-brewer",
+      daysAgo: 3,
+      rating: 1,
+      title: "Cream brewed at 3 a.m.",
+      body: "The Cream unit brewed hours before the alarm and left condensation on my nightstand. A coffee alarm cannot be casual about time, water and sleeping next to electronics.",
+      phase: "evolution_timing_spike",
+    },
+    {
+      key: "coffee-alarm-brewer",
+      daysAgo: 1,
+      rating: 4,
+      title: "Graphite worked after reset",
+      body: "Graphite worked for me after a firmware reset, but reading the Cream timing complaints makes me think the setup and reset instructions need to be front and center.",
+      phase: "evolution_variant_recovery",
     },
   ];
 
@@ -2546,7 +3980,7 @@ async function saveMockCsvReviewSource({ shop, runId, rows }) {
   return { filePath, fileName, rowCount: rows.length, checksum };
 }
 
-async function saveMockDatasetManifest({ shop, runId, createdAt, products, orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
+async function saveMockDatasetManifest({ shop, runId, createdAt, products, customers = [], orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
   const storageRoot = process.env.PRODUCT_PULSE_MOCK_DATASET_DIR
     || path.join(process.cwd(), ".cache", "product-pulse", "mock-datasets");
   const shopDir = path.join(storageRoot, sanitizeStorageSegment(shop || "unknown-shop"));
@@ -2582,17 +4016,19 @@ async function saveMockDatasetManifest({ shop, runId, createdAt, products, order
   const summary = {
     runId,
     generatedAt: createdAt.toISOString(),
-    productCount: products.length,
-    orderCount: orders.length,
+      productCount: products.length,
+      customerCount: customers.length,
+      orderCount: orders.length,
     returnCount: outcomes.returns.length,
     refundCount: outcomes.refunds.length,
     reviewCount: reviewRows.length,
     csvReviewFilePath: reviewSource?.filePath || null,
     manifestPath,
     orderCreateDelayMs: orderDelayMs,
-    requiredScopes: REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES,
-    products: productDocs,
-  };
+      requiredScopes: REQUIRED_SHOPIFY_MOCK_DATASET_SCOPES,
+      customers: customers.map(serializeCustomerForState),
+      products: productDocs,
+    };
 
   await mkdir(shopDir, { recursive: true });
   await writeFile(manifestPath, JSON.stringify(summary, null, 2), "utf8");
@@ -2675,14 +4111,15 @@ async function getStoredMockDatasetReviewSource(shop) {
   };
 }
 
-async function getCurrentMockDatasetSummary(shop, { runId, createdAt, products, orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
+async function getCurrentMockDatasetSummary(shop, { runId, createdAt, products, customers = [], orders, outcomes, reviewRows, reviewSource, orderDelayMs }) {
   const config = await getStoredMockDatasetConfig(shop);
   return {
     ...config,
     runId,
     generatedAt: config.generatedAt || createdAt.toISOString(),
-    productCount: products.length || config.productCount || 0,
-    orderCount: orders.length || config.orderCount || 0,
+      productCount: products.length || config.productCount || 0,
+      customerCount: customers.length || config.customerCount || 0,
+      orderCount: orders.length || config.orderCount || 0,
     returnCount: outcomes.returns.length || config.returnCount || 0,
     refundCount: outcomes.refunds.length || config.refundCount || 0,
     reviewCount: reviewSource ? reviewRows.length : config.reviewCount || 0,
@@ -2975,18 +4412,6 @@ function stripNullish(value) {
   return Object.fromEntries(Object.entries(value)
     .filter(([, item]) => item !== null && item !== undefined)
     .map(([key, item]) => [key, stripNullish(item)]));
-}
-
-function buildAddress(index) {
-  return {
-    firstName: "Mock",
-    lastName: `Customer ${index + 1}`,
-    address1: `${100 + index} Test Dataset Ave`,
-    city: "Austin",
-    provinceCode: "TX",
-    countryCode: "US",
-    zip: "78701",
-  };
 }
 
 function buildRunId() {

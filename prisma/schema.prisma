@@ -86,6 +86,220 @@ model ProductPulseAiProviderState {
   updatedAt          DateTime  @updatedAt
 }
 
+model AiConversation {
+  id        String                  @id @default(cuid())
+  shop      String
+  userId    String?
+  title     String?
+  metadata  Json?
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  messages  AiConversationMessage[]
+  toolCalls AiConversationToolCall[]
+
+  @@index([shop, updatedAt])
+  @@index([shop, userId])
+}
+
+model AiConversationMessage {
+  id                String                   @id @default(cuid())
+  shop              String
+  conversationId    String
+  conversation      AiConversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role              String
+  content           String
+  structuredContent Json?
+  openAiResponseId  String?
+  createdAt         DateTime                 @default(now())
+  toolCalls         AiConversationToolCall[]
+
+  @@index([shop, conversationId, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+model AiConversationToolCall {
+  id             String                 @id @default(cuid())
+  shop           String
+  conversationId String
+  conversation   AiConversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId      String?
+  message        AiConversationMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  toolName       String
+  callId         String?
+  validatedInput Json?
+  status         String
+  durationMs     Int?
+  resultCount    Int?
+  safeError      Json?
+  createdAt      DateTime               @default(now())
+
+  @@index([shop, conversationId, createdAt])
+  @@index([conversationId, toolName])
+  @@index([messageId])
+}
+
+model AiUsageEvent {
+  id                String   @id @default(cuid())
+  shop              String
+  userId            String?
+  source            String
+  operation         String
+  provider          String
+  model             String
+  task              String?
+  requestContext    String?
+  conversationId    String?
+  messageId         String?
+  jobId             String?
+  entityType        String?
+  entityId          String?
+  status            String   @default("success")
+  usage             Json?
+  inputTokens       Int?
+  outputTokens      Int?
+  cachedInputTokens Int?
+  reasoningTokens   Int?
+  totalTokens       Int?
+  estimatedCost     Json?
+  estimatedTotalUsd Float?
+  createdAt         DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, source, createdAt])
+  @@index([shop, provider, model])
+  @@index([shop, conversationId, createdAt])
+  @@index([shop, jobId, createdAt])
+}
+
+model AiActionProposal {
+  id                           String             @id @default(cuid())
+  shop                         String
+  userId                       String?
+  conversationId               String?
+  actionName                   String
+  category                     String
+  targetType                   String
+  targetId                     String
+  targetLabel                  String?
+  proposedInput                Json
+  title                        String
+  summary                      String
+  reason                       String?
+  expectedResult               String?
+  risks                        Json?
+  confirmationLevel            String
+  sideEffectLevel              String
+  reversible                   Boolean            @default(false)
+  requiresEntityOwnershipCheck Boolean            @default(true)
+  status                       String             @default("pending")
+  result                       Json?
+  safeError                    Json?
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
+  expiresAt                    DateTime
+  confirmedAt                  DateTime?
+  cancelledAt                  DateTime?
+  executedAt                   DateTime?
+  auditLogs                    AiActionAuditLog[]
+
+  @@index([shop, status, expiresAt])
+  @@index([shop, conversationId, createdAt])
+  @@index([shop, actionName, createdAt])
+  @@index([shop, targetType, targetId])
+}
+
+model AiActionAuditLog {
+  id             String            @id @default(cuid())
+  shop           String
+  userId         String?
+  conversationId String?
+  proposalId     String?
+  proposal       AiActionProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  actionName     String
+  targetType     String?
+  targetId       String?
+  eventType      String
+  validatedInput Json?
+  status         String
+  durationMs     Int?
+  safeSummary    String?
+  safeError      Json?
+  createdAt      DateTime          @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, proposalId, createdAt])
+  @@index([shop, actionName, createdAt])
+  @@index([proposalId])
+}
+
+model AiAppDraftProposal {
+  id                      String                @id @default(cuid())
+  shop                    String
+  userId                  String?
+  conversationId          String?
+  mutationName            String
+  category                String
+  targetType              String
+  targetId                String
+  targetLabel             String?
+  draftType               String
+  sourceContext           Json?
+  currentAppValueSnapshot Json?
+  proposedValue           Json
+  userEditedValue         Json?
+  finalDraftValue         Json?
+  generatedReason         String?
+  evidenceReferences      Json?
+  validationWarnings      Json?
+  title                   String
+  summary                 String
+  editableFields          Json?
+  proposedInput           Json
+  confirmationLevel       String
+  sideEffectLevel         String
+  reversible              Boolean               @default(true)
+  allowedFields           Json?
+  blockedFields           Json?
+  status                  String                @default("draft")
+  safeError               Json?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+  expiresAt               DateTime
+  savedAt                 DateTime?
+  cancelledAt             DateTime?
+  auditLogs               AiAppDraftAuditLog[]
+
+  @@index([shop, status, expiresAt])
+  @@index([shop, conversationId, createdAt])
+  @@index([shop, mutationName, createdAt])
+  @@index([shop, targetType, targetId])
+}
+
+model AiAppDraftAuditLog {
+  id             String              @id @default(cuid())
+  shop           String
+  userId         String?
+  conversationId String?
+  proposalId     String?
+  proposal       AiAppDraftProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  mutationName   String
+  category       String
+  targetType     String?
+  targetId       String?
+  eventType      String
+  validatedInput Json?
+  status         String
+  durationMs     Int?
+  safeSummary    String?
+  safeError      Json?
+  createdAt      DateTime            @default(now())
+
+  @@index([shop, createdAt])
+  @@index([shop, proposalId, createdAt])
+  @@index([shop, mutationName, createdAt])
+  @@index([proposalId])
+}
+
 model ProductPulseJobLog {
   id        String   @id @default(cuid())
   shop      String
@@ -131,6 +345,7 @@ model ProductDiagnosis {
   issues          Json
   evidence        Json
   recommendations Json
+  metrics         Json?
   creditsConsumed Int             @default(1)
   createdAt       DateTime        @default(now())
   completedAt     DateTime?
@@ -138,6 +353,224 @@ model ProductDiagnosis {
 
   @@index([shop, status])
   @@index([shop, productGid])
+}
+
+model ProductRetentionRun {
+  id                String   @id @default(cuid())
+  shopId            String
+  productGid        String
+  diagnosisId       String
+  asOfDate          DateTime
+  timezone          String
+  windowStartDate   DateTime
+  windowEndDate     DateTime
+  lookbackDays      Int
+  maxCohortAgeDays  Int
+  currency          String?
+  schemaVersion     Int
+  status            String
+  errorMessage      String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([shopId, productGid, diagnosisId])
+  @@index([shopId, productGid, asOfDate])
+  @@index([diagnosisId])
+}
+
+model ProductRetentionDailyCohort {
+  id                                      String   @id @default(cuid())
+  shopId                                  String
+  productGid                              String
+  diagnosisId                             String
+  retentionRunId                          String
+  cohortDate                              String
+  cohortSize                              Int
+  anyRepeatWithin7dCount                  Int      @default(0)
+  anyRepeatWithin14dCount                 Int      @default(0)
+  anyRepeatWithin30dCount                 Int      @default(0)
+  anyRepeatWithin60dCount                 Int      @default(0)
+  anyRepeatWithin90dCount                 Int      @default(0)
+  anyRepeatWithin180dCount                Int      @default(0)
+  sameProductRepeatWithin7dCount          Int      @default(0)
+  sameProductRepeatWithin14dCount         Int      @default(0)
+  sameProductRepeatWithin30dCount         Int      @default(0)
+  sameProductRepeatWithin60dCount         Int      @default(0)
+  sameProductRepeatWithin90dCount         Int      @default(0)
+  sameProductRepeatWithin180dCount        Int      @default(0)
+  boughtOtherProductWithin7dCount         Int      @default(0)
+  boughtOtherProductWithin14dCount        Int      @default(0)
+  boughtOtherProductWithin30dCount        Int      @default(0)
+  boughtOtherProductWithin60dCount        Int      @default(0)
+  boughtOtherProductWithin90dCount        Int      @default(0)
+  boughtOtherProductWithin180dCount       Int      @default(0)
+  nextPurchaseSameProductCount            Int      @default(0)
+  nextPurchaseOtherProductCount           Int      @default(0)
+  didNotReturnCount                       Int      @default(0)
+  firstOrderNetRevenueCents               BigInt   @default(0)
+  totalNetRevenueWithin30dCents           BigInt   @default(0)
+  totalNetRevenueWithin60dCents           BigInt   @default(0)
+  totalNetRevenueWithin90dCents           BigInt   @default(0)
+  totalNetRevenueWithin180dCents          BigInt   @default(0)
+  sameProductRevenueWithin90dCents        BigInt   @default(0)
+  otherProductRevenueWithin90dCents       BigInt   @default(0)
+  ltv30Cents                              BigInt   @default(0)
+  ltv60Cents                              BigInt   @default(0)
+  ltv90Cents                              BigInt   @default(0)
+  ltv180Cents                             BigInt   @default(0)
+  avgDaysToNextPurchase                   Decimal? @db.Decimal(12, 4)
+  medianDaysToNextPurchase                Decimal? @db.Decimal(12, 4)
+  avgDaysToSameProductRepurchase          Decimal? @db.Decimal(12, 4)
+  medianDaysToSameProductRepurchase       Decimal? @db.Decimal(12, 4)
+  isMature7d                              Boolean  @default(false)
+  isMature14d                             Boolean  @default(false)
+  isMature30d                             Boolean  @default(false)
+  isMature60d                             Boolean  @default(false)
+  isMature90d                             Boolean  @default(false)
+  isMature180d                            Boolean  @default(false)
+  observedDays                            Int      @default(0)
+  createdAt                               DateTime @default(now())
+  updatedAt                               DateTime @updatedAt
+
+  @@unique([shopId, productGid, diagnosisId, cohortDate])
+  @@index([retentionRunId])
+  @@index([shopId, productGid, cohortDate])
+}
+
+model ProductRetentionCohortCell {
+  id                                      String   @id @default(cuid())
+  shopId                                  String
+  productGid                              String
+  diagnosisId                             String
+  retentionRunId                          String
+  cohortDate                              String
+  ageDay                                  Int
+  cohortSize                              Int
+  anyRepeatCumulativeCount                Int      @default(0)
+  sameProductRepeatCumulativeCount        Int      @default(0)
+  boughtOtherProductCumulativeCount       Int      @default(0)
+  anyRepeatRate                           Decimal? @db.Decimal(18, 6)
+  sameProductRepeatRate                   Decimal? @db.Decimal(18, 6)
+  boughtOtherProductRate                  Decimal? @db.Decimal(18, 6)
+  cumulativeNetRevenueCents               BigInt   @default(0)
+  cumulativeLtvCents                      BigInt   @default(0)
+  sameProductCumulativeRevenueCents       BigInt   @default(0)
+  otherProductCumulativeRevenueCents      BigInt   @default(0)
+  sameProductCumulativeLtvCents           BigInt   @default(0)
+  otherProductCumulativeLtvCents          BigInt   @default(0)
+  isObserved                              Boolean  @default(false)
+  createdAt                               DateTime @default(now())
+  updatedAt                               DateTime @updatedAt
+
+  @@unique([shopId, productGid, diagnosisId, cohortDate, ageDay])
+  @@index([retentionRunId])
+  @@index([shopId, productGid, cohortDate])
+}
+
+model ProductRetentionDailyActivity {
+  id                                                String   @id @default(cuid())
+  shopId                                            String
+  productGid                                        String
+  diagnosisId                                       String
+  retentionRunId                                    String
+  metricDate                                        String
+  productOrdersCount                                Int      @default(0)
+  productUnitsSold                                  Int      @default(0)
+  uniqueProductBuyers                               Int      @default(0)
+  newProductBuyers                                  Int      @default(0)
+  returningProductBuyers                            Int      @default(0)
+  productGrossRevenueCents                          BigInt   @default(0)
+  productNetRevenueCents                            BigInt   @default(0)
+  sameProductRepeatRevenueCents                     BigInt   @default(0)
+  postProductCustomerRevenueCents                   BigInt   @default(0)
+  otherProductRevenueFromProductCustomersCents      BigInt   @default(0)
+  customersBuyingProductAgainCount                  Int      @default(0)
+  customersBuyingOtherProductAfterThisProductCount  Int      @default(0)
+  customersWithAnyRepeatOrderCount                  Int      @default(0)
+  returningProductBuyerShare                        Decimal? @db.Decimal(18, 6)
+  sameProductRepurchaseShare                        Decimal? @db.Decimal(18, 6)
+  crossSellShare                                    Decimal? @db.Decimal(18, 6)
+  returningRevenueShare                             Decimal? @db.Decimal(18, 6)
+  refundedOrdersCount                               Int      @default(0)
+  refundedRevenueCents                              BigInt   @default(0)
+  returnRate                                        Decimal? @db.Decimal(18, 6)
+  refundRate                                        Decimal? @db.Decimal(18, 6)
+  createdAt                                         DateTime @default(now())
+  updatedAt                                         DateTime @updatedAt
+
+  @@unique([shopId, productGid, diagnosisId, metricDate])
+  @@index([retentionRunId])
+  @@index([shopId, productGid, metricDate])
+}
+
+model ProductRetentionSegmentDaily {
+  id                                  String   @id @default(cuid())
+  shopId                              String
+  productGid                          String
+  diagnosisId                         String
+  retentionRunId                      String
+  cohortDate                          String
+  segmentType                         String
+  segmentValue                        String
+  cohortSize                          Int
+  anyRepeatWithin30dCount             Int      @default(0)
+  anyRepeatWithin90dCount             Int      @default(0)
+  sameProductRepeatWithin90dCount     Int      @default(0)
+  boughtOtherProductWithin90dCount    Int      @default(0)
+  netRevenueWithin90dCents            BigInt   @default(0)
+  ltv90Cents                          BigInt   @default(0)
+  avgDaysToNextPurchase               Decimal? @db.Decimal(12, 4)
+  medianDaysToNextPurchase            Decimal? @db.Decimal(12, 4)
+  isMature90d                         Boolean  @default(false)
+  isLowSampleSize                     Boolean  @default(false)
+  createdAt                           DateTime @default(now())
+  updatedAt                           DateTime @updatedAt
+
+  @@unique([shopId, productGid, diagnosisId, cohortDate, segmentType, segmentValue])
+  @@index([retentionRunId])
+  @@index([shopId, productGid, segmentType, segmentValue])
+}
+
+model ProductRetentionSummary {
+  id                                      String   @id @default(cuid())
+  shopId                                  String
+  productGid                              String
+  diagnosisId                             String
+  retentionRunId                          String
+  asOfDate                                DateTime
+  repeatPurchaseRate90d                   Decimal? @db.Decimal(18, 6)
+  repeatPurchaseRate180d                  Decimal? @db.Decimal(18, 6)
+  sameProductRepurchaseRate90d            Decimal? @db.Decimal(18, 6)
+  sameProductRepurchaseRate180d           Decimal? @db.Decimal(18, 6)
+  crossSellRetentionRate90d               Decimal? @db.Decimal(18, 6)
+  returningRevenueShare                   Decimal? @db.Decimal(18, 6)
+  avgDaysToSecondPurchase                 Decimal? @db.Decimal(12, 4)
+  medianDaysToSecondPurchase              Decimal? @db.Decimal(12, 4)
+  productLtv90Cents                       BigInt   @default(0)
+  productLtv180Cents                      BigInt   @default(0)
+  retentionHealthScore                    Int?
+  repeatPurchaseRate90dPrevious           Decimal? @db.Decimal(18, 6)
+  repeatPurchaseRate90dDelta              Decimal? @db.Decimal(18, 6)
+  sameProductRepurchaseRate90dPrevious    Decimal? @db.Decimal(18, 6)
+  sameProductRepurchaseRate90dDelta       Decimal? @db.Decimal(18, 6)
+  ltv90PreviousCents                      BigInt?
+  ltv90DeltaCents                         BigInt?
+  returningRevenueSharePrevious           Decimal? @db.Decimal(18, 6)
+  returningRevenueShareDelta              Decimal? @db.Decimal(18, 6)
+  totalCustomersAnalyzed                  Int      @default(0)
+  totalOrdersAnalyzed                     Int      @default(0)
+  totalProductOrdersAnalyzed              Int      @default(0)
+  earliestOrderDate                       DateTime?
+  latestOrderDate                         DateTime?
+  hasEnoughData                           Boolean  @default(false)
+  lowSampleWarning                        Boolean  @default(false)
+  createdAt                               DateTime @default(now())
+  updatedAt                               DateTime @updatedAt
+
+  @@unique([shopId, productGid, diagnosisId])
+  @@index([retentionRunId])
+  @@index([shopId, productGid, asOfDate])
 }
 
 model ProductAction {
@@ -206,6 +639,48 @@ model ProductWatchActivity {
   @@index([shop, eventType])
 }
 
+model ProductTimelineEvent {
+  id              String   @id @default(cuid())
+  shop            String
+  productGid      String
+  productTitle    String
+  handle          String?
+  variantGid      String?
+  eventType       String
+  category        String
+  source          String
+  title           String
+  summary         String?
+  occurredAt      DateTime @default(now())
+  severityTone    String   @default("neutral")
+  importance      Int      @default(50)
+  confidence      Int?
+  beforeValue     Json?
+  afterValue      Json?
+  metadata        Json?
+  dedupeKey       String
+  scanJobId       String?
+  diagnosisId     String?
+  watchActivityId String?
+  actionId        String?
+  reviewId        String?
+  returnId        String?
+  refundId        String?
+  orderId         String?
+  shopifyEventId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([shop, productGid, dedupeKey])
+  @@index([shop, productGid, occurredAt])
+  @@index([shop, category, occurredAt])
+  @@index([shop, eventType, occurredAt])
+  @@index([shop, importance, occurredAt])
+  @@index([diagnosisId])
+  @@index([watchActivityId])
+  @@index([actionId])
+}
+
 model ProductPulseSchedulerLock {
   key        String   @id
   owner      String
@@ -249,14 +724,68 @@ model ContactRequest {
   @@index([shop, createdAt])
 }
 
-model CreditLedgerEntry {
-  id           String   @id @default(cuid())
-  shop         String
-  direction    String
-  amount       Int
-  reason       String
-  balanceAfter Int
-  createdAt    DateTime @default(now())
+model BetaFeedbackReport {
+  id                String   @id @default(cuid())
+  shop              String
+  userKey           String   @default("shop")
+  userId            String?
+  userEmail         String?
+  userName          String?
+  category          String
+  severity          String?
+  message           String
+  pagePath          String?
+  pageRoute         String?
+  panelId           String?
+  panelLabel        String?
+  source            String   @default("global")
+  relatedEntityType String?
+  relatedEntityId   String?
+  context           Json?
+  status            String   @default("new")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([shop, createdAt])
+  @@index([shop, status, createdAt])
+  @@index([shop, panelId, createdAt])
+  @@index([shop, userKey, createdAt])
+}
+
+model BetaFeedbackPanelPreference {
+  id                String    @id @default(cuid())
+  shop              String
+  userKey           String    @default("shop")
+  userId            String?
+  pageKey           String
+  panelId           String
+  panelLabel        String?
+  hidden            Boolean   @default(false)
+  hideReason        String?
+  hideReasonMessage String?
+  context           Json?
+  firstHiddenAt     DateTime?
+  lastHiddenAt      DateTime?
+  restoredAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([shop, userKey, pageKey, panelId])
+  @@index([shop, userKey, pageKey])
+  @@index([shop, panelId])
+}
+
+model CreditLedgerEntry {
+  id             String   @id @default(cuid())
+  shop           String
+  direction      String
+  amount         Float
+  reason         String
+  idempotencyKey String?
+  balanceAfter   Float
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([shop, createdAt])
+  @@unique([shop, idempotencyKey])
 }

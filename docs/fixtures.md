@@ -1,7 +1,7 @@
 # Fixtures
 
 ## Shops
-- `installedShop`: installed with required scopes and starter credits.
+- `installedShop`: installed with required scopes and starter diagnosis credits.
 - `newShop`: installed with product data only and no optional sources.
 - `missingScopeShop`: lacks `read_returns`.
 - `expiredSessionShop`: simulated auth issue.
@@ -29,12 +29,12 @@
 - Missing required scope.
 - Expired session.
 
-## Billing/Credits
+## Billing/Diagnosis Credits
 - Billing accepted.
 - Billing declined/pending.
-- Credits available.
-- Credits exhausted.
-- Diagnosis consumed one credit.
+- Diagnosis Credits available.
+- Diagnosis Credits exhausted.
+- Diagnosis consumed one diagnosis credit.
 
 ## AI
 - Valid diagnosis JSON.
@@ -46,4 +46,3 @@
 - Valid uninstall webhook.
 - Invalid webhook signature placeholder.
 - Scope update webhook.
-

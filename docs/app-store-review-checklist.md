@@ -15,16 +15,16 @@
 - Each route has a clear heading and primary action.
 
 ## Scopes
-- The app requests product, order, historical order, return and inventory scopes needed by the current product diagnostics workflow.
+- The app requests product, order, historical order, customer, return and inventory scopes needed by the current Product Diagnosis workflow.
 - Order/return data purpose is documented as product quality intelligence.
 - `read_orders` and `read_all_orders` are used only for product-level order/refund aggregates. `read_all_orders` requires Shopify protected-scope approval before production use.
-- `write_orders` and `write_returns` are used by the Settings mock dataset generator to create controlled QA test orders, refunds and returns; they should be disclosed as development/testing support scopes if enabled in production.
-- No customer scopes are requested.
+- `read_customers` is used only to derive safe same-customer keys from Shopify customer IDs for aggregate before/after product relationships.
+- Production config excludes mock-dataset write scopes (`write_orders`, `write_returns`, `write_customers`, `write_inventory`). Development mode adds them at runtime only for controlled QA data generation.
 - Product writes use merchant-confirmed `write_products` actions only.
 
 ## Billing
 - Real paid plans are not enabled in MVP.
-- Credit UI is internal/demo until Shopify billing is wired.
+- Diagnosis credit UI does not expose prices, payment methods or purchasable diagnosis credit packs until Shopify Billing or Shopify App Pricing is wired.
 
 ## Webhooks
 - `app/uninstalled` registered.
@@ -48,7 +48,7 @@
 
 ## Reviewer Instructions
 - Use a dev store with products, orders, returns/refunds and fixture CSV reviews.
-- Start from Dashboard, open Connect sources, run Catalog Signal Scan, open Products, run/open Product diagnosis and review Analyses.
+- Start from Dashboard, open Connect sources, run Catalog Scan, open Products, run/open Product diagnosis and review Analyses.
 - No real AI provider or billing credentials are required for MVP review.
 
 ## Limitations

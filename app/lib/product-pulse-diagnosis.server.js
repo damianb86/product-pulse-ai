@@ -2,7 +2,11 @@ import prisma from "../db.server";
 import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
 import { summarizeAiUsage } from "./product-pulse-ai-usage.server";
 import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
-import { recordProductScoreHistory, recordReconstructedProductScoreHistory } from "./product-pulse-history.server";
+import {
+  getReconstructedProductScoreHistoryForShop,
+  recordProductScoreHistory,
+  recordReconstructedProductScoreHistory,
+} from "./product-pulse-history.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 import { getAnalysisLookbackDays, getProductPulseSettings } from "./product-pulse-settings.server";
 import {
@@ -10,10 +14,30 @@ import {
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import {
+  recordTimelineForDiagnosis,
+  recordTimelineForLatestScoreSnapshots,
+  recordTimelineForNoChangeDiagnosis,
+  recordTimelineForProductAction,
+} from "./product-pulse-timeline.server";
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
+import { buildReturnRefundRelationshipSummary } from "./product-pulse-return-refund-relationship.server";
+import { buildProductPurchaseContextSummary } from "./product-pulse-purchase-context.server";
+import { buildProductRelationshipSummary } from "./product-pulse-product-relationships.server";
+import {
+  attachProductRetentionPayloadToDiagnosis,
+  calculateProductRetentionMetrics,
+  calculateProductRetentionPreview,
+} from "./product-pulse-retention.server";
+import {
+  filterDisabledProductActions,
+  isDisabledProductAction,
+} from "./product-pulse-disabled-actions";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
+const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS = 365;
+const PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS = 180;
 const MAX_ORDER_PAGES = 12;
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
@@ -23,9 +47,12 @@ const RETURN_RATE_PREDICTION_FORECAST_WEEKS = 13;
 const RECONSTRUCTED_RISK_HISTORY_MAX_WEEKLY_POINTS = 58;
 const RECONSTRUCTED_RISK_HISTORY_MAX_MONTHLY_POINTS = 24;
 const RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS = 370;
+const RECONSTRUCTED_RISK_HISTORY_MIN_LOOKBACK_DAYS = 365;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
-const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 1;
+const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 3;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
+const SEO_TITLE_MAX_LENGTH = 70;
+const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
@@ -43,15 +70,95 @@ const DIAGNOSIS_RETURN_QUERY_PLANS = [
   { label: "low-cost", ordersFirst: 5, returnsFirst: 2, returnLineItemsFirst: 10, includeVariantProduct: true },
   { label: "minimal", ordersFirst: 4, returnsFirst: 2, returnLineItemsFirst: 8, includeVariantProduct: false },
 ];
+const US_STATE_NAMES = {
+  AL: "Alabama",
+  AK: "Alaska",
+  AZ: "Arizona",
+  AR: "Arkansas",
+  CA: "California",
+  CO: "Colorado",
+  CT: "Connecticut",
+  DE: "Delaware",
+  DC: "District of Columbia",
+  FL: "Florida",
+  GA: "Georgia",
+  HI: "Hawaii",
+  ID: "Idaho",
+  IL: "Illinois",
+  IN: "Indiana",
+  IA: "Iowa",
+  KS: "Kansas",
+  KY: "Kentucky",
+  LA: "Louisiana",
+  ME: "Maine",
+  MD: "Maryland",
+  MA: "Massachusetts",
+  MI: "Michigan",
+  MN: "Minnesota",
+  MS: "Mississippi",
+  MO: "Missouri",
+  MT: "Montana",
+  NE: "Nebraska",
+  NV: "Nevada",
+  NH: "New Hampshire",
+  NJ: "New Jersey",
+  NM: "New Mexico",
+  NY: "New York",
+  NC: "North Carolina",
+  ND: "North Dakota",
+  OH: "Ohio",
+  OK: "Oklahoma",
+  OR: "Oregon",
+  PA: "Pennsylvania",
+  RI: "Rhode Island",
+  SC: "South Carolina",
+  SD: "South Dakota",
+  TN: "Tennessee",
+  TX: "Texas",
+  UT: "Utah",
+  VT: "Vermont",
+  VA: "Virginia",
+  WA: "Washington",
+  WV: "West Virginia",
+  WI: "Wisconsin",
+  WY: "Wyoming",
+};
 
 export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
   const settings = await getProductPulseSettings(shop);
   const windowDays = getAnalysisLookbackDays(settings);
+  const storedReconstructedRiskHistory = await getReconstructedProductScoreHistoryForShop(shop, snapshot.productGid);
   const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays });
   const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const momentumCatalogBaseline = await fetchProductMomentumCatalogBaseline({ shop, currentProductGid: snapshot.productGid });
-  const deterministic = calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, windowDays, momentumCatalogBaseline });
+  const taxonomyCategorySuggestions = await fetchProductTaxonomyCategorySuggestions({ admin, product: shopifyData.product });
+  const baseDeterministic = calculateDeterministicDiagnosis({
+    snapshot,
+    shopifyData,
+    judgeMeData,
+    csvReviewData,
+    windowDays,
+    momentumCatalogBaseline,
+    taxonomyCategorySuggestions,
+    storedReconstructedRiskHistory,
+  });
+  const relationshipCollectionSuggestions = await fetchProductRelationshipCollectionSuggestions({
+    admin,
+    product: shopifyData.product,
+    relationshipSummary: baseDeterministic.metrics.productRelationshipIntelligenceSummary,
+  });
+  const relationshipEnrichedDeterministic = relationshipCollectionSuggestions.length
+    ? attachRelationshipCollectionSuggestionsToDeterministic(baseDeterministic, relationshipCollectionSuggestions)
+    : baseDeterministic;
+  const retentionPreview = await calculateProductRetentionPreviewForDiagnosis({
+    shop,
+    jobId,
+    admin,
+    snapshot,
+    windowDays,
+  });
+  const deterministic = attachProductRetentionPreviewToDeterministic(relationshipEnrichedDeterministic, retentionPreview?.payload);
   const recommendationCandidates = buildRuleRecommendationCandidates(deterministic);
   const aiInput = {
     product: buildAiProductInput(shopifyData.product, snapshot),
@@ -104,6 +211,13 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     },
   });
 
+  await ensureProductRelationshipCandidateSnapshots({
+    shop,
+    jobId,
+    sourceSnapshot: snapshot,
+    relationshipSummary: deterministic.metrics.productRelationshipIntelligenceSummary,
+  });
+
   const reuseDecision = getNoChangeDiagnosisReuseDecision({ snapshot, deterministic });
   if (reuseDecision.shouldReuse) {
     const reusedDiagnosis = await buildNoChangeDiagnosisReuseResult({
@@ -135,6 +249,15 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   });
   const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai });
   const diagnosis = await persistDetailedDiagnosis({ shop, jobId, snapshot, payload: diagnosisPayload });
+  const retentionResult = await calculateAndAttachProductRetentionForDiagnosis({
+    shop,
+    jobId,
+    admin,
+    snapshot,
+    diagnosis,
+    windowDays,
+    retentionPreview,
+  });
 
   await recordJobLog({
     shop,
@@ -151,6 +274,13 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       recommendations: diagnosisPayload.recommendations.map((action) => action.label),
       modelsUsed: ai.modelsUsed,
       aiUsage: ai.aiUsage,
+      productRetention: retentionResult
+        ? {
+          status: retentionResult.status,
+          retentionRunId: retentionResult.retentionRunId,
+          hasEnoughData: retentionResult.payload?.summary?.hasEnoughData ?? false,
+        }
+        : null,
     },
   });
 
@@ -164,6 +294,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     model: ai.model,
     modelsUsed: ai.modelsUsed,
     aiUsage: ai.aiUsage,
+    productRetention: retentionResult?.payload || null,
   };
 }
 
@@ -183,6 +314,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   });
 
   let sales = [];
+  let relationshipSales = [];
   let refunds = [];
   let returns = [];
   let orderAccessDenied = false;
@@ -191,7 +323,36 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   let returnFetchComplete = true;
 
   try {
-    sales = await fetchShopifySalesEvents({ admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null });
+    const salesBundle = await fetchShopifySalesEventBundle({
+      admin,
+      product,
+      snapshot,
+      windowDays,
+      sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
+    });
+    sales = salesBundle.sales;
+    relationshipSales = salesBundle.relationshipSales;
+    if (incrementalSource.shopifyCanReuse) {
+      try {
+        const relationshipBundle = await fetchShopifySalesEventBundle({
+          admin,
+          product,
+          snapshot,
+          windowDays,
+          sinceDate: null,
+        });
+        relationshipSales = relationshipBundle.relationshipSales;
+      } catch (relationshipError) {
+        await recordJobLog({
+          shop,
+          jobId,
+          level: "warn",
+          event: "product_diagnosis.relationship_sales_full_fetch_failed",
+          message: "Full-window relationship sales extraction failed; product relationships will use incremental order events for this run.",
+          data: { error: serializeError(relationshipError) },
+        });
+      }
+    }
   } catch (error) {
     salesFetchComplete = false;
     const denied = isShopifyOrderAccessDenied(error);
@@ -202,7 +363,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       level: denied ? "warn" : "error",
       event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_sales_failed",
       message: denied
-        ? "Shopify denied Order object access while reading sales; diagnosis will use stored QuickScan metrics and connected review data where needed."
+        ? "Shopify denied Order object access while reading sales; diagnosis will use stored Catalog Scan metrics and connected review data where needed."
         : "Shopify sales extraction failed; diagnosis will continue with refunds, returns and review evidence where available.",
       data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
     });
@@ -220,7 +381,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       level: denied ? "warn" : "error",
       event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_refunds_failed",
       message: denied
-        ? "Shopify denied Order object access while reading refunds; refund evidence will fall back to stored QuickScan metrics."
+        ? "Shopify denied Order object access while reading refunds; refund evidence will fall back to stored Catalog Scan metrics."
         : "Shopify refund extraction failed; diagnosis will continue with other evidence.",
       data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
     });
@@ -238,7 +399,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       level: denied ? "warn" : "error",
       event: denied ? "product_diagnosis.shopify_order_access_denied" : "product_diagnosis.shopify_returns_failed",
       message: denied
-        ? "Shopify denied Order object access while reading returns; return evidence will fall back to stored QuickScan metrics."
+        ? "Shopify denied Order object access while reading returns; return evidence will fall back to stored Catalog Scan metrics."
         : "Shopify return extraction failed; diagnosis will continue with other evidence.",
       data: { error: serializeError(error), recovery: denied ? "snapshot-and-reviews" : "partial-shopify-data" },
     });
@@ -256,9 +417,11 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     refundEvents: refunds.length,
     returnEvents: returns.length,
   };
-  sales = mergedSourceEvents.sales;
-  refunds = mergedSourceEvents.refunds;
-  returns = mergedSourceEvents.returns;
+  sales = filterDiagnosisEventsForProduct(mergedSourceEvents.sales, product, snapshot);
+  refunds = filterDiagnosisEventsForProduct(mergedSourceEvents.refunds, product, snapshot);
+  returns = filterDiagnosisEventsForProduct(mergedSourceEvents.returns, product, snapshot);
+  sales = backfillMissingSalesFromOperationalEvents({ product, snapshot, sales, returns, refunds });
+  if (!relationshipSales.length) relationshipSales = sales;
 
   await recordJobLog({
     shop,
@@ -268,6 +431,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     data: {
       productGid: product.id,
       salesEvents: sales.length,
+      relationshipSalesEvents: relationshipSales.length,
       refundEvents: refunds.length,
       returnEvents: returns.length,
       windowDays,
@@ -292,6 +456,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   return {
     product,
     sales,
+    relationshipSales,
     refunds,
     returns,
     orderAccessDenied,
@@ -322,7 +487,352 @@ async function fetchProductMomentumCatalogBaseline({ shop, currentProductGid }) 
   return buildProductMomentumCatalogBaseline(snapshots, currentProductGid);
 }
 
+async function fetchProductTaxonomyCategorySuggestions({ admin, product = {} } = {}) {
+  if (!admin?.graphql || normalizeProductCategory(product.category).id) return [];
+  const searches = buildProductTaxonomySearches(product);
+  const seen = new Map();
+
+  for (const search of searches) {
+    try {
+      const data = await shopifyGraphql(
+        admin,
+        `#graphql
+        query ProductPulseTaxonomyCategorySuggestions($search: String!) {
+          taxonomy {
+            categories(first: 12, search: $search) {
+              nodes {
+                id
+                name
+                fullName
+                isLeaf
+                isArchived
+                level
+              }
+            }
+          }
+        }`,
+        { search },
+      );
+      (data?.taxonomy?.categories?.nodes || []).forEach((category) => {
+        const normalized = normalizeProductCategory(category);
+        if (!normalized.id || normalized.isArchived) return;
+        if (!seen.has(normalized.id)) seen.set(normalized.id, { ...normalized, source: "shopify_taxonomy_search", search });
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  return rankProductTaxonomyCategories([...seen.values()], product).slice(0, 8);
+}
+
+async function fetchProductRelationshipCollectionSuggestions({ admin, product = {}, relationshipSummary = {} } = {}) {
+  if (!admin?.graphql || !product?.id || hasProductCollectionMembership(product)) return [];
+
+  const relationshipItems = getProductRelationshipCandidateItems(relationshipSummary)
+    .map(normalizeRelationshipCollectionCandidate)
+    .filter((item) => item.productGid && item.productGid !== product.id)
+    .sort((first, second) => second.score - first.score)
+    .slice(0, 20);
+  if (!relationshipItems.length) return [];
+
+  const relationshipByProductGid = new Map();
+  relationshipItems.forEach((item) => {
+    const current = relationshipByProductGid.get(item.productGid);
+    if (!current || item.score > current.score) relationshipByProductGid.set(item.productGid, item);
+  });
+
+  try {
+    const data = await shopifyGraphql(
+      admin,
+      `#graphql
+      query ProductPulseRelatedProductCollections($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product {
+            id
+            title
+            handle
+            collections(first: 20) {
+              nodes {
+                id
+                title
+                handle
+                ruleSet {
+                  appliedDisjunctively
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { ids: [...relationshipByProductGid.keys()] },
+    );
+
+    return rankRelationshipCollectionSuggestions({
+      product,
+      relatedProducts: (data?.nodes || []).filter(Boolean),
+      relationshipByProductGid,
+    });
+  } catch {
+    return [];
+  }
+}
+
+function attachRelationshipCollectionSuggestionsToDeterministic(deterministic = {}, suggestions = []) {
+  return {
+    ...deterministic,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      relationshipCollectionSuggestions: Array.isArray(suggestions) ? suggestions : [],
+    },
+  };
+}
+
+function normalizeRelationshipCollectionCandidate(item = {}) {
+  const productGid = String(item.related_product_id || item.relatedProductId || "").trim();
+  const title = String(item.related_product_title || item.relatedProductTitle || item.title || "").replace(/\s+/g, " ").trim();
+  const relationshipType = String(item.relationship_type || item.relationshipType || "").trim();
+  const relationshipDirection = String(item.relationship_direction || item.relationshipDirection || item.direction || "").trim();
+  const timeWindow = String(item.time_window || item.timeWindow || "").trim();
+  const sampleSize = Number(item.sample_size || item.sampleSize || item.co_order_count || item.co_customer_count || item.order_count || item.customer_count || 0);
+  const confidence = normalizePercentLike(item.confidence?.score ?? item.confidence_score ?? item.confidence ?? 0);
+  const lift = Number(item.lift ?? item.lift_after ?? item.lift_before ?? 0);
+  const relationshipStrength = String(item.relationship_strength || item.relationshipStrength || "").trim();
+  const score = Math.round(
+    Math.min(30, sampleSize * 5)
+      + Math.min(25, confidence / 4)
+      + Math.min(20, Math.max(0, lift - 1) * 8)
+      + (relationshipType === "same_order" || relationshipDirection === "together" ? 12 : 8)
+      + (relationshipStrength.includes("very") ? 8 : relationshipStrength ? 4 : 0),
+  );
+
+  return {
+    productGid,
+    title,
+    handle: String(item.related_product_handle || item.relatedProductHandle || item.handle || "").trim(),
+    relationshipType,
+    relationshipDirection,
+    timeWindow,
+    sampleSize,
+    confidence,
+    lift: Number.isFinite(lift) ? lift : 0,
+    relationshipStrength,
+    score,
+  };
+}
+
+function rankRelationshipCollectionSuggestions({ product = {}, relatedProducts = [], relationshipByProductGid = new Map() } = {}) {
+  const currentCollectionKeys = new Set(getProductCollectionRecords(product).flatMap((collection) => [
+    collection.id,
+    normalizeText(collection.title),
+    normalizeText(collection.handle),
+  ]).filter(Boolean));
+  const byCollectionId = new Map();
+
+  relatedProducts.forEach((relatedProduct) => {
+    const relationship = relationshipByProductGid.get(relatedProduct.id);
+    if (!relationship) return;
+
+    getProductCollectionRecords(relatedProduct).forEach((collection) => {
+      if (!collection.id || !collection.title) return;
+      if (collection.isRuleBased) return;
+      if (currentCollectionKeys.has(collection.id) || currentCollectionKeys.has(normalizeText(collection.title)) || currentCollectionKeys.has(normalizeText(collection.handle))) return;
+
+      const current = byCollectionId.get(collection.id) || {
+        collectionId: collection.id,
+        collectionName: collection.title,
+        collectionHandle: collection.handle,
+        score: 0,
+        relatedProducts: [],
+        evidence: [],
+      };
+      const sourceScore = relationship.score + (current.relatedProducts.length ? 6 : 0);
+      current.score += sourceScore;
+      current.relatedProducts.push({
+        productGid: relatedProduct.id,
+        title: relatedProduct.title || relationship.title,
+        handle: relatedProduct.handle || relationship.handle,
+        relationshipType: relationship.relationshipType,
+        relationshipDirection: relationship.relationshipDirection,
+        timeWindow: relationship.timeWindow,
+        sampleSize: relationship.sampleSize,
+        confidence: relationship.confidence,
+        lift: relationship.lift,
+      });
+      current.evidence.push(formatRelationshipCollectionEvidence({ collection, relationship, relatedProduct }));
+      byCollectionId.set(collection.id, current);
+    });
+  });
+
+  return [...byCollectionId.values()]
+    .map((suggestion) => ({
+      ...suggestion,
+      score: Math.round(suggestion.score),
+      relatedProducts: suggestion.relatedProducts
+        .sort((first, second) => Number(second.sampleSize || 0) - Number(first.sampleSize || 0))
+        .slice(0, 5),
+      evidence: uniqueBy(suggestion.evidence, (item) => normalizeText(item)).slice(0, 4),
+      source: "product_relationship_intelligence",
+    }))
+    .filter((suggestion) => suggestion.score >= 35 && suggestion.relatedProducts.length)
+    .sort((first, second) => second.score - first.score || second.relatedProducts.length - first.relatedProducts.length || first.collectionName.localeCompare(second.collectionName))
+    .slice(0, 3);
+}
+
+function formatRelationshipCollectionEvidence({ collection = {}, relationship = {}, relatedProduct = {} } = {}) {
+  const relation = relationship.relationshipType === "same_order" || relationship.relationshipDirection === "together"
+    ? "bought together"
+    : relationship.relationshipDirection === "before"
+      ? "bought before this product"
+      : relationship.relationshipDirection === "after"
+        ? "bought after this product"
+        : "related";
+  const liftText = relationship.lift ? `, ${roundRate(relationship.lift, 1)}x lift` : "";
+  const sampleText = relationship.sampleSize ? ` across ${relationship.sampleSize} matched order${relationship.sampleSize === 1 ? "" : "s"}` : "";
+  return `${relatedProduct.title || relationship.title || "Related product"} is ${relation}${liftText}${sampleText} and belongs to ${collection.title}.`;
+}
+
+function buildProductTaxonomySearches(product = {}) {
+  const productText = [
+    product.title,
+    product.productType,
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    ...(Array.isArray(product.tags) ? product.tags : []),
+  ].filter(Boolean).join(" ");
+  const categoryTerms = [...detectProductCategoryGroups(productText)].flatMap(getTaxonomySearchTermsFromCategory);
+  return uniqueBy([
+    product.productType,
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    product.title,
+    ...categoryTerms,
+  ].map((value) => String(value || "").replace(/\s+/g, " ").trim()).filter((value) => value.length >= 3), normalizeText)
+    .slice(0, 6);
+}
+
+function getTaxonomySearchTermsFromCategory(category = "") {
+  if (category === "apparel") return ["apparel", "clothing"];
+  if (category === "toy") return ["toys", "games", "figures"];
+  if (category === "art") return ["art prints", "posters", "wall decor"];
+  if (category === "electronics") return ["electronics", "electronic accessories"];
+  if (category === "beauty") return ["beauty", "personal care"];
+  if (category === "home") return ["home decor", "kitchen", "home garden"];
+  if (category === "food") return ["food", "beverages"];
+  return [];
+}
+
+function rankProductTaxonomyCategories(categories = [], product = {}) {
+  const productText = [
+    product.title,
+    product.description,
+    product.productType,
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    ...(Array.isArray(product.tags) ? product.tags : []),
+  ].filter(Boolean).join(" ");
+  const productIdentityText = [
+    product.title,
+    product.productType,
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    ...(Array.isArray(product.tags) ? product.tags : []),
+  ].filter(Boolean).join(" ");
+  const productTokens = new Set(meaningfulTokens(productText));
+  const productGroups = detectProductCategoryGroups(productText);
+  const genericTokens = new Set([
+    "apparel",
+    "appliance",
+    "appliances",
+    "accessories",
+    "clothing",
+    "decor",
+    "dining",
+    "garden",
+    "holder",
+    "holders",
+    "home",
+    "kitchen",
+    "kitchens",
+    "organizer",
+    "organizers",
+    "product",
+    "products",
+    "rack",
+    "racks",
+    "supplies",
+    "tool",
+    "tools",
+    "utensil",
+    "utensils",
+    "wall",
+    "walls",
+  ]);
+  const productIdentityTokens = new Set(meaningfulTokens(productIdentityText));
+  const productSpecificTokens = expandTaxonomyTokenSet([...productIdentityTokens].filter((token) => !genericTokens.has(token)));
+  return categories
+    .map((category) => {
+      const label = `${category.fullName || ""} ${category.name || ""}`;
+      const categoryTokens = meaningfulTokens(label);
+      const sharedTokens = categoryTokens.filter((token) => productTokens.has(token)).length;
+      const specificSharedTokens = new Set(categoryTokens.filter((token) => productSpecificTokens.has(token))).size;
+      const categoryGroups = detectProductCategoryGroups(label);
+      const groupOverlap = [...categoryGroups].filter((group) => productGroups.has(group)).length;
+      const petMismatchPenalty = /\b(pet|pets|dog|dogs|cat|cats|animal|animals)\b/.test(normalizeText(label))
+        && !/\b(pet|pets|dog|dogs|cat|cats|animal|animals)\b/.test(normalizeText(productText))
+        ? 24
+        : 0;
+      const shoeMismatchPenalty = /\b(shoe|shoes|sneaker|sneakers|boot|boots)\b/.test(normalizeText(label))
+        && !/\b(shoe|shoes|sneaker|sneakers|boot|boots)\b/.test(normalizeText(productText))
+        ? 18
+        : 0;
+      const taxonomyMismatchPenalty = getProductTaxonomyMismatchPenalty(label, productIdentityText);
+      const score = (category.isLeaf ? 8 : 0)
+        + Math.min(18, sharedTokens * 3)
+        + Math.min(12, specificSharedTokens * 6)
+        + (groupOverlap * 8)
+        + Math.min(8, Number(category.level || 0))
+        - petMismatchPenalty
+        - shoeMismatchPenalty
+        - taxonomyMismatchPenalty;
+      return { ...category, score, specificSharedTokens, taxonomyMismatchPenalty };
+    })
+    .filter((category) => category.specificSharedTokens > 0 && category.taxonomyMismatchPenalty < 30)
+    .sort((first, second) => second.score - first.score || Number(second.isLeaf) - Number(first.isLeaf) || second.level - first.level || first.fullName.localeCompare(second.fullName));
+}
+
+function getProductTaxonomyMismatchPenalty(categoryLabel = "", productIdentityText = "") {
+  const label = normalizeText(categoryLabel);
+  const identity = normalizeText(productIdentityText);
+  const lacksIdentityTerm = (pattern) => !pattern.test(identity);
+  if (/\b(furniture|cabinet|cabinets|hutch|hutches)\b/.test(label) && lacksIdentityTerm(/\b(furniture|cabinet|cabinets|hutch|hutches)\b/)) {
+    return 40;
+  }
+  if (/\b(pool|spa|ladder|ladders|ramp|ramps)\b/.test(label) && lacksIdentityTerm(/\b(pool|spa|ladder|ladders|ramp|ramps)\b/)) {
+    return 40;
+  }
+  if (/\b(office supplies|post cards|postcards|paper products)\b/.test(label) && lacksIdentityTerm(/\b(post card|post cards|postcard|postcards|office|paper)\b/)) {
+    return 36;
+  }
+  if (/\b(beds|bed frames|four posters)\b/.test(label) && lacksIdentityTerm(/\b(bed|beds|frame|frames|poster bed|four poster)\b/)) {
+    return 36;
+  }
+  if (/\b(wallpaper)\b/.test(label) && lacksIdentityTerm(/\b(wallpaper)\b/)) {
+    return 30;
+  }
+  return 0;
+}
+
+function expandTaxonomyTokenSet(tokens = []) {
+  const expanded = new Set();
+  (Array.isArray(tokens) ? tokens : []).forEach((token) => {
+    const normalized = String(token || "").trim();
+    if (!normalized) return;
+    expanded.add(normalized);
+    if (normalized.endsWith("s") && normalized.length > 3) expanded.add(normalized.slice(0, -1));
+    else if (normalized.length > 2) expanded.add(`${normalized}s`);
+  });
+  return expanded;
+}
+
 export function buildProductMomentumCatalogBaseline(snapshots = [], currentProductGid = "") {
+  const classificationOptions = buildCatalogClassificationOptions(snapshots);
   const rows = (Array.isArray(snapshots) ? snapshots : [])
     .map((snapshot) => {
       const metrics = snapshot?.metrics || {};
@@ -358,7 +868,38 @@ export function buildProductMomentumCatalogBaseline(snapshots = [], currentProdu
     storeUnitsPrevious90,
     storeRevenueLast30,
     storeRevenuePrevious90,
+    productTypes: classificationOptions.productTypes,
+    vendors: classificationOptions.vendors,
     hasCatalogBaseline: distributionRows.length >= 3,
+  };
+}
+
+function buildCatalogClassificationOptions(snapshots = []) {
+  const productTypes = new Map();
+  const vendors = new Map();
+  const addValue = (map, value) => {
+    const label = String(value || "").replace(/\s+/g, " ").trim();
+    const key = normalizeText(label);
+    if (!key) return;
+    const current = map.get(key) || { label, count: 0 };
+    current.count += 1;
+    map.set(key, current);
+  };
+
+  (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
+    const metrics = snapshot?.metrics || {};
+    addValue(productTypes, metrics.productType);
+    addValue(vendors, metrics.vendor);
+  });
+
+  const sortOptions = (map) => Array.from(map.values())
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .map((item) => item.label)
+    .slice(0, 50);
+
+  return {
+    productTypes: sortOptions(productTypes),
+    vendors: sortOptions(vendors),
   };
 }
 
@@ -383,6 +924,14 @@ async function fetchShopifyProduct({ admin, snapshot }) {
             vendor
             productType
             status
+            category {
+              id
+              name
+              fullName
+              isLeaf
+              isArchived
+              level
+            }
             seo {
               title
               description
@@ -415,6 +964,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
             }
             collections(first: 20) {
               nodes {
+                id
                 title
                 handle
               }
@@ -476,6 +1026,14 @@ async function fetchShopifyProduct({ admin, snapshot }) {
           vendor
           productType
           status
+          category {
+            id
+            name
+            fullName
+            isLeaf
+            isArchived
+            level
+          }
           seo {
             title
             description
@@ -508,6 +1066,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
           }
           collections(first: 20) {
             nodes {
+              id
               title
               handle
             }
@@ -553,18 +1112,258 @@ async function fetchShopifyProduct({ admin, snapshot }) {
   return normalizeShopifyProduct(data?.products?.nodes?.[0], snapshot);
 }
 
-async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
-  if (!admin?.graphql) return [];
-  const events = [];
+async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+  if (!admin?.graphql) return { sales: [], relationshipSales: [] };
+  const sales = [];
+  const relationshipSales = [];
   let cursor = null;
   const querySinceDate = normalizeShopifySinceDate(sinceDate, windowDays);
 
   for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
     const data = await shopifyGraphql(
       admin,
-      `#graphql
+      buildDiagnosisSalesQuery(),
+      {
+        after: cursor,
+        query: `processed_at:>=${querySinceDate}`,
+        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
+        lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
+      },
+    );
+
+    (data?.orders?.nodes || []).forEach((order) => {
+      const geography = null;
+      const orderDate = toIso(getShopifyOrderDate(order));
+      const customerKey = order.customer?.id || null;
+      const orderLineItems = getNodes(order.lineItems);
+      const basketLineItems = normalizeDiagnosisBasketLineItems(orderLineItems);
+      const basketFingerprint = stableSignature(basketLineItems);
+      orderLineItems.forEach((lineItem) => {
+        const event = normalizeDiagnosisOrderLineItemSaleEvent({
+          lineItem,
+          order,
+          product,
+          snapshot,
+          orderDate,
+          customerKey,
+          basketLineItems,
+          basketFingerprint,
+          geography,
+        });
+        if (!event.productId) return;
+        relationshipSales.push(event);
+        if (lineItemMatchesProduct(lineItem, product, snapshot)) sales.push(event);
+      });
+    });
+
+    if (!data?.orders?.pageInfo?.hasNextPage) break;
+    cursor = data.orders.pageInfo.endCursor;
+  }
+
+  return { sales, relationshipSales };
+}
+
+function normalizeDiagnosisOrderLineItemSaleEvent({
+  lineItem,
+  order,
+  product,
+  snapshot,
+  orderDate,
+  customerKey,
+  basketLineItems,
+  basketFingerprint,
+  geography,
+} = {}) {
+  const lineProduct = lineItem?.product || {};
+  const variant = lineItem?.variant || {};
+  const lineImage = getDiagnosisLineItemImage(lineItem);
+  return {
+    id: lineItem?.id,
+    orderId: order?.id,
+    lineItemId: lineItem?.id,
+    productId: lineProduct.id || (lineItemMatchesProduct(lineItem, product, snapshot) ? product.id || snapshot.productGid : null),
+    createdAt: orderDate,
+    orderDate,
+    orderProcessedAt: toIso(order?.processedAt),
+    orderCreatedAt: toIso(order?.createdAt),
+    customerKey,
+    customerId: customerKey,
+    quantity: Number(lineItem?.quantity || 0),
+    amount: Number(lineItem?.originalTotalSet?.shopMoney?.amount || 0),
+    handle: lineProduct.handle || "",
+    title: lineProduct.title || lineItem?.title || "",
+    imageUrl: lineImage.imageUrl,
+    imageAlt: lineImage.imageAlt,
+    sku: lineItem?.sku || variant.sku || "",
+    variantId: variant.id || null,
+    variantTitle: variant.title || "",
+    selectedOptions: variant.selectedOptions || [],
+    basketLineItems,
+    basketFingerprint,
+    geography,
+    country: geography?.country || "",
+    countryCode: geography?.countryCode || "",
+    province: geography?.province || "",
+    provinceCode: geography?.provinceCode || "",
+    city: geography?.city || "",
+  };
+}
+
+function normalizeDiagnosisBasketLineItems(lineItems = []) {
+  return getNodes(lineItems).map((lineItem) => {
+    const lineImage = getDiagnosisLineItemImage(lineItem);
+    return {
+      id: lineItem.id || null,
+      lineItemId: lineItem.id || null,
+      productId: lineItem.product?.id || lineItem.variant?.product?.id || null,
+      handle: lineItem.product?.handle || lineItem.variant?.product?.handle || "",
+      title: lineItem.product?.title || lineItem.variant?.product?.title || lineItem.title || "",
+      imageUrl: lineImage.imageUrl,
+      imageAlt: lineImage.imageAlt,
+      variantId: lineItem.variant?.id || null,
+      variantTitle: lineItem.variant?.title || "",
+      sku: lineItem.sku || lineItem.variant?.sku || "",
+      quantity: Number(lineItem.quantity || 0),
+      amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
+    };
+  });
+}
+
+function getDiagnosisLineItemImage(lineItem = {}) {
+  const product = lineItem?.product || {};
+  const variant = lineItem?.variant || {};
+  const mediaNode = product.media?.nodes?.[0] || {};
+  const image = variant.image
+    || product.featuredMedia?.preview?.image
+    || mediaNode.image
+    || mediaNode.preview?.image
+    || {};
+  return {
+    imageUrl: image.url || "",
+    imageAlt: image.altText || "",
+  };
+}
+
+function backfillMissingSalesFromOperationalEvents({
+  product = {},
+  snapshot = {},
+  sales = [],
+  returns = [],
+  refunds = [],
+} = {}) {
+  const normalizedSales = Array.isArray(sales) ? [...sales] : [];
+  const existingSaleKeys = new Set(normalizedSales.map(getSaleLineIdentity).filter(Boolean));
+  const candidateByKey = new Map();
+
+  [...(Array.isArray(returns) ? returns : []), ...(Array.isArray(refunds) ? refunds : [])]
+    .filter((event) => operationalEventMatchesDiagnosisProduct(event, product, snapshot))
+    .forEach((event, index) => {
+      const identity = getSaleLineIdentity(event);
+      if (!identity || existingSaleKeys.has(identity)) return;
+      const orderDate = toIso(getOrderCohortDate(event, { includeEventDate: true }));
+      if (!orderDate) return;
+      const current = candidateByKey.get(identity) || {
+        id: `derived-sale:${identity}`,
+        orderId: event.orderId || null,
+        lineItemId: event.lineItemId || null,
+        productId: event.productId || product.id || snapshot.productGid || null,
+        createdAt: orderDate,
+        orderDate,
+        orderProcessedAt: toIso(event.orderProcessedAt),
+        orderCreatedAt: toIso(event.orderCreatedAt),
+        quantity: 0,
+        amount: 0,
+        title: event.title || product.title || snapshot.productTitle || "",
+        sku: event.sku || "",
+        variantId: event.variantId || null,
+        variantTitle: event.variantTitle || "",
+        selectedOptions: Array.isArray(event.selectedOptions) ? event.selectedOptions : [],
+        basketLineItems: Array.isArray(event.basketLineItems) ? event.basketLineItems : [],
+        basketFingerprint: "",
+        geography: normalizeSalesEventGeography(event),
+        country: event.country || event.geography?.country || "",
+        countryCode: event.countryCode || event.geography?.countryCode || "",
+        province: event.province || event.geography?.province || "",
+        provinceCode: event.provinceCode || event.geography?.provinceCode || "",
+        city: event.city || event.geography?.city || "",
+        source: "operational_event_derived_sale",
+        derivedFromOperationalEvidence: true,
+        derivedFromOperationalEventIds: [],
+        derivedFromOperationalEventCount: 0,
+      };
+      current.quantity = Math.max(current.quantity, getOperationalEventQuantity(event));
+      current.amount = Math.max(current.amount, Number(event.amount || event.totalRefundedAmount || 0));
+      current.derivedFromOperationalEventCount += 1;
+      current.derivedFromOperationalEventIds.push(event.id || `${event.orderId || "order"}:${index}`);
+      if (!current.variantId && event.variantId) current.variantId = event.variantId;
+      if (!current.variantTitle && event.variantTitle) current.variantTitle = event.variantTitle;
+      if (!current.sku && event.sku) current.sku = event.sku;
+      candidateByKey.set(identity, current);
+    });
+
+  if (!candidateByKey.size) return normalizedSales;
+  return [...normalizedSales, ...candidateByKey.values()]
+    .sort((left, right) => {
+      const leftDate = parseValidDate(left.createdAt || left.orderDate)?.getTime() || 0;
+      const rightDate = parseValidDate(right.createdAt || right.orderDate)?.getTime() || 0;
+      if (leftDate !== rightDate) return leftDate - rightDate;
+      return String(left.id || "").localeCompare(String(right.id || ""));
+    });
+}
+
+function filterDiagnosisEventsForProduct(events = [], product = {}, snapshot = {}) {
+  return (Array.isArray(events) ? events : []).filter((event) => {
+    if (diagnosisEventMatchesProduct(event, product, snapshot)) return true;
+    return !hasStableDiagnosisEventProductIdentifier(event);
+  });
+}
+
+function getSaleLineIdentity(event = {}) {
+  const orderId = String(event.orderId || "").trim();
+  const lineItemId = String(event.lineItemId || event.orderLineItemId || "").trim();
+  if (orderId && lineItemId) return `${orderId}:${lineItemId}`;
+  const productId = String(event.productId || "").trim();
+  const variantId = String(event.variantId || "").trim();
+  if (orderId && productId && variantId) return `${orderId}:${productId}:${variantId}`;
+  if (orderId && productId) return `${orderId}:${productId}`;
+  return "";
+}
+
+function operationalEventMatchesDiagnosisProduct(event = {}, product = {}, snapshot = {}) {
+  return diagnosisEventMatchesProduct(event, product, snapshot);
+}
+
+function diagnosisEventMatchesProduct(event = {}, product = {}, snapshot = {}) {
+  const productIds = new Set([
+    product.id,
+    snapshot.productGid,
+    String(product.numericId || ""),
+    extractNumericShopifyId(product.id),
+    extractNumericShopifyId(snapshot.productGid),
+  ].filter(Boolean).map(String));
+  const eventProductId = String(event.productId || "").trim();
+  if (eventProductId && (productIds.has(eventProductId) || productIds.has(extractNumericShopifyId(eventProductId)))) return true;
+
+  const variantIds = new Set((product.variants || []).flatMap((variant) => [
+    variant.id,
+    variant.numericId,
+    extractNumericShopifyId(variant.id),
+  ]).filter(Boolean).map(String));
+  const eventVariantId = String(event.variantId || "").trim();
+  if (eventVariantId && (variantIds.has(eventVariantId) || variantIds.has(extractNumericShopifyId(eventVariantId)))) return true;
+
+  if (eventProductId || eventVariantId) return false;
+  return false;
+}
+
+function hasStableDiagnosisEventProductIdentifier(event = {}) {
+  return Boolean(event.productId || event.variantId || event.sku);
+}
+
+function buildDiagnosisSalesQuery() {
+  return `#graphql
       query ProductPulseDiagnosisSales($after: String, $query: String!, $ordersFirst: Int!, $lineItemsFirst: Int!) {
-        orders(first: $ordersFirst, after: $after, query: $query) {
+        orders(first: $ordersFirst, after: $after, query: $query, sortKey: PROCESSED_AT, reverse: true) {
           pageInfo {
             hasNextPage
             endCursor
@@ -572,6 +1371,10 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
           nodes {
             id
             createdAt
+            processedAt
+            customer {
+              id
+            }
             lineItems(first: $lineItemsFirst) {
               nodes {
                 id
@@ -582,11 +1385,39 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
                   id
                   handle
                   title
+                  featuredMedia {
+                    preview {
+                      image {
+                        url
+                        altText
+                      }
+                    }
+                  }
+                  media(first: 1) {
+                    nodes {
+                      preview {
+                        image {
+                          url
+                          altText
+                        }
+                      }
+                      ... on MediaImage {
+                        image {
+                          url
+                          altText
+                        }
+                      }
+                    }
+                  }
                 }
                 variant {
                   id
                   title
                   sku
+                  image {
+                    url
+                    altText
+                  }
                   selectedOptions {
                     name
                     value
@@ -601,38 +1432,32 @@ async function fetchShopifySalesEvents({ admin, product, snapshot, windowDays = 
             }
           }
         }
-      }`,
-      {
-        after: cursor,
-        query: `created_at:>=${querySinceDate}`,
-        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
-        lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
-      },
-    );
+      }`;
+}
 
-    (data?.orders?.nodes || []).forEach((order) => {
-      getNodes(order.lineItems).forEach((lineItem) => {
-        if (!lineItemMatchesProduct(lineItem, product, snapshot)) return;
-        events.push({
-          id: lineItem.id,
-          orderId: order.id,
-          createdAt: toIso(order.createdAt),
-          quantity: Number(lineItem.quantity || 0),
-          amount: Number(lineItem.originalTotalSet?.shopMoney?.amount || 0),
-          title: lineItem.title || product.title,
-          sku: lineItem.sku || lineItem.variant?.sku || "",
-          variantId: lineItem.variant?.id || null,
-          variantTitle: lineItem.variant?.title || "",
-          selectedOptions: lineItem.variant?.selectedOptions || [],
-        });
-      });
-    });
+function getShopifyOrderDate(order = {}) {
+  return order?.processedAt || order?.createdAt || order?.updatedAt || null;
+}
 
-    if (!data?.orders?.pageInfo?.hasNextPage) break;
-    cursor = data.orders.pageInfo.endCursor;
-  }
+function normalizeOrderAddressGeography(address = {}) {
+  if (!address || typeof address !== "object") return null;
+  const countryCode = normalizeGeographyCode(address.countryCodeV2 || address.countryCode || address.country_code);
+  const provinceCode = normalizeGeographyCode(address.provinceCode || address.province_code || address.stateCode || address.state_code);
+  const country = truncateText(address.country || address.countryName || "", 80);
+  const province = truncateText(address.province || address.state || address.region || "", 80);
+  const city = truncateText(address.city || "", 80);
+  if (!countryCode && !country && !provinceCode && !province && !city) return null;
+  return {
+    country,
+    countryCode,
+    province,
+    provinceCode,
+    city,
+  };
+}
 
-  return events;
+function normalizeGeographyCode(value = "") {
+  return String(value || "").trim().toUpperCase();
 }
 
 async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
@@ -775,7 +1600,13 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
             events.push({
               id: refundLineItem.id,
               refundId: refund.id,
+              refundLineItemId: refundLineItem.id,
               orderId: order.id,
+              lineItemId: lineItem.id || null,
+              productId: lineItem.product?.id || lineItem.variant?.product?.id || product.id || snapshot.productGid,
+              orderDate: toIso(getShopifyOrderDate(order)),
+              orderProcessedAt: toIso(order.processedAt),
+              orderCreatedAt: toIso(order.createdAt),
               createdAt: toIso(refund.processedAt || refund.createdAt || order.createdAt),
               processedAt: toIso(refund.processedAt || refund.createdAt || order.createdAt),
               updatedAt: toIso(refund.updatedAt || refund.processedAt || refund.createdAt || order.createdAt),
@@ -863,6 +1694,9 @@ function addDiagnosisOrderLevelRefundFallbackEvents({
   const totalRefundedAmount = getDiagnosisOrderLevelRefundAmount(order, refund, lineItems);
   const context = {
     id: refund?.id || `order-refund:${order?.id || ""}`,
+    orderDate: toIso(getShopifyOrderDate(order)),
+    orderProcessedAt: toIso(order?.processedAt),
+    orderCreatedAt: toIso(order?.createdAt),
     createdAt: toIso(refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt),
     processedAt: toIso(refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt),
     updatedAt: toIso(refund?.updatedAt || refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt),
@@ -938,7 +1772,12 @@ function normalizeDiagnosisOrderLevelRefundLineItemEvent(lineItem, refund, produ
     id: `order-level-refund:${refund?.orderId || ""}:${refund?.id || ""}:${lineItem?.id || ""}`,
     refundId: refund?.id || null,
     orderId: refund?.orderId || null,
+    lineItemId: lineItem.id || null,
+    productId: lineItem.product?.id || lineItem.variant?.product?.id || product?.id || null,
     orderName: refund?.orderName || "",
+    orderDate: refund?.orderDate || null,
+    orderProcessedAt: refund?.orderProcessedAt || null,
+    orderCreatedAt: refund?.orderCreatedAt || null,
     createdAt: refund?.createdAt,
     processedAt: refund?.processedAt || refund?.createdAt,
     updatedAt: refund?.updatedAt || refund?.createdAt,
@@ -1033,6 +1872,7 @@ function buildDiagnosisRefundsQuery({ includeVariantProduct = true, includeAdjus
             id
             name
             createdAt
+            processedAt
             updatedAt
             displayFinancialStatus
             totalRefundedSet {
@@ -1281,7 +2121,13 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
             events.push({
               id: returnLineItem.id,
               returnId: itemReturn.id,
+              returnLineItemId: returnLineItem.id,
               orderId: order.id,
+              lineItemId: lineItem.id || null,
+              productId: lineItem.product?.id || product.id || snapshot.productGid,
+              orderDate: toIso(getShopifyOrderDate(order)),
+              orderProcessedAt: toIso(order.processedAt),
+              orderCreatedAt: toIso(order.createdAt),
               createdAt: toIso(itemReturn.createdAt || order.createdAt),
               status: itemReturn.status || "",
               quantity: Number(returnLineItem.quantity || returnLineItem.processedQuantity || returnLineItem.refundedQuantity || 0),
@@ -1339,6 +2185,7 @@ function buildDiagnosisReturnsQuery({ includeReasonDefinition = true, includeVar
           nodes {
             id
             createdAt
+            processedAt
             returns(first: $returnsFirst) {
               nodes {
                 id
@@ -1640,12 +2487,24 @@ async function fetchAndMatchJudgeMeReviews({ shop, token, snapshot, shopifyProdu
   };
 }
 
-function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData = { connected: false, reviews: [], matchConfidence: 0 }, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, momentumCatalogBaseline = null }) {
+function calculateDeterministicDiagnosis({
+  snapshot,
+  shopifyData,
+  judgeMeData,
+  csvReviewData = { connected: false, reviews: [], matchConfidence: 0 },
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  momentumCatalogBaseline = null,
+  taxonomyCategorySuggestions = [],
+  storedReconstructedRiskHistory = [],
+}) {
   const snapshotMetrics = snapshot.metrics || {};
   const previousIncrementalCache = snapshotMetrics.incrementalDiagnosis?.cache || {};
   const previousDetailedDiagnosisAt = snapshotMetrics.lastDetailedDiagnosisAt || snapshotMetrics.latestDiagnosisAt || null;
   const product = shopifyData.product;
   const sales = shopifyData.sales || [];
+  const relationshipSales = Array.isArray(shopifyData.relationshipSales) && shopifyData.relationshipSales.length
+    ? shopifyData.relationshipSales
+    : sales;
   const refunds = shopifyData.refunds || [];
   const returns = shopifyData.returns || [];
   const judgeMeReviews = (judgeMeData.reviews || []).map((review) => normalizeReviewSource(review, "judgeme_review", "Judge.me reviews"));
@@ -1657,6 +2516,7 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const refundUnits = preferFreshNumber(sumBy(refunds, "quantity"), snapshotMetrics.refundUnits);
   const refundAmount = roundCurrency(preferFreshNumber(sumBy(refunds, "amount"), snapshotMetrics.refundAmount));
   const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
+  const orderGeography = buildOrderGeographyRows(sales);
   const monthlyOrderUnits = Number(monthlyOrderActivity?.summary?.totalOrderUnits || 0);
   const soldUnits = Math.max(rawSoldUnits, monthlyOrderUnits, returnUnits, refundUnits);
   const returnRate = calculateUnitRatePercent(returnUnits, soldUnits, snapshotMetrics.returnRate);
@@ -1667,11 +2527,13 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   const negativeReviewCount = negativeReviews.length;
   const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
   const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDate(review.createdAt, 30)).length;
-  const topReturnReasons = countTopValues(returns.flatMap((item) => [item.reason, item.reasonNote, item.customerNote]).filter(Boolean), 4);
+  const topReturnReasons = buildTopReturnReasonDetails(returns, 4);
   const topRefundReasons = countTopValues(refunds
     .map(getRefundReasonText)
     .filter((value) => value && !isDefaultCustomerLanguageTerm(value)), 4);
-  const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
+  const variantInsights = buildDiagnosisVariantInsights({ product, sales, returns, refunds, reviews });
+  const affectedVariants = buildAffectedVariantDetailsFromInsights(variantInsights)
+    || countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const productContentState = resolveProductContentAnalysisState({
     product,
     previousCache: previousIncrementalCache.productContent,
@@ -1698,6 +2560,33 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
   });
   const refundInsights = refundTextState.refundInsights;
   const returnRatePrediction = buildReturnRatePrediction({ sales, returns, refunds, windowDays });
+  const returnRefundRelationshipSummary = buildReturnRefundRelationshipSummary({
+    shop: snapshot.shop,
+    productId: product.id || snapshot.productGid,
+    products: [product],
+    sales,
+    returns,
+    refunds,
+  });
+  const productPurchaseContextSummary = buildProductPurchaseContextSummary({
+    shop: snapshot.shop,
+    productId: product.id || snapshot.productGid,
+    products: [product],
+    sales,
+    returns,
+    refunds,
+    assumeCompleteOrderEvents: false,
+  });
+  const productRelationshipIntelligenceSummary = buildProductRelationshipSummary({
+    shop: snapshot.shop,
+    productId: product.id || snapshot.productGid,
+    products: [product],
+    sales: relationshipSales,
+    returns,
+    refunds,
+    windowDays,
+    assumeCompleteOrderEvents: false,
+  });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
@@ -1817,6 +2706,9 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
     calculationState: "calculated_from_persisted_components",
     windowDays,
+    returnRefundRelationshipSummary,
+    productPurchaseContextSummary,
+    productRelationshipIntelligenceSummary,
   }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
   const riskComponents = scoreModel.riskComponents;
   const riskScore = scoreModel.riskScore;
@@ -1835,6 +2727,8 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
     reviews,
     deterministicContent,
     windowDays,
+    storedReconstructedRiskHistory,
+    momentumCatalogBaseline,
     currentRiskScore: riskScore,
     currentConfidence: confidence,
     currentImpactFactors: estimatedImpact,
@@ -1904,7 +2798,23 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       avgUnitRevenue: estimatedImpact.avgUnitRevenue,
       refundAmount,
       refundInsights,
+      returnRefundRelationshipSummary,
+      productPurchaseContextSummary,
+      productRelationshipIntelligenceSummary,
+      productPurchaseContextFactors: scoreModel.purchaseContextFactors,
+      productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
+      purchaseContextSignalBreakdown: scoreModel.purchaseContextFactors.customerSignalBreakdown,
+      productRelationshipFactors: scoreModel.productRelationshipFactors,
+      productRelationshipScoringImpact: scoreModel.productRelationshipExplanations,
+      returnRefundRelationshipFactors: scoreModel.relationshipFactors,
+      returnRefundScoringImpact: scoreModel.relationshipExplanations,
+      returnPressure: scoreModel.relationshipFactors.returnPressure,
+      refundLeakage: scoreModel.relationshipFactors.refundLeakage,
+      customerSignalBreakdown: scoreModel.relationshipFactors.customerSignalBreakdown,
+      financialExposureBreakdown: scoreModel.relationshipFactors.financialExposure,
+      scoringVersion: scoreModel.scoringVersion,
       monthlyOrderActivity,
+      orderGeography,
       returnRatePrediction,
       productMomentum,
       productMomentumScore: productMomentum.score,
@@ -1929,11 +2839,20 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       handle: product.handle || snapshot.handle,
       productType: product.productType || snapshotMetrics.productType || "",
       vendor: product.vendor || snapshotMetrics.vendor || "",
+      category: normalizeProductCategory(product.category || snapshotMetrics.category),
+      categoryId: normalizeProductCategory(product.category || snapshotMetrics.category).id,
+      categoryName: normalizeProductCategory(product.category || snapshotMetrics.category).name,
+      categoryFullName: normalizeProductCategory(product.category || snapshotMetrics.category).fullName,
+      catalogProductTypes: Array.isArray(momentumCatalogBaseline?.productTypes) ? momentumCatalogBaseline.productTypes : [],
+      catalogVendors: Array.isArray(momentumCatalogBaseline?.vendors) ? momentumCatalogBaseline.vendors : [],
+      taxonomyCategorySuggestions: (Array.isArray(taxonomyCategorySuggestions) ? taxonomyCategorySuggestions : []).slice(0, 8),
       seoTitle: product.seoTitle || snapshotMetrics.seoTitle || "",
       seoDescription: product.seoDescription || snapshotMetrics.seoDescription || "",
       templateSuffix: product.templateSuffix || snapshotMetrics.templateSuffix || "",
       tags: product.tags || [],
       collections: product.collections || [],
+      collectionRecords: product.collectionRecords || [],
+      relationshipCollectionSuggestions: [],
       variantCount: product.variants?.length || Number(snapshotMetrics.variantCount || 0),
       skuCount: (product.variants || []).filter((variant) => variant.sku).length,
       optionNames: (product.options || []).map((option) => option.name).filter(Boolean),
@@ -1963,10 +2882,12 @@ function calculateDeterministicDiagnosis({ snapshot, shopifyData, judgeMeData, c
       topRefundReasonDetails: topRefundReasons,
       affectedVariants: affectedVariants.map((item) => item.label),
       affectedVariantDetails: affectedVariants,
+      variantInsights,
       reviewCount,
       negativeReviewCount,
       negativeReviewRate,
       recentNegativeReviewCount,
+      recentNegativeReviewWindowDays: 30,
       judgeMeReviewCount: reviewSourceStats.judgeMe.reviewCount,
       judgeMeNegativeReviewCount: reviewSourceStats.judgeMe.negativeReviewCount,
       judgeMeAverageRating: reviewSourceStats.judgeMe.avgRating,
@@ -2048,12 +2969,55 @@ function buildReconstructedRiskHistory({
   reviews = [],
   deterministicContent,
   windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  storedReconstructedRiskHistory = [],
+  momentumCatalogBaseline = null,
   currentRiskScore,
   currentConfidence,
   currentImpactFactors,
   currentMainIssue,
 } = {}) {
   const now = new Date();
+  const storedHistory = normalizeStoredReconstructedRiskHistory(storedReconstructedRiskHistory);
+  if (storedHistory.length) {
+    const currentPoint = buildReconstructedRiskHistoryPoint({
+      snapshot,
+      shopifyData,
+      judgeMeData,
+      csvReviewData,
+      product,
+      sales,
+      returns,
+      refunds,
+      reviews,
+      deterministicContent,
+      periodEnd: now,
+      granularity: "current",
+      sequence: storedHistory.length + 1,
+      windowDays,
+      now,
+      momentumCatalogBaseline,
+    }) || buildCurrentRiskHistoryFallbackPoint({
+      snapshot,
+      product,
+      currentRiskScore,
+      currentConfidence,
+      currentImpactFactors,
+      currentMainIssue,
+      windowDays,
+      now,
+    });
+    return dedupeRiskHistoryPointsByRecordedAt([
+      ...storedHistory,
+      finalizeCurrentRiskHistoryPoint(currentPoint, {
+        now,
+        currentRiskScore,
+        currentConfidence,
+        currentImpactFactors,
+        currentMainIssue,
+      }),
+    ].filter(Boolean));
+  }
+
   const datedEvents = [...sales, ...returns, ...refunds, ...reviews]
     .map((event) => getRiskHistoryEventDate(event))
     .filter(Boolean)
@@ -2070,7 +3034,7 @@ function buildReconstructedRiskHistory({
       now,
     })];
   }
-  const earliest = datedEvents[0] || new Date(now.getTime() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000);
+  const earliest = getReconstructedRiskHistoryStartDate({ datedEvents, now, windowDays });
   const granularity = chooseReconstructedRiskHistoryGranularity(earliest, now);
   const periodEnds = buildReconstructedRiskHistoryPeriodEnds({ earliest, now, granularity });
   const history = periodEnds
@@ -2090,6 +3054,7 @@ function buildReconstructedRiskHistory({
       sequence: index + 1,
       windowDays,
       now,
+      momentumCatalogBaseline,
     }))
     .filter(Boolean);
 
@@ -2104,27 +3069,67 @@ function buildReconstructedRiskHistory({
     now,
   });
 
-  if (currentPoint) {
-    currentPoint.isCurrent = true;
-    currentPoint.recordedAt = toIso(now);
-    currentPoint.periodEnd = toIso(now);
-    currentPoint.riskScore = Math.round(Number(currentRiskScore ?? currentPoint.riskScore ?? 0));
-    currentPoint.confidence = Math.round(Number(currentConfidence ?? currentPoint.confidence ?? 0));
-    currentPoint.primaryIssue = getHumanIssueLabel(currentMainIssue || currentPoint.primaryIssue || "product_content");
-    currentPoint.metrics = {
-      ...(currentPoint.metrics || {}),
-      calculationState: "current_deep_diagnosis",
-      reconstructedHistory: true,
-    };
-    if (currentImpactFactors) {
-      currentPoint.impactScore = calculateHistoryImpactScore(currentImpactFactors);
-      currentPoint.metrics.marginAtRisk = currentImpactFactors.marginAtRisk || currentPoint.metrics.marginAtRisk || 0;
-      currentPoint.metrics.revenueAtRisk = currentImpactFactors.revenueAtRisk || currentPoint.metrics.revenueAtRisk || 0;
-      currentPoint.metrics.estimatedImpact = currentImpactFactors.estimatedImpact || currentPoint.metrics.estimatedImpact || 0;
-    }
-  }
+  finalizeCurrentRiskHistoryPoint(currentPoint, {
+    now,
+    currentRiskScore,
+    currentConfidence,
+    currentImpactFactors,
+    currentMainIssue,
+  });
 
   return dedupeRiskHistoryPointsByRecordedAt(history.length ? history : [currentPoint].filter(Boolean));
+}
+
+function normalizeStoredReconstructedRiskHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .map((point, index) => {
+      if (!point?.recordedAt && !point?.periodEnd) return null;
+      const recordedAt = parseValidDate(point.recordedAt || point.periodEnd);
+      if (!recordedAt) return null;
+      return {
+        ...point,
+        source: point.source || "full-diagnosis-reconstructed",
+        recordedAt: toIso(recordedAt),
+        periodEnd: point.periodEnd || toIso(recordedAt),
+        isCurrent: false,
+        sequence: Number(point.sequence || point.metrics?.sequence || index + 1),
+        metrics: {
+          ...(point.metrics || {}),
+          reconstructedHistory: true,
+          calculationState: point.metrics?.calculationState || "reconstructed_from_persisted_history",
+        },
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => new Date(first.recordedAt).getTime() - new Date(second.recordedAt).getTime());
+}
+
+function finalizeCurrentRiskHistoryPoint(currentPoint, {
+  now,
+  currentRiskScore,
+  currentConfidence,
+  currentImpactFactors,
+  currentMainIssue,
+} = {}) {
+  if (!currentPoint) return null;
+  currentPoint.isCurrent = true;
+  currentPoint.recordedAt = toIso(now);
+  currentPoint.periodEnd = toIso(now);
+  currentPoint.riskScore = Math.round(Number(currentRiskScore ?? currentPoint.riskScore ?? 0));
+  currentPoint.confidence = Math.round(Number(currentConfidence ?? currentPoint.confidence ?? 0));
+  currentPoint.primaryIssue = getHumanIssueLabel(currentMainIssue || currentPoint.primaryIssue || "product_content");
+  currentPoint.metrics = {
+    ...(currentPoint.metrics || {}),
+    calculationState: "current_deep_diagnosis",
+    reconstructedHistory: true,
+  };
+  if (currentImpactFactors) {
+    currentPoint.impactScore = calculateHistoryImpactScore(currentImpactFactors);
+    currentPoint.metrics.marginAtRisk = currentImpactFactors.marginAtRisk || currentPoint.metrics.marginAtRisk || 0;
+    currentPoint.metrics.revenueAtRisk = currentImpactFactors.revenueAtRisk || currentPoint.metrics.revenueAtRisk || 0;
+    currentPoint.metrics.estimatedImpact = currentImpactFactors.estimatedImpact || currentPoint.metrics.estimatedImpact || 0;
+  }
+  return currentPoint;
 }
 
 function buildReconstructedRiskHistoryPoint({
@@ -2143,6 +3148,7 @@ function buildReconstructedRiskHistoryPoint({
   sequence,
   windowDays,
   now,
+  momentumCatalogBaseline = null,
 }) {
   const snapshotMetrics = snapshot.metrics || {};
   const soldUnits = sumBy(sales, "quantity");
@@ -2158,7 +3164,9 @@ function buildReconstructedRiskHistoryPoint({
   const negativeReviewCount = negativeReviews.length;
   const negativeReviewRate = roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0);
   const recentNegativeReviewCount = negativeReviews.filter((review) => isRecentDateFrom(review.createdAt, 30, periodEnd)).length;
-  const affectedVariants = countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
+  const variantInsights = buildDiagnosisVariantInsights({ product, sales, returns, refunds, reviews });
+  const affectedVariants = buildAffectedVariantDetailsFromInsights(variantInsights)
+    || countTopValues([...returns, ...refunds].map((item) => item.variantTitle || item.sku).filter(Boolean), 4);
   const textInsights = buildCustomerTextInsights({ returns, reviews });
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
   const reviewSourceStats = buildReviewSourceStats(reviews);
@@ -2178,6 +3186,42 @@ function buildReconstructedRiskHistoryPoint({
   const signalCount = customerSignalCount + contentIssueCount;
   const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
   const recentSignalUnits = countRecentSignalEventsFrom(signalEvents, 30, periodEnd);
+  const productId = product?.id || snapshot?.productGid;
+  const pointProducts = product ? [product] : [];
+  const returnRefundRelationshipSummary = buildReturnRefundRelationshipSummary({
+    shop: snapshot?.shop,
+    productId,
+    products: pointProducts,
+    sales,
+    returns,
+    refunds,
+  });
+  const productPurchaseContextSummary = buildProductPurchaseContextSummary({
+    shop: snapshot?.shop,
+    productId,
+    products: pointProducts,
+    sales,
+    returns,
+    refunds,
+    assumeCompleteOrderEvents: false,
+  });
+  const productRelationshipIntelligenceSummary = buildProductRelationshipSummary({
+    shop: snapshot?.shop,
+    productId,
+    products: pointProducts,
+    sales,
+    returns,
+    refunds,
+    windowDays,
+    assumeCompleteOrderEvents: false,
+  });
+  const productMomentum = buildProductMomentum({
+    product,
+    sales,
+    windowDays,
+    catalogBaseline: momentumCatalogBaseline,
+    now: periodEnd,
+  });
   const scoreSentiment = getScoreSentimentInputs(textInsights, refundInsights);
   const scoreModel = calculateProductScoreModel({
     soldUnits,
@@ -2201,6 +3245,7 @@ function buildReconstructedRiskHistoryPoint({
     sourceCoverage,
     signalEvents,
     affectedVariants,
+    variantInsights,
     reviewSourceStats,
     storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
     storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
@@ -2225,6 +3270,9 @@ function buildReconstructedRiskHistoryPoint({
     scoreBreakdownReconstructed: !isCurrentRiskHistoryPoint(periodEnd, now),
     calculationState: isCurrentRiskHistoryPoint(periodEnd, now) ? "current_deep_diagnosis" : "reconstructed_from_deep_diagnosis_events",
     windowDays,
+    returnRefundRelationshipSummary,
+    productPurchaseContextSummary,
+    productRelationshipIntelligenceSummary,
   }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
 
   return {
@@ -2255,15 +3303,39 @@ function buildReconstructedRiskHistoryPoint({
       negativeReviewCount,
       negativeReviewRate,
       recentNegativeReviewCount,
+      recentNegativeReviewWindowDays: 30,
       signalCount,
       customerSignalCount,
       contentIssueCount,
       recentSignalUnits,
+      priorityScore: scoreModel.priorityScore,
+      mainIssueIntensity: scoreModel.priorityScore,
+      evidenceStrengthScore: scoreModel.evidenceStrengthScore,
+      sourceCount: sourceCoverage.length,
+      affectedVariants: affectedVariants.map((item) => item.label),
+      affectedVariantDetails: affectedVariants,
+      variantInsights,
       marginAtRisk: scoreModel.impactFactors.marginAtRisk,
       revenueAtRisk: scoreModel.impactFactors.revenueAtRisk,
       estimatedImpact: scoreModel.impactFactors.estimatedImpact,
       sourceCoverage,
       sourceAgreement,
+      returnRefundRelationshipSummary,
+      productPurchaseContextSummary,
+      productRelationshipIntelligenceSummary,
+      returnRefundRelationshipFactors: scoreModel.relationshipFactors,
+      returnPressure: scoreModel.relationshipFactors.returnPressure,
+      refundLeakage: scoreModel.relationshipFactors.refundLeakage,
+      returnPressureScore: scoreModel.relationshipFactors.returnPressure?.score,
+      refundLeakageScore: scoreModel.relationshipFactors.refundLeakage?.score,
+      productPurchaseContextFactors: scoreModel.purchaseContextFactors,
+      productRelationshipFactors: scoreModel.productRelationshipFactors,
+      scoringVersion: scoreModel.scoringVersion,
+      productMomentum,
+      productMomentumScore: productMomentum.score,
+      productMomentumTier: productMomentum.tier,
+      momentumDirection: productMomentum.direction,
+      momentumConfidence: productMomentum.confidence,
       riskComponents: scoreModel.riskComponents,
       confidenceFactors: scoreModel.confidenceFactors,
     },
@@ -2308,6 +3380,9 @@ function buildCurrentRiskHistoryFallbackPoint({
       reviewCount: Number(snapshotMetrics.reviewCount || 0),
       negativeReviewCount: Number(snapshotMetrics.negativeReviewCount || 0),
       negativeReviewRate: Number(snapshotMetrics.negativeReviewRate || 0),
+      evidenceStrengthScore: Number(snapshotMetrics.evidenceStrengthScore || snapshotMetrics.confidenceFactors?.evidenceStrengthScore || 0),
+      sourceCount: Array.isArray(snapshot?.sourceCoverage || snapshotMetrics.sourceCoverage) ? (snapshot?.sourceCoverage || snapshotMetrics.sourceCoverage).length : 0,
+      sourceCoverage: snapshot?.sourceCoverage || snapshotMetrics.sourceCoverage || [],
       marginAtRisk: Number(currentImpactFactors?.marginAtRisk || snapshotMetrics.marginAtRisk || 0),
       revenueAtRisk: Number(currentImpactFactors?.revenueAtRisk || snapshotMetrics.revenueAtRisk || 0),
       estimatedImpact: Number(currentImpactFactors?.estimatedImpact || snapshotMetrics.estimatedImpact || 0),
@@ -2319,6 +3394,13 @@ function buildCurrentRiskHistoryFallbackPoint({
 function chooseReconstructedRiskHistoryGranularity(earliest, now) {
   const spanDays = Math.max(1, Math.ceil((now.getTime() - earliest.getTime()) / (24 * 60 * 60 * 1000)));
   return spanDays > RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS ? "monthly" : "weekly";
+}
+
+function getReconstructedRiskHistoryStartDate({ datedEvents = [], now = new Date(), windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS } = {}) {
+  const lookbackDays = Math.max(RECONSTRUCTED_RISK_HISTORY_MIN_LOOKBACK_DAYS, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const lookbackStart = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  if (!Array.isArray(datedEvents) || !datedEvents.length) return lookbackStart;
+  return lookbackStart;
 }
 
 function buildReconstructedRiskHistoryPeriodEnds({ earliest, now, granularity }) {
@@ -2380,6 +3462,30 @@ function dedupeRiskHistoryPointsByRecordedAt(history = []) {
   return [...byTimestamp.values()].sort((first, second) => new Date(first.recordedAt).getTime() - new Date(second.recordedAt).getTime());
 }
 
+function withAiPurchaseContextInterpretation(summary, ai) {
+  if (!summary || typeof summary !== "object") return summary;
+  const interpretation = cleanAiStoredInterpretation(
+    ai?.report?.basket_context_interpretation || ai?.report?.basketContextInterpretation,
+  );
+  if (!interpretation) return summary;
+
+  return {
+    ...summary,
+    interpretation,
+    backend_interpretation: interpretation,
+    ai_interpretation: interpretation,
+    interpretation_source: "deep_diagnosis_final_report",
+  };
+}
+
+function cleanAiStoredInterpretation(value) {
+  return String(value || "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
+}
+
 function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
   const semanticDeterministic = applyAiSemanticClassificationToDeterministic(deterministic, ai);
@@ -2426,11 +3532,15 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(scoredDeterministic, sourceIntegritySignals);
   const aiMainIssue = normalizeIssueCode(ai.classification?.main_issue) || scoredDeterministic.mainIssue;
   const contentShouldLead = contentAnalysis.issues.some((issue) => issue.severity === "high") && scoredDeterministic.metrics.customerSignalCount <= 1;
+  const monitoringContentOnly = isLowRiskMonitoringOnlyDiagnosis(scoredDeterministic) && contentAnalysis.issues.length > 0;
+  const evidencePreferredMainIssue = getEvidencePreferredMainIssue(scoredDeterministic, aiMainIssue);
   const mainIssue = sourceIntegrityMode
     ? "review_feed_integrity"
+    : monitoringContentOnly
+    ? "product_content"
     : contentShouldLead
     ? "product_content"
-    : scoredDeterministic.issueSignalCounts[aiMainIssue] ? aiMainIssue : scoredDeterministic.mainIssue;
+    : evidencePreferredMainIssue;
   scoredDeterministic.metrics.faqNeed = analyzeFaqOpportunity({
     mainIssue,
     issueSignalCounts: scoredDeterministic.issueSignalCounts,
@@ -2459,10 +3569,17 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
     runtimeState: scoredDeterministic.metrics.incrementalDiagnosis,
     aiContentGaps: ai.contentGaps,
   });
+  const productPurchaseContextSummary = withAiPurchaseContextInterpretation(
+    scoredDeterministic.metrics.productPurchaseContextSummary,
+    ai,
+  );
   const metrics = {
     ...scoredDeterministic.metrics,
+    productPurchaseContextSummary,
     incrementalDiagnosis,
     aiUsage: ai.aiUsage,
+    chartInterpretations: ai.chartInterpretations || null,
+    productRelationshipAiInsights: ai.relationshipInsights || null,
     diagnosisReport: {
       mainFinding: adjustedMainFinding,
       evidenceSummary: adjustedMainFinding.summary,
@@ -2470,6 +3587,8 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
       issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
       aiModels: ai.modelsUsed,
       aiUsage: ai.aiUsage,
+      chartInterpretations: ai.chartInterpretations || null,
+      relationshipInsights: ai.relationshipInsights || null,
       knownEmotions,
       emergentSentiments,
       checkedSources: buildCheckedSources(semanticDeterministic),
@@ -2506,6 +3625,7 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       issues: payload.issues,
       evidence: payload.evidence,
       recommendations: payload.recommendations,
+      metrics: payload.metrics,
       creditsConsumed: 1,
       completedAt: new Date(),
     },
@@ -2539,13 +3659,18 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
     recordWatchlistScanActivities(shop, [updatedSnapshot], { source: "full-diagnosis", jobId }),
   ]);
 
-  await prisma.productAction.create({
+  await Promise.all([
+    recordTimelineForDiagnosis({ shop, snapshot: updatedSnapshot, diagnosis, jobId }),
+    recordTimelineForLatestScoreSnapshots(shop, [updatedSnapshot], { source: "full-diagnosis", diagnosisId: diagnosis.id, jobId }),
+  ]);
+
+  const actionRecord = await prisma.productAction.create({
     data: {
       shop,
       diagnosisId: diagnosis.id,
       productGid: snapshot.productGid,
       actionType: "run-ai-diagnosis",
-      label: "Run AI Product Diagnosis",
+      label: "Run Product Diagnosis",
       status: "applied",
       payload: {
         diagnosisId: diagnosis.id,
@@ -2557,17 +3682,285 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       appliedAt: new Date(),
     },
   });
+  await recordTimelineForProductAction({ shop, snapshot: updatedSnapshot, actionRecord });
 
   return diagnosis;
+}
+
+async function calculateAndAttachProductRetentionForDiagnosis({
+  shop,
+  jobId,
+  admin,
+  snapshot,
+  diagnosis,
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+  retentionPreview = null,
+}) {
+  if (!diagnosis?.id || !snapshot?.productGid) return null;
+  try {
+    const lookbackDays = Math.max(PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS, Number(windowDays || 0));
+    const includeTestOrders = shouldIncludeTestOrdersForProductRetention(snapshot);
+    const canReusePreviewOrders = retentionPreview
+      && Array.isArray(retentionPreview.orders)
+      && retentionPreview.fetchStats?.truncated !== true
+      && retentionPreview.status !== "failed";
+    const result = await calculateProductRetentionMetrics({
+      shopId: shop,
+      productGid: snapshot.productGid,
+      diagnosisId: diagnosis.id,
+      admin,
+      jobId,
+      asOfDate: diagnosis.completedAt || new Date(),
+      lookbackDays,
+      maxCohortAgeDays: PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS,
+      includeTestOrders,
+      orders: canReusePreviewOrders ? retentionPreview.orders : null,
+      timezone: canReusePreviewOrders ? retentionPreview.timezone : "",
+      currency: canReusePreviewOrders ? retentionPreview.currency : "",
+      windowStartDate: canReusePreviewOrders ? retentionPreview.windowStartDate : null,
+      windowEndDate: canReusePreviewOrders ? retentionPreview.windowEndDate : null,
+    });
+    await attachProductRetentionPayloadToDiagnosis({
+      shopId: shop,
+      productGid: snapshot.productGid,
+      diagnosisId: diagnosis.id,
+      payload: result.payload,
+    });
+    return result;
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_retention.attach_failed",
+      message: "Product retention payload could not be attached to the diagnosis; the diagnosis remains completed.",
+      data: { productGid: snapshot.productGid, diagnosisId: diagnosis.id, error: serializeError(error) },
+    });
+    return null;
+  }
+}
+
+async function calculateProductRetentionPreviewForDiagnosis({
+  shop,
+  jobId,
+  admin,
+  snapshot,
+  windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
+}) {
+  if (!snapshot?.productGid) return null;
+  const lookbackDays = Math.max(PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS, Number(windowDays || 0));
+  const includeTestOrders = shouldIncludeTestOrdersForProductRetention(snapshot);
+  return calculateProductRetentionPreview({
+    shopId: shop,
+    productGid: snapshot.productGid,
+    admin,
+    jobId,
+    asOfDate: new Date(),
+    lookbackDays,
+    maxCohortAgeDays: PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS,
+    includeTestOrders,
+  });
+}
+
+function attachProductRetentionPreviewToDeterministic(deterministic = {}, payload = null) {
+  if (!payload?.summary) return deterministic;
+  return {
+    ...deterministic,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      productRetention: payload,
+      productRetentionSummary: payload.summary || null,
+    },
+  };
+}
+
+function shouldIncludeTestOrdersForProductRetention(snapshot) {
+  const title = String(snapshot?.productTitle || snapshot?.title || "").trim().toUpperCase();
+  const handle = String(snapshot?.handle || snapshot?.productHandle || "").trim().toLowerCase();
+  return title.startsWith("GEN ") && handle.startsWith("gen-");
+}
+
+async function ensureProductRelationshipCandidateSnapshots({
+  shop,
+  jobId,
+  sourceSnapshot,
+  relationshipSummary,
+} = {}) {
+  const payloads = buildProductRelationshipCandidateSnapshotPayloads({
+    shop,
+    sourceSnapshot,
+    relationshipSummary,
+  });
+  if (!payloads.length) return { created: 0, updated: 0 };
+
+  try {
+    const productGids = payloads.map((payload) => payload.productGid).filter(Boolean);
+    const existing = await prisma.productRiskSnapshot.findMany({
+      where: { shop, productGid: { in: productGids } },
+      select: {
+        productGid: true,
+        productTitle: true,
+        handle: true,
+        sourceCoverage: true,
+      },
+    });
+    const existingByProductGid = new Map(existing.map((snapshot) => [snapshot.productGid, snapshot]));
+    const missingPayloads = payloads.filter((payload) => !existingByProductGid.has(payload.productGid));
+    const refreshPayloads = payloads.filter((payload) => {
+      const current = existingByProductGid.get(payload.productGid);
+      if (!current) return false;
+      return isUnknownProductLabel(current.productTitle) || (!current.handle && payload.handle);
+    });
+
+    if (missingPayloads.length) {
+      await prisma.productRiskSnapshot.createMany({ data: missingPayloads, skipDuplicates: true });
+    }
+
+    await Promise.all(refreshPayloads.map((payload) => prisma.productRiskSnapshot.update({
+      where: { shop_productGid: { shop, productGid: payload.productGid } },
+      data: {
+        productTitle: payload.productTitle,
+        handle: payload.handle,
+        sourceCoverage: mergeSourceCoverage(existingByProductGid.get(payload.productGid)?.sourceCoverage, payload.sourceCoverage),
+        calculatedAt: new Date(),
+      },
+    })));
+
+    if (missingPayloads.length || refreshPayloads.length) {
+      await recordJobLog({
+        shop,
+        jobId,
+        event: "product_diagnosis.relationship_candidates_persisted",
+        message: "Product relationship intelligence added related Shopify products to ProductPulse candidates.",
+        data: {
+          sourceProductGid: sourceSnapshot?.productGid,
+          createdCandidates: missingPayloads.length,
+          refreshedCandidates: refreshPayloads.length,
+          relatedProducts: payloads.map((payload) => ({
+            productGid: payload.productGid,
+            handle: payload.handle,
+            title: payload.productTitle,
+          })),
+        },
+      });
+    }
+
+    return { created: missingPayloads.length, updated: refreshPayloads.length };
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.relationship_candidates_failed",
+      message: "Product relationship candidates could not be persisted; diagnosis will continue.",
+      data: { error: serializeError(error), sourceProductGid: sourceSnapshot?.productGid },
+    });
+    return { created: 0, updated: 0, error: serializeError(error) };
+  }
+}
+
+function buildProductRelationshipCandidateSnapshotPayloads({
+  shop,
+  sourceSnapshot,
+  relationshipSummary,
+} = {}) {
+  if (!shop || !relationshipSummary || typeof relationshipSummary !== "object") return [];
+  const sourceProductGid = sourceSnapshot?.productGid || relationshipSummary.source_product_id || relationshipSummary.sourceProductId || "";
+  const sourceProductTitle = sourceSnapshot?.productTitle || relationshipSummary.source_product_title || relationshipSummary.sourceProductTitle || "";
+  const discoveredAt = new Date().toISOString();
+  const byProductGid = new Map();
+
+  getProductRelationshipCandidateItems(relationshipSummary).forEach((item) => {
+    const productGid = item.related_product_id || item.relatedProductId || "";
+    if (!productGid || productGid === sourceProductGid) return;
+    const title = item.related_product_title || item.relatedProductTitle || item.title || "";
+    const handle = item.related_product_handle || item.relatedProductHandle || item.handle || "";
+    if (isUnknownProductLabel(title) && !handle) return;
+    const previous = byProductGid.get(productGid);
+    const candidate = {
+      item,
+      productGid,
+      productTitle: isUnknownProductLabel(title) ? "Related Shopify product" : title,
+      handle: handle || String(productGid).split("/").pop() || "related-product",
+      confidence: Math.round(normalizePercentLike(item.confidence || item.confidence_score || 0)),
+      sampleSize: Number(item.sample_size || item.sampleSize || item.co_order_count || item.customer_count || item.order_count || 0),
+    };
+    if (!previous || candidate.sampleSize > previous.sampleSize || candidate.confidence > previous.confidence) {
+      byProductGid.set(productGid, candidate);
+    }
+  });
+
+  return Array.from(byProductGid.values()).map(({ item, productGid, productTitle, handle, confidence, sampleSize }) => ({
+    shop,
+    productGid,
+    productTitle,
+    handle,
+    riskScore: 0,
+    impactScore: 0,
+    confidence,
+    primaryIssue: "Relationship candidate",
+    sourceCoverage: ["Shopify orders", "Product relationship intelligence"],
+    metrics: {
+      relationshipCandidate: true,
+      hasQuickScan: false,
+      signalCount: 0,
+      soldUnits: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+      refundAmount: 0,
+      returnRate: 0,
+      refundRate: 0,
+      revenueAtRisk: 0,
+      marginAtRisk: 0,
+      estimatedImpact: 0,
+      productRelationshipCandidate: {
+        sourceProductGid,
+        sourceProductTitle,
+        discoveredAt,
+        relationshipType: item.relationship_type || item.relationshipType || "",
+        relationshipDirection: item.relationship_direction || item.relationshipDirection || "",
+        timeWindow: item.time_window || item.timeWindow || "",
+        relationshipRate: item.relationship_rate ?? item.relationshipRate ?? item.attach_rate ?? null,
+        attachRate: item.attach_rate ?? item.attachRate ?? null,
+        lift: item.lift ?? null,
+        sampleSize,
+        confidence,
+      },
+    },
+  }));
+}
+
+function getProductRelationshipCandidateItems(summary = {}) {
+  return [
+    ...getNodes(summary.top_bought_together || summary.topBoughtTogether),
+    ...getNodes(summary.top_bought_before || summary.topBoughtBefore),
+    ...getNodes(summary.top_bought_after || summary.topBoughtAfter),
+    ...getNodes(summary.same_order_relationships || summary.sameOrderRelationships),
+    ...getNodes(summary.previous_purchase_relationships || summary.previousPurchaseRelationships),
+    ...getNodes(summary.next_purchase_relationships || summary.nextPurchaseRelationships),
+  ];
+}
+
+function isUnknownProductLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return !normalized || normalized === "unknown product" || normalized === "related product";
+}
+
+function mergeSourceCoverage(current, additional) {
+  return Array.from(new Set([
+    ...getNodes(current),
+    ...getNodes(additional),
+  ].filter(Boolean)));
 }
 
 async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, deterministic, reuseDecision }) {
   const reusableDiagnosis = await findReusableCompletedDiagnosis({ shop, snapshot });
   if (!reusableDiagnosis) return null;
 
-  await persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, reuseDecision });
+  const refreshedSnapshot = await persistNoChangeDiagnosisRefresh({ shop, snapshot, deterministic, reuseDecision });
+  const activitySnapshot = refreshedSnapshot || snapshot;
 
-  const estimatedImpact = Number(snapshot.metrics?.estimatedImpact ?? snapshot.metrics?.impactRange?.mid ?? 0);
+  const estimatedImpact = Number(activitySnapshot.metrics?.estimatedImpact ?? activitySnapshot.metrics?.impactRange?.mid ?? 0);
   const modelsUsed = {
     classification: buildCachedAiModelSummary("signal_classification"),
     emergentSentiment: buildCachedAiModelSummary("emergent_sentiment"),
@@ -2590,9 +3983,9 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     shop,
     jobId,
     event: "product_diagnosis.no_changes_reused",
-    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse reused the previous deep diagnosis without AI calls or credit consumption.",
+    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse refreshed deterministic date-based metrics and reused the previous Product Diagnosis without AI calls or diagnosis credit consumption.",
     data: {
-      productGid: snapshot.productGid,
+      productGid: activitySnapshot.productGid,
       previousDiagnosisId: reusableDiagnosis.id,
       previousCompletedAt: toIso(reusableDiagnosis.completedAt),
       creditsConsumed: 0,
@@ -2609,16 +4002,20 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     },
   });
 
-  await recordWatchlistScanActivities(shop, [snapshot], { source: "full-diagnosis", noChangesReused: true, jobId });
+  await Promise.all([
+    recordProductScoreHistory({ shop, snapshot: activitySnapshot, source: "full-diagnosis-date-refresh", diagnosisId: reusableDiagnosis.id }),
+    recordWatchlistScanActivities(shop, [activitySnapshot], { source: "full-diagnosis", noChangesReused: true, jobId }),
+    recordTimelineForNoChangeDiagnosis({ shop, snapshot: activitySnapshot, diagnosisId: reusableDiagnosis.id, jobId }),
+  ]);
 
   return {
     status: "skipped",
     skipped: true,
     skipReason: "no_changes_since_previous_diagnosis",
-    message: "No product, order, return, refund, review, or source changes were detected. The previous deep diagnosis was reused and no diagnostic credit was consumed.",
+    message: "No product, order, return, refund, review, or source changes were detected. Deterministic date-based metrics were refreshed, the previous Product Diagnosis was reused, and no diagnosis credit was consumed.",
     diagnosisId: reusableDiagnosis.id,
-    riskScore: snapshot.riskScore,
-    confidence: snapshot.confidence,
+    riskScore: activitySnapshot.riskScore,
+    confidence: activitySnapshot.confidence,
     estimatedImpact,
     provider: "cache",
     model: "previous-detailed-diagnosis",
@@ -2655,11 +4052,20 @@ async function findReusableCompletedDiagnosis({ shop, snapshot }) {
   });
 }
 
-async function persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, reuseDecision }) {
+async function persistNoChangeDiagnosisRefresh({ shop, snapshot, deterministic, reuseDecision }) {
+  const data = buildNoChangeDiagnosisRefreshData({ snapshot, deterministic, reuseDecision });
+  return prisma.productRiskSnapshot.update({
+    where: { shop_productGid: { shop, productGid: snapshot.productGid } },
+    data,
+  });
+}
+
+function buildNoChangeDiagnosisRefreshData({ snapshot = {}, deterministic = {}, reuseDecision = {} } = {}) {
   const currentMetrics = deterministic.metrics || {};
   const previousMetrics = snapshot.metrics || {};
   const previousIncremental = previousMetrics.incrementalDiagnosis || {};
   const currentIncremental = currentMetrics.incrementalDiagnosis || {};
+  const refreshedAt = new Date().toISOString();
   const mergedIncremental = {
     ...previousIncremental,
     ...currentIncremental,
@@ -2668,22 +4074,138 @@ async function persistNoChangeDiagnosisCache({ shop, snapshot, deterministic, re
       ...(currentIncremental.cache || {}),
     },
     noChangeReuse: {
-      checkedAt: new Date().toISOString(),
+      checkedAt: refreshedAt,
       reason: reuseDecision.reason,
       matchedBy: reuseDecision.matchedBy,
     },
   };
-
-  await prisma.productRiskSnapshot.update({
-    where: { shop_productGid: { shop, productGid: snapshot.productGid } },
-    data: {
-      metrics: {
-        ...previousMetrics,
-        incrementalDiagnosis: mergedIncremental,
-        lastNoChangeDiagnosisAt: new Date().toISOString(),
-      },
+  const mergedMetrics = {
+    ...previousMetrics,
+    ...pickNoChangeRefreshMetrics(currentMetrics),
+    incrementalDiagnosis: mergedIncremental,
+    latestDiagnosisId: previousMetrics.latestDiagnosisId || null,
+    latestDiagnosisAt: previousMetrics.latestDiagnosisAt || null,
+    lastDetailedDiagnosisAt: previousMetrics.lastDetailedDiagnosisAt || null,
+    lastNoChangeDiagnosisAt: refreshedAt,
+    noChangeRefresh: {
+      checkedAt: refreshedAt,
+      reason: reuseDecision.reason,
+      matchedBy: reuseDecision.matchedBy,
+      creditsConsumed: 0,
+      aiCallsSkipped: true,
+      dateDerivedMetricsRefreshed: true,
     },
-  });
+  };
+  const revenueAtRisk = Number(deterministic.estimatedImpact?.revenueAtRisk ?? currentMetrics.revenueAtRisk ?? previousMetrics.revenueAtRisk ?? 0);
+  const riskScore = clampInteger(snapshot.riskScore ?? deterministic.riskScore, 0, 100);
+  const confidence = clampInteger(deterministic.confidence ?? snapshot.confidence, 0, 100);
+  const primaryIssue = snapshot.primaryIssue || deterministic.mainIssueLabel || "No primary issue";
+  const sourceCoverage = Array.isArray(deterministic.sourceCoverage) && deterministic.sourceCoverage.length
+    ? deterministic.sourceCoverage
+    : snapshot.sourceCoverage || [];
+
+  return {
+    riskScore,
+    impactScore: Math.min(100, Math.max(0, Math.round(revenueAtRisk / 100))),
+    confidence,
+    primaryIssue,
+    sourceCoverage,
+    metrics: mergedMetrics,
+    calculatedAt: new Date(),
+  };
+}
+
+function pickNoChangeRefreshMetrics(metrics = {}) {
+  const keys = [
+    "returnRate",
+    "refundRate",
+    "reviewRating",
+    "avgRating",
+    "issueCount",
+    "customerSignalCount",
+    "revenueAtRisk",
+    "marginAtRisk",
+    "estimatedImpact",
+    "impactRange",
+    "impactFactors",
+    "priorityScore",
+    "evidenceStrengthScore",
+    "scoreCalculationStatus",
+    "signalCount",
+    "salesAmount",
+    "avgUnitRevenue",
+    "refundAmount",
+    "refundInsights",
+    "returnRefundRelationshipSummary",
+    "productPurchaseContextSummary",
+    "productRelationshipIntelligenceSummary",
+    "productPurchaseContextFactors",
+    "productPurchaseContextScoringImpact",
+    "purchaseContextSignalBreakdown",
+    "productRelationshipFactors",
+    "productRelationshipScoringImpact",
+    "returnRefundRelationshipFactors",
+    "returnRefundScoringImpact",
+    "returnPressure",
+    "refundLeakage",
+    "customerSignalBreakdown",
+    "financialExposureBreakdown",
+    "scoringVersion",
+    "monthlyOrderActivity",
+    "orderGeography",
+    "returnRatePrediction",
+    "productMomentum",
+    "productMomentumScore",
+    "productMomentumTier",
+    "momentumDirection",
+    "momentumConfidence",
+    "momentumConfidenceLabel",
+    "returnUnits",
+    "refundUnits",
+    "soldUnits",
+    "recentSignalUnits",
+    "windowDays",
+    "lastSignalAt",
+    "signalTrend",
+    "trendMeta",
+    "issueSignalTrends",
+    "topReturnReasons",
+    "topReturnReasonDetails",
+    "topRefundReasons",
+    "topRefundReasonDetails",
+    "affectedVariants",
+    "affectedVariantDetails",
+    "variantInsights",
+    "reviewCount",
+    "negativeReviewCount",
+    "negativeReviewRate",
+    "recentNegativeReviewCount",
+    "recentNegativeReviewWindowDays",
+    "judgeMeReviewCount",
+    "judgeMeNegativeReviewCount",
+    "judgeMeAverageRating",
+    "csvReviewCount",
+    "csvNegativeReviewCount",
+    "csvAverageRating",
+    "reviewSourceStats",
+    "judgeMeInternalProductId",
+    "judgeMeMatchConfidence",
+    "csvReviewMatchConfidence",
+    "orderAccessDenied",
+    "sourceCoverage",
+    "productRetention",
+    "productRetentionSummary",
+  ];
+  return keys.reduce((acc, key) => {
+    if (metrics[key] !== undefined) acc[key] = metrics[key];
+    return acc;
+  }, {});
+}
+
+function clampInteger(value, min = 0, max = Number.POSITIVE_INFINITY) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return Math.max(0, Number(min || 0));
+  return Math.round(Math.max(min, Math.min(max, number)));
 }
 
 function buildCachedAiModelSummary(task) {
@@ -2724,6 +4246,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
   const sourceExtractionComplete = sourceChanges.sourceExtractionComplete !== false;
   const sourceFingerprintCompared = Boolean(sourceChanges.previousFingerprint && sourceChanges.currentFingerprint);
   const sourceFingerprintUnchanged = sourceChanges.unchanged === true;
+  const chartInterpretationReuse = getProductChartInterpretationReuseState(previousMetrics, metrics, deterministic);
   const materialComparison = compareMaterialDiagnosisMetrics(previousMetrics, {
     ...metrics,
     riskScore: deterministic.riskScore,
@@ -2733,7 +4256,20 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     marginAtRisk: deterministic.estimatedImpact?.marginAtRisk ?? metrics.marginAtRisk,
   });
   const materialUnchanged = !sourceFingerprintCompared && materialComparison.unchanged;
-  const matchedBy = sourceFingerprintUnchanged ? "source_fingerprint" : materialUnchanged ? "material_metrics" : null;
+  const dateOnlyRefresh = isDateOnlyDiagnosisRefresh({
+    sourceChanges,
+    productContentReused,
+    customerTextUnchanged,
+    refundsUnchanged,
+    noNewAiEvidence,
+  });
+  const matchedBy = sourceFingerprintUnchanged
+    ? "source_fingerprint"
+    : materialUnchanged
+      ? "material_metrics"
+      : dateOnlyRefresh
+        ? "date_derived_metrics"
+        : null;
   const blockers = [
     !hasPreviousCompletedDiagnosis ? "missing_previous_completed_diagnosis" : null,
     !productContentReused ? "product_content_changed_or_not_cached" : null,
@@ -2742,8 +4278,20 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     !sourceExtractionComplete ? "source_extraction_incomplete" : null,
     !noNewAiEvidence ? "new_ai_evidence_snippets_detected" : null,
     !matchedBy ? "source_or_material_metrics_changed" : null,
+    !chartInterpretationReuse.available ? "missing_chart_interpretations" : null,
   ].filter(Boolean);
   const shouldReuse = blockers.length === 0;
+  const recommendationReevaluation = buildRecommendationReevaluationDecision({
+    shouldReuse,
+    blockers,
+    matchedBy,
+    materialComparison,
+    sourceChanges,
+    productContentReused,
+    customerTextUnchanged,
+    refundsUnchanged,
+    noNewAiEvidence,
+  });
 
   return {
     shouldReuse,
@@ -2758,13 +4306,155 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     noNewAiEvidence,
     sourceFingerprintCompared,
     sourceFingerprintUnchanged,
+    dateOnlyRefresh,
     sourceChanges,
     materialComparison,
+    chartInterpretationReuse,
+    recommendationReevaluation,
   };
+}
+
+function buildRecommendationReevaluationDecision({
+  shouldReuse,
+  blockers = [],
+  matchedBy = null,
+  materialComparison = {},
+  sourceChanges = {},
+  productContentReused = false,
+  customerTextUnchanged = false,
+  refundsUnchanged = false,
+  noNewAiEvidence = false,
+} = {}) {
+  const triggers = [...blockers];
+  return {
+    required: !shouldReuse,
+    reason: shouldReuse ? "current_recommendations_remain_current" : "changes_may_affect_recommendations",
+    matchedBy,
+    triggers,
+    sufficientToSkip: shouldReuse && productContentReused && customerTextUnchanged && refundsUnchanged && noNewAiEvidence && Boolean(matchedBy),
+    materialMetricChanges: Array.isArray(materialComparison.changed) ? materialComparison.changed : [],
+    sourceFingerprintChanged: sourceChanges.unchanged === false,
+    policy: [
+      "Reevaluate recommendations when product content changed or was not comparable.",
+      "Reevaluate when new return, refund, review, or customer-text evidence was analyzed.",
+      "Reevaluate when source extraction is incomplete because reuse would be unsafe.",
+      "Reevaluate when source fingerprints or material diagnosis metrics changed.",
+      "Reuse existing recommendations when the only movement is date-window recalculation with no newly fetched source events.",
+      "Reuse existing recommendations only when all concrete sources and material metrics are unchanged.",
+    ],
+  };
+}
+
+function isDateOnlyDiagnosisRefresh({
+  sourceChanges = {},
+  productContentReused = false,
+  customerTextUnchanged = false,
+  refundsUnchanged = false,
+  noNewAiEvidence = false,
+} = {}) {
+  if (sourceChanges.sourceExtractionComplete === false) return false;
+  return Boolean(
+    productContentReused
+      && customerTextUnchanged
+      && refundsUnchanged
+      && noNewAiEvidence
+      && sourceChanges.unchanged === false
+      && isIncrementalSourceFetchWithoutNewEvents(sourceChanges.sourceEventFetch),
+  );
+}
+
+function isIncrementalSourceFetchWithoutNewEvents(sourceEventFetch = {}) {
+  if (!sourceEventFetch || typeof sourceEventFetch !== "object") return false;
+  if (sourceEventFetch.fetchComplete === false) return false;
+  if (sourceEventFetch.mode !== "incremental_fetch") return false;
+  if (!sourceEventFetch.rawFetchedCounts || typeof sourceEventFetch.rawFetchedCounts !== "object") return false;
+  const counts = sourceEventFetch.rawFetchedCounts || {};
+  const knownKeys = ["salesEvents", "refundEvents", "returnEvents"];
+  return knownKeys.every((key) => Number(counts[key] || 0) === 0);
 }
 
 function isIncrementalAnalysisUnchanged(state = {}) {
   return state?.mode === "incremental" && Number(state.analyzedItems || 0) === 0;
+}
+
+function getProductChartInterpretationReuseState(previousMetrics = {}, metrics = {}, deterministic = {}) {
+  const required = hasProductChartInterpretationInputs(metrics, deterministic);
+  if (!required) {
+    return {
+      required: false,
+      available: true,
+      textCount: 0,
+      status: "not_required",
+    };
+  }
+
+  const chartInterpretations = previousMetrics.chartInterpretations || previousMetrics.diagnosisReport?.chartInterpretations || null;
+  const textCount = countStoredProductChartInterpretations(chartInterpretations);
+  return {
+    required: true,
+    available: Boolean(chartInterpretations?.insightVersion) || textCount > 0,
+    textCount,
+    status: chartInterpretations?.status || null,
+    insightVersion: chartInterpretations?.insightVersion || null,
+  };
+}
+
+function hasProductChartInterpretationInputs(metrics = {}, deterministic = {}) {
+  return hasMonthlyOrderActivityForChartInterpretation(metrics.monthlyOrderActivity)
+    || hasReturnRatePredictionForChartInterpretation(metrics.returnRatePrediction)
+    || hasProductRetentionForChartInterpretation(metrics.productRetention || metrics.productRetentionSummary)
+    || hasProductRiskHistoryForChartInterpretation(metrics, deterministic)
+    || hasProductMomentumForChartInterpretation(metrics.productMomentum);
+}
+
+function hasMonthlyOrderActivityForChartInterpretation(activity = null) {
+  const months = Array.isArray(activity?.months) ? activity.months : [];
+  const summary = activity?.summary || {};
+  return months.some((month) => Number(month.orders || month.orderUnits || month.returnedUnits || month.refundedUnits || month.revenue || month.refundAmount || 0) > 0)
+    || Number(summary.totalOrders || summary.totalOrderUnits || summary.totalRevenue || summary.totalReturnedUnits || summary.totalRefundedUnits || summary.totalRefundAmount || 0) > 0;
+}
+
+function hasReturnRatePredictionForChartInterpretation(prediction = null) {
+  const observed = Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [];
+  const forecast = Array.isArray(prediction?.forecastPoints) ? prediction.forecastPoints : [];
+  const summary = prediction?.summary || {};
+  return observed.some((point) => Number(point.orders || point.orderUnits || point.returnedUnits || point.smoothedReturnRate || point.rawReturnRate || 0) > 0)
+    || forecast.some((point) => Number(point.predictedReturnRate || 0) > 0)
+    || Number(summary.totalOrderUnits || summary.totalReturnedUnits || summary.totalReturnRate || summary.forecastNext90ReturnRate || 0) > 0;
+}
+
+function hasProductRetentionForChartInterpretation(retention = null) {
+  const summary = retention?.summary || retention || {};
+  return Boolean(retention?.available)
+    || Number(summary.totalCustomersAnalyzed || summary.totalProductCohortCustomers || summary.retentionHealthScore || summary.productLtv90Cents || summary.productLtv180Cents || 0) > 0
+    || (Array.isArray(retention?.retentionHealthTrend) && retention.retentionHealthTrend.length > 0)
+    || (Array.isArray(retention?.ltvCurve) && retention.ltvCurve.length > 0);
+}
+
+function hasProductRiskHistoryForChartInterpretation(metrics = {}, deterministic = {}) {
+  return (Array.isArray(metrics.reconstructedRiskHistory) && metrics.reconstructedRiskHistory.length > 0)
+    || (Array.isArray(metrics.riskHistory) && metrics.riskHistory.length > 0)
+    || Number.isFinite(Number(deterministic.riskScore ?? metrics.riskScore ?? metrics.riskComponents?.riskScore));
+}
+
+function hasProductMomentumForChartInterpretation(momentum = null) {
+  const inputs = momentum?.inputs || {};
+  const weeklyUnits = Array.isArray(inputs.weeklyUnitsLast4Weeks) ? inputs.weeklyUnitsLast4Weeks : [];
+  return Boolean(momentum)
+    && (Number.isFinite(Number(momentum.score))
+      || weeklyUnits.some((value) => Number(value || 0) > 0)
+      || Number(inputs.unitsLast30Days || inputs.revenueLast30Days || 0) > 0);
+}
+
+function countStoredProductChartInterpretations(chartInterpretations = null) {
+  const raw = chartInterpretations?.interpretations
+    || chartInterpretations?.chart_interpretations
+    || chartInterpretations?.chartInterpretations
+    || {};
+  return Object.values(raw).filter((entry) => {
+    const text = typeof entry === "string" ? entry : entry?.text || entry?.summary || entry?.interpretation || "";
+    return String(text || "").trim().length > 0;
+  }).length;
 }
 
 function compareMaterialDiagnosisMetrics(previousMetrics = {}, currentMetrics = {}) {
@@ -2814,6 +4504,7 @@ function compareMaterialDiagnosisMetrics(previousMetrics = {}, currentMetrics = 
     "topReturnReasonDetails",
     "topRefundReasonDetails",
     "affectedVariantDetails",
+    "orderGeography",
     "sourceCoverage",
     "reviewSourceStats",
   ].forEach((key) => {
@@ -2843,6 +4534,7 @@ function buildAiProductInput(product, snapshot) {
     templateSuffix: product.templateSuffix || "",
     vendor: product.vendor || "",
     productType: product.productType || "",
+    category: normalizeProductCategory(product.category),
     tags: product.tags || [],
     options: product.options || [],
     variants: (product.variants || []).slice(0, 100).map((variant) => ({
@@ -2924,11 +4616,253 @@ function buildAiDeterministicInput(deterministic) {
       topReturnReasons: deterministic.metrics.topReturnReasons,
       topRefundReasons: deterministic.metrics.topRefundReasons,
       affectedVariants: deterministic.metrics.affectedVariants,
+      variantInsights: deterministic.metrics.variantInsights,
+      orderGeography: deterministic.metrics.orderGeography,
+      monthlyOrderActivity: buildAiMonthlyOrderActivityInput(deterministic.metrics.monthlyOrderActivity),
+      returnRatePrediction: buildAiReturnRatePredictionInput(deterministic.metrics.returnRatePrediction),
+      productRetention: buildAiProductRetentionInput(deterministic.metrics.productRetention),
+      productMomentum: buildAiProductMomentumInput(deterministic.metrics.productMomentum),
+      riskHistory: buildAiRiskHistoryInput(deterministic.metrics.reconstructedRiskHistory || deterministic.metrics.riskHistory),
       windowDays: deterministic.metrics.windowDays,
       orderAccessDenied: deterministic.metrics.orderAccessDenied,
       incrementalDiagnosis: sanitizeIncrementalDiagnosisForAi(deterministic.metrics.incrementalDiagnosis),
     },
   };
+}
+
+function buildAiMonthlyOrderActivityInput(activity = null) {
+  if (!activity) return null;
+  const months = (Array.isArray(activity.months) ? activity.months : [])
+    .slice(-14)
+    .map((month) => ({
+      key: month.key || null,
+      label: month.label || month.key || null,
+      startAt: month.startAt || null,
+      orders: numberOrNull(month.orders),
+      orderUnits: numberOrNull(month.orderUnits),
+      revenue: numberOrNull(month.revenue),
+      returnedOrders: numberOrNull(month.returnedOrders),
+      returnedUnits: numberOrNull(month.returnedUnits),
+      refundedOrders: numberOrNull(month.refundedOrders),
+      refundedUnits: numberOrNull(month.refundedUnits),
+      refundAmount: numberOrNull(month.refundAmount),
+      returnRate: numberOrNull(month.returnRate),
+      refundRate: numberOrNull(month.refundRate),
+      resolvedReturnUnits: numberOrNull(month.resolvedReturnUnits ?? month.returnResolvedUnits ?? month.resolvedReturns),
+      unresolvedReturnUnits: numberOrNull(month.unresolvedReturnUnits ?? month.openReturnUnits ?? month.pendingReturnUnits ?? month.unresolvedReturns),
+    }));
+  const summary = activity.summary || {};
+  const hasActivity = months.some((month) => (
+    Number(month.orders || 0) > 0
+    || Number(month.orderUnits || 0) > 0
+    || Number(month.returnedUnits || 0) > 0
+    || Number(month.refundedUnits || 0) > 0
+    || Number(month.revenue || 0) > 0
+    || Number(month.refundAmount || 0) > 0
+  ));
+
+  return {
+    available: hasActivity,
+    source: activity.source || null,
+    windowDays: numberOrNull(activity.windowDays),
+    generatedAt: activity.generatedAt || null,
+    summary: {
+      totalOrders: numberOrNull(summary.totalOrders),
+      totalOrderUnits: numberOrNull(summary.totalOrderUnits),
+      totalRevenue: numberOrNull(summary.totalRevenue),
+      totalReturnedUnits: numberOrNull(summary.totalReturnedUnits),
+      totalRefundedUnits: numberOrNull(summary.totalRefundedUnits),
+      totalRefundAmount: numberOrNull(summary.totalRefundAmount),
+      returnRate: numberOrNull(summary.returnRate),
+      refundRate: numberOrNull(summary.refundRate),
+    },
+    months,
+  };
+}
+
+function buildAiReturnRatePredictionInput(prediction = null) {
+  if (!prediction) return null;
+  const observedPoints = (Array.isArray(prediction.observedPoints) ? prediction.observedPoints : [])
+    .slice(-18)
+    .map((point) => ({
+      key: point.key || null,
+      label: point.label || point.key || null,
+      startAt: point.startAt || null,
+      orders: numberOrNull(point.orders),
+      orderUnits: numberOrNull(point.orderUnits),
+      returnedOrders: numberOrNull(point.returnedOrders),
+      returnedUnits: numberOrNull(point.returnedUnits),
+      rawReturnRate: numberOrNull(point.rawReturnRate),
+      smoothedReturnRate: numberOrNull(point.smoothedReturnRate ?? point.rawReturnRate),
+    }));
+  const forecastPoints = (Array.isArray(prediction.forecastPoints) ? prediction.forecastPoints : [])
+    .slice(0, 14)
+    .map((point) => ({
+      key: point.key || null,
+      label: point.label || point.key || null,
+      startAt: point.startAt || null,
+      predictedReturnRate: numberOrNull(point.predictedReturnRate),
+      basePredictedReturnRate: numberOrNull(point.basePredictedReturnRate),
+      baselineReturnRate: numberOrNull(point.baselineReturnRate),
+      seasonalReturnRate: numberOrNull(point.seasonalReturnRate),
+      lowerBound: numberOrNull(point.lowerBound),
+      upperBound: numberOrNull(point.upperBound),
+    }));
+  const summary = prediction.summary || {};
+  const actionAdjustment = prediction.actionAdjustment || {};
+  const hasPrediction = observedPoints.some((point) => (
+    Number(point.orders || 0) > 0
+    || Number(point.orderUnits || 0) > 0
+    || Number(point.returnedUnits || 0) > 0
+    || point.smoothedReturnRate != null
+  )) || forecastPoints.some((point) => point.predictedReturnRate != null);
+
+  return {
+    available: hasPrediction,
+    source: prediction.source || null,
+    granularity: prediction.granularity || "weekly",
+    windowDays: numberOrNull(prediction.windowDays),
+    generatedAt: prediction.generatedAt || null,
+    summary: {
+      totalOrderUnits: numberOrNull(summary.totalOrderUnits),
+      totalReturnedUnits: numberOrNull(summary.totalReturnedUnits),
+      totalReturnRate: numberOrNull(summary.totalReturnRate),
+      last30DayReturnRate: numberOrNull(summary.last30DayReturnRate),
+      last60DayReturnRate: numberOrNull(summary.last60DayReturnRate),
+      forecastNext90ReturnRate: numberOrNull(summary.forecastNext90ReturnRate),
+      confidence: summary.confidence || null,
+    },
+    actionAdjustment: {
+      adjustmentPoints: numberOrNull(actionAdjustment.adjustmentPoints),
+      uncertaintyLift: numberOrNull(actionAdjustment.uncertaintyLift),
+      applied: numberOrNull(actionAdjustment.applied),
+      reviewed: numberOrNull(actionAdjustment.reviewed),
+      dismissed: numberOrNull(actionAdjustment.dismissed),
+      pending: numberOrNull(actionAdjustment.pending),
+      total: numberOrNull(actionAdjustment.total),
+    },
+    observedPoints,
+    forecastPoints,
+  };
+}
+
+function buildAiProductRetentionInput(retention = null) {
+  const summary = retention?.summary || null;
+  if (!summary) return null;
+  const healthScore = numberOrNull(summary.retentionHealthScore);
+  const repeat90 = numberOrNull(summary.repeatPurchaseRate90d);
+  const same90 = numberOrNull(summary.sameProductRepurchaseRate90d);
+  const crossSell90 = numberOrNull(summary.crossSellRetentionRate90d);
+  const ltv90Cents = numberOrNull(summary.productLtv90Cents);
+  const ltvDeltaCents = numberOrNull(summary.ltv90DeltaCents);
+  const customers = Number(summary.totalCustomersAnalyzed || 0);
+  const hasEnoughData = Boolean(summary.hasEnoughData);
+  const opportunitySignals = [];
+  if (hasEnoughData && healthScore != null && healthScore >= 75) opportunitySignals.push("strong_retention_health");
+  if (hasEnoughData && healthScore != null && healthScore <= 45) opportunitySignals.push("weak_retention_health");
+  if (hasEnoughData && repeat90 != null && repeat90 >= 0.30) opportunitySignals.push("high_repeat_purchase");
+  if (hasEnoughData && repeat90 != null && repeat90 <= 0.05) opportunitySignals.push("low_repeat_purchase");
+  if (hasEnoughData && same90 != null && same90 >= 0.18) opportunitySignals.push("same_product_repurchase");
+  if (hasEnoughData && crossSell90 != null && crossSell90 >= 0.20) opportunitySignals.push("cross_sell_retention");
+  if (hasEnoughData && ltvDeltaCents != null && Math.abs(ltvDeltaCents) >= Math.max(500, Math.abs(Number(ltv90Cents || 0)) * 0.08)) {
+    opportunitySignals.push(ltvDeltaCents > 0 ? "ltv_improving" : "ltv_declining");
+  }
+
+  return {
+    available: customers > 0 || Boolean(retention.run),
+    hasEnoughData,
+    lowSampleWarning: Boolean(summary.lowSampleWarning),
+    shouldMention: opportunitySignals.length > 0,
+    opportunitySignals,
+    rateScale: "fraction_0_to_1",
+    repeatPurchaseRate90d: repeat90,
+    repeatPurchaseRate180d: numberOrNull(summary.repeatPurchaseRate180d),
+    sameProductRepurchaseRate90d: same90,
+    crossSellRetentionRate90d: crossSell90,
+    returningRevenueShare: numberOrNull(summary.returningRevenueShare),
+    medianDaysToSecondPurchase: numberOrNull(summary.medianDaysToSecondPurchase),
+    productLtv90Cents: ltv90Cents,
+    productLtv180Cents: numberOrNull(summary.productLtv180Cents),
+    retentionHealthScore: healthScore,
+    repeatPurchaseRate90dDelta: numberOrNull(summary.repeatPurchaseRate90dDelta),
+    sameProductRepurchaseRate90dDelta: numberOrNull(summary.sameProductRepurchaseRate90dDelta),
+    ltv90DeltaCents: ltvDeltaCents,
+    totalProductCohortCustomers: customers,
+    totalProductOrdersAnalyzed: Number(summary.totalProductOrdersAnalyzed || 0),
+    trend: (Array.isArray(retention.retentionHealthTrend) ? retention.retentionHealthTrend : [])
+      .slice(-8)
+      .map((point) => ({
+        date: point.date || null,
+        retentionHealthScore: numberOrNull(point.retentionHealthScore),
+        repeatPurchaseRate90d: numberOrNull(point.repeatPurchaseRate90d),
+        productLtv90Cents: numberOrNull(point.productLtv90Cents),
+      })),
+  };
+}
+
+function buildAiProductMomentumInput(momentum = null) {
+  if (!momentum) return null;
+  const inputs = momentum.inputs || {};
+  const weeklyUnits = Array.isArray(inputs.weeklyUnitsLast4Weeks)
+    ? inputs.weeklyUnitsLast4Weeks.slice(-4).map((value) => Number(value || 0))
+    : [];
+
+  return {
+    available: Boolean(
+      numberOrNull(momentum.score) != null
+      || weeklyUnits.some((value) => value > 0)
+      || Number(inputs.unitsLast30Days || 0) > 0
+      || Number(inputs.revenueLast30Days || 0) > 0
+    ),
+    score: numberOrNull(momentum.score),
+    tier: momentum.tier || null,
+    direction: momentum.direction || null,
+    confidence: numberOrNull(momentum.confidence),
+    confidenceLabel: momentum.confidenceLabel || null,
+    display: {
+      trendLabel: momentum.display?.trendLabel || null,
+      growthLabel: momentum.display?.growthLabel || null,
+      growthPercent: numberOrNull(momentum.display?.growthPercent),
+      catalogPositionLabel: momentum.display?.catalogPositionLabel || null,
+    },
+    components: {
+      currentVelocityScore: numberOrNull(momentum.components?.currentVelocityScore),
+      growthScore: numberOrNull(momentum.components?.growthScore),
+      catalogShareScore: numberOrNull(momentum.components?.catalogShareScore),
+      trendConsistencyScore: numberOrNull(momentum.components?.trendConsistencyScore),
+      recencyScore: numberOrNull(momentum.components?.recencyScore),
+    },
+    inputs: {
+      unitsLast7Days: numberOrNull(inputs.unitsLast7Days),
+      unitsLast30Days: numberOrNull(inputs.unitsLast30Days),
+      unitsPrevious30Days: numberOrNull(inputs.unitsPrevious30Days),
+      revenueLast30Days: numberOrNull(inputs.revenueLast30Days),
+      weeklyUnitsLast4Weeks: weeklyUnits,
+      lastSaleAt: inputs.lastSaleAt || null,
+    },
+  };
+}
+
+function buildAiRiskHistoryInput(history = []) {
+  if (!Array.isArray(history)) return [];
+  return history.slice(-16).map((point, index) => {
+    const metrics = point.metrics || {};
+    return {
+      label: point.label || point.recordedAt || point.calculatedAt || `Point ${index + 1}`,
+      recordedAt: point.recordedAt || point.calculatedAt || point.completedAt || null,
+      riskScore: numberOrNull(point.riskScore ?? metrics.riskScore),
+      confidence: numberOrNull(point.confidence ?? metrics.confidence),
+      returnRate: numberOrNull(point.returnRate ?? metrics.returnRate),
+      refundRate: numberOrNull(point.refundRate ?? metrics.refundRate),
+      returnUnits: numberOrNull(point.returnUnits ?? metrics.returnUnits),
+      refundUnits: numberOrNull(point.refundUnits ?? metrics.refundUnits),
+      negativeReviewCount: numberOrNull(point.negativeReviewCount ?? metrics.negativeReviewCount),
+      reviewCount: numberOrNull(point.reviewCount ?? metrics.reviewCount),
+      avgRating: numberOrNull(point.avgRating ?? point.averageRating ?? metrics.avgRating ?? metrics.averageRating),
+      refundAmount: numberOrNull(point.refundAmount ?? metrics.refundAmount),
+      productMomentumScore: numberOrNull(point.productMomentumScore ?? metrics.productMomentumScore),
+    };
+  });
 }
 
 function buildAiIncrementalDiagnosisInput(deterministic = {}) {
@@ -2958,7 +4892,7 @@ function sanitizeIncrementalDiagnosisForAi(incremental = null) {
     sourceEvents: incremental.sourceEvents || null,
     aiEvidenceSnippetCount: incremental.aiEvidenceSnippetCount || 0,
     note: incremental.mode === "incremental"
-      ? "Evidence snippets contain only newly changed evidence since the previous deep diagnosis. Aggregated deterministic metrics include reused prior analysis plus new analysis."
+      ? "Evidence snippets contain only newly changed evidence since the previous Product Diagnosis. Aggregated deterministic metrics include reused prior analysis plus new analysis."
       : "This diagnosis analyzed the available product data for the configured window.",
   };
 }
@@ -2995,7 +4929,16 @@ function applyAiSemanticClassificationToDeterministic(deterministic = {}, ai = {
     Number(deterministic.metrics?.signalCount || 0),
     customerSignalCount + Number(deterministic.metrics?.contentIssueCount || 0),
   );
-  const mainIssue = getMainIssueFromCounts(nextIssueSignalCounts, ai.classification?.main_issue || deterministic.mainIssue);
+  const mainIssue = getEvidencePreferredMainIssue({
+    ...deterministic,
+    issueSignalCounts: nextIssueSignalCounts,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      textInsights: nextTextInsights,
+      customerSignalCount,
+      signalCount,
+    },
+  }, getMainIssueFromCounts(nextIssueSignalCounts, ai.classification?.main_issue || deterministic.mainIssue));
 
   return {
     ...deterministic,
@@ -3013,6 +4956,7 @@ function applyAiSemanticClassificationToDeterministic(deterministic = {}, ai = {
         issueSignalCounts: semantic.issueSignalCounts,
         customerIssueSignalCounts: semantic.customerIssueSignalCounts,
         dominantIssue: mainIssue,
+        actionGuidance: semantic.actionGuidance,
       },
       customerSignalCount,
       signalCount,
@@ -3042,6 +4986,7 @@ function buildAiSemanticClassificationSummary(ai = {}) {
     .filter(Boolean);
   const subjectiveSignals = customerSignals.filter((signal) => signal.issueCode === "subjective_negative_reaction" && signal.sentiment === "negative");
   const otherReturnClassifications = summarizeAiOtherReturnClassifications(customerSignals);
+  const actionGuidance = normalizeAiActionGuidance(ai.classification?.action_guidance);
 
   return {
     hasSignals: Boolean(classifiedSignals.length || repeatedLanguage.length || Array.isArray(ai.classification?.clusters) && ai.classification.clusters.length),
@@ -3061,8 +5006,69 @@ function buildAiSemanticClassificationSummary(ai = {}) {
       examples: subjectiveSignals.slice(0, 4).map((signal) => truncateText(signal.text, 180)),
     },
     otherReturnClassifications,
+    actionGuidance,
     summary: ai.classification?.sentiment_summary || {},
   };
+}
+
+function normalizeAiActionGuidance(value = {}) {
+  if (!value || typeof value !== "object") return null;
+  const issueNature = normalizeAiActionGuidanceEnum(value.issue_nature || value.issueNature, [
+    "operational_quality",
+    "subjective_expectation",
+    "content_gap",
+    "relationship_expectation",
+    "source_integrity",
+    "commercial_opportunity",
+    "monitor_only",
+    "unclear",
+  ], "unclear");
+  const subjectivityLevel = normalizeAiActionGuidanceEnum(value.subjectivity_level || value.subjectivityLevel, ["low", "medium", "high"], "medium");
+  const operationalQualityConfidence = normalizeAiActionGuidanceEnum(value.operational_quality_confidence || value.operationalQualityConfidence, ["low", "medium", "high"], "low");
+  const shopperExpectationConfidence = normalizeAiActionGuidanceEnum(value.shopper_expectation_confidence || value.shopperExpectationConfidence, ["low", "medium", "high"], "medium");
+  const primaryActionFamily = normalizeAiActionGuidanceEnum(value.primary_action_family || value.primaryActionFamily, ACTION_GUIDANCE_FAMILIES, "");
+  const recommendedActionFamilies = normalizeAiActionFamilies(value.recommended_action_families || value.recommendedActionFamilies);
+  const blockedActionFamilies = normalizeAiActionFamilies(value.blocked_action_families || value.blockedActionFamilies);
+  const shouldEscalateQa = value.should_escalate_qa === true || value.shouldEscalateQa === true;
+  return {
+    issueNature,
+    subjectivityLevel,
+    operationalQualityConfidence,
+    shopperExpectationConfidence,
+    shouldEscalateQa,
+    qaReason: truncateText(value.qa_reason || value.qaReason || "", 260),
+    primaryActionFamily,
+    recommendedActionFamilies,
+    blockedActionFamilies,
+    rationale: truncateText(value.rationale || value.reason || "", 320),
+  };
+}
+
+const ACTION_GUIDANCE_FAMILIES = [
+  "description_update",
+  "faq",
+  "specs_block",
+  "media_context",
+  "qa_review",
+  "variant_review",
+  "source_integrity",
+  "workflow_only",
+  "monitor",
+  "inventory_hold",
+  "status_change",
+];
+
+function normalizeAiActionGuidanceEnum(value = "", allowed = [], fallback = "") {
+  const normalized = String(value || "").toLowerCase().replace(/[-\s]+/g, "_").trim();
+  return allowed.includes(normalized) ? normalized : fallback;
+}
+
+function normalizeAiActionFamilies(values = []) {
+  const list = Array.isArray(values) ? values : String(values || "").split(/[,|]/);
+  return uniqueBy(
+    list.map((value) => normalizeAiActionGuidanceEnum(value, ACTION_GUIDANCE_FAMILIES, "")).filter(Boolean),
+    String,
+  ).slice(0, 8);
 }
 
 function normalizeAiClassifiedSignals(signals = []) {
@@ -3342,11 +5348,16 @@ function buildRuleRecommendationCandidates(deterministic) {
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, issue);
   const faqNeed = deterministic.metrics?.faqNeed || {};
   const recipeSignals = getRecommendationRecipeSignals(deterministic);
+  const contentIssues = getActionableContentIssues(deterministic.metrics || {});
+  const lowRiskMonitoringOnly = isLowRiskMonitoringOnlyDiagnosis(deterministic);
+  const canSurfaceCustomerFacingCandidate = !lowRiskMonitoringOnly
+    || hasMaterialCustomerProblemEvidence(deterministic)
+    || hasCriticalContentIssue(contentIssues);
   const candidates = [];
   if (issue === "fit_sizing" && hasActionableMainIssue) {
     candidates.push({ id: "draft-fit-note", type: "PDP copy", reason: "Fit or size language appears in returns/reviews." });
   }
-  if (faqNeed.shouldRecommend) {
+  if (faqNeed.shouldRecommend && canSurfaceCustomerFacingCandidate) {
     candidates.push({
       id: "create-product-faq",
       type: "FAQ",
@@ -3358,18 +5369,20 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (issue === "color_expectation" && hasActionableMainIssue) candidates.push({ id: "draft-color-expectation-note", type: "PDP copy", reason: "Customers mention color expectation mismatch." });
   if (issue === "safety_concern" && hasActionableMainIssue) candidates.push({ id: "draft-safety-expectation-note", type: "PDP copy", reason: "Customer return text expresses fear, safety concern, or discomfort." });
   if (issue === "subjective_negative_reaction" && hasActionableMainIssue) candidates.push({ id: "draft-subjective-expectation-note", type: "PDP copy", reason: "Repeated subjective negative customer language is present." });
+  if (issue === "setup_expectation" && hasActionableMainIssue) candidates.push({ id: "improve-setup-guidance", type: "PDP copy", reason: "Setup or expectation mismatch signals were detected." });
   if ((issue === "quality_defect" || issue === "durability") && hasActionableMainIssue) candidates.push({ id: "draft-quality-note", type: "PDP copy", reason: "Quality or durability signals were detected." });
   if (deterministic.metrics.affectedVariants.length && (deterministic.metrics.returnUnits + deterministic.metrics.refundUnits) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-affected-variants", type: "Workflow", reason: "Signals are concentrated in specific variants." });
   if (deterministic.metrics.topReturnReasons.length && deterministic.metrics.returnUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-return-reasons", type: "Workflow", reason: "Return reasons are available and repeated." });
   if (deterministic.metrics.refundInsights?.shouldSurface) candidates.push({ id: "review-refund-impact", type: "Workflow", reason: "Refund rate, refund value or refund notes indicate operational refund pressure." });
   if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) candidates.push({ id: "review-negative-reviews", type: "Workflow", reason: "Connected negative review text is available." });
-  if (deterministic.metrics.contentIssueCount > 0) {
-    const contentIssues = Array.isArray(deterministic.metrics.contentIssues) ? deterministic.metrics.contentIssues : [];
+  if (deterministic.metrics.contentIssueCount > 0 && canSurfaceCustomerFacingCandidate) {
     const currentDescription = deterministic.product?.description || "";
     if (shouldRecommendFullDescriptionRewrite({ contentIssues, currentDescription })) {
       candidates.push({ id: "rewrite-product-description", type: "PDP copy", reason: "Product content analysis found missing, short or incoherent product copy." });
     } else if (getDescriptionReplacementsFromContentIssues(contentIssues).length) {
       candidates.push({ id: "correct-product-description", type: "PDP copy", reason: "Product content analysis found a specific contradiction that can be corrected without rewriting the full description." });
+    } else if (buildTargetedDescriptionEnhancementPlan({ currentDescription, contentIssues, product: deterministic.product }).shouldRecommend) {
+      candidates.push({ id: "correct-product-description", type: "PDP copy", reason: "Product content analysis found a partial copy gap that can be handled with a targeted description edit." });
     } else {
       candidates.push({ id: "add-product-description-guidance", type: "PDP copy", reason: "Product content analysis found a specific shopper guidance gap that can be added without rewriting the full description." });
     }
@@ -3389,8 +5402,8 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.mediaOrder.shouldRecommend) candidates.push({ id: "reorder-product-media", type: "Media order", reason: recipeSignals.mediaOrder.reason });
   if (recipeSignals.contextualMedia.shouldRecommend) candidates.push({ id: "add-contextual-media-recommendation", type: "Media guidance", reason: recipeSignals.contextualMedia.reason });
   if (recipeSignals.classification.shouldRecommend) candidates.push({ id: "update-product-classification", type: "Product classification", reason: recipeSignals.classification.reason });
-  if (recipeSignals.structuredMetafields.shouldRecommend) candidates.push({ id: "add-structured-metafields", type: "Product metafield", reason: recipeSignals.structuredMetafields.reason });
-  if (recipeSignals.template.shouldRecommend) candidates.push({ id: "switch-product-template", type: "Product template", reason: recipeSignals.template.reason });
+  if (recipeSignals.structuredMetafields.shouldRecommend && !isDisabledProductAction("add-structured-metafields")) candidates.push({ id: "add-structured-metafields", type: "Product metafield", reason: recipeSignals.structuredMetafields.reason });
+  if (recipeSignals.template.shouldRecommend && !isDisabledProductAction("switch-product-template")) candidates.push({ id: "switch-product-template", type: "Product template", reason: recipeSignals.template.reason });
   if (recipeSignals.sourceMismatch.shouldRecommend) candidates.push({ id: "fix-source-review-mismatch", type: "Source integrity", reason: recipeSignals.sourceMismatch.reason });
   if (recipeSignals.missingSource.shouldRecommend) candidates.push({ id: "connect-missing-source", type: "Source connection", reason: recipeSignals.missingSource.reason });
   if (recipeSignals.monitoringCoverage.shouldRecommend) candidates.push({ id: "improve-monitoring-coverage", type: "Monitoring coverage", reason: recipeSignals.monitoringCoverage.reason });
@@ -3398,7 +5411,16 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.watchlist.shouldRecommend) candidates.push({ id: "add-to-watchlist", type: "Watchlist", reason: recipeSignals.watchlist.reason });
   if (recipeSignals.fullDiagnosis.shouldRecommend) candidates.push({ id: "run-full-diagnosis", type: "Diagnosis", reason: recipeSignals.fullDiagnosis.reason });
   if (recipeSignals.qa.shouldRecommend) candidates.push({ id: "recommend-qa-review", type: "Operational QA", reason: recipeSignals.qa.reason });
-  if (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
+  if (recipeSignals.relationshipCompatibility.shouldRecommend) candidates.push({ id: "review-product-pairing-expectations", type: "Compatibility review", reason: recipeSignals.relationshipCompatibility.reason });
+  if (recipeSignals.relationshipBundle.shouldRecommend) candidates.push({ id: "test-product-bundle", type: "Bundle opportunity", reason: recipeSignals.relationshipBundle.reason });
+  if (recipeSignals.relationshipCrossSell.shouldRecommend) candidates.push({ id: "create-post-purchase-cross-sell", type: "Cross-sell", reason: recipeSignals.relationshipCrossSell.reason });
+  if (recipeSignals.relationshipJourney.shouldRecommend) candidates.push({ id: "position-as-upgrade-path", type: "Journey insight", reason: recipeSignals.relationshipJourney.reason });
+  if (recipeSignals.relationshipCollection.shouldRecommend) candidates.push({ id: "add-to-related-product-collection", type: "Collection merchandising", reason: recipeSignals.relationshipCollection.reason });
+  if (recipeSignals.retentionRepurchaseCampaign.shouldRecommend) candidates.push({ id: "create-repurchase-campaign", type: "Retention campaign", reason: recipeSignals.retentionRepurchaseCampaign.reason });
+  if (recipeSignals.retentionCrossSellCampaign.shouldRecommend) candidates.push({ id: "create-retention-cross-sell-campaign", type: "Lifecycle campaign", reason: recipeSignals.retentionCrossSellCampaign.reason });
+  if (recipeSignals.retentionBundleOffer.shouldRecommend) candidates.push({ id: "test-retention-bundle-offer", type: "Bundle campaign", reason: recipeSignals.retentionBundleOffer.reason });
+  if (recipeSignals.retentionDropReview.shouldRecommend) candidates.push({ id: "review-retention-drop", type: "Retention review", reason: recipeSignals.retentionDropReview.reason });
+  if (!lowRiskMonitoringOnly && (hasActionableMainIssue || deterministic.metrics.contentIssueCount > 0)) candidates.push({ id: "copy-support-note", type: "Internal note", reason: "Support can use a concise product-specific note." });
   return candidates;
 }
 
@@ -3439,7 +5461,8 @@ function analyzeFaqOpportunity({
   const confusionSignals = emotions
     .filter((item) => ["confusion", "uncertainty", "distrust"].includes(normalizeEmotionCode(item.code)))
     .reduce((total, item) => total + Number(item.count || 0), 0);
-  const repeatedFaqLanguage = repeatedLanguage.filter((item) => isFaqRelevantText(item.term));
+  const repeatedFaqLanguage = repeatedLanguage
+    .filter((item) => isFaqRelevantText(item.term) && Number(item.count || 0) >= 2);
   const returnReasonQuestions = (Array.isArray(topReturnReasons) ? topReturnReasons : [])
     .filter((item) => isFaqRelevantText(item.label || item));
 
@@ -3463,11 +5486,11 @@ function analyzeFaqOpportunity({
     });
   }
 
-  if (guidanceIssues.length) {
+  if (guidanceIssues.length >= 2 || (guidanceIssues.length && customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE)) {
     add({
       topic: "Product information",
       reason: `${guidanceIssues.length} product-content gap${guidanceIssues.length === 1 ? "" : "s"} can be answered as FAQ guidance.`,
-      weight: Math.min(3, guidanceIssues.length + 1),
+      weight: Math.min(3, guidanceIssues.length),
       signalCount: guidanceIssues.length,
       source: "Product content",
     });
@@ -3483,7 +5506,7 @@ function analyzeFaqOpportunity({
     });
   }
 
-  if (repeatedFaqLanguage.length) {
+  if (repeatedFaqLanguage.length >= 2 || (repeatedFaqLanguage.length && customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE)) {
     const topTerm = repeatedFaqLanguage[0];
     add({
       topic: getFaqTopicForText(topTerm.term),
@@ -3514,10 +5537,20 @@ function analyzeFaqOpportunity({
     });
   }
 
-  const hasEvidenceThreshold = customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || guidanceIssues.length > 0
-    || Number(reviewCount || 0) >= 4;
-  const shouldRecommend = score >= 3 && hasEvidenceThreshold;
+  const topicCount = topics.size;
+  const sourceCount = sources.size;
+  const hasCustomerEvidence = customerSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || confusionSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || issueSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || repeatedFaqLanguage.reduce((total, item) => total + Number(item.count || 0), 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE;
+  const hasMultiAspectQuestion = topicCount >= 2
+    || sourceCount >= 2
+    || guidanceIssues.length >= 2
+    || repeatedFaqLanguage.length >= 2
+    || returnReasonQuestions.length >= 2;
+  const hasBroadReviewContext = Number(reviewCount || 0) >= 4 && Number(negativeReviewCount || 0) >= 2;
+  const hasEvidenceThreshold = hasCustomerEvidence && (hasMultiAspectQuestion || hasBroadReviewContext);
+  const shouldRecommend = score >= 4 && hasEvidenceThreshold;
 
   return {
     shouldRecommend,
@@ -3527,6 +5560,8 @@ function analyzeFaqOpportunity({
     reasons: reasons.slice(0, 5),
     sourceTypes: Array.from(sources),
     evidenceThreshold: hasEvidenceThreshold ? "met" : "not_met",
+    topicCount,
+    sourceCount,
   };
 }
 
@@ -3564,16 +5599,35 @@ function getFaqTopicForText(value) {
 function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const copy = ai.report?.recommendation_copy || {};
   const actionRationales = getAiActionRationaleMap(ai);
+  const contentCoverage = getAiContentCoverageMap(ai);
   const recommendations = [];
   const issueLabel = getHumanIssueLabel(mainIssue);
   const topReasons = deterministic.metrics.topReturnReasons || [];
   const affectedVariants = deterministic.metrics.affectedVariants || [];
   const recipeSignals = getRecommendationRecipeSignals(deterministic);
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic);
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
-  const pdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
+  const rawPdpCopy = copy.pdp_copy || buildDefaultPdpCopy(snapshot.productTitle, issueLabel, topReasons);
+  const pdpCopy = copy.pdp_copy
+    ? applyAiContentCoverageToText({
+        coverageMap: contentCoverage,
+        id: "pdp_copy",
+        text: rawPdpCopy,
+      })
+    : rawPdpCopy;
+  const aiProductDescription = applyAiContentCoverageToText({
+    coverageMap: contentCoverage,
+    id: "product_description",
+    text: copy.product_description || "",
+  });
+  const aiSpecsBlock = applyAiContentCoverageToText({
+    coverageMap: contentCoverage,
+    id: "specs_details_block",
+    text: copy.specs_details_block || copy.specs_block || "",
+  });
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
-  const currentDescriptionText = deterministic.product?.description || "";
+  const currentDescriptionText = getCurrentProductDescriptionText(deterministic.product);
   const descriptionReplacements = getDescriptionReplacementsFromContentIssues(contentIssues);
   const correctedDescriptionDraft = buildCorrectedDescriptionDraft({
     currentDescription: currentDescriptionText,
@@ -3586,39 +5640,76 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const shouldCorrectDescription = !shouldRewriteDescription
     && descriptionReplacements.length > 0
     && isMeaningfullyDifferentDescription(currentDescriptionText, correctedDescriptionDraft);
+  const targetedDescriptionEnhancement = !shouldRewriteDescription && !shouldCorrectDescription
+    ? buildTargetedDescriptionEnhancementPlan({
+      currentDescription: currentDescriptionText,
+      contentIssues,
+      product: deterministic.product,
+    })
+    : buildEmptyDescriptionEnhancementPlan("A rewrite or correction already covers the content issue.");
   const reviewSections = [];
   const supportNote = copy.support_note || `${snapshot.productTitle}: ${issueLabel}. Review ${topReasons.join(", ") || "stored customer signals"} and watch ${affectedVariants.join(", ") || "all variants"}.`;
   const subjectiveSummary = deterministic.metrics.textInsights?.subjectiveNegativity || {};
+  const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
   const shouldRecommendSubjectiveAction = mainIssue !== "subjective_negative_reaction" || hasActionableSubjectiveEvidence(subjectiveSummary);
   const hasActionableMainIssue = hasActionableIssueEvidence(deterministic, mainIssue);
   const pdpActionId = getPdpActionId(mainIssue);
   const pdpActionLabel = getPdpActionLabel(mainIssue);
+  const focusedRemediationMode = isFocusedRemediationDiagnosis(deterministic, { subjectiveExpectationOnly });
   const canRecommendCustomerFacingCopy = !sourceIntegrityMode;
   const lowRiskMonitoringOnly = isLowRiskMonitoringOnlyDiagnosis(deterministic);
   const materialCustomerProblemEvidence = hasMaterialCustomerProblemEvidence(deterministic);
   const criticalContentIssue = hasCriticalContentIssue(contentIssues);
   const canRecommendCustomerFacingFix = canRecommendCustomerFacingCopy
     && (!lowRiskMonitoringOnly || materialCustomerProblemEvidence || criticalContentIssue);
-  const primaryPdpDescriptionAction = Boolean(canRecommendCustomerFacingFix && hasActionableMainIssue && mainIssue !== "product_content" && shouldRecommendSubjectiveAction && pdpCopy);
-  const shopperGuidanceForDescription = primaryPdpDescriptionAction ? pdpCopy : "";
+  const primaryPdpDescriptionPlan = buildDescriptionCoveragePlan({
+    currentDescription: currentDescriptionText,
+    proposedText: pdpCopy,
+    operation: getPdpCopyPlacement(mainIssue),
+  });
+  const primaryPdpDescriptionAction = Boolean(canRecommendCustomerFacingFix
+    && hasActionableMainIssue
+    && mainIssue !== "product_content"
+    && shouldRecommendSubjectiveAction
+    && primaryPdpDescriptionPlan.shouldRecommend
+    && !shouldSuppressCoveredPdpDescriptionAction({
+      mainIssue,
+      proposedText: pdpCopy,
+      currentDescriptionText,
+      deterministic,
+    }));
+  const shopperGuidanceForDescription = primaryPdpDescriptionAction ? primaryPdpDescriptionPlan.draftText : "";
   const descriptionDraftForRewrite = shouldRewriteDescription ? buildEnhancedDescriptionDraft({
     title: snapshot.productTitle,
     currentDescription: currentDescriptionText,
-    suggestedDescription: copy.product_description || "",
+    suggestedDescription: aiProductDescription || "",
     shopperGuidance: shopperGuidanceForDescription,
     contentAnalysis,
   }) : "";
   const appendedDescriptionGuidance = getAppendedDescriptionText(currentDescriptionText, descriptionDraftForRewrite);
-  const rewriteDescriptionOperation = shouldRewriteDescription && appendedDescriptionGuidance ? "append" : "replace";
+  const initialRewriteDescriptionOperation = shouldRewriteDescription && appendedDescriptionGuidance ? "append" : "replace";
+  const descriptionRewritePlan = shouldRewriteDescription ? buildDescriptionCoveragePlan({
+    currentDescription: currentDescriptionText,
+    proposedText: initialRewriteDescriptionOperation === "append"
+      ? (appendedDescriptionGuidance || descriptionDraftForRewrite)
+      : descriptionDraftForRewrite,
+    operation: initialRewriteDescriptionOperation,
+    allowReplace: true,
+  }) : buildEmptyDescriptionCoveragePlan("No product description rewrite was needed.");
+  const rewriteDescriptionOperation = descriptionRewritePlan.operation || initialRewriteDescriptionOperation;
+  const hasRewriteDescriptionAction = Boolean(shouldRewriteDescription && descriptionRewritePlan.shouldRecommend);
   const rewriteDescriptionLabel = rewriteDescriptionOperation === "append" ? "Add text to end of description" : "Rewrite product description";
   const faqNeed = deterministic.metrics.faqNeed || {};
-  const faqItems = buildRecommendedFaqItems({
+  const faqRecommendation = buildRecommendedFaqRecommendation({
     copy,
     snapshot,
     mainIssue,
     pdpCopy,
     faqNeed,
+    currentDescriptionText,
+    contentCoverage,
   });
+  const faqItems = faqRecommendation.items;
 
   if (primaryPdpDescriptionAction) {
     recommendations.push({
@@ -3628,26 +5719,21 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       effort: "Low",
       status: "Draft",
       payload: {
-        draftText: pdpCopy,
+        draftText: primaryPdpDescriptionPlan.draftText,
         issue: mainIssue,
-        placement: getPdpCopyPlacement(mainIssue),
-        causeKey: getRecommendationCauseKey({ issue: mainIssue, text: pdpCopy, deterministic }),
-        relatedActionIds: shouldRewriteDescription ? ["rewrite-product-description"] : shouldCorrectDescription ? ["correct-product-description"] : [],
-        relatedActionLabels: shouldRewriteDescription ? [rewriteDescriptionLabel] : shouldCorrectDescription ? ["Correct product description"] : [],
+        currentDescriptionText,
+        operation: primaryPdpDescriptionPlan.operation,
+        placement: primaryPdpDescriptionPlan.operation,
+        contentCoverage: primaryPdpDescriptionPlan.coverage,
+        causeKey: getRecommendationCauseKey({ issue: mainIssue, text: primaryPdpDescriptionPlan.draftText, deterministic }),
+        relatedActionIds: hasRewriteDescriptionAction ? ["rewrite-product-description"] : shouldCorrectDescription ? ["correct-product-description"] : [],
+        relatedActionLabels: hasRewriteDescriptionAction ? [rewriteDescriptionLabel] : shouldCorrectDescription ? ["Correct product description"] : [],
       },
     });
   }
 
   if (contentIssues.length > 0 && canRecommendCustomerFacingFix) {
-    if (shouldRewriteDescription) {
-      const descriptionDraft = buildEnhancedDescriptionDraft({
-        title: snapshot.productTitle,
-        currentDescription: currentDescriptionText,
-        suggestedDescription: copy.product_description || "",
-        shopperGuidance: primaryPdpDescriptionAction ? pdpCopy : "",
-        contentAnalysis,
-      });
-
+    if (hasRewriteDescriptionAction) {
       recommendations.push({
         id: "rewrite-product-description",
         label: rewriteDescriptionOperation === "append" ? "Add text to end of description" : "Rewrite product description",
@@ -3655,7 +5741,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         effort: "Low",
         status: "Draft",
         payload: {
-          draftText: rewriteDescriptionOperation === "append" ? (getAppendedDescriptionText(currentDescriptionText, descriptionDraft) || appendedDescriptionGuidance || descriptionDraft) : descriptionDraft,
+          draftText: descriptionRewritePlan.draftText,
           issue: "product_content",
           currentDescriptionText,
           contentIssues: contentIssues.map((issue) => ({
@@ -3667,7 +5753,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           changeStrategy: rewriteDescriptionOperation === "append" ? "add-guidance" : currentDescriptionText ? "preserve-and-expand" : "write-from-scratch",
           operation: rewriteDescriptionOperation,
           placement: rewriteDescriptionOperation === "append" ? "append" : undefined,
-          causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionDraft, deterministic }),
+          contentCoverage: descriptionRewritePlan.coverage,
+          causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionRewritePlan.draftText, deterministic }),
           relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
           relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
         },
@@ -3698,15 +5785,47 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
         },
       });
+    } else if (targetedDescriptionEnhancement.shouldRecommend) {
+      recommendations.push({
+        id: "correct-product-description",
+        label: "Update product description details",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: targetedDescriptionEnhancement.draftText,
+          issue: "product_content",
+          currentDescriptionText,
+          contentIssues: contentIssues.map((issue) => ({
+            label: issue.label,
+            evidence: issue.evidence,
+            severity: issue.severity,
+            code: issue.code,
+          })),
+          descriptionReplacements: targetedDescriptionEnhancement.descriptionReplacements,
+          changeStrategy: "targeted-enhancement",
+          operation: "replace",
+          preserveHtml: true,
+          contentCoverage: targetedDescriptionEnhancement.coverage,
+          causeKey: getRecommendationCauseKey({ issue: "product_content", text: targetedDescriptionEnhancement.draftText, deterministic }),
+          relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
+          relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
+        },
+      });
     } else {
       const descriptionGuidanceDraft = buildDescriptionGuidanceAddendum({
         title: snapshot.productTitle,
         contentIssues,
-        suggestedDescription: copy.product_description || "",
+        suggestedDescription: aiProductDescription || "",
         shopperGuidance: primaryPdpDescriptionAction ? "" : pdpCopy,
       });
       const duplicatesPrimaryPdpAction = primaryPdpDescriptionAction && hasSubstantialOverlap(descriptionGuidanceDraft, pdpCopy);
-      if (descriptionGuidanceDraft && !duplicatesPrimaryPdpAction) {
+      const descriptionGuidancePlan = buildDescriptionCoveragePlan({
+        currentDescription: currentDescriptionText,
+        proposedText: descriptionGuidanceDraft,
+        operation: "append",
+      });
+      if (descriptionGuidancePlan.shouldRecommend && !duplicatesPrimaryPdpAction) {
         recommendations.push({
           id: "add-product-description-guidance",
           label: "Add product description guidance",
@@ -3714,7 +5833,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           effort: "Low",
           status: "Draft",
           payload: {
-            draftText: descriptionGuidanceDraft,
+            draftText: descriptionGuidancePlan.draftText,
             issue: "product_content",
             currentDescriptionText,
             contentIssues: contentIssues.map((issue) => ({
@@ -3724,9 +5843,10 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
               code: issue.code,
             })),
             changeStrategy: "add-guidance",
-            operation: "append",
-            placement: "append",
-            causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionGuidanceDraft, deterministic }),
+            operation: descriptionGuidancePlan.operation,
+            placement: descriptionGuidancePlan.operation,
+            contentCoverage: descriptionGuidancePlan.coverage,
+            causeKey: getRecommendationCauseKey({ issue: "product_content", text: descriptionGuidancePlan.draftText, deterministic }),
             relatedActionIds: primaryPdpDescriptionAction ? [pdpActionId] : [],
             relatedActionLabels: primaryPdpDescriptionAction ? [pdpActionLabel] : [],
           },
@@ -3750,7 +5870,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (canRecommendCustomerFacingFix && faqNeed.shouldRecommend && faqItems.length) {
     recommendations.push({
       id: "create-product-faq",
-      label: getFaqActionLabel(mainIssue),
+      label: getFaqActionLabel(mainIssue, faqRecommendation.coverage),
       type: "FAQ",
       effort: "Low",
       status: "Draft",
@@ -3758,6 +5878,9 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         draftText: formatFaqItemsAsText(faqItems),
         faqItems,
         faqNeed,
+        existingFaqDetected: faqRecommendation.coverage.existingFaqDetected,
+        skippedExistingFaqItems: faqRecommendation.coverage.skippedItems,
+        contentCoverage: faqRecommendation.coverage,
         issue: mainIssue,
         operation: "append",
         placement: "append",
@@ -3765,8 +5888,8 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         applicationOptions: getFaqApplicationOptions(),
         metafield: {
           namespace: "productpulse",
-          key: "faq_items",
-          type: "json",
+          key: "faq_html",
+          type: "multi_line_text_field",
         },
       },
     });
@@ -3842,30 +5965,44 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.specs.shouldRecommend) {
-    const specsBlock = buildSpecsDetailsBlock({ product: deterministic.product, contentIssues, mainIssue });
-    recommendations.push({
-      id: "add-specs-details-block",
-      label: "Add specs/details block",
-      type: "PDP copy",
-      effort: "Low",
-      status: "Draft",
-      payload: {
-        draftText: specsBlock,
-        issue: "product_content",
-        currentDescriptionText,
-        contentIssues: contentIssues.map((issue) => ({
-          label: issue.label,
-          evidence: issue.evidence,
-          severity: issue.severity,
-          code: issue.code,
-        })),
-        operation: "append",
-        placement: "append",
-        changeStrategy: "add-specs-block",
-        causeKey: getRecommendationCauseKey({ issue: "specs_block", text: specsBlock, deterministic }),
-        trigger: recipeSignals.specs.reason,
-      },
+    const specsBlock = buildSpecsDetailsBlock({
+      product: deterministic.product,
+      contentIssues,
+      mainIssue,
+      deterministic,
+      aiSpecsBlock,
     });
+    const specsBlockPlan = buildDescriptionCoveragePlan({
+      currentDescription: currentDescriptionText,
+      proposedText: specsBlock,
+      operation: "append",
+    });
+    if (specsBlockPlan.shouldRecommend) {
+      recommendations.push({
+        id: "add-specs-details-block",
+        label: "Add specs/details block",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: specsBlockPlan.draftText,
+          issue: "product_content",
+          currentDescriptionText,
+          contentIssues: contentIssues.map((issue) => ({
+            label: issue.label,
+            evidence: issue.evidence,
+            severity: issue.severity,
+            code: issue.code,
+          })),
+          operation: specsBlockPlan.operation,
+          placement: specsBlockPlan.operation,
+          contentCoverage: specsBlockPlan.coverage,
+          changeStrategy: "add-specs-block",
+          causeKey: getRecommendationCauseKey({ issue: "specs_block", text: specsBlockPlan.draftText, deterministic }),
+          trigger: recipeSignals.specs.reason,
+        },
+      });
+    }
   }
 
   if (recipeSignals.media.shouldRecommend) {
@@ -3950,7 +6087,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
+  if (!lowRiskMonitoringOnly && deterministic.metrics.negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE) {
     const reviewLabel = getReviewEvidenceLabel(deterministic.metrics);
     reviewSections.push({
       key: "reviews",
@@ -4073,7 +6210,12 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.classification.shouldRecommend) {
-    const classificationDraft = buildProductClassificationDraft({ product: deterministic.product, mainIssue });
+    const classificationDraft = buildProductClassificationDraft({
+      product: deterministic.product,
+      mainIssue,
+      existingProductTypes: deterministic.metrics?.catalogProductTypes,
+      categorySuggestions: deterministic.metrics?.taxonomyCategorySuggestions,
+    });
     recommendations.push({
       id: "update-product-classification",
       label: "Update product classification",
@@ -4091,7 +6233,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (recipeSignals.structuredMetafields.shouldRecommend) {
+  if (recipeSignals.structuredMetafields.shouldRecommend && !isDisabledProductAction("add-structured-metafields")) {
     recommendations.push({
       id: "add-structured-metafields",
       label: "Add structured metafields",
@@ -4106,7 +6248,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (recipeSignals.template.shouldRecommend) {
+  if (recipeSignals.template.shouldRecommend && !isDisabledProductAction("switch-product-template")) {
     recommendations.push({
       id: "switch-product-template",
       label: "Switch product template",
@@ -4138,7 +6280,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (supportNote && (hasActionableMainIssue || (contentIssues.length > 0 && !lowRiskMonitoringOnly))) {
+  if (supportNote && !lowRiskMonitoringOnly && (hasActionableMainIssue || contentIssues.length > 0)) {
     recommendations.push({
       id: "copy-support-note",
       label: "Create internal note",
@@ -4150,7 +6292,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const tags = getRecommendedRiskTags({ mainIssue, deterministic });
-  if (tags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly) {
+  if (tags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !subjectiveExpectationOnly) {
     recommendations.push({
       id: "apply-risk-tags",
       label: "Add internal risk tags",
@@ -4162,7 +6304,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   const workflowTags = getRecommendedWorkflowTags({ mainIssue, deterministic });
-  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly) {
+  if (workflowTags.length && deterministic.metrics.signalCount >= 2 && !lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !focusedRemediationMode) {
     recommendations.push({
       id: "add-workflow-tags",
       label: "Add workflow tags",
@@ -4238,7 +6380,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   if (recipeSignals.fullDiagnosis.shouldRecommend) {
     recommendations.push({
       id: "run-full-diagnosis",
-      label: "Run full diagnosis",
+      label: "Run product diagnosis",
       type: "Diagnosis",
       effort: "Medium",
       status: "Ready",
@@ -4247,6 +6389,142 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         issue: "diagnosis",
         trigger: recipeSignals.fullDiagnosis.reason,
       },
+    });
+  }
+
+  if (recipeSignals.relationshipCompatibility.shouldRecommend) {
+    recommendations.push({
+      id: "review-product-pairing-expectations",
+      label: "Review pairing expectations",
+      type: "Compatibility review",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipCompatibility, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipCompatibility.reason,
+        recommendationKind: "compatibility_warning",
+      }),
+    });
+  }
+
+  if (recipeSignals.relationshipBundle.shouldRecommend) {
+    recommendations.push({
+      id: "test-product-bundle",
+      label: "Test bundle / frequently bought together",
+      type: "Bundle opportunity",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipBundle, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipBundle.reason,
+        recommendationKind: "bundle_opportunity",
+      }),
+    });
+  }
+
+  if (recipeSignals.relationshipCrossSell.shouldRecommend) {
+    recommendations.push({
+      id: "create-post-purchase-cross-sell",
+      label: "Create post-purchase cross-sell",
+      type: "Cross-sell",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipCrossSell, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipCrossSell.reason,
+        recommendationKind: "cross_sell_opportunity",
+      }),
+    });
+  }
+
+  if (recipeSignals.relationshipJourney.shouldRecommend) {
+    recommendations.push({
+      id: "position-as-upgrade-path",
+      label: "Position as upgrade / next step",
+      type: "Journey insight",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRelationshipRecommendationPayload(recipeSignals.relationshipJourney, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipJourney.reason,
+        recommendationKind: "journey_insight",
+      }),
+    });
+  }
+
+  if (recipeSignals.relationshipCollection.shouldRecommend) {
+    const suggestion = recipeSignals.relationshipCollection.suggestion;
+    recommendations.push({
+      id: "add-to-related-product-collection",
+      label: `Add to ${suggestion.collectionName}`,
+      type: "Collection merchandising",
+      effort: "Low",
+      status: "Ready",
+      payload: buildProductRelationshipCollectionPayload(recipeSignals.relationshipCollection, {
+        issue: "product_relationship",
+        trigger: recipeSignals.relationshipCollection.reason,
+        recommendationKind: "collection_placement",
+      }),
+    });
+  }
+
+  if (recipeSignals.retentionRepurchaseCampaign.shouldRecommend) {
+    recommendations.push({
+      id: "create-repurchase-campaign",
+      label: "Create repurchase campaign",
+      type: "Retention campaign",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionRepurchaseCampaign, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionRepurchaseCampaign.reason,
+        recommendationKind: "repurchase_campaign",
+      }),
+    });
+  }
+
+  if (recipeSignals.retentionCrossSellCampaign.shouldRecommend) {
+    recommendations.push({
+      id: "create-retention-cross-sell-campaign",
+      label: "Create lifecycle cross-sell campaign",
+      type: "Lifecycle campaign",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionCrossSellCampaign, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionCrossSellCampaign.reason,
+        recommendationKind: "retention_cross_sell_campaign",
+      }),
+    });
+  }
+
+  if (recipeSignals.retentionBundleOffer.shouldRecommend) {
+    recommendations.push({
+      id: "test-retention-bundle-offer",
+      label: "Test retention bundle offer",
+      type: "Bundle campaign",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionBundleOffer, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionBundleOffer.reason,
+        recommendationKind: "retention_bundle_offer",
+      }),
+    });
+  }
+
+  if (recipeSignals.retentionDropReview.shouldRecommend) {
+    recommendations.push({
+      id: "review-retention-drop",
+      label: "Review retention drop",
+      type: "Retention review",
+      effort: "Medium",
+      status: "Ready",
+      payload: buildProductRetentionRecommendationPayload(recipeSignals.retentionDropReview, {
+        issue: "product_retention",
+        trigger: recipeSignals.retentionDropReview.reason,
+        recommendationKind: "retention_drop_review",
+      }),
     });
   }
 
@@ -4301,7 +6579,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   return prioritizeRecommendationActions(
-    deduplicateRecommendationActions(uniqueBy(recommendations, (item) => item.id)),
+    deduplicateRecommendationActions(uniqueBy(filterDisabledProductActions(recommendations), (item) => item.id)),
     { deterministic, mainIssue, recipeSignals },
   )
     .map((item) => attachAiActionRationale(item, actionRationales))
@@ -4318,6 +6596,87 @@ function getAiActionRationaleMap(ai = {}) {
       normalizeRecommendationRationaleText(item?.rationale || item?.why_this_action || item?.why || ""),
     ])
     .filter(([key, value]) => key && value));
+}
+
+function getAiContentCoverageMap(ai = {}) {
+  const entries = Array.isArray(ai.contentCoverageValidation?.coverage)
+    ? ai.contentCoverageValidation.coverage
+    : [];
+  return new Map(entries
+    .map((item) => {
+      const id = normalizeAiContentCoverageId(item?.id || item?.candidate_id || item?.candidateId);
+      if (!id) return null;
+      return [id, {
+        id,
+        status: normalizeAiContentCoverageStatus(item?.status),
+        confidence: normalizeAiContentCoverageConfidence(item?.confidence),
+        recommendedApplication: normalizeAiContentCoverageApplication(item?.recommended_application || item?.recommendedApplication),
+        remainingText: normalizeDraftParagraph(item?.remaining_text || item?.remainingText || ""),
+        remainingQuestion: normalizeDraftParagraph(item?.remaining_question || item?.remainingQuestion || ""),
+        remainingAnswer: normalizeDraftParagraph(item?.remaining_answer || item?.remainingAnswer || ""),
+        matchedExistingText: normalizeDraftParagraph(item?.matched_existing_text || item?.matchedExistingText || ""),
+        reason: normalizeDraftParagraph(item?.reason || ""),
+      }];
+    })
+    .filter(Boolean));
+}
+
+function applyAiContentCoverageToText({ coverageMap, id, text = "" } = {}) {
+  const original = normalizeDraftParagraph(text);
+  if (!original) return "";
+  const coverage = getAiContentCoverageEntry(coverageMap, id);
+  if (!coverage || coverage.confidence === "low") return original;
+  if (coverage.status === "already_covered") return "";
+  if (coverage.status === "partially_covered") return coverage.remainingText || "";
+  return original;
+}
+
+function applyAiContentCoverageToFaqItem(item = {}, coverageMap, id) {
+  const coverage = getAiContentCoverageEntry(coverageMap, id);
+  if (!coverage || coverage.confidence === "low") return item;
+  if (coverage.status === "already_covered") return null;
+  if (coverage.status !== "partially_covered") return item;
+  if (coverage.recommendedApplication && coverage.recommendedApplication !== "faq") return null;
+  const question = coverage.remainingQuestion || item.question;
+  const answer = coverage.remainingAnswer || coverage.remainingText || "";
+  if (!question || !answer) return null;
+  return {
+    ...item,
+    question,
+    answer,
+    reason: item.reason || coverage.reason,
+    aiContentCoverage: coverage,
+  };
+}
+
+function getAiContentCoverageEntry(coverageMap, id) {
+  if (!(coverageMap instanceof Map)) return null;
+  return coverageMap.get(normalizeAiContentCoverageId(id)) || null;
+}
+
+function normalizeAiContentCoverageId(value = "") {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function normalizeAiContentCoverageStatus(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z_]+/g, "_");
+  if (["already_covered", "covered", "duplicate"].includes(normalized)) return "already_covered";
+  if (["partially_covered", "partial"].includes(normalized)) return "partially_covered";
+  if (["not_covered", "missing", "new"].includes(normalized)) return "not_covered";
+  return "unclear";
+}
+
+function normalizeAiContentCoverageConfidence(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized.includes("high")) return "high";
+  if (normalized.includes("medium") || normalized.includes("moderate")) return "medium";
+  return "low";
+}
+
+function normalizeAiContentCoverageApplication(value = "") {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_+|_+$/g, "");
+  if (["skip", "description_note", "faq", "description_addendum", "keep_original"].includes(normalized)) return normalized;
+  return "";
 }
 
 function attachAiActionRationale(action = {}, rationaleMap = new Map()) {
@@ -4366,6 +6725,7 @@ function deduplicateRecommendationActions(actions = []) {
 function isDescriptionRecommendation(action = {}) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
+  if (normalized.includes("create-product-faq") || normalized.includes(" faq")) return false;
   return Boolean(payload.draftText && (
     normalized.includes("description")
     || normalized.includes("pdp")
@@ -4415,23 +6775,27 @@ function prioritizeRecommendationActions(actions = [], { deterministic = {}, mai
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, recipeSignals.sourceMismatch?.signals);
   const refundOperationalMode = isRefundDrivenOperationalDiagnosis(deterministic);
   const monitoringOnlyMode = isLowRiskMonitoringOnlyDiagnosis(deterministic);
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic);
   return [...actions]
     .map((action, index) => ({
       action,
       index,
-      score: getServerRecommendationPriorityScore(action, { sourceIntegrityMode, refundOperationalMode, monitoringOnlyMode, mainIssue }),
+      score: getServerRecommendationPriorityScore(action, { sourceIntegrityMode, refundOperationalMode, monitoringOnlyMode, relationshipExpectationMode, mainIssue }),
     }))
     .sort((first, second) => second.score - first.score || first.index - second.index)
     .map((item) => item.action);
 }
 
-function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false, monitoringOnlyMode = false, mainIssue = "" } = {}) {
+function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode = false, refundOperationalMode = false, monitoringOnlyMode = false, relationshipExpectationMode = false, mainIssue = "" } = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   const normalizedMainIssue = normalizeIssueCode(mainIssue);
   let score = 0;
   if (/description|pdp|expectation|faq|spec/.test(normalized)) score += 60;
   if (/source.*mismatch|source integrity/.test(normalized)) score += 55;
   if (/supplier|qa/.test(normalized)) score += 50;
+  if (/compatibility review|pairing/.test(normalized)) score += 48;
+  if (/bundle|cross-sell|journey|upgrade|product relationship/.test(normalized)) score += 28;
+  if (/retention|lifecycle|repurchase|campaign/.test(normalized)) score += 26;
   if (/seo|meta|handle|media|image|alt text/.test(normalized)) score += 30;
   if (/tag|collection|workflow|internal|evidence/.test(normalized)) score -= 10;
   if (normalizedMainIssue === "color_expectation") {
@@ -4446,6 +6810,12 @@ function getServerRecommendationPriorityScore(action = {}, { sourceIntegrityMode
   if (refundOperationalMode) {
     if (/supplier|qa/.test(normalized)) score += 120;
     if (/pricing|price|compare-at/.test(normalized)) score -= 80;
+  }
+  if (relationshipExpectationMode) {
+    if (/description|pdp|quality-note|expectation/.test(normalized) && !/faq/.test(normalized)) score += 190;
+    if (/compatibility review|pairing/.test(normalized)) score += 50;
+    if (/cross-sell|journey|upgrade/.test(normalized)) score -= 45;
+    if (/status|inventory|template|metafield|tag|collection|media|alt text/.test(normalized)) score -= 85;
   }
   if (monitoringOnlyMode) {
     if (/watchlist|baseline/.test(normalized)) score += 160;
@@ -4468,9 +6838,20 @@ function hasMaterialCustomerProblemEvidence(deterministic = {}) {
   const textSentiment = metrics.textInsights?.sentiment || {};
   const negativeTextSignals = Number(textSentiment.negative || 0);
   const negativeTextRatio = Number(textSentiment.negativeRatio || 0);
+  const negativeReviewCount = Number(metrics.negativeReviewCount || 0);
+  const reviewCount = Number(metrics.reviewCount || 0);
+  const negativeReviewRate = Number.isFinite(Number(metrics.negativeReviewRate))
+    ? Number(metrics.negativeReviewRate)
+    : reviewCount > 0 ? (negativeReviewCount / reviewCount) * 100 : 0;
+  const materialNegativeReviewPressure = negativeReviewCount >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    && (
+      negativeReviewCount >= 4
+      || negativeReviewRate >= 20
+      || (reviewCount > 0 && reviewCount <= 5 && negativeReviewRate >= 40)
+    );
   return Number(metrics.returnUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
     || Number(metrics.refundUnits || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
-    || Number(metrics.negativeReviewCount || 0) >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    || materialNegativeReviewPressure
     || (negativeTextSignals >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE && negativeTextRatio >= 0.35);
 }
 
@@ -4493,6 +6874,7 @@ function getRecommendationRecipeSignals(deterministic = {}) {
   const metrics = deterministic.metrics || {};
   const product = deterministic.product || {};
   const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  const aiActionGuidance = getAiActionGuidance(deterministic);
   const contentIssues = getActionableContentIssues(metrics);
   const contentAdvisories = Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : metrics.contentAdvisories || [];
   const hasCustomerEvidence = hasMaterialCustomerProblemEvidence(deterministic);
@@ -4507,11 +6889,37 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     || mainIssue === "color_expectation"
     || contentAdvisories.some((item) => ["missing_media_context", "missing_media_alt_text"].includes(normalizeContentIssueCode(item.code)));
   const highRiskOperationalIssue = ["safety_concern", "quality_defect", "durability", "refund_impact"].includes(mainIssue);
+  const aiSuppressesQa = shouldAiSuppressActionFamily(aiActionGuidance, "qa_review");
+  const aiRecommendsQa = shouldAiRecommendQaReview(aiActionGuidance);
   const operationalQualityTextSignals = hasOperationalQualityTextSignals(deterministic);
   const refundInsights = metrics.refundInsights || {};
   const sourceMismatchSignals = getSourceMismatchSignals(deterministic);
   const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic, sourceMismatchSignals);
+  const purchaseContextSignals = getPurchaseContextRecommendationSignals(deterministic);
+  const productRelationshipSignals = getProductRelationshipRecommendationSignals(deterministic);
+  const productRetentionSignals = getProductRetentionRecommendationSignals(deterministic, { productRelationshipSignals });
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, productRelationshipSignals);
   const subjectiveExpectationOnly = isSubjectiveExpectationOnlyDiagnosis(deterministic);
+  const classificationDraft = buildProductClassificationDraft({
+    product,
+    mainIssue,
+    existingProductTypes: metrics.catalogProductTypes,
+    categorySuggestions: metrics.taxonomyCategorySuggestions,
+  });
+  const hasClassificationChange = hasProductClassificationDraftChange(classificationDraft, product);
+  const focusedRemediationMode = isFocusedRemediationDiagnosis(deterministic, {
+    aiActionGuidance,
+    subjectiveExpectationOnly,
+  });
+  const suppressSubjectiveMerchandisingRelationshipActions = shouldSuppressMerchandisingRelationshipActions({
+    subjectiveExpectationOnly,
+    aiActionGuidance,
+  });
+  const merchandisingRelationshipSuppressionReason = suppressSubjectiveMerchandisingRelationshipActions
+    ? "Suppressed because the active diagnosis is a subjective expectation issue, so merchandising relationship insights should stay in analytics instead of recommended actions."
+    : focusedRemediationMode
+      ? "Suppressed because the active diagnosis has a high-priority remediation path, so merchandising relationship insights should stay in analytics until the core product issue is reviewed."
+      : "";
   const missingSourceSignals = getMissingSourceSignals(deterministic);
   const productMomentumScore = Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0);
   const staleAnalysis = isStaleDiagnosis(metrics.lastAnalyzedAt || metrics.lastDiagnosisAt || metrics.latestDiagnosisAt);
@@ -4521,6 +6929,19 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     && affectedVariantCount > 0
     && ["fit_sizing", "quality_defect", "durability", "safety_concern"].includes(mainIssue);
   const hasPricingContext = valueSignals.length >= 2;
+  const stopSaleOperationalRisk = hasStopSaleOperationalRisk(deterministic);
+  const hasMissingMediaContext = contentAdvisories.some((item) => normalizeContentIssueCode(item.code) === "missing_media_context");
+  const missingAltOnlyMediaIssue = Number(metrics.mediaWithoutAltCount || 0) > 0
+    && Number(metrics.mediaCount || 0) > 0
+    && !hasMissingMediaContext
+    && mainIssue !== "color_expectation";
+  const shouldRecommendMedia = Boolean(!lowRiskMonitoringOnly && mediaIssue && (
+    mainIssue === "color_expectation"
+    || hasMissingMediaContext
+    || Number(metrics.mediaCount || 0) === 0
+    || (hasActionableEvidence && !relationshipExpectationMode && !missingAltOnlyMediaIssue)
+    || (missingAltOnlyMediaIssue && stopSaleOperationalRisk)
+  ));
 
   return {
     title: {
@@ -4540,15 +6961,26 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The product URL handle is confusing, inconsistent with the title, or missing useful product keywords.",
     },
     specs: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && metrics.specsBlockRecommended && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
-      reason: "A compact specs/details block would clarify dimensions, compatibility, materials, care, included items or product limits.",
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && (
+        metrics.specsBlockRecommended
+        || purchaseContextSignals.productLevelPriority.shouldRecommend
+        || purchaseContextSignals.basketContext.shouldRecommend
+      ) && (hasActionableEvidence || contentIssues.length || ["fit_sizing", "compatibility", "color_expectation"].includes(mainIssue))),
+      reason: purchaseContextSignals.basketContext.shouldRecommend
+        ? purchaseContextSignals.basketContext.reason
+        : purchaseContextSignals.productLevelPriority.shouldRecommend
+          ? purchaseContextSignals.productLevelPriority.reason
+          : "A compact specs/details block would clarify dimensions, compatibility, materials, care, included items or product limits.",
     },
     variants: {
       shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && (
         variantConcentrationNeedsOptionFix
         || (hasVariantNamingProblem && !subjectiveExpectationOnly)
+        || purchaseContextSignals.variantClarity.shouldRecommend
       ) && (hasCustomerEvidence || hasVariantNamingProblem)),
-      reason: hasVariantConcentration && affectedVariantCount
+      reason: purchaseContextSignals.variantClarity.shouldRecommend
+        ? purchaseContextSignals.variantClarity.reason
+        : hasVariantConcentration && affectedVariantCount
         ? "Signals are concentrated in specific variants, SKUs or options."
         : "Variant names or option labels are unclear enough to review.",
     },
@@ -4559,19 +6991,21 @@ function getRecommendationRecipeSignals(deterministic = {}) {
         : "Price review requires explicit value or price perception evidence.",
     },
     status: {
-      shouldRecommend: Boolean(hasActionableEvidence && highRiskOperationalIssue && Number(deterministic.riskScore || 0) >= 75 && Number(deterministic.confidence || 0) >= 65),
-      reason: "Risk and confidence are both high for a potentially serious product-quality issue.",
+      shouldRecommend: Boolean(hasActionableEvidence && stopSaleOperationalRisk && Number(deterministic.riskScore || 0) >= 75 && Number(deterministic.confidence || 0) >= 65),
+      reason: mainIssue === "safety_concern"
+        ? "Risk and confidence are high for a safety concern, so sales should pause while the team reviews the issue."
+        : "Risk and confidence are high and the evidence points to an operational product defect, not only expectation or merchandising confusion.",
     },
     inventory: {
-      shouldRecommend: Boolean(!sourceIntegrityMode && variantCount > 1 && hasVariantConcentration && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
+      shouldRecommend: Boolean(!sourceIntegrityMode && !subjectiveExpectationOnly && variantCount > 1 && hasVariantConcentration && affectedVariantCount > 0 && Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0) >= 4 && Number(deterministic.riskScore || 0) >= 65),
       reason: "The problem appears concentrated enough to consider holding a specific affected variant.",
     },
     collection: {
-      shouldRecommend: Boolean(hasActionableEvidence && Number(deterministic.riskScore || 0) >= 55),
+      shouldRecommend: Boolean(hasActionableEvidence && Number(deterministic.riskScore || 0) >= 55 && !subjectiveExpectationOnly && (!relationshipExpectationMode || stopSaleOperationalRisk)),
       reason: "The product should be grouped for internal review or quality workflow tracking.",
     },
     media: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && mediaIssue && (hasActionableEvidence || mainIssue === "color_expectation")),
+      shouldRecommend: shouldRecommendMedia,
       reason: Number(metrics.mediaWithoutAltCount || 0) > 0
         ? `${metrics.mediaWithoutAltCount} product media item${Number(metrics.mediaWithoutAltCount) === 1 ? "" : "s"} need clearer alt text.`
         : "Customer expectations may depend on images, scale, color, material or visual context.",
@@ -4581,19 +7015,23 @@ function getRecommendationRecipeSignals(deterministic = {}) {
       reason: "The current media sequence may not put the clearest context, scale, color or format image first.",
     },
     contextualMedia: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && (Number(metrics.mediaCount || 0) === 0 || ["color_expectation", "subjective_negative_reaction"].includes(mainIssue)) && (hasActionableEvidence || mainIssue === "color_expectation")),
+      shouldRecommend: Boolean(!shouldRecommendMedia && !lowRiskMonitoringOnly && (Number(metrics.mediaCount || 0) === 0 || ["color_expectation", "subjective_negative_reaction"].includes(mainIssue)) && (hasActionableEvidence || mainIssue === "color_expectation")),
       reason: "Customers may need an additional contextual image showing scale, packaging, color, material or real use.",
     },
     classification: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.classificationNeedsReview && (hasActionableEvidence || productMomentumScore >= 70)),
-      reason: "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.classificationNeedsReview && hasClassificationChange && (hasActionableEvidence || productMomentumScore >= 70)),
+      reason: classificationDraft.draftCategoryId
+        ? "Shopify category is missing, and ProductPulse matched a standard Shopify taxonomy category for this product."
+        : classificationDraft.draftProductType
+        ? "Product type is missing or too generic, and ProductPulse matched a better existing Shopify product type for this store."
+        : "Vendor, product type or category data is incomplete enough to weaken catalog workflows and reporting.",
     },
     structuredMetafields: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && !focusedRemediationMode && hasActionableEvidence && (contentIssues.length || highRiskOperationalIssue || productMomentumScore >= 70)),
       reason: "Structured product metadata can preserve warnings, QA status, SEO notes or risk flags for themes and reporting.",
     },
     template: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !relationshipExpectationMode && !subjectiveExpectationOnly && metrics.templateNeedsReview && (metrics.faqNeed?.shouldRecommend || metrics.specsBlockRecommended || hasActionableEvidence)),
       reason: "The product may need a richer template to display FAQ, specs or warning content beyond plain description text.",
     },
     sourceMismatch: {
@@ -4608,31 +7046,574 @@ function getRecommendationRecipeSignals(deterministic = {}) {
     },
     monitoringCoverage: {
       shouldRecommend: Boolean(productMomentumScore >= 70 && missingSourceSignals.length),
-      reason: "This product has enough commercial momentum to deserve stronger monitoring coverage before issues become expensive.",
+      reason: "This product has enough Sales Momentum to deserve stronger monitoring coverage before issues become expensive.",
     },
     baselineScan: {
       shouldRecommend: Boolean(productMomentumScore >= 75 && Number(deterministic.riskScore || 0) < 50 && !hasActionableEvidence),
       reason: "The product is commercially important but currently has limited problem evidence, so a baseline can help monitor future changes.",
     },
     watchlist: {
-      shouldRecommend: Boolean(productMomentumScore >= 80 && Number(deterministic.riskScore || 0) < 70),
-      reason: "Momentum is high enough that this product should be watched periodically even if risk is not currently high.",
+      shouldRecommend: Boolean(productMomentumScore >= 75 && Number(deterministic.riskScore || 0) < 70),
+      reason: "Sales Momentum is high enough that this product should be watched periodically even if risk is not currently high.",
     },
     fullDiagnosis: {
       shouldRecommend: Boolean(productMomentumScore >= 70 && staleAnalysis),
-      reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh full diagnosis.",
+      reason: "This product has enough momentum and the current diagnosis is old enough to justify a fresh product diagnosis.",
     },
     qa: {
-      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && hasActionableEvidence && !subjectiveExpectationOnly && (
-        ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
-        || (highRiskOperationalIssue && operationalQualityTextSignals)
-        || (refundInsights.shouldSurface && operationalQualityTextSignals)
+      shouldRecommend: Boolean(!lowRiskMonitoringOnly && !sourceIntegrityMode && hasActionableEvidence && !aiSuppressesQa && (
+        aiRecommendsQa
+        || (!subjectiveExpectationOnly && (
+          ["safety_concern", "durability", "refund_impact"].includes(mainIssue)
+          || (highRiskOperationalIssue && operationalQualityTextSignals)
+          || (refundInsights.shouldSurface && operationalQualityTextSignals)
+          || purchaseContextSignals.bulkReview.shouldRecommend
+        ))
       )),
-      reason: refundInsights.shouldSurface
+      reason: purchaseContextSignals.bulkReview.shouldRecommend
+        ? purchaseContextSignals.bulkReview.reason
+        : aiRecommendsQa && aiActionGuidance?.qaReason
+        ? aiActionGuidance.qaReason
+        : refundInsights.shouldSurface
         ? "Refund pressure or refund notes point to an operational quality review."
         : "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
     },
+    relationshipBundle: merchandisingRelationshipSuppressionReason
+      ? suppressRecommendationSignal(productRelationshipSignals.bundleOpportunity, merchandisingRelationshipSuppressionReason)
+      : productRetentionSignals.bundleOffer.shouldRecommend
+        ? suppressRecommendationSignal(productRelationshipSignals.bundleOpportunity, "Covered by the retention bundle campaign action.")
+      : productRelationshipSignals.bundleOpportunity,
+    relationshipCrossSell: merchandisingRelationshipSuppressionReason
+      ? suppressRecommendationSignal(productRelationshipSignals.crossSellOpportunity, merchandisingRelationshipSuppressionReason)
+      : productRetentionSignals.crossSellCampaign.shouldRecommend
+        ? suppressRecommendationSignal(productRelationshipSignals.crossSellOpportunity, "Covered by the retention lifecycle campaign action.")
+      : productRelationshipSignals.crossSellOpportunity,
+    relationshipCompatibility: productRelationshipSignals.compatibilityWarning,
+    relationshipJourney: merchandisingRelationshipSuppressionReason
+      ? suppressRecommendationSignal(productRelationshipSignals.journeyInsight, merchandisingRelationshipSuppressionReason)
+      : productRelationshipSignals.journeyInsight,
+    relationshipCollection: productRelationshipSignals.collectionPlacement,
+    retentionRepurchaseCampaign: productRetentionSignals.repurchaseCampaign,
+    retentionCrossSellCampaign: productRetentionSignals.crossSellCampaign,
+    retentionBundleOffer: productRetentionSignals.bundleOffer,
+    retentionDropReview: productRetentionSignals.dropReview,
   };
+}
+
+function shouldSuppressMerchandisingRelationshipActions({ subjectiveExpectationOnly = false, aiActionGuidance = null } = {}) {
+  if (!subjectiveExpectationOnly) return false;
+  return !["commercial_opportunity", "relationship_expectation"].includes(aiActionGuidance?.issueNature);
+}
+
+function isFocusedRemediationDiagnosis(deterministic = {}, { aiActionGuidance = null, subjectiveExpectationOnly = null } = {}) {
+  const guidance = aiActionGuidance || getAiActionGuidance(deterministic);
+  const subjectiveOnly = subjectiveExpectationOnly ?? isSubjectiveExpectationOnlyDiagnosis(deterministic);
+  if (subjectiveOnly || isLowRiskMonitoringOnlyDiagnosis(deterministic)) return false;
+  if (Number(deterministic.riskScore || 0) < 70) return false;
+  if (!hasMaterialCustomerProblemEvidence(deterministic)) return false;
+  if (["commercial_opportunity", "monitor_only"].includes(guidance?.issueNature)) return false;
+  return shouldAiRecommendQaReview(guidance)
+    || hasOperationalQualityTextSignals(deterministic)
+    || isRefundDrivenOperationalDiagnosis(deterministic);
+}
+
+function suppressRecommendationSignal(signal = {}, suppressionReason = "Suppressed because this relationship insight should stay in analytics instead of recommended actions for the current diagnosis.") {
+  return {
+    ...(signal || {}),
+    shouldRecommend: false,
+    suppressionReason,
+  };
+}
+
+function getAiActionGuidance(deterministic = {}) {
+  const guidance = deterministic.metrics?.semanticClassification?.actionGuidance
+    || deterministic.metrics?.semanticClassification?.action_guidance
+    || deterministic.metrics?.aiActionGuidance
+    || deterministic.aiActionGuidance
+    || null;
+  if (!guidance || typeof guidance !== "object") return null;
+  return normalizeStoredAiActionGuidance(guidance);
+}
+
+function normalizeStoredAiActionGuidance(guidance = {}) {
+  const issueNature = normalizeAiActionGuidanceEnum(guidance.issueNature || guidance.issue_nature, [
+    "operational_quality",
+    "subjective_expectation",
+    "content_gap",
+    "relationship_expectation",
+    "source_integrity",
+    "commercial_opportunity",
+    "monitor_only",
+    "unclear",
+  ], "unclear");
+  return {
+    issueNature,
+    subjectivityLevel: normalizeAiActionGuidanceEnum(guidance.subjectivityLevel || guidance.subjectivity_level, ["low", "medium", "high"], "medium"),
+    operationalQualityConfidence: normalizeAiActionGuidanceEnum(guidance.operationalQualityConfidence || guidance.operational_quality_confidence, ["low", "medium", "high"], "low"),
+    shopperExpectationConfidence: normalizeAiActionGuidanceEnum(guidance.shopperExpectationConfidence || guidance.shopper_expectation_confidence, ["low", "medium", "high"], "medium"),
+    shouldEscalateQa: guidance.shouldEscalateQa === true || guidance.should_escalate_qa === true,
+    qaReason: guidance.qaReason || guidance.qa_reason || "",
+    primaryActionFamily: normalizeAiActionGuidanceEnum(guidance.primaryActionFamily || guidance.primary_action_family, ACTION_GUIDANCE_FAMILIES, ""),
+    recommendedActionFamilies: normalizeAiActionFamilies(guidance.recommendedActionFamilies || guidance.recommended_action_families),
+    blockedActionFamilies: normalizeAiActionFamilies(guidance.blockedActionFamilies || guidance.blocked_action_families),
+    rationale: guidance.rationale || "",
+  };
+}
+
+function shouldAiSuppressActionFamily(guidance = null, family = "") {
+  if (!guidance) return false;
+  if (guidance.blockedActionFamilies?.includes(family)) return true;
+  if (family !== "qa_review") return false;
+  const subjective = guidance.issueNature === "subjective_expectation"
+    || guidance.issueNature === "content_gap"
+    || guidance.subjectivityLevel === "high";
+  const weakOperational = guidance.operationalQualityConfidence !== "high";
+  return subjective && weakOperational && guidance.shouldEscalateQa !== true;
+}
+
+function shouldAiRecommendQaReview(guidance = null) {
+  if (!guidance) return false;
+  if (guidance.shouldEscalateQa !== true) return false;
+  if (guidance.blockedActionFamilies?.includes("qa_review")) return false;
+  return guidance.recommendedActionFamilies?.includes("qa_review")
+    || guidance.primaryActionFamily === "qa_review"
+    || guidance.issueNature === "operational_quality"
+    || guidance.operationalQualityConfidence === "high";
+}
+
+function getPurchaseContextRecommendationSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const context = metrics.productPurchaseContextSummary || {};
+  const factors = metrics.productPurchaseContextFactors || {};
+  const actionSignals = factors.recommendedActionSignals || {};
+  const confidence = normalizePercentLike(context.purchase_context_confidence);
+  const totalOrders = Number(context.total_orders_containing_product || 0);
+  const enoughContext = totalOrders >= 5 && confidence >= 55;
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const refundUnits = Number(metrics.refundUnits || 0);
+  const highReturnOrRefundEvidence = returnUnits + refundUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE;
+  const topPairing = Array.isArray(context.top_co_purchased_products) ? context.top_co_purchased_products[0] : null;
+
+  return {
+    variantClarity: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.variantClarity),
+      reason: "Multi-variant purchases are common and returns are elevated, so size, color, option labels, variant photos or comparison guidance should be reviewed.",
+    },
+    basketContext: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.basketContext && topPairing),
+      reason: topPairing
+        ? `Returns are high in basket context; review compatibility, cross-sell copy or expectations for purchases with ${topPairing.title || "a commonly paired product"}.`
+        : "Returns are high in basket context; review compatibility, cross-sell copy or bundle expectations.",
+    },
+    bulkReview: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.bulkReview),
+      reason: "Bulk or multi-unit purchases have enough return/refund evidence to review packaging, fulfillment consistency, batch quality or B2B usage expectations.",
+    },
+    productLevelPriority: {
+      shouldRecommend: Boolean(enoughContext && highReturnOrRefundEvidence && actionSignals.productLevelPriority),
+      reason: "The product is usually bought alone, so product-page expectations, quality notes, photos or description gaps are more directly attributable to this product.",
+    },
+  };
+}
+
+function getProductRelationshipRecommendationSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const factors = metrics.productRelationshipFactors || {};
+  const actionSignals = factors.recommendedActionSignals || {};
+  const summary = metrics.productRelationshipIntelligenceSummary || {};
+  const confidence = normalizePercentLike(summary.confidence?.score ?? factors.context?.confidenceScore);
+  const orderCount = Number(summary.data_basis?.order_count || factors.context?.orderCount || 0);
+  const enoughSummary = orderCount >= 3 && confidence >= 55;
+  const collectionSuggestion = getPrimaryRelationshipCollectionSuggestion(deterministic);
+
+  const normalizeSignal = (signal, fallbackReason) => {
+    const relationship = signal || null;
+    const title = relationship?.relatedProductTitle || relationship?.related_product_title || "a related product";
+    const lift = Number(relationship?.lift || 0);
+    const sampleSize = Number(relationship?.sampleSize || relationship?.sample_size || 0);
+    const signalConfidence = normalizePercentLike(relationship?.confidence || confidence);
+    return {
+      relationship,
+      title,
+      lift,
+      sampleSize,
+      confidence: signalConfidence,
+      shouldRecommend: Boolean(enoughSummary && relationship && sampleSize >= 3 && signalConfidence >= 55),
+      reason: fallbackReason(title, lift, sampleSize),
+    };
+  };
+
+  return {
+    bundleOpportunity: normalizeSignal(
+      actionSignals.bundleOpportunityRelationship,
+      (title, lift, sampleSize) => `${title} is a meaningful same-order companion${lift ? ` (${roundRate(lift, 1)}x lift` : ""} across ${sampleSize} matched order${sampleSize === 1 ? "" : "s"}; review a bundle or frequently-bought-together placement.`,
+    ),
+    crossSellOpportunity: normalizeSignal(
+      actionSignals.crossSellOpportunityRelationship,
+      (title, lift, sampleSize) => `${title} appears as a follow-on purchase after this product${lift ? ` (${roundRate(lift, 1)}x lift` : ""} across ${sampleSize} customer sequence${sampleSize === 1 ? "" : "s"}; review post-purchase cross-sell or lifecycle flow positioning.`,
+    ),
+    compatibilityWarning: normalizeSignal(
+      actionSignals.compatibilityWarningRelationship,
+      (title) => `Returns or refunds are higher when this product is bought with ${title}; review compatibility messaging, expectations or the recommendation pair before promoting it.`,
+    ),
+    journeyInsight: normalizeSignal(
+      actionSignals.journeyInsightRelationship,
+      (title) => `Customers often buy ${title} before this product; review whether this product should be positioned as an upgrade, refill, replacement or next step.`,
+    ),
+    collectionPlacement: {
+      suggestion: collectionSuggestion,
+      shouldRecommend: Boolean(
+        collectionSuggestion?.collectionId
+        && !hasProductCollectionMembership(deterministic.product || {})
+        && !hasProductCollectionMembership({ collections: metrics.collections, collectionRecords: metrics.collectionRecords }),
+      ),
+      reason: collectionSuggestion?.collectionName
+        ? `This product is not in a collection, and related products point to the existing "${collectionSuggestion.collectionName}" collection.`
+        : "This product is not in a collection, but relationship evidence did not identify a strong existing collection.",
+    },
+  };
+}
+
+function getPrimaryRelationshipCollectionSuggestion(deterministic = {}) {
+  const suggestions = deterministic.metrics?.relationshipCollectionSuggestions;
+  if (!Array.isArray(suggestions) || !suggestions.length) return null;
+  return suggestions
+    .filter((suggestion) => suggestion?.collectionId && suggestion.collectionName)
+    .sort((first, second) => Number(second.score || 0) - Number(first.score || 0))[0] || null;
+}
+
+function isRelationshipExpectationMismatchDiagnosis(deterministic = {}, productRelationshipSignals = null) {
+  const metrics = deterministic.metrics || {};
+  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  const signals = productRelationshipSignals || getProductRelationshipRecommendationSignals(deterministic);
+  const compatibility = signals.compatibilityWarning || {};
+  const relationship = compatibility.relationship || {};
+  const deltaReturnRate = Number(relationship.deltaReturnRate ?? relationship.delta_return_rate ?? 0);
+  const deltaRefundRate = Number(relationship.deltaRefundRate ?? relationship.delta_refund_rate ?? 0);
+  const hasPairingRiskImpact = Boolean(compatibility.shouldRecommend && (deltaReturnRate > 0 || deltaRefundRate > 0));
+  if (!hasPairingRiskImpact) return false;
+
+  const contentIssues = [
+    ...(Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.issues) ? metrics.contentAnalysis.issues : []),
+    ...(Array.isArray(metrics.contentAnalysis?.advisories) ? metrics.contentAnalysis.advisories : []),
+  ];
+  const repeatedLanguage = [
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []),
+    ...(Array.isArray(metrics.textInsights?.reviews?.repeatedLanguage) ? metrics.textInsights.reviews.repeatedLanguage : []),
+    ...(Array.isArray(metrics.textInsights?.returns?.repeatedLanguage) ? metrics.textInsights.returns.repeatedLanguage : []),
+  ];
+  const text = [
+    mainIssue,
+    metrics.primaryIssue,
+    metrics.likelyCause,
+    compatibility.reason,
+    relationship.relatedProductTitle,
+    relationship.related_product_title,
+    ...(Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : []),
+    ...(Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails.map((item) => item.label || item.reason || "") : []),
+    ...contentIssues.map((issue) => `${issue.code || ""} ${issue.label || ""} ${issue.evidence || ""}`),
+    ...repeatedLanguage.map((item) => item.term || item.label || item.phrase || ""),
+    ...(Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets.map((item) => item.text || item.body || item.summary || "") : []),
+  ].map(String).join(" ");
+  const expectationLanguage = /\b(bundle|bought[ -]?together|pairing|companion|kit|expectation|expected|not as described|description|what.*receive|included|pack|confus|unclear)\b/i.test(text);
+  return expectationLanguage || (!hasStopSaleOperationalRisk(deterministic) && ["compatibility", "product_content", "product_quality", "quality_defect"].includes(mainIssue));
+}
+
+function getProductRetentionRecommendationSignals(deterministic = {}, { productRelationshipSignals = null } = {}) {
+  const metrics = deterministic.metrics || {};
+  const retention = metrics.productRetention || {};
+  const summary = retention.summary || {};
+  const relationshipSignals = productRelationshipSignals || getProductRelationshipRecommendationSignals(deterministic);
+  const cohortCustomers = Number(summary.totalCustomersAnalyzed || 0);
+  const productOrders = Number(summary.totalProductOrdersAnalyzed || 0);
+  const hasEnoughData = Boolean(summary.hasEnoughData) && cohortCustomers >= 10 && productOrders >= 10;
+  const healthScore = numberOrNull(summary.retentionHealthScore);
+  const repeat90 = numberOrNull(summary.repeatPurchaseRate90d);
+  const same90 = numberOrNull(summary.sameProductRepurchaseRate90d);
+  const crossSell90 = numberOrNull(summary.crossSellRetentionRate90d);
+  const ltv90Cents = numberOrNull(summary.productLtv90Cents) || 0;
+  const ltvDeltaCents = numberOrNull(summary.ltv90DeltaCents);
+  const riskScore = Number(deterministic.riskScore || metrics.productRiskScore || 0);
+  const returnRate = Number(metrics.returnRate || 0);
+  const refundRate = Number(metrics.refundRate || 0);
+  const hasHardProductRisk = riskScore >= 75 || returnRate >= 25 || refundRate >= 20 || hasStopSaleOperationalRisk(deterministic);
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic, relationshipSignals);
+  const sourceIntegrityMode = isSourceIntegrityDiagnosis(deterministic);
+  const hasRetentionDropConcern = Boolean(
+    (healthScore != null && healthScore <= 45)
+      || (repeat90 != null && repeat90 <= 0.05 && cohortCustomers >= 20)
+      || (ltvDeltaCents != null && ltvDeltaCents <= -Math.max(500, Math.abs(ltv90Cents) * 0.08)),
+  );
+  const canRecommendCommercialRetention = hasEnoughData
+    && !hasHardProductRisk
+    && !hasRetentionDropConcern
+    && !relationshipExpectationMode
+    && !sourceIntegrityMode;
+  const metricsPayload = {
+    healthScore,
+    repeatPurchaseRate90d: repeat90,
+    sameProductRepurchaseRate90d: same90,
+    crossSellRetentionRate90d: crossSell90,
+    productLtv90Cents: ltv90Cents,
+    productLtv180Cents: numberOrNull(summary.productLtv180Cents) || 0,
+    ltv90DeltaCents: ltvDeltaCents,
+    medianDaysToSecondPurchase: numberOrNull(summary.medianDaysToSecondPurchase),
+    totalProductCohortCustomers: cohortCustomers,
+    totalProductOrdersAnalyzed: productOrders,
+  };
+
+  const repurchase = {
+    kind: "repurchase_campaign",
+    score: Number(same90 || 0) * 100 + Number(healthScore || 0) / 2,
+    summary: metricsPayload,
+    shouldRecommend: Boolean(canRecommendCommercialRetention && healthScore >= 65 && same90 >= 0.18),
+    reason: `Same-product repurchase is ${formatRetentionPercent(same90)} across ${cohortCustomers} product cohort customers; test a conservative replenishment or repurchase reminder.`,
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "repurchase_campaign",
+      summary: metricsPayload,
+    }),
+  };
+  const crossSellRelationship = getRetentionRelationshipSignal(relationshipSignals.crossSellOpportunity);
+  const crossSell = {
+    kind: "retention_cross_sell_campaign",
+    score: Number(crossSell90 || 0) * 100 + Number(crossSellRelationship.sampleSize || 0) * 3 + Number(crossSellRelationship.lift || 0) * 4,
+    summary: metricsPayload,
+    relationship: crossSellRelationship.relationship,
+    shouldRecommend: Boolean(canRecommendCommercialRetention && crossSell90 >= 0.20 && crossSellRelationship.hasActionableRelationship),
+    reason: `${formatRetentionPercent(crossSell90)} of product cohort customers buy another product within 90 days, and ${crossSellRelationship.title} appears as a reliable follow-on purchase.`,
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "retention_cross_sell_campaign",
+      summary: metricsPayload,
+      relatedProductTitle: crossSellRelationship.title,
+    }),
+  };
+  const bundleRelationship = getRetentionRelationshipSignal(relationshipSignals.bundleOpportunity);
+  const bundle = {
+    kind: "retention_bundle_offer",
+    score: Number(crossSell90 || 0) * 100 + Number(bundleRelationship.sampleSize || 0) * 3 + Number(bundleRelationship.lift || 0) * 5,
+    summary: metricsPayload,
+    relationship: bundleRelationship.relationship,
+    shouldRecommend: Boolean(canRecommendCommercialRetention && crossSell90 >= 0.15 && bundleRelationship.hasActionableRelationship),
+    reason: `${bundleRelationship.title} is a stable bought-together product, and retention LTV includes meaningful cross-sell contribution.`,
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "retention_bundle_offer",
+      summary: metricsPayload,
+      relatedProductTitle: bundleRelationship.title,
+    }),
+  };
+  const drop = {
+    kind: "retention_drop_review",
+    score: 100 - Number(healthScore || 100),
+    summary: metricsPayload,
+    shouldRecommend: Boolean(hasEnoughData && !sourceIntegrityMode && hasRetentionDropConcern),
+    reason: buildRetentionDropReason({ healthScore, repeat90, ltvDeltaCents, ltv90Cents, cohortCustomers }),
+    campaignPlan: buildRetentionCampaignPlan({
+      kind: "retention_drop_review",
+      summary: metricsPayload,
+    }),
+  };
+
+  const opportunitySignals = [repurchase, crossSell, bundle].filter((signal) => signal.shouldRecommend);
+  const winner = opportunitySignals.sort((first, second) => second.score - first.score)[0] || null;
+  const keepOnlyWinner = (signal) => ({
+    ...signal,
+    shouldRecommend: Boolean(winner && signal.kind === winner.kind),
+    suppressionReason: winner && signal.kind !== winner.kind
+      ? `Suppressed because ${winner.kind} is the strongest retention action for this diagnosis.`
+      : signal.suppressionReason,
+  });
+
+  return {
+    repurchaseCampaign: keepOnlyWinner(repurchase),
+    crossSellCampaign: keepOnlyWinner(crossSell),
+    bundleOffer: keepOnlyWinner(bundle),
+    dropReview: drop,
+  };
+}
+
+function getRetentionRelationshipSignal(signal = {}) {
+  const relationship = signal?.relationship && typeof signal.relationship === "object" ? signal.relationship : null;
+  const title = relationship?.relatedProductTitle || relationship?.related_product_title || signal.title || "a related product";
+  const sampleSize = Number(signal.sampleSize || relationship?.sampleSize || relationship?.sample_size || 0);
+  const confidence = normalizePercentLike(signal.confidence || relationship?.confidence || 0);
+  const lift = Number(signal.lift ?? relationship?.lift ?? 0);
+  return {
+    relationship: relationship || {},
+    title,
+    sampleSize,
+    confidence,
+    lift,
+    hasActionableRelationship: Boolean(relationship && sampleSize >= 3 && confidence >= 55),
+  };
+}
+
+function buildRetentionDropReason({ healthScore, repeat90, ltvDeltaCents, ltv90Cents, cohortCustomers }) {
+  if (healthScore != null && healthScore <= 45) {
+    return `Retention health is ${Math.round(healthScore)}/100 across ${cohortCustomers} product cohort customers; review onboarding, expectation fit, and lifecycle follow-up before adding growth campaigns.`;
+  }
+  if (repeat90 != null && repeat90 <= 0.05) {
+    return `90-day repeat purchase is only ${formatRetentionPercent(repeat90)} across ${cohortCustomers} product cohort customers; review whether buyers have a clear reason to return.`;
+  }
+  const deltaText = ltvDeltaCents == null ? "down" : `${formatMoney(ltvDeltaCents / 100)} ${ltvDeltaCents < 0 ? "down" : "changed"}`;
+  return `90-day product LTV is ${deltaText} against the previous period from a ${formatMoney(ltv90Cents / 100)} baseline; review whether retention quality is weakening.`;
+}
+
+function buildRetentionCampaignPlan({ kind, summary = {}, relatedProductTitle = "" } = {}) {
+  const timing = summary.medianDaysToSecondPurchase == null
+    ? "Use the normal replenishment or post-purchase timing for this category."
+    : `Start around ${Math.max(7, Math.round(summary.medianDaysToSecondPurchase * 0.75))} days after purchase, before the median ${Math.round(summary.medianDaysToSecondPurchase)}-day second-purchase point.`;
+  if (kind === "repurchase_campaign") {
+    return {
+      objective: "Increase repeat purchases from customers who already showed same-product repurchase behavior.",
+      audience: "Customers who bought this product and have not purchased it again within the expected repeat window.",
+      timing,
+      messageAngle: "Remind customers why they bought it, when replacement or replenishment makes sense, and what to check before reordering.",
+      offerIdea: "Start with a light reminder or small loyalty incentive; avoid deep discounting until the campaign proves incremental.",
+      successMetric: "Same-product repurchase rate, repeat revenue per cohort customer, unsubscribe/complaint rate.",
+      guardrail: "Do not run this if recent returns, refunds, or reviews indicate unresolved product quality risk.",
+    };
+  }
+  if (kind === "retention_cross_sell_campaign") {
+    return {
+      objective: `Turn the observed follow-on purchase pattern into a measured lifecycle cross-sell for ${relatedProductTitle || "the related product"}.`,
+      audience: "Customers who bought this product but have not yet bought the related follow-on product.",
+      timing,
+      messageAngle: `Explain why ${relatedProductTitle || "the related product"} is the next useful step and how it complements the original purchase.`,
+      offerIdea: "Test product education first, then a modest cross-sell incentive only if the education email is healthy.",
+      successMetric: "Cross-sell conversion, incremental LTV, return/refund rate on cross-sell orders.",
+      guardrail: "Keep the campaign paused if the related-product pair has elevated return/refund pressure or unclear compatibility expectations.",
+    };
+  }
+  if (kind === "retention_bundle_offer") {
+    return {
+      objective: `Test whether a bundle with ${relatedProductTitle || "the related product"} increases LTV without adding post-purchase friction.`,
+      audience: "New shoppers considering this product, plus returning customers who bought only one item.",
+      timing: "Use PDP merchandising, cart recommendation, or a small audience test before making the bundle permanent.",
+      messageAngle: "Make the bundle purpose explicit: what each item does, what is included, and when the pair is useful.",
+      offerIdea: "Start as a frequently-bought-together module or limited bundle offer rather than a mandatory kit.",
+      successMetric: "Attach rate, bundle conversion, return/refund delta versus source-only orders.",
+      guardrail: "Do not promote the bundle if pairing evidence shows expectation mismatch or higher returns.",
+    };
+  }
+  return {
+    objective: "Understand why product cohorts are not returning before launching retention campaigns.",
+    audience: "Recent product buyers segmented by variant, first-order quantity, discount use, and acquisition channel.",
+    timing: "Review cohorts before sending new growth messaging; use the next diagnosis run to check whether retention recovers.",
+    messageAngle: "If messaging is needed, focus on education, setup, care, replenishment timing, or expectation reset rather than discounting.",
+    offerIdea: "No offer by default; first verify whether the drop is product fit, timing, channel quality, or missing lifecycle follow-up.",
+    successMetric: "Retention health, 90-day repeat rate, LTV delta, and post-purchase complaint rate.",
+    guardrail: "Do not create a growth campaign from weak retention until product-quality and expectation evidence is reviewed.",
+  };
+}
+
+function formatRetentionPercent(value) {
+  if (value == null) return "unavailable";
+  return `${roundRate(Number(value) * 100, 1)}%`;
+}
+
+function hasStopSaleOperationalRisk(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const mainIssue = normalizeIssueCode(deterministic.mainIssue);
+  if (mainIssue === "safety_concern") return true;
+  if (!["quality_defect", "durability", "refund_impact"].includes(mainIssue)) return false;
+  if (!hasOperationalQualityTextSignals(deterministic)) return false;
+
+  const returnRefundUnits = Number(metrics.returnUnits || 0) + Number(metrics.refundUnits || 0);
+  const highRates = Number(metrics.returnRate || 0) >= 25
+    || Number(metrics.refundRate || 0) >= 20
+    || Boolean(metrics.refundInsights?.highPressure);
+  return returnRefundUnits >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE
+    && (Number(deterministic.riskScore || 0) >= 70 || highRates);
+}
+
+function buildProductRelationshipRecommendationPayload(signal = {}, extra = {}) {
+  const relationship = signal.relationship || {};
+  return {
+    ...extra,
+    relatedProductId: relationship.relatedProductId || relationship.related_product_id || null,
+    relatedProductTitle: relationship.relatedProductTitle || relationship.related_product_title || signal.title || "",
+    relationshipType: relationship.relationshipType || relationship.relationship_type || "",
+    relationshipDirection: relationship.direction || relationship.relationshipDirection || relationship.relationship_direction || "",
+    timeWindow: relationship.timeWindow || relationship.time_window || "",
+    lift: relationship.lift ?? null,
+    confidence: signal.confidence || relationship.confidence || null,
+    confidenceLabel: relationship.confidenceLabel || relationship.confidence_label || "",
+    sampleSize: signal.sampleSize || relationship.sampleSize || relationship.sample_size || 0,
+    relationshipStrength: relationship.relationshipStrength || relationship.relationship_strength || "",
+    trend: relationship.trend || "",
+    deltaReturnRate: relationship.deltaReturnRate || relationship.delta_return_rate || 0,
+    deltaRefundRate: relationship.deltaRefundRate || relationship.delta_refund_rate || 0,
+    source: "product_relationship_intelligence",
+    readOnly: true,
+  };
+}
+
+function buildProductRelationshipCollectionPayload(signal = {}, extra = {}) {
+  const suggestion = signal.suggestion || {};
+  return {
+    ...extra,
+    field: "collection",
+    collectionId: suggestion.collectionId || "",
+    collectionName: suggestion.collectionName || "",
+    collectionHandle: suggestion.collectionHandle || "",
+    relationshipCollectionScore: suggestion.score || 0,
+    relationshipEvidence: Array.isArray(suggestion.evidence) ? suggestion.evidence : [],
+    relatedProducts: Array.isArray(suggestion.relatedProducts) ? suggestion.relatedProducts : [],
+    source: "product_relationship_intelligence",
+    readOnly: false,
+  };
+}
+
+function buildProductRetentionRecommendationPayload(signal = {}, extra = {}) {
+  const summary = signal.summary || {};
+  const relationship = signal.relationship || {};
+  const campaignPlan = signal.campaignPlan || buildRetentionCampaignPlan({ kind: signal.kind, summary });
+  return {
+    ...extra,
+    source: "product_retention",
+    retentionActionKind: signal.kind || extra.recommendationKind || "",
+    retentionMetrics: {
+      healthScore: summary.healthScore ?? null,
+      repeatPurchaseRate90d: summary.repeatPurchaseRate90d ?? null,
+      sameProductRepurchaseRate90d: summary.sameProductRepurchaseRate90d ?? null,
+      crossSellRetentionRate90d: summary.crossSellRetentionRate90d ?? null,
+      productLtv90Cents: summary.productLtv90Cents || 0,
+      productLtv180Cents: summary.productLtv180Cents || 0,
+      ltv90DeltaCents: summary.ltv90DeltaCents ?? null,
+      medianDaysToSecondPurchase: summary.medianDaysToSecondPurchase ?? null,
+      totalProductCohortCustomers: summary.totalProductCohortCustomers || 0,
+      totalProductOrdersAnalyzed: summary.totalProductOrdersAnalyzed || 0,
+    },
+    campaignPlan,
+    campaignBrief: formatRetentionCampaignBrief(campaignPlan),
+    relatedProductId: relationship.relatedProductId || relationship.related_product_id || null,
+    relatedProductTitle: relationship.relatedProductTitle || relationship.related_product_title || "",
+    relationshipType: relationship.relationshipType || relationship.relationship_type || "",
+    relationshipDirection: relationship.direction || relationship.relationshipDirection || relationship.relationship_direction || "",
+    timeWindow: relationship.timeWindow || relationship.time_window || "",
+    lift: relationship.lift ?? null,
+    sampleSize: signal.sampleSize || relationship.sampleSize || relationship.sample_size || 0,
+    readOnly: true,
+  };
+}
+
+function formatRetentionCampaignBrief(plan = {}) {
+  return [
+    plan.objective ? `Objective: ${plan.objective}` : "",
+    plan.audience ? `Audience: ${plan.audience}` : "",
+    plan.timing ? `Timing: ${plan.timing}` : "",
+    plan.messageAngle ? `Message: ${plan.messageAngle}` : "",
+    plan.offerIdea ? `Offer: ${plan.offerIdea}` : "",
+    plan.successMetric ? `Success metric: ${plan.successMetric}` : "",
+    plan.guardrail ? `Guardrail: ${plan.guardrail}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function normalizePercentLike(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return numeric <= 1 ? numeric * 100 : numeric;
 }
 
 function getActionableContentIssues(metrics = {}) {
@@ -4677,6 +7658,15 @@ function isSourceIntegrityDiagnosis(deterministic = {}, sourceMismatchSignals = 
 }
 
 function isSubjectiveExpectationOnlyDiagnosis(deterministic = {}) {
+  const aiActionGuidance = getAiActionGuidance(deterministic);
+  if (aiActionGuidance) {
+    const subjectiveByAi = aiActionGuidance.issueNature === "subjective_expectation"
+      || aiActionGuidance.subjectivityLevel === "high";
+    const operationalByAi = aiActionGuidance.shouldEscalateQa === true
+      || aiActionGuidance.issueNature === "operational_quality"
+      || aiActionGuidance.operationalQualityConfidence === "high";
+    if (subjectiveByAi && !operationalByAi) return true;
+  }
   const mainIssue = normalizeIssueCode(deterministic.mainIssue);
   const textValues = getOperationalSignalTextValues(deterministic);
   const text = textValues.join(" ");
@@ -4714,8 +7704,34 @@ function hasAffectedVariantConcentration(metrics = {}) {
 }
 
 function hasOperationalQualityTextSignals(deterministic = {}) {
+  const aiActionGuidance = getAiActionGuidance(deterministic);
+  if (shouldAiSuppressActionFamily(aiActionGuidance, "qa_review")) return false;
+  if (shouldAiRecommendQaReview(aiActionGuidance)) return true;
   return getOperationalSignalTextValues(deterministic)
-    .some((value) => /\b(leak|leaking|spill|spilled|broken|break|broke|crack|cracked|chip|chipped|defect|defective|damaged|damage|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|ripped|stain|mold|battery|burn|sharp|packaging|package|shipping|arrived damaged)\b/i.test(value));
+    .some(hasOperationalQualityLanguage);
+}
+
+function hasProductFailureTextSignals(deterministic = {}) {
+  return getOperationalSignalTextValues(deterministic).some((value) => {
+    const text = String(value || "").toLowerCase();
+    if (!text) return false;
+    const explicitTransitIssue = /\b(shipping|delivery|shipment|carrier|in transit|transit|arrived damaged|damaged in transit|lost package)\b/i.test(text);
+    const productFailure = /\b(leak|leaking|deflat|lost air|hold pressure|wobbl|sliding|tilt|unstable|unsafe|safety|broken|break|broke|crack|cracked|chip|chipped|tear|tore|ripped|malfunction|failed|failure|seal)\b/i.test(text);
+    return productFailure && !explicitTransitIssue;
+  });
+}
+
+function hasOperationalQualityLanguage(value = "") {
+  const text = String(value || "").toLowerCase();
+  if (!text) return false;
+  const normalized = normalizeText(text);
+  const setupDependentApplianceLanguage = /\b(min line|minimum fill|min fill|fill line|120v|120 v|voltage|converter|travel converter|power bank|car socket|steam vent|vent clearance|first boil|first use|silicone smell|odor|odour|descale|mineral buildup)\b/.test(normalized);
+  if (setupDependentApplianceLanguage && isSetupExpectationMismatchText(normalized)) return false;
+  const hardOperationalPattern = /\b(leak|leaking|spill|spilled|broken|break|broke|crack|cracked|chip|chipped|unsafe|safety|hazard|durability|malfunction|failed|failure|lid|seal|tear|tore|ripped|stain|mold|battery|burn|sharp|packaging|package|shipping|arrived damaged)\b/i;
+  if (hardOperationalPattern.test(text)) return true;
+  const defectOnlyPattern = /\b(defect|defective|damaged|damage|quality problem|manufacturing issue|supplier issue)\b/i;
+  if (!defectOnlyPattern.test(text)) return false;
+  return !/\b(not|no|without|isn't|is not|wasn't|was not|not necessarily|personal preference|preference issue)\b.{0,60}\b(defect|defective|damaged|damage|quality problem)\b/i.test(text);
 }
 
 function getOperationalSignalTextValues(deterministic = {}) {
@@ -4843,6 +7859,12 @@ function getRecommendationEvidenceStrengthLabel(deterministic = {}, action = {})
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("mismatch") || normalized.includes("conflict")) return "Conflicting";
   const metrics = deterministic.metrics || {};
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(normalized)) {
+    const cohortCustomers = Number(metrics.productRetention?.summary?.totalCustomersAnalyzed || 0);
+    if (cohortCustomers >= 50) return "Strong";
+    if (cohortCustomers >= 10) return "Moderate";
+    return "Weak";
+  }
   const sourceCount = Array.isArray(deterministic.sourceCoverage) ? deterministic.sourceCoverage.length : Array.isArray(metrics.sourceCoverage) ? metrics.sourceCoverage.length : 0;
   const signalCount = Number(metrics.customerSignalCount || metrics.signalCount || 0);
   if (signalCount >= 10 && sourceCount >= 3) return "Strong";
@@ -4852,6 +7874,8 @@ function getRecommendationEvidenceStrengthLabel(deterministic = {}, action = {})
 
 function getRecommendationVisibility(action = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.shopifyField || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(value)) return "Customer-facing";
+  if (/\b(pairing|compatibility review|bundle expectations)\b/.test(value)) return "Customer-facing";
   if (/\b(description|pdp|faq|title|seo|meta|handle|media|image|alt text|specs|details)\b/.test(value)) return "Customer-facing";
   if (/\b(status|price|compare-at|inventory|variant|supplier|qa|fulfillment|safety)\b/.test(value)) return "Operational";
   return "Internal";
@@ -4867,13 +7891,16 @@ function getRecommendationReversibility(action = {}) {
 function getRecommendationApprovalLevel(action = {}, recipe = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${recipe.applicationRisk || ""} ${recipe.approval || ""}`.toLowerCase();
   if (/\b(high|status|archive|draft|inventory|price|compare-at|strong|manual approval)\b/.test(value)) return "Strong confirmation required";
+  if (/\b(retention|repurchase|lifecycle|campaign)\b/.test(value)) return "Review required";
   if (/\b(tag|metafield|watchlist|baseline|internal note|copy-support|connect-missing-source|monitoring)\b/.test(value)) return "Auto-safe";
   return "Review required";
 }
 
 function getRecommendationReasonCategory(action = {}, mainIssue = "") {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.payload?.trigger || ""} ${mainIssue || ""}`.toLowerCase();
-  if (/\b(momentum|watchlist|baseline)\b/.test(value)) return "Momentum";
+  if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(value)) return "Retention";
+  if (/\b(bundle|cross-sell|pairing|journey|upgrade|product relationship)\b/.test(value)) return "Product relationship";
+  if (/\b(momentum|watchlist|baseline)\b/.test(value)) return "Sales Momentum";
   if (/\b(seo|meta|handle)\b/.test(value)) return "SEO";
   if (/\b(variant|sku|option)\b/.test(value)) return "Variant issue";
   if (/\b(sentiment|subjective|fear|safety|emotion)\b/.test(value)) return "Sentiment";
@@ -4886,6 +7913,9 @@ function getRecommendationReasonCategory(action = {}, mainIssue = "") {
 
 function getRecommendationExpectedBenefit(action = {}, recipe = {}) {
   const value = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${recipe.expectedImpact || ""}`.toLowerCase();
+  if (/\b(retention|repurchase|lifecycle|campaign|ltv)\b/.test(value)) return "Improve retention";
+  if (/\b(bundle|cross-sell|journey|upgrade)\b/.test(value)) return "Improve merchandising";
+  if (/\b(pairing|compatibility review)\b/.test(value)) return "Reduce returns";
   if (/\b(seo|meta|handle)\b/.test(value)) return "Improve SEO";
   if (/\b(tag|collection|metafield|workflow|support|note|coverage|watchlist|baseline)\b/.test(value)) return "Improve workflow";
   if (/\b(status|inventory|draft|archive|safety|qa|supplier|bad purchase)\b/.test(value)) return "Prevent bad purchases";
@@ -4897,6 +7927,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   const id = String(action.id || "");
   const payload = action.payload || {};
   const metrics = deterministic.metrics || {};
+  const relationshipExpectationMode = isRelationshipExpectationMismatchDiagnosis(deterministic);
   const primary = index === 0 ? "Primary customer-facing fix" : "Suggested action";
   const trigger = payload.trigger || action.reason || `ProductPulse found ${getHumanIssueLabel(mainIssue)} evidence.`;
   const common = {
@@ -4912,11 +7943,16 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   };
 
   if (id === "correct-product-description") {
+    const targetedEnhancement = payload.changeStrategy === "targeted-enhancement";
     return {
       ...common,
-      proposedChange: "Correct specific contradictory text in the Shopify product description while preserving the existing description structure.",
+      proposedChange: targetedEnhancement
+        ? "Make a targeted product-specific edit to the Shopify description while preserving the existing structure."
+        : "Correct specific contradictory text in the Shopify product description while preserving the existing description structure.",
       shopifyField: "Product.descriptionHtml",
-      expectedImpact: "Remove a buyer-facing content contradiction without rewriting the full PDP copy.",
+      expectedImpact: targetedEnhancement
+        ? "Add only the missing shopper guidance without duplicating content already covered in the PDP."
+        : "Remove a buyer-facing content contradiction without rewriting the full PDP copy.",
       applicationRisk: "Low",
       priorityGroup: "Customer-facing fix",
       impactLevel: "High impact",
@@ -4939,7 +7975,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
     return {
       ...common,
       proposedChange: "Create generated FAQ content and apply it as description HTML or a product metafield.",
-      shopifyField: "Product.descriptionHtml or productpulse.faq_items metafield",
+      shopifyField: "Product.descriptionHtml or productpulse.faq_html metafield",
       expectedImpact: "Answer repeated buyer uncertainty before purchase.",
       applicationRisk: "Low",
       priorityGroup: "Customer-facing fix",
@@ -5005,6 +8041,110 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       priorityGroup: "Medium-impact catalog fix",
       impactLevel: "Medium impact",
       actionTier: 2,
+    };
+  }
+  if (id === "review-product-pairing-expectations") {
+    return {
+      ...common,
+      proposedChange: `Review compatibility messaging, cross-sell copy, or bundle expectations for purchases involving ${payload.relatedProductTitle || "the related product"}.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: "Reduce avoidable returns from a product pairing that shows higher return or refund pressure.",
+      applicationRisk: "Low",
+      priorityGroup: "Customer-facing fix",
+      impactLevel: "High impact",
+      actionTier: 1,
+    };
+  }
+  if (id === "test-product-bundle") {
+    return {
+      ...common,
+      proposedChange: `Review whether ${payload.relatedProductTitle || "the related product"} should be merchandised as a bundle or frequently-bought-together companion.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: "Improve merchandising from a high-lift same-order relationship without treating it as Product Risk.",
+      applicationRisk: "Low",
+      priorityGroup: "Medium-impact catalog fix",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "create-post-purchase-cross-sell") {
+    return {
+      ...common,
+      proposedChange: `Review a post-purchase cross-sell or lifecycle flow that suggests ${payload.relatedProductTitle || "the related product"} after this product.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: relationshipExpectationMode
+        ? "Keep the follow-on purchase pattern as merchandising context until the pairing/expectation risk is handled."
+        : "Use a stable follow-on purchase pattern as a commercial opportunity.",
+      applicationRisk: "Low",
+      priorityGroup: relationshipExpectationMode ? "Merchandising insight" : "Medium-impact catalog fix",
+      impactLevel: relationshipExpectationMode ? "Optional" : "Medium impact",
+      actionTier: relationshipExpectationMode ? 3 : 2,
+    };
+  }
+  if (id === "position-as-upgrade-path") {
+    return {
+      ...common,
+      proposedChange: `Review product copy or merchandising that positions this product as a next step after ${payload.relatedProductTitle || "the previous product"}.`,
+      shopifyField: "ProductPulse merchandising workflow",
+      expectedImpact: relationshipExpectationMode
+        ? "Keep the previous-purchase sequence as journey context until the pairing/expectation risk is handled."
+        : "Clarify the customer journey when purchase sequence data shows an upgrade, refill, or next-step pattern.",
+      applicationRisk: "Low",
+      priorityGroup: relationshipExpectationMode ? "Merchandising insight" : "Medium-impact catalog fix",
+      impactLevel: relationshipExpectationMode ? "Optional" : "Medium impact",
+      actionTier: relationshipExpectationMode ? 3 : 2,
+    };
+  }
+  if (id === "create-repurchase-campaign") {
+    return {
+      ...common,
+      proposedChange: "Plan a measured repurchase reminder for customers whose cohort behavior shows same-product repeat purchase potential.",
+      shopifyField: "Lifecycle marketing workflow",
+      expectedImpact: "Increase same-product repurchase and repeat revenue without changing Product Risk.",
+      applicationRisk: "Low",
+      approval: "Manual setup required",
+      priorityGroup: "Retention opportunity",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "create-retention-cross-sell-campaign") {
+    return {
+      ...common,
+      proposedChange: `Plan a lifecycle cross-sell that suggests ${payload.relatedProductTitle || "the related product"} after this product.`,
+      shopifyField: "Lifecycle marketing workflow",
+      expectedImpact: "Increase follow-on product revenue from an observed retention path while monitoring post-purchase friction.",
+      applicationRisk: "Low",
+      approval: "Manual setup required",
+      priorityGroup: "Retention opportunity",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "test-retention-bundle-offer") {
+    return {
+      ...common,
+      proposedChange: `Test a bundle or frequently-bought-together offer with ${payload.relatedProductTitle || "the related product"}.`,
+      shopifyField: "Merchandising / lifecycle workflow",
+      expectedImpact: "Increase attach rate and LTV from a retention-supported pairing without forcing a permanent bundle.",
+      applicationRisk: "Medium",
+      approval: "Manual setup required",
+      priorityGroup: "Retention opportunity",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
+  if (id === "review-retention-drop") {
+    return {
+      ...common,
+      proposedChange: "Review retention cohorts, repeat timing, LTV delta, and buyer segments before launching growth campaigns.",
+      shopifyField: "ProductPulse retention workflow",
+      expectedImpact: "Avoid amplifying weak retention until the cause is understood.",
+      applicationRisk: "Low",
+      approval: "Manual verification required",
+      priorityGroup: "Suggested action",
+      impactLevel: "Optional",
+      actionTier: 3,
     };
   }
   if (id === "correct-variant-options") {
@@ -5084,6 +8224,19 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
       actionTier: 2,
     };
   }
+  if (id === "add-to-related-product-collection") {
+    return {
+      ...common,
+      proposedChange: `Add this product to the existing "${payload.collectionName || "related"}" collection.`,
+      shopifyField: "Collection membership",
+      expectedImpact: "Place an uncollected product near related catalog items that customers already buy together or in sequence.",
+      applicationRisk: "Low",
+      approval: payload.collectionId ? "Review required before applying" : "Manual approval required",
+      priorityGroup: "Merchandising insight",
+      impactLevel: "Medium impact",
+      actionTier: 2,
+    };
+  }
   if (id === "improve-product-media") {
     const updates = Array.isArray(payload.mediaUpdates) ? payload.mediaUpdates : [];
     const proposedChange = updates.length
@@ -5128,13 +8281,22 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
     };
   }
   if (id === "update-product-classification") {
+    const proposedFields = [
+      payload.draftProductType ? "product type" : "",
+      payload.draftCategoryId ? "Shopify category" : "",
+      payload.draftVendor ? "vendor" : "",
+    ].filter(Boolean).join(", ");
     return {
       ...common,
-      proposedChange: "Review and update product type, vendor or Shopify category classification.",
-      shopifyField: "Product.productType, Product.vendor or category",
+      proposedChange: proposedFields
+        ? `Review and update ${proposedFields}.`
+        : "Review and update product type, vendor or Shopify category classification.",
+      shopifyField: payload.draftCategoryId
+        ? "Product.category, Product.productType or Product.vendor"
+        : "Product.productType, Product.vendor or category",
       expectedImpact: "Improve catalog reporting, filters, automatic collections and operational routing.",
       applicationRisk: "Medium",
-      approval: payload.draftVendor || payload.draftProductType ? "Review required before applying" : "Manual approval required",
+      approval: payload.draftVendor || payload.draftProductType || payload.draftCategoryId ? "Review required before applying" : "Manual approval required",
       priorityGroup: "Medium-impact catalog fix",
       impactLevel: "Medium impact",
       actionTier: 2,
@@ -5256,7 +8418,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   if (id === "add-to-watchlist") {
     return {
       ...common,
-      proposedChange: "Add this product to the Watchlist for periodic deep diagnostics.",
+      proposedChange: "Add this product to the Watchlist for periodic Product Diagnosis.",
       shopifyField: "ProductPulse Watchlist",
       expectedImpact: "Monitor commercially important products before small issues grow.",
       applicationRisk: "Low",
@@ -5295,7 +8457,7 @@ function buildSuggestedSeoTitle({ product = {}, snapshot = {}, mainIssue = "", a
   const base = normalizeSuggestedTitle(aiTitle || product.title || snapshot.productTitle || buildSuggestedProductTitle(product, mainIssue));
   const vendor = String(product.vendor || "").trim();
   const withVendor = vendor && !normalizeText(base).includes(normalizeText(vendor)) ? `${base} | ${vendor}` : base;
-  return normalizeSuggestedTitle(withVendor).slice(0, 70).replace(/\s+[|-]?\s*$/, "");
+  return limitSeoText(normalizeSuggestedTitle(withVendor), SEO_TITLE_MAX_LENGTH);
 }
 
 function buildSuggestedMetaDescription({ product = {}, snapshot = {}, mainIssue = "", aiDescription = "" } = {}) {
@@ -5305,7 +8467,7 @@ function buildSuggestedMetaDescription({ product = {}, snapshot = {}, mainIssue 
   const base = aiDescription || description || `${title} with clear product details, specifications, included items and expectation-setting guidance for shoppers.`;
   const prefix = base.toLowerCase().startsWith(title.toLowerCase()) ? base : `${title}: ${base}`;
   const suffix = issueLabel && !["product quality", "no issue"].includes(issueLabel) ? ` Includes guidance around ${issueLabel}.` : "";
-  return truncateSentence(`${prefix}${suffix}`, 155);
+  return limitSeoText(`${prefix}${suffix}`, SEO_META_DESCRIPTION_MAX_LENGTH, { terminalPeriod: true });
 }
 
 function buildSuggestedProductHandle({ product = {}, snapshot = {} } = {}) {
@@ -5395,23 +8557,223 @@ function isGenericVariantTitle(value = "") {
   return /^default title$/i.test(String(value || "").trim());
 }
 
-function buildSpecsDetailsBlock({ product = {}, contentIssues = [], mainIssue = "" } = {}) {
-  const variants = Array.isArray(product.variants) ? product.variants : [];
-  const optionNames = Array.isArray(product.options) ? product.options.map((option) => option.name).filter(Boolean) : [];
-  const issueLabel = getHumanIssueLabel(mainIssue);
-  const lines = [
-    "Product details to confirm before buying:",
-    product.productType ? `- Product type: ${product.productType}` : "",
-    product.vendor ? `- Brand/vendor: ${product.vendor}` : "",
-    optionNames.length ? `- Available options: ${optionNames.join(", ")}` : "",
-    variants.length ? `- Variants/SKUs: ${variants.slice(0, 5).map((variant) => [variant.title, variant.sku].filter(Boolean).join(" / ")).filter(Boolean).join("; ")}` : "",
-    contentIssues.length ? `- Clarify: ${contentIssues.slice(0, 3).map((issue) => issue.label).filter(Boolean).join(", ")}` : "",
-    issueLabel && issueLabel !== "No issue" ? `- Buyer expectation note: ${issueLabel}` : "",
-  ].filter(Boolean);
-  return lines.join("\n");
+function buildSpecsDetailsBlock({ product = {}, contentIssues = [], mainIssue = "", deterministic = {}, aiSpecsBlock = "" } = {}) {
+  const normalizedAiBlock = normalizeSpecsDetailsBlock(aiSpecsBlock);
+  if (normalizedAiBlock) return normalizedAiBlock;
+
+  const context = buildSpecsDetailsContext({ product, contentIssues, mainIssue, deterministic });
+  const items = buildTechnicalSpecItems(context);
+  return [
+    "Technical details to confirm before buying:",
+    ...items.map((item) => `- ${item.label}: ${item.detail}`),
+  ].join("\n");
 }
 
-function buildProductClassificationDraft({ product = {}, mainIssue = "" } = {}) {
+function normalizeSpecsDetailsBlock(value = "") {
+  const text = String(value || "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return "";
+  const normalized = normalizeText(text);
+  const metadataOnly = [
+    "product type",
+    "brand vendor",
+    "available options",
+    "variants skus",
+  ].filter((needle) => normalized.includes(needle)).length >= 3;
+  const hasTechnicalDetail = /\b(voltage|capacity|dimension|height|width|length|weight|temperature|timer|alarm|power|battery|material|care|compatib|clean|water|humidity|condensation|range|included|limit|setup|firmware|connectivity|size chart|loft|seal|leak|heat|brew)\b/i.test(text);
+  if (metadataOnly && !hasTechnicalDetail) return "";
+  return text;
+}
+
+function buildSpecsDetailsContext({ product = {}, contentIssues = [], mainIssue = "", deterministic = {} } = {}) {
+  const metrics = deterministic.metrics || {};
+  const sourceText = [
+    product.title,
+    product.productType,
+    product.description,
+    stripHtml(product.descriptionHtml || ""),
+    ...(Array.isArray(product.tags) ? product.tags : []),
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    getHumanIssueLabel(mainIssue),
+    ...contentIssues.flatMap((issue) => [issue.code, issue.label, issue.evidence]),
+    ...(Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets : []).map((item) => item.text || item.body || item.quote || item.summary || ""),
+    ...(Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails : []).map((item) => `${item.label || ""} ${item.detail || ""}`),
+    ...(Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : []),
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []).map((item) => `${item.term || item.label || item.phrase || ""}`),
+  ].filter(Boolean).join(" ");
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  return {
+    product,
+    mainIssue: normalizeIssueCode(mainIssue),
+    text: sourceText,
+    normalizedText: normalizeText(sourceText),
+    variantLabels: uniqueBy(
+      variants.map((variant) => String(variant.title || variant.sku || "").trim()).filter(Boolean),
+      normalizeText,
+    ).slice(0, 4),
+  };
+}
+
+function buildTechnicalSpecItems(context = {}) {
+  const text = context.normalizedText || "";
+  const issue = context.mainIssue || "";
+  let items = [];
+
+  if (/\b(coffee|brew|brewer|alarm clock|small appliance|appliance|kettle|heater|heat)\b/.test(text)) {
+    items = [
+      ["Power input", "[confirm voltage, plug type, and whether an adapter is required]"],
+      ["Brew capacity", "[confirm water tank capacity and maximum cup size]"],
+      ["Brew temperature range", "[confirm target brew temperature or safe operating range]"],
+      ["Timer and alarm behavior", "[confirm scheduling accuracy, alarm volume, backup behavior, and what happens after power loss]"],
+      ["Water and condensation guidance", "[confirm required surface, clearance, and expected condensation or humidity]"],
+      ["Cleaning and removable parts", "[confirm which tank, tray, filter, or cup components are washable]"],
+    ];
+  } else if (/\b(pillow|bedding|cooling|loft|sleep|insert)\b/.test(text)) {
+    items = [
+      ["Dimensions and loft", "[confirm length, width, height/loft, and whether loft varies by option]"],
+      ["Cooling insert details", "[confirm insert material, expected cooling duration, and whether it should be aired out before use]"],
+      ["Cover material and care", "[confirm cover fabric, wash instructions, and insert cleaning limits]"],
+      ["Comfort guidance", "[confirm which sleep positions each loft is intended for]"],
+      ["Odor or airing guidance", "[confirm any first-use airing instructions]"],
+    ];
+  } else if (/\b(inflatable|standing desk|desk|furniture|riser|pump)\b/.test(text)) {
+    items = [
+      ["Inflated dimensions", "[confirm height, width, depth, and usable work surface]"],
+      ["Maximum supported weight", "[confirm safe laptop/monitor weight limit]"],
+      ["Inflation and deflation", "[confirm pump type, inflation time, and pressure guidance]"],
+      ["Stability limits", "[confirm approved surfaces, typing limits, and items not recommended for use]"],
+      ["Packed size and included items", "[confirm packed dimensions and whether pump/patch kit are included]"],
+    ];
+  } else if (/\b(safe|lock|security|voice|keypad)\b/.test(text)) {
+    items = [
+      ["Unlock methods", "[confirm voice, keypad, key, app, or backup access methods]"],
+      ["Voice setup requirements", "[confirm training steps, quiet-room requirement, and supported languages/phrases]"],
+      ["Power and battery", "[confirm battery type, expected battery life, and low-battery behavior]"],
+      ["Interior dimensions", "[confirm usable internal height, width, depth, and shelf layout]"],
+      ["Security limits", "[confirm false-open protections, reset process, and emergency access]"],
+    ];
+  } else if (/\b(luggage|tag|tracking|qr|bluetooth|gps|travel)\b/.test(text)) {
+    items = [
+      ["Tracking method", "[confirm whether updates are GPS, Bluetooth, QR scan-based, or network-assisted]"],
+      ["Compatibility", "[confirm supported phones, operating systems, and app/account requirements]"],
+      ["Battery", "[confirm battery type, battery life, and replacement or charging steps]"],
+      ["QR privacy controls", "[confirm which owner details are visible after scan and how to edit them]"],
+      ["Range and limitations", "[confirm Bluetooth range, delayed-update behavior, and travel limitations]"],
+    ];
+  } else if (/\b(shirt|apparel|linen|fit|size|sizing|sleeve|shoulder)\b/.test(text) || issue === "fit_sizing") {
+    items = [
+      ["Fit measurements", "[confirm chest, shoulder, sleeve, body length, and garment measurements by size]"],
+      ["Fit guidance", "[confirm whether the style runs relaxed, fitted, small, or oversized]"],
+      ["Material composition", "[confirm fabric blend and whether it may shrink]"],
+      ["Care instructions", "[confirm wash, dry, ironing, and shrinkage guidance]"],
+      ["Variant-specific notes", "[confirm whether color or size variants fit differently]"],
+    ];
+  } else if (/\b(mat|yoga|fitness|cushion|balance|thick|firm)\b/.test(text)) {
+    items = [
+      ["Dimensions", "[confirm length, width, thickness, and weight]"],
+      ["Firmness level", "[confirm cushion/firmness rating and intended workout style]"],
+      ["Material and grip", "[confirm surface material, underside grip, and floor compatibility]"],
+      ["Care", "[confirm cleaning method and drying guidance]"],
+      ["Use limits", "[confirm whether this is recommended for balance poses or floor work only]"],
+    ];
+  } else if (/\b(mug|drinkware|lid|leak|seal|insulated|bottle)\b/.test(text)) {
+    items = [
+      ["Capacity", "[confirm fluid capacity]"],
+      ["Lid and seal limits", "[confirm whether the lid is leakproof, splash-resistant, or upright-only]"],
+      ["Temperature retention", "[confirm hot/cold retention window]"],
+      ["Cleaning", "[confirm dishwasher safety and removable seal care]"],
+      ["Bag-use guidance", "[confirm whether it is safe for bags or near electronics]"],
+    ];
+  } else if (/\b(earbud|bluetooth|electronics|battery|charging|case)\b/.test(text)) {
+    items = [
+      ["Battery life", "[confirm earbud and case battery life]"],
+      ["Charging", "[confirm cable type, charge time, and included accessories]"],
+      ["Connectivity", "[confirm Bluetooth version and supported devices]"],
+      ["Fit and included tips", "[confirm included tip sizes or fit accessories]"],
+      ["Variant appearance", "[confirm real-life color/material differences by variant]"],
+    ];
+  } else if (/\b(ceramic|dinner|plate|bowl|kitchen|dishwasher|fragile)\b/.test(text)) {
+    items = [
+      ["Pieces included", "[confirm exact plate, bowl, and serving-piece count]"],
+      ["Dimensions", "[confirm plate and bowl diameters/capacity]"],
+      ["Material and finish", "[confirm ceramic type, glaze variation, and finish notes]"],
+      ["Care", "[confirm dishwasher, microwave, and oven safety]"],
+      ["Packaging and arrival check", "[confirm protective packaging and what to do if an item arrives damaged]"],
+    ];
+  } else if (/\b(planter|wifi|wi-fi|app|garden|seed|led)\b/.test(text)) {
+    items = [
+      ["Compatibility", "[confirm Wi-Fi band, app language, phone OS, and account requirements]"],
+      ["Power", "[confirm plug type, voltage, and cord length]"],
+      ["Dimensions", "[confirm counter footprint and grow-light height]"],
+      ["Included items", "[confirm seed pods, accessories, and replacement parts]"],
+      ["Setup guidance", "[confirm router/app setup steps before first use]"],
+    ];
+  } else if (/\b(print|art|wall|frame|poster|canvas)\b/.test(text)) {
+    items = [
+      ["Dimensions", "[confirm print size and visible image area]"],
+      ["Material and finish", "[confirm paper/canvas material, matte/gloss finish, and color tone]"],
+      ["Frame", "[confirm whether a frame, hanger, or mounting hardware is included]"],
+      ["Room context", "[confirm lighting, scale, and visual mood guidance]"],
+      ["Shipping format", "[confirm rolled, flat, or framed shipping format]"],
+    ];
+  } else {
+    items = [
+      ["Dimensions or size", "[confirm product dimensions, weight, and size guidance]"],
+      ["Materials or components", "[confirm materials, included parts, and replacement components]"],
+      ["Compatibility or setup", "[confirm requirements, supported use cases, and setup steps]"],
+      ["Care or maintenance", "[confirm cleaning, storage, and maintenance guidance]"],
+      ["Use limits", "[confirm safety limits, product boundaries, and expectation-setting details]"],
+    ];
+  }
+
+  const issueItem = buildIssueSpecificSpecItem(context);
+  if (issueItem) items.splice(Math.min(3, items.length), 0, issueItem);
+  const variantItem = buildVariantSpecificSpecItem(context);
+  if (variantItem) items.push(variantItem);
+  return dedupeSpecItems(items).slice(0, 8).map(([label, detail]) => ({ label, detail }));
+}
+
+function buildIssueSpecificSpecItem(context = {}) {
+  const text = context.normalizedText || "";
+  if (/\b(condensation|humidity|wet|water ring|nightstand|surface)\b/.test(text)) {
+    return ["Moisture guidance", "[confirm expected condensation, clearance, and safe surface requirements]"];
+  }
+  if (/\b(clock|timer|alarm|schedule|early|late|drift|firmware)\b/.test(text)) {
+    return ["Timing accuracy", "[confirm timer tolerance, firmware/reset steps, and alarm fallback behavior]"];
+  }
+  if (/\b(leak|seal|drip|spill)\b/.test(text)) {
+    return ["Leak or seal limit", "[confirm exact leakproof/splash-resistant claim and testing conditions]"];
+  }
+  if (/\b(odor|smell|chemical|air out|airing)\b/.test(text)) {
+    return ["First-use airing", "[confirm expected odor, airing time, and when a customer should contact support]"];
+  }
+  if (/\b(wobble|unstable|tilt|sliding|deflat|air loss)\b/.test(text)) {
+    return ["Stability test", "[confirm stability standard, safe weight, and pressure-loss tolerance]"];
+  }
+  if (/\b(privacy|qr|location|gps|tracking)\b/.test(text)) {
+    return ["Privacy and tracking limits", "[confirm visible profile fields, update source, and non-GPS limitations]"];
+  }
+  if (/\b(voice|false open|lockout|battery drain)\b/.test(text)) {
+    return ["Voice-lock safeguards", "[confirm false-open protections, lockout/reset flow, and battery-drain expectations]"];
+  }
+  return null;
+}
+
+function buildVariantSpecificSpecItem(context = {}) {
+  if (!context.variantLabels?.length) return null;
+  return [
+    "Variant-specific details",
+    `[confirm whether ${context.variantLabels.join(", ")} differ in specs, setup, finish, capacity, care, or limitations]`,
+  ];
+}
+
+function dedupeSpecItems(items = []) {
+  return uniqueBy(
+    items.filter((item) => Array.isArray(item) && item[0] && item[1]),
+    (item) => normalizeText(item[0]),
+  );
+}
+
+function buildProductClassificationDraft({ product = {}, mainIssue = "", existingProductTypes = [], categorySuggestions = [] } = {}) {
   const title = String(product.title || "").trim();
   const categories = detectProductCategoryGroups([
     title,
@@ -5420,12 +8782,124 @@ function buildProductClassificationDraft({ product = {}, mainIssue = "" } = {}) 
     ...(Array.isArray(product.collections) ? product.collections : []),
   ].join(" "));
   const [category] = [...categories];
-  const draftProductType = product.productType || getProductTypeFromCategory(category, mainIssue);
+  const currentProductType = String(product.productType || "").replace(/\s+/g, " ").trim();
+  const currentCategory = normalizeProductCategory(product.category);
+  const matchedProductType = chooseCatalogProductType({
+    product,
+    category,
+    mainIssue,
+    existingProductTypes,
+  });
+  const matchedCategory = !currentCategory.id ? chooseProductCategorySuggestion({ product, categorySuggestions }) : null;
+  const draftProductType = !currentProductType
+    ? matchedProductType
+    : isWeakProductType(currentProductType) && matchedProductType && normalizeText(matchedProductType) !== normalizeText(currentProductType)
+    ? matchedProductType
+    : "";
   return {
-    draftVendor: product.vendor || "",
+    draftVendor: "",
     draftProductType: draftProductType || "",
-    draftCategory: category || "",
+    draftCategory: matchedCategory?.fullName || matchedCategory?.name || category || "",
+    draftCategoryId: matchedCategory?.id || "",
+    draftCategoryName: matchedCategory?.name || "",
+    draftCategoryFullName: matchedCategory?.fullName || "",
+    currentCategoryId: currentCategory.id,
+    currentCategoryName: currentCategory.name,
+    currentCategoryFullName: currentCategory.fullName,
+    classificationSource: draftProductType ? "store_existing_product_type" : "",
+    categorySource: matchedCategory?.source || "",
+    productTypeOptions: (Array.isArray(existingProductTypes) ? existingProductTypes : [])
+      .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, 8),
+    categoryOptions: (Array.isArray(categorySuggestions) ? categorySuggestions : [])
+      .map(normalizeProductCategory)
+      .filter((item) => item.id)
+      .slice(0, 5),
   };
+}
+
+function hasProductClassificationDraftChange(classificationDraft = {}, product = {}) {
+  const currentVendor = String(product.vendor || "").replace(/\s+/g, " ").trim();
+  const currentProductType = String(product.productType || "").replace(/\s+/g, " ").trim();
+  const currentCategory = normalizeProductCategory(product.category);
+  const draftVendor = String(classificationDraft.draftVendor || "").replace(/\s+/g, " ").trim();
+  const draftProductType = String(classificationDraft.draftProductType || "").replace(/\s+/g, " ").trim();
+  const draftCategoryId = String(classificationDraft.draftCategoryId || "").trim();
+  return Boolean(
+    draftVendor && normalizeText(draftVendor) !== normalizeText(currentVendor)
+    || draftProductType && normalizeText(draftProductType) !== normalizeText(currentProductType)
+    || draftCategoryId && draftCategoryId !== currentCategory.id,
+  );
+}
+
+function isWeakProductType(value = "") {
+  const normalized = normalizeText(value);
+  return !normalized || [
+    "product",
+    "products",
+    "item",
+    "items",
+    "general",
+    "misc",
+    "miscellaneous",
+    "uncategorized",
+    "other",
+    "default",
+  ].includes(normalized) || normalized.length <= 2;
+}
+
+function chooseCatalogProductType({ product = {}, category = "", mainIssue = "", existingProductTypes = [] } = {}) {
+  const options = uniqueBy(
+    (Array.isArray(existingProductTypes) ? existingProductTypes : [])
+      .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean),
+    (value) => normalizeText(value),
+  );
+  if (!options.length) return "";
+
+  const productText = [
+    product.title,
+    product.description,
+    ...(Array.isArray(product.tags) ? product.tags : []),
+    ...(Array.isArray(product.collections) ? product.collections : []),
+    category,
+    mainIssue,
+  ].filter(Boolean).join(" ");
+  const productTokens = new Set(meaningfulTokens(productText));
+  const categoryGroups = new Set([
+    category,
+    ...detectProductCategoryGroups(productText),
+  ].filter(Boolean));
+  const fallbackType = getProductTypeFromCategory(category, mainIssue);
+
+  const scored = options
+    .filter((option) => normalizeText(option) !== normalizeText(product.productType))
+    .map((option) => {
+      const optionTokens = meaningfulTokens(option);
+      const optionGroups = detectProductCategoryGroups(option);
+      const sharedTokens = optionTokens.filter((token) => productTokens.has(token)).length;
+      const groupOverlap = [...optionGroups].filter((group) => categoryGroups.has(group)).length;
+      const directTextMatch = normalizeText(productText).includes(normalizeText(option));
+      const fallbackMatch = fallbackType && normalizeText(option).includes(normalizeText(fallbackType));
+      const score = (directTextMatch ? 8 : 0)
+        + (groupOverlap * 6)
+        + (sharedTokens * 3)
+        + (fallbackMatch ? 4 : 0);
+      return { option, score };
+    })
+    .filter((item) => item.score >= 3)
+    .sort((first, second) => second.score - first.score || first.option.length - second.option.length || first.option.localeCompare(second.option));
+
+  return scored[0]?.option || "";
+}
+
+function chooseProductCategorySuggestion({ product = {}, categorySuggestions = [] } = {}) {
+  const options = (Array.isArray(categorySuggestions) ? categorySuggestions : [])
+    .map(normalizeProductCategory)
+    .filter((category) => category.id && !category.isArchived);
+  if (!options.length) return null;
+  return rankProductTaxonomyCategories(options, product)[0] || null;
 }
 
 function getProductTypeFromCategory(category = "", mainIssue = "") {
@@ -5477,8 +8951,10 @@ function buildStructuredMetafieldRecommendations({ deterministic = {}, mainIssue
 function getRecommendedWorkflowTags({ mainIssue, deterministic = {} } = {}) {
   const issue = normalizeIssueCode(mainIssue);
   const metrics = deterministic.metrics || {};
+  const qaSupported = !shouldAiSuppressActionFamily(getAiActionGuidance(deterministic), "qa_review")
+    && (shouldAiRecommendQaReview(getAiActionGuidance(deterministic)) || hasOperationalQualityTextSignals(deterministic));
   const tags = [];
-  if (issue === "quality_defect" || issue === "durability") tags.push("qa-review-needed");
+  if ((issue === "quality_defect" || issue === "durability") && qaSupported) tags.push("qa-review-needed");
   if (issue === "safety_concern") tags.push("safety-review-needed");
   if (metrics.seoTitleNeedsReview || metrics.metaDescriptionNeedsReview || metrics.handleNeedsReview) tags.push("seo-fix-needed");
   if (Number(metrics.productMomentumScore || metrics.productMomentum?.score || 0) >= 70) tags.push("watchlist-candidate");
@@ -5486,12 +8962,41 @@ function getRecommendedWorkflowTags({ mainIssue, deterministic = {} } = {}) {
   return uniqueBy(tags, normalizeText);
 }
 
-function truncateSentence(value = "", maxLength = 155) {
+function limitSeoText(value = "", maxLength, options = {}) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (text.length <= maxLength) return text;
+  if (!text || text.length <= maxLength) return finishSeoText(text, maxLength, options);
   const clipped = text.slice(0, maxLength + 1);
-  const sentence = clipped.replace(/\s+\S*$/, "").replace(/[,:;.-]+$/, "");
-  return `${sentence || clipped.slice(0, maxLength).trim()}...`;
+  const sentenceEnd = findLastSeoSentenceEnd(clipped, maxLength);
+  const candidate = sentenceEnd >= Math.min(80, Math.floor(maxLength * 0.55))
+    ? clipped.slice(0, sentenceEnd)
+    : clipped.replace(/\s+\S*$/, "");
+  return finishSeoText(candidate || clipped.slice(0, maxLength), maxLength, options);
+}
+
+function findLastSeoSentenceEnd(value = "", maxLength) {
+  let lastEnd = -1;
+  const regex = /[.!?](?=\s|$)/g;
+  let match = regex.exec(value);
+  while (match) {
+    const end = match.index + 1;
+    if (end <= maxLength) lastEnd = end;
+    match = regex.exec(value);
+  }
+  return lastEnd;
+}
+
+function finishSeoText(value = "", maxLength, options = {}) {
+  let text = String(value || "")
+    .replace(/(?:\.\.\.|…)$/g, "")
+    .replace(/\s+[|/-]?\s*$/g, "")
+    .replace(/\b(?:and|or|with|for|to|of|the|a|an|y|o|con|para|de|del|la|el|los|las)$/i, "")
+    .replace(/[,:;|\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (options.terminalPeriod && text && !/[.!?]$/.test(text) && text.length + 1 <= maxLength) {
+    text = `${text}.`;
+  }
+  return text.length > maxLength ? text.slice(0, maxLength).replace(/\s+\S*$/, "").replace(/[,:;|\-–—.]+$/g, "").trim() : text;
 }
 
 function normalizeSuggestedTitle(value) {
@@ -5612,16 +9117,55 @@ function getRecommendedRiskTags({ mainIssue, deterministic }) {
   return uniqueBy(tags, normalizeText).slice(0, 10);
 }
 
-function buildRecommendedFaqItems({ copy = {}, snapshot, mainIssue, pdpCopy = "", faqNeed = {} }) {
-  const aiItems = normalizeFaqItems(copy.faq_items);
-  const legacyItem = normalizeFaqItems([{
+function buildRecommendedFaqRecommendation({ copy = {}, snapshot, mainIssue, pdpCopy = "", faqNeed = {}, currentDescriptionText = "", contentCoverage = new Map() }) {
+  const normalizedAiItems = normalizeFaqItems(copy.faq_items);
+  const normalizedLegacyItems = normalizeFaqItems([{
     question: copy.faq_question,
     answer: copy.faq_answer,
     reason: "AI generated from product diagnosis signals.",
   }]);
-  const fallbackItems = buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy, faqNeed });
-  return uniqueBy([...aiItems, ...legacyItem, ...fallbackItems], (item) => normalizeText(item.question))
-    .slice(0, 4);
+  const hadPreferredItems = normalizedAiItems.length > 0 || normalizedLegacyItems.length > 0;
+  const aiItems = tagFaqItemSource(normalizedAiItems
+    .map((item, index) => applyAiContentCoverageToFaqItem(item, contentCoverage, `faq_item_${index + 1}`))
+    .filter(Boolean), "ai");
+  const legacyItem = tagFaqItemSource(normalizedLegacyItems
+    .map((item) => applyAiContentCoverageToFaqItem(item, contentCoverage, "legacy_faq"))
+    .filter(Boolean), "ai");
+  const fallbackItems = tagFaqItemSource(buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy, faqNeed }), "fallback");
+  const preferredItems = uniqueBy([...aiItems, ...legacyItem], (item) => normalizeText(item.question));
+  const allCandidates = uniqueBy([...preferredItems, ...fallbackItems], (item) => normalizeText(item.question));
+  const coverage = getFaqContentCoverage({
+    items: allCandidates,
+    preferredItems,
+    currentDescriptionText,
+    pdpCopy,
+    mainIssue,
+    faqNeed,
+    hadPreferredItems,
+  });
+  const retainedItems = allCandidates
+    .filter((item) => !coverage.skippedItemKeys.has(normalizeFaqQuestionKey(item.question)))
+    .filter((item) => coverage.allowFallbackItems || item.source !== "fallback");
+
+  return {
+    items: retainedItems
+      .map((item) => Object.fromEntries(Object.entries(item).filter(([key]) => key !== "source")))
+      .slice(0, 4),
+    coverage: {
+      existingFaqDetected: coverage.existingFaqDetected,
+      skippedItems: coverage.skippedItems,
+      skippedQuestionCount: coverage.skippedItems.length,
+      currentContentCoveredPreferredItems: coverage.currentContentCoveredPreferredItems,
+    },
+  };
+}
+
+function buildRecommendedFaqItems(args = {}) {
+  return buildRecommendedFaqRecommendation(args).items;
+}
+
+function tagFaqItemSource(items = [], source = "") {
+  return (Array.isArray(items) ? items : []).map((item) => ({ ...item, source }));
 }
 
 function normalizeFaqItems(items = []) {
@@ -5663,6 +9207,14 @@ function buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy = "", faqNeed = {} 
     );
   }
 
+  if (mainIssue === "setup_expectation" || topics.includes("Setup guidance")) {
+    add(
+      `What setup details should shoppers confirm before buying ${title}?`,
+      pdpCopy || "Review the setup checklist, included items, mounting or installation requirements, and any use limits before checkout.",
+      "Setup or expectation mismatch appeared in product evidence.",
+    );
+  }
+
   if (mainIssue === "color_expectation" || topics.includes("Color expectations")) {
     add(
       `Will the color look exactly like the product photos?`,
@@ -5696,11 +9248,117 @@ function formatFaqItemsAsText(items = []) {
     .join("\n\n");
 }
 
-function getFaqActionLabel(mainIssue) {
-  if (mainIssue === "fit_sizing") return "Create fit FAQ";
-  if (mainIssue === "compatibility") return "Create compatibility FAQ";
-  if (mainIssue === "color_expectation") return "Create color expectations FAQ";
-  return "Create product FAQ";
+function getFaqContentCoverage({
+  items = [],
+  preferredItems = [],
+  currentDescriptionText = "",
+  hadPreferredItems = false,
+}) {
+  const current = normalizeDraftParagraph(currentDescriptionText);
+  const existingQuestions = extractExistingFaqQuestions(current);
+  const existingFaqDetected = hasExistingFaqContent(current, existingQuestions);
+  const skippedItems = [];
+  const skippedItemKeys = new Set();
+
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    if (!isFaqItemCoveredByCurrentContent(item, current, existingQuestions)) return;
+    const key = normalizeFaqQuestionKey(item.question);
+    skippedItemKeys.add(key);
+    skippedItems.push({
+      question: item.question,
+      reason: existingQuestions.some((question) => faqQuestionsOverlap(question, item.question))
+        ? "Existing FAQ already covers this question."
+        : "Current product copy already covers this answer.",
+    });
+  });
+
+  const retainedPreferredCount = (Array.isArray(preferredItems) ? preferredItems : [])
+    .filter((item) => !skippedItemKeys.has(normalizeFaqQuestionKey(item.question)))
+    .length;
+  const currentContentCoveredPreferredItems = preferredItems.length > 0 && retainedPreferredCount === 0;
+
+  return {
+    existingFaqDetected,
+    skippedItems: uniqueBy(skippedItems, (item) => normalizeFaqQuestionKey(item.question)),
+    skippedItemKeys,
+    currentContentCoveredPreferredItems,
+    allowFallbackItems: !hadPreferredItems || retainedPreferredCount > 0,
+  };
+}
+
+function hasExistingFaqContent(currentDescriptionText = "", existingQuestions = []) {
+  const normalized = normalizeText(currentDescriptionText);
+  if (!normalized) return false;
+  if (/\b(faq|faqs|frequently asked|questions and answers|q\s*:|question\s*:)\b/.test(normalized)) return true;
+  return existingQuestions.length >= 2;
+}
+
+function extractExistingFaqQuestions(value = "") {
+  const text = stripHtml(value);
+  const candidates = [];
+  text.split(/\n+/).forEach((line) => {
+    const cleaned = line.replace(/^\s*(q|question)\s*[:.-]\s*/i, "").trim();
+    if (cleaned.endsWith("?")) candidates.push(cleaned);
+  });
+  const inlineMatches = text.match(/[^.!?\n]{8,180}\?/g) || [];
+  candidates.push(...inlineMatches.map((match) => match.trim()));
+  return uniqueBy(candidates, normalizeFaqQuestionKey);
+}
+
+function isFaqItemCoveredByCurrentContent(item = {}, currentDescriptionText = "", existingQuestions = []) {
+  const current = normalizeDraftParagraph(currentDescriptionText);
+  if (!current) return false;
+  const question = String(item.question || "").trim();
+  const answer = String(item.answer || "").trim();
+  if (question && existingQuestions.some((existingQuestion) => faqQuestionsOverlap(existingQuestion, question))) return true;
+  if (question && normalizeText(current).includes(normalizeFaqQuestionKey(question))) return true;
+  if (isExpectationFaqCoveredByCurrentContent({ question, answer }, current)) return true;
+  if (answer && isTextCoveredByCurrentContent(answer, current, { minTokenCoverage: 0.76 })) return true;
+  const combined = [question, answer].filter(Boolean).join(" ");
+  return Boolean(combined && isTextCoveredByCurrentContent(combined, current, { minTokenCoverage: 0.72 }));
+}
+
+function isExpectationFaqCoveredByCurrentContent(item = {}, currentDescriptionText = "") {
+  const currentTopics = getExpectationGuidanceTopics(currentDescriptionText);
+  if (!currentTopics.size) return false;
+  const combined = `${item.question || ""} ${item.answer || ""}`;
+  const proposedTopics = getExpectationGuidanceTopics(combined);
+  if (proposedTopics.size) return [...proposedTopics].every((topic) => currentTopics.has(topic));
+  const questionKey = normalizeFaqQuestionKey(item.question || "");
+  const setupQuestion = /\b(setup|install|mount|mounting|surface|adapter|cable|camera|webcam|glare|reflection|included)\b/.test(questionKey);
+  return setupQuestion && currentTopics.size >= 2;
+}
+
+function faqQuestionsOverlap(firstQuestion = "", secondQuestion = "") {
+  const first = normalizeFaqQuestionKey(firstQuestion);
+  const second = normalizeFaqQuestionKey(secondQuestion);
+  if (!first || !second) return false;
+  if (first === second || first.includes(second) || second.includes(first)) return true;
+  const overlap = Math.max(tokenCoverage(second, first), tokenCoverage(first, second));
+  if (overlap >= 0.72) return true;
+  const anchorTokens = new Set(["fit", "size", "sizing", "color", "colour", "variant", "wash", "washing", "material", "fabric", "compatible", "compatibility", "setup", "mount", "mounting", "surface", "adapter", "cable", "camera", "webcam"]);
+  const firstTokens = new Set(meaningfulTokens(first));
+  const secondTokens = new Set(meaningfulTokens(second));
+  const sharedAnchors = [...anchorTokens].filter((token) => firstTokens.has(token) && secondTokens.has(token));
+  return sharedAnchors.length > 0 && overlap >= 0.5;
+}
+
+function normalizeFaqQuestionKey(value = "") {
+  return normalizeText(value)
+    .replace(/^\s*(q|question)\s+/i, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(this|that|with|from|your|shopper|shoppers|customer|customers|before|buying|product|products|does|should|would|could|will|what|when|where|which|are|all|same|way|vary|expected|option|options)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getFaqActionLabel(mainIssue, coverage = {}) {
+  const prefix = coverage.existingFaqDetected ? "Add missing" : "Create";
+  if (mainIssue === "fit_sizing") return `${prefix} fit FAQ`;
+  if (mainIssue === "compatibility") return `${prefix} compatibility FAQ`;
+  if (mainIssue === "setup_expectation") return `${prefix} setup FAQ`;
+  if (mainIssue === "color_expectation") return `${prefix} color expectations FAQ`;
+  return `${prefix} product FAQ`;
 }
 
 function getFaqApplicationOptions() {
@@ -5724,10 +9382,10 @@ function getFaqApplicationOptions() {
       operation: "Append modal-style FAQ",
     },
     {
-      id: "metafield-json",
+      id: "metafield-html",
       label: "Save FAQ metafield",
       target: "Product metafield",
-      operation: "Save JSON metafield",
+      operation: "Save HTML metafield",
     },
   ];
 }
@@ -5976,7 +9634,7 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   aiRepeatedLanguage.slice(0, 4).forEach((item, index) => {
     const term = String(item.term || "").trim();
     if (!term) return;
-    const issueCode = normalizeIssueCode(item.issue_category || term) || "repeated_language";
+    const issueCode = getRepeatedLanguageIssueCode(item, deterministic);
     const trend = getIssueTrend(deterministic, issueCode);
     issues.push({
       issue: `Repeated customer language: "${term}"`,
@@ -6017,6 +9675,31 @@ function buildGranularTextIssues({ deterministic, ai, recommendations }) {
   });
 
   return uniqueBy(issues.filter((issue) => issue.issue), (issue) => `${issue.issueCode}-${issue.issue}`);
+}
+
+function getRepeatedLanguageIssueCode(item = {}, deterministic = {}, fallbackIssue = "") {
+  const term = String(item.term || item.label || item.phrase || "").trim();
+  const text = [
+    term,
+    item.explanation,
+    item.example,
+    item.issue_category,
+    item.issueCode,
+    item.issueCategory,
+  ].filter(Boolean).join(" ");
+  const mainIssue = normalizeIssueCode(fallbackIssue || deterministic.mainIssue);
+  if (shouldTreatRepeatedLanguageAsSetupExpectation(text, mainIssue)) return "setup_expectation";
+  return normalizeIssueCode(item.issue_category || item.issueCode || item.issueCategory || term) || "repeated_language";
+}
+
+function shouldTreatRepeatedLanguageAsSetupExpectation(value = "", mainIssue = "") {
+  const text = normalizeText(value);
+  if (!text) return false;
+  const setupTerm = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|cure|oiled|textured|porous|sealed|shelf|cable|routing|left|right|adapter|wall brick|usb c|usb-c|webcam|camera|banding|flicker|glossy|reflection|glare|monitor|min line|minimum fill|min fill|fill line|voltage|120v|120 v|converter|travel converter|power bank|car socket|steam vent|vent clearance|counter placement|outlet|boil|boiling)\b/.test(text);
+  if (!setupTerm) return false;
+  if (mainIssue === "setup_expectation") return true;
+  return isSetupExpectationMismatchText(text)
+    || /\b(expectation|mismatch|confusing|confusion|unclear|not obvious|missed|listing|description|pdp|before checkout|before buying)\b/.test(text);
 }
 
 function getFilteredAiRepeatedLanguage(ai) {
@@ -6518,7 +10201,7 @@ function buildFinalEvidence({ deterministic, ai, aiEvidenceSynthesisSections = [
     evidence.push({
       source: "Shopify order access",
       quote: "Order access was denied by Shopify for this app installation.",
-      weight: "ProductPulse reused stored QuickScan metrics where available.",
+      weight: "ProductPulse reused stored Catalog Scan metrics where available.",
     });
   }
 
@@ -6588,8 +10271,9 @@ function normalizeAiEvidenceSynthesisSectionKey(value = "") {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_|_$/g, "");
-  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer_language";
+  if (normalized.includes("product_orders_retention") || normalized.includes("product_order_retention") || normalized.includes("orders_retention") || normalized.includes("order_retention") || normalized.includes("retention") || normalized.includes("ltv")) return "product_orders_retention";
   if (normalized.includes("refund") || normalized.includes("return") || normalized.includes("post_purchase") || normalized.includes("postpurchase")) return "post_purchase";
+  if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("review") || normalized.includes("sentiment")) return "customer_language";
   if (normalized.includes("variant") || normalized.includes("sku") || normalized.includes("option")) return "variant_scope";
   if (normalized.includes("pdp") || normalized.includes("catalog") || normalized.includes("content") || normalized.includes("description") || normalized.includes("shopify_product")) return "pdp_catalog";
   if (normalized.includes("operational") || normalized.includes("risk") || normalized.includes("confidence") || normalized.includes("impact") || normalized.includes("exposure")) return "operational_interpretation";
@@ -6600,6 +10284,7 @@ function normalizeAiEvidenceSynthesisSectionKey(value = "") {
 function getAiEvidenceSynthesisSectionTitle(sectionKey = "", fallback = "", index = 0) {
   if (sectionKey === "cross_source") return "Cross-source reading";
   if (sectionKey === "customer_language") return "Customer language";
+  if (sectionKey === "product_orders_retention") return "Product, orders and retention";
   if (sectionKey === "post_purchase") return "Refund and return evidence";
   if (sectionKey === "pdp_catalog") return "PDP and catalog context";
   if (sectionKey === "variant_scope") return "Variant scope";
@@ -6616,7 +10301,6 @@ function normalizeAiEvidenceProviderKey(value = "") {
   if (!normalized) return "";
   if (normalized.includes("csv")) return "csv_reviews";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme_reviews";
-  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatme_reviews";
   if (normalized.includes("review")) return normalized;
   return normalized;
 }
@@ -6745,6 +10429,7 @@ async function judgeMeGet({ baseUrl, path, shop, token, params = {} }) {
 
 function normalizeShopifyProduct(product, snapshot) {
   if (!product) return normalizeSnapshotProduct(snapshot);
+  const collectionRecords = getProductCollectionRecords(product);
   const variants = getNodes(product.variants).map((variant) => ({
     id: variant.id,
     numericId: String(variant.legacyResourceId || extractNumericShopifyId(variant.id) || ""),
@@ -6785,11 +10470,13 @@ function normalizeShopifyProduct(product, snapshot) {
     templateSuffix: String(product.templateSuffix || ""),
     vendor: product.vendor || "",
     productType: product.productType || "",
+    category: normalizeProductCategory(product.category),
     status: product.status || "Unknown",
     tags: Array.isArray(product.tags) ? product.tags : [],
     options: Array.isArray(product.options) ? product.options : [],
     variants,
-    collections: getNodes(product.collections).map((collection) => collection.title).filter(Boolean),
+    collections: collectionRecords.map((collection) => collection.title).filter(Boolean),
+    collectionRecords,
     metafields: getNodes(product.metafields).map((metafield) => ({
       namespace: metafield.namespace,
       key: metafield.key,
@@ -6802,6 +10489,7 @@ function normalizeShopifyProduct(product, snapshot) {
 
 function normalizeSnapshotProduct(snapshot) {
   const metrics = snapshot.metrics || {};
+  const collectionRecords = getProductCollectionRecords(metrics.collectionRecords || metrics.collections || []);
   return {
     id: snapshot.productGid,
     numericId: extractNumericShopifyId(snapshot.productGid),
@@ -6816,13 +10504,71 @@ function normalizeSnapshotProduct(snapshot) {
     templateSuffix: metrics.templateSuffix || "",
     vendor: metrics.vendor || "",
     productType: metrics.productType || "",
+    category: normalizeProductCategory(metrics.category || {
+      id: metrics.categoryId,
+      name: metrics.categoryName,
+      fullName: metrics.categoryFullName,
+    }),
     status: "Unknown",
     tags: Array.isArray(metrics.tags) ? metrics.tags : [],
     options: [],
     variants: [],
-    collections: Array.isArray(metrics.collections) ? metrics.collections : [],
+    collections: collectionRecords.map((collection) => collection.title).filter(Boolean),
+    collectionRecords,
     metafields: [],
     media: [],
+  };
+}
+
+function getProductCollectionRecords(source = {}) {
+  const raw = Array.isArray(source)
+    ? source
+    : getNodes(source.collections).length
+      ? getNodes(source.collections)
+      : Array.isArray(source.collectionRecords)
+        ? source.collectionRecords
+        : [];
+  return raw
+    .map(normalizeCollectionRecord)
+    .filter((collection) => collection.id || collection.title || collection.handle);
+}
+
+function normalizeCollectionRecord(collection = {}) {
+  if (typeof collection === "string") {
+    return {
+      id: "",
+      title: collection.replace(/\s+/g, " ").trim(),
+      handle: "",
+      isRuleBased: false,
+    };
+  }
+  return {
+    id: String(collection.id || collection.collectionId || "").trim(),
+    title: String(collection.title || collection.collectionName || collection.name || "").replace(/\s+/g, " ").trim(),
+    handle: String(collection.handle || collection.collectionHandle || "").trim(),
+    isRuleBased: Boolean(collection.ruleSet || collection.isRuleBased || collection.smartCollection),
+  };
+}
+
+function hasProductCollectionMembership(product = {}) {
+  return getProductCollectionRecords(product).length > 0;
+}
+
+function normalizeProductCategory(category = null) {
+  if (!category || typeof category !== "object") {
+    return { id: "", name: "", fullName: "", isLeaf: false, isArchived: false, level: 0 };
+  }
+  const id = String(category.id || category.categoryId || "").trim();
+  const name = String(category.name || category.label || category.categoryName || "").replace(/\s+/g, " ").trim();
+  const fullName = String(category.fullName || category.full_name || category.path || category.categoryFullName || name).replace(/\s+/g, " ").trim();
+  return {
+    id,
+    name,
+    fullName,
+    isLeaf: Boolean(category.isLeaf),
+    isArchived: Boolean(category.isArchived),
+    level: Number.isFinite(Number(category.level)) ? Number(category.level) : 0,
+    source: String(category.source || "").trim(),
   };
 }
 
@@ -6863,6 +10609,17 @@ function lineItemMatchesProduct(lineItem, product, snapshot) {
     extractNumericShopifyId(variant.id),
   ]).filter(Boolean));
   if (lineVariantId && productVariantIds.has(lineVariantId)) return true;
+
+  const hasStableIdentifier = Boolean(
+    lineProduct.id
+      || variantProduct.id
+      || lineProduct.handle
+      || variantProduct.handle
+      || lineItem?.variant?.id
+      || lineItem?.sku
+      || lineItem?.variant?.sku,
+  );
+  if (hasStableIdentifier) return false;
 
   const lineTitle = normalizeText(lineItem?.title);
   const productTitle = normalizeText(product.title || snapshot.productTitle);
@@ -6908,17 +10665,18 @@ function getRefundNoteText(item = {}) {
 }
 
 function getRefundReasonText(item = {}) {
+  const noteText = getRefundNoteText(item);
   const primaryReasons = [
     ...(Array.isArray(item.adjustmentReasons) ? item.adjustmentReasons : []),
     item.reasonLabel,
     item.reason,
   ]
     .map((value) => String(value || "").replace(/\s+/g, " ").trim())
-    .filter((value) => value && !isDefaultCustomerLanguageTerm(value));
+    .filter((value) => value && !isDefaultCustomerLanguageTerm(value) && !isLowInformationRefundReason(value, { hasNote: Boolean(noteText) }));
   const restockReason = normalizeRefundReasonLabel(item.restockType);
   const reasons = primaryReasons.length
     ? primaryReasons
-    : [restockReason].filter((value) => value && !isDefaultCustomerLanguageTerm(value));
+    : [restockReason].filter((value) => value && !isDefaultCustomerLanguageTerm(value) && !isLowInformationRefundReason(value, { hasNote: Boolean(noteText) }));
 
   const uniqueReasons = uniqueBy(reasons, (value) => normalizeText(value));
   const compactReasons = uniqueReasons.filter((reason, index) => {
@@ -6931,6 +10689,14 @@ function getRefundReasonText(item = {}) {
   });
 
   return compactReasons.join(" - ");
+}
+
+function isLowInformationRefundReason(value, { hasNote = false } = {}) {
+  const normalized = normalizeText(value);
+  if (!normalized) return true;
+  if (normalized === "refund discrepancy") return true;
+  if (hasNote && ["no restock", "no_restock", "restock discrepancy", "order level refund"].includes(normalized)) return true;
+  return false;
 }
 
 function normalizeRefundReasonLabel(value) {
@@ -6990,13 +10756,25 @@ function normalizeCsvDiagnosisReview(row, snapshot, product, matchConfidence = 0
   const title = stripHtml(row.reviewTitle || "");
   const rating = Number(row.rating || 0);
   if (!rating || (!body && !title)) return null;
-
-  return {
-    id: String(row.id || `csv-${snapshot.productGid}-${row.sourceRow || title}-${body}`),
+  const createdAt = toIso(row.reviewDate);
+  const stableReviewId = stableSignature([
+    snapshot.productGid,
+    row.sourceProductId || "",
+    row.shopifyProductId || product.numericId || "",
+    row.productHandle || snapshot.handle || "",
     rating,
     title,
     body,
-    createdAt: toIso(row.reviewDate),
+    getReviewDateCacheBucket(createdAt),
+    row.reviewerName || "",
+  ].join("|"));
+
+  return {
+    id: String(row.id || `csv-review-${stableReviewId}`),
+    rating,
+    title,
+    body,
+    createdAt,
     published: true,
     productId: String(row.sourceProductId || ""),
     externalProductId: String(row.shopifyProductId || product.numericId || ""),
@@ -7042,11 +10820,12 @@ function getReturnCustomerLanguageText(item) {
 }
 
 function getRefundOperationalText(item) {
+  const noteText = getRefundNoteText(item);
   const reasonText = getRefundReasonText(item);
   const restockText = normalizeRefundReasonLabel(item?.restockType);
-  const includeRestock = restockText && !normalizeText(reasonText).includes(normalizeText(restockText));
+  const includeRestock = !noteText && restockText && !normalizeText(reasonText).includes(normalizeText(restockText));
   return [
-    getRefundNoteText(item),
+    noteText,
     reasonText,
     includeRestock ? restockText : "",
   ].filter(Boolean).join(" - ");
@@ -7099,17 +10878,16 @@ function getCsvReviewMatchConfidence(row, snapshot, product) {
 }
 
 function buildReviewSourceStats(reviews = []) {
-  const empty = { reviewCount: 0, negativeReviewCount: 0, avgRating: 0, negativeReviewRate: 0, recentNegativeReviewCount: 0 };
+  const empty = { reviewCount: 0, negativeReviewCount: 0, avgRating: 0, negativeReviewRate: 0, recentNegativeReviewCount: 0, recentNegativeReviewWindowDays: 30 };
   const stats = {
     judgeMe: { ...empty },
     csv: { ...empty },
-    chatMe: { ...empty },
     total: { ...empty },
   };
 
   reviews.forEach((review) => {
     const sourceType = String(review.sourceType || "").toLowerCase();
-    const key = sourceType.includes("csv") ? "csv" : sourceType.includes("chatme") || sourceType.includes("chat_me") ? "chatMe" : "judgeMe";
+    const key = sourceType.includes("csv") ? "csv" : "judgeMe";
     addReviewToStats(stats[key], review);
     addReviewToStats(stats.total, review);
   });
@@ -7131,6 +10909,354 @@ function finalizeReviewStats(stats) {
   stats.negativeReviewRate = roundRate(stats.reviewCount ? (stats.negativeReviewCount / stats.reviewCount) * 100 : 0);
   delete stats.ratingSum;
   return stats;
+}
+
+function buildDiagnosisVariantInsights({ product = {}, sales = [], returns = [], refunds = [], reviews = [] } = {}) {
+  const rows = new Map();
+  const order = [];
+  const productVariants = Array.isArray(product.variants) ? product.variants : [];
+
+  const ensureRow = (variant = {}, source = "shopify") => {
+    const normalized = normalizeDiagnosisVariantInsightIdentity(variant);
+    if (!normalized.key) return null;
+    if (!rows.has(normalized.key)) {
+      rows.set(normalized.key, {
+        key: normalized.key,
+        variantId: normalized.id,
+        variantTitle: normalized.title,
+        sku: normalized.sku,
+        price: normalized.price,
+        selectedOptions: normalized.selectedOptions,
+        source,
+        sales: { units: 0, amount: 0, examples: [] },
+        returns: { units: 0, reasons: [], examples: [] },
+        refunds: { units: 0, amount: 0, reasons: [], examples: [] },
+        reviews: { count: 0, negativeCount: 0, positiveCount: 0, neutralCount: 0, averageRating: 0, ratingSum: 0, sources: {}, examples: [] },
+        timeline: new Map(),
+      });
+      order.push(normalized.key);
+    }
+    const row = rows.get(normalized.key);
+    row.variantId ||= normalized.id;
+    row.variantTitle ||= normalized.title;
+    row.sku ||= normalized.sku;
+    row.price ||= normalized.price;
+    if (!row.selectedOptions?.length && normalized.selectedOptions.length) row.selectedOptions = normalized.selectedOptions;
+    return row;
+  };
+
+  productVariants.forEach((variant) => ensureRow(variant, "shopify"));
+
+  sales.forEach((event) => {
+    const row = ensureRow(event, "sales");
+    if (!row) return;
+    const quantity = Number(event.quantity || 0);
+    const amount = Number(event.amount || 0);
+    row.sales.units += quantity;
+    row.sales.amount += amount;
+    addDiagnosisVariantTimelineMetric(row, getOrderCohortDate(event, { includeEventDate: true }), {
+      salesUnits: quantity,
+      salesAmount: amount,
+    });
+    if (row.sales.examples.length < 3) {
+      row.sales.examples.push({
+        quantity,
+        amount: roundCurrency(amount),
+        createdAt: event.createdAt || null,
+      });
+    }
+  });
+
+  returns.forEach((event) => {
+    const row = ensureRow(event, "returns");
+    if (!row) return;
+    const quantity = Math.max(1, Number(event.quantity || 1));
+    const reason = [event.reason, event.reasonNote, event.customerNote].filter(Boolean).join(" - ");
+    row.returns.units += quantity;
+    if (reason) row.returns.reasons.push(reason);
+    addDiagnosisVariantTimelineMetric(row, event.createdAt || event.processedAt || getOrderCohortDate(event), {
+      returnUnits: quantity,
+    });
+    if (row.returns.examples.length < 3) {
+      row.returns.examples.push({
+        quantity,
+        reason: event.reason || "",
+        reasonText: getReturnCustomerLanguageText(event) || reason,
+        text: getReturnCustomerLanguageText(event) || reason,
+        sentiment: classifyCustomerSentiment(getReturnCustomerLanguageText(event) || reason),
+        createdAt: event.createdAt || null,
+        variant: row.variantTitle,
+        variantId: row.variantId,
+        sku: row.sku,
+      });
+    }
+  });
+
+  refunds.forEach((event) => {
+    const row = ensureRow(event, "refunds");
+    if (!row) return;
+    const quantity = Math.max(1, Number(event.quantity || 1));
+    const amount = Number(event.amount || 0);
+    const reason = getRefundOperationalText(event) || getRefundReasonText(event) || event.reasonLabel || event.reason || "";
+    row.refunds.units += quantity;
+    row.refunds.amount += amount;
+    if (reason) row.refunds.reasons.push(reason);
+    addDiagnosisVariantTimelineMetric(row, event.createdAt || event.processedAt || getOrderCohortDate(event), {
+      refundUnits: quantity,
+      refundAmount: amount,
+    });
+    if (row.refunds.examples.length < 3) {
+      row.refunds.examples.push({
+        quantity,
+        amount: roundCurrency(amount),
+        reason: event.reasonLabel || event.reason || event.restockType || "",
+        reasonText: reason,
+        text: getRefundOperationalText(event) || event.note || reason,
+        noteText: event.note || "",
+        sentiment: classifyCustomerSentiment(getRefundOperationalText(event) || event.note || reason),
+        createdAt: event.createdAt || event.processedAt || null,
+        variant: row.variantTitle,
+        variantId: row.variantId,
+        sku: row.sku,
+      });
+    }
+  });
+
+  reviews.forEach((review) => {
+    const row = matchReviewToDiagnosisVariantInsight(review, rows, productVariants);
+    if (!row) return;
+    const rating = Number(review.rating || 0);
+    const text = [review.title, review.body].filter(Boolean).join(" - ");
+    const sentiment = classifyCustomerSentiment(text, rating);
+    const negative = isNegativeReviewSignal(review);
+    const positive = !negative && (sentiment === "positive" || rating >= 4);
+    row.reviews.count += 1;
+    row.reviews.ratingSum += rating;
+    if (negative) row.reviews.negativeCount += 1;
+    else if (positive) row.reviews.positiveCount += 1;
+    else row.reviews.neutralCount += 1;
+    addDiagnosisVariantTimelineMetric(row, review.createdAt, {
+      reviewCount: 1,
+      negativeReviewCount: negative ? 1 : 0,
+      positiveReviewCount: positive ? 1 : 0,
+    });
+    const sourceLabel = review.sourceLabel || "Reviews";
+    row.reviews.sources[sourceLabel] = (row.reviews.sources[sourceLabel] || 0) + 1;
+    const storedNegativeExamples = row.reviews.examples.filter((example) => example.sentiment === "negative").length;
+    const storedPositiveExamples = row.reviews.examples.filter((example) => example.sentiment === "positive").length;
+    const storedNeutralExamples = row.reviews.examples.filter((example) => example.sentiment === "neutral").length;
+    const shouldStoreExample = row.reviews.examples.length < 4 && (
+      (negative && storedNegativeExamples < 2)
+      || (positive && storedPositiveExamples < 2)
+      || (!negative && !positive && storedNeutralExamples < 1)
+      || row.reviews.examples.length < 1
+    );
+    if (shouldStoreExample) {
+      row.reviews.examples.push({
+        title: review.title || "",
+        text: truncateText(text || review.body || "", 180),
+        rating,
+        sentiment,
+        source: review.sourceType || "",
+        sourceLabel,
+        createdAt: review.createdAt || null,
+        variant: row.variantTitle,
+        variantId: row.variantId,
+        sku: row.sku,
+      });
+    }
+  });
+
+  return order
+    .map((key) => finalizeDiagnosisVariantInsight(rows.get(key)))
+    .filter((row) => row.variantTitle || row.sku || row.variantId)
+    .slice(0, 80);
+}
+
+function addDiagnosisVariantTimelineMetric(row = {}, dateValue = null, values = {}) {
+  const date = parseValidDate(dateValue);
+  if (!row?.timeline || !date) return;
+  const monthDate = startOfUtcMonth(date);
+  const key = formatUtcMonthKey(monthDate);
+  const current = row.timeline.get(key) || {
+    key,
+    label: formatUtcMonthLabel(monthDate),
+    shortLabel: formatUtcMonthShortLabel(monthDate),
+    startAt: toIso(monthDate),
+    salesUnits: 0,
+    salesAmount: 0,
+    returnUnits: 0,
+    refundUnits: 0,
+    refundAmount: 0,
+    reviewCount: 0,
+    negativeReviewCount: 0,
+    positiveReviewCount: 0,
+  };
+  current.salesUnits += Number(values.salesUnits || 0);
+  current.salesAmount += Number(values.salesAmount || 0);
+  current.returnUnits += Number(values.returnUnits || 0);
+  current.refundUnits += Number(values.refundUnits || 0);
+  current.refundAmount += Number(values.refundAmount || 0);
+  current.reviewCount += Number(values.reviewCount || 0);
+  current.negativeReviewCount += Number(values.negativeReviewCount || 0);
+  current.positiveReviewCount += Number(values.positiveReviewCount || 0);
+  row.timeline.set(key, current);
+}
+
+function normalizeDiagnosisVariantTimeline(timeline = new Map()) {
+  return [...(timeline instanceof Map ? timeline.values() : [])]
+    .sort((first, second) => String(first.key || "").localeCompare(String(second.key || "")))
+    .map((point) => ({
+      ...point,
+      salesUnits: Number(point.salesUnits || 0),
+      salesAmount: roundCurrency(point.salesAmount || 0),
+      returnUnits: Number(point.returnUnits || 0),
+      refundUnits: Number(point.refundUnits || 0),
+      refundAmount: roundCurrency(point.refundAmount || 0),
+      reviewCount: Number(point.reviewCount || 0),
+      negativeReviewCount: Number(point.negativeReviewCount || 0),
+      positiveReviewCount: Number(point.positiveReviewCount || 0),
+    }));
+}
+
+function finalizeDiagnosisVariantInsight(row = {}) {
+  const soldUnits = Number(row.sales?.units || 0);
+  const returnUnits = Number(row.returns?.units || 0);
+  const refundUnits = Number(row.refunds?.units || 0);
+  const reviewCount = Number(row.reviews?.count || 0);
+  const negativeReviewCount = Number(row.reviews?.negativeCount || 0);
+  const signalCount = returnUnits + refundUnits + negativeReviewCount;
+  const reviewSources = Object.entries(row.reviews?.sources || {}).map(([label, count]) => ({ label, count }));
+  return {
+    key: row.key,
+    variantId: row.variantId || null,
+    variantTitle: row.variantTitle || row.sku || "Variant",
+    sku: row.sku || "",
+    price: row.price || null,
+    selectedOptions: row.selectedOptions || [],
+    sales: {
+      units: soldUnits,
+      amount: roundCurrency(row.sales?.amount || 0),
+      examples: row.sales?.examples || [],
+    },
+    returns: {
+      units: returnUnits,
+      rate: calculateUnitRatePercent(returnUnits, soldUnits),
+      topReasons: countTopValues(row.returns?.reasons || [], 3),
+      examples: row.returns?.examples || [],
+    },
+    refunds: {
+      units: refundUnits,
+      amount: roundCurrency(row.refunds?.amount || 0),
+      rate: calculateUnitRatePercent(refundUnits, soldUnits),
+      topReasons: countTopValues(row.refunds?.reasons || [], 3),
+      examples: row.refunds?.examples || [],
+    },
+    reviews: {
+      count: reviewCount,
+      negativeCount: negativeReviewCount,
+      positiveCount: Number(row.reviews?.positiveCount || 0),
+      neutralCount: Number(row.reviews?.neutralCount || 0),
+      negativeRate: roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0),
+      averageRating: roundRate(reviewCount ? Number(row.reviews?.ratingSum || 0) / reviewCount : 0, 1),
+      sources: reviewSources,
+      examples: row.reviews?.examples || [],
+    },
+    timeline: normalizeDiagnosisVariantTimeline(row.timeline),
+    signalCount,
+    hasVariantEvidence: Boolean(soldUnits || signalCount || reviewCount),
+  };
+}
+
+function buildAffectedVariantDetailsFromInsights(variantInsights = []) {
+  const rows = (Array.isArray(variantInsights) ? variantInsights : [])
+    .map((item) => ({
+      label: item.variantTitle || item.sku || "",
+      count: Number(item.signalCount || 0),
+      returnUnits: Number(item.returns?.units || 0),
+      refundUnits: Number(item.refunds?.units || 0),
+      negativeReviewCount: Number(item.reviews?.negativeCount || 0),
+      detail: [
+        Number(item.returns?.units || 0) ? `${item.returns.units} return unit${Number(item.returns.units) === 1 ? "" : "s"}` : "",
+        Number(item.refunds?.units || 0) ? `${item.refunds.units} refunded unit${Number(item.refunds.units) === 1 ? "" : "s"}` : "",
+        Number(item.reviews?.negativeCount || 0) ? `${item.reviews.negativeCount} negative review${Number(item.reviews.negativeCount) === 1 ? "" : "s"}` : "",
+      ].filter(Boolean).join(" · "),
+    }))
+    .filter((item) => item.label && item.count > 0)
+    .sort((first, second) => second.count - first.count)
+    .slice(0, 4);
+  return rows.length ? rows : null;
+}
+
+function normalizeDiagnosisVariantInsightIdentity(value = {}) {
+  const selectedOptions = normalizeDiagnosisVariantSelectedOptions(value.selectedOptions || value.options);
+  const optionLabel = selectedOptions.map((option) => option.value || option.name).filter(Boolean).join(" / ");
+  const rawTitle = value.title || value.variantTitle || value.variant || value.variantName || value.label || "";
+  const title = isGenericVariantTitle(rawTitle) ? optionLabel || rawTitle : rawTitle || optionLabel;
+  const sku = String(value.sku || value.variantSku || "").trim();
+  const id = value.variantId || value.id || null;
+  const keyId = value.variantId || (/productvariant/i.test(String(value.id || "")) ? value.id : "");
+  const key = normalizeDiagnosisVariantKey(keyId)
+    || normalizeDiagnosisVariantKey(sku)
+    || normalizeDiagnosisVariantKey(title)
+    || normalizeDiagnosisVariantKey(optionLabel);
+  return {
+    key,
+    id,
+    title: title || sku || "Variant",
+    sku,
+    price: value.price || value.unitPrice || value.amount || null,
+    selectedOptions,
+  };
+}
+
+function normalizeDiagnosisVariantSelectedOptions(rawOptions) {
+  if (Array.isArray(rawOptions)) {
+    return rawOptions.map((option) => (
+      typeof option === "string"
+        ? { name: "", value: option }
+        : { name: option.name || option.label || "", value: option.value || option.name || option.label || "" }
+    )).filter((option) => option.value || option.name);
+  }
+  if (rawOptions && typeof rawOptions === "object") {
+    return Object.entries(rawOptions).map(([name, value]) => ({ name, value: String(value || "") })).filter((option) => option.value);
+  }
+  return [];
+}
+
+function normalizeDiagnosisVariantKey(value = "") {
+  return normalizeText(String(value || "").replace(/^gid:\/\/shopify\/productvariant\//i, "")).trim();
+}
+
+function matchReviewToDiagnosisVariantInsight(review = {}, rows = new Map(), productVariants = []) {
+  const direct = normalizeDiagnosisVariantInsightIdentity(review);
+  if (direct.key && rows.has(direct.key) && (review.variantId || review.variantTitle || review.variant || review.sku)) return rows.get(direct.key);
+  const text = normalizeText([review.title, review.body].filter(Boolean).join(" "));
+  if (!text) return null;
+  const candidates = Array.from(rows.values());
+  const matched = candidates.find((row) => diagnosisReviewMentionsVariant(text, row))
+    || productVariants.map((variant) => normalizeDiagnosisVariantInsightIdentity(variant)).find((variant) => diagnosisReviewMentionsVariant(text, variant));
+  if (!matched) return null;
+  return rows.get(matched.key) || null;
+}
+
+function diagnosisReviewMentionsVariant(normalizedText, variant = {}) {
+  return getDiagnosisVariantReviewTerms(variant).some((term) => containsNormalizedPhrase(normalizedText, term));
+}
+
+function getDiagnosisVariantReviewTerms(variant = {}) {
+  const selectedOptions = normalizeDiagnosisVariantSelectedOptions(variant.selectedOptions);
+  const values = [
+    variant.sku,
+    variant.variantTitle,
+    variant.title,
+    variant.variant,
+    variant.variantName,
+    ...(selectedOptions || []).map((option) => option.value),
+  ];
+  return [...new Set(values
+    .map((value) => normalizeText(value))
+    .filter((value) => value && value !== "default title" && value !== "default variant" && value.length >= 3))];
 }
 
 function isNegativeReviewSignal(review = {}) {
@@ -7334,7 +11460,6 @@ function getReviewSourceGroupKey(source = "", sourceLabel = "") {
   const normalized = `${source} ${sourceLabel}`.toLowerCase();
   if (normalized.includes("csv")) return "csv";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeMe";
-  if (normalized.includes("chatme") || normalized.includes("chat_me")) return "chatMe";
   if (normalized.includes("review")) return normalizeText(sourceLabel || source).replace(/[^a-z0-9]+/g, "_") || "reviews";
   return "";
 }
@@ -7342,7 +11467,6 @@ function getReviewSourceGroupKey(source = "", sourceLabel = "") {
 function getReviewSourceLabelForKey(key = "") {
   if (key === "csv") return "CSV reviews";
   if (key === "judgeMe") return "Judge.me reviews";
-  if (key === "chatMe") return "ChatMe reviews";
   return "Reviews";
 }
 
@@ -7493,7 +11617,15 @@ function summarizeRefundOperationalAnalysisItems({ refundTexts = [], refunds = [
     issueCounts,
     topReasons: refundReasons,
     riskLift,
-    examples: refundTexts.slice(0, 4).map((item) => ({
+    examples: buildRefundInsightExamples(refundTexts),
+  };
+}
+
+function buildRefundInsightExamples(refundTexts = []) {
+  const seen = new Set();
+  const examples = [];
+  (Array.isArray(refundTexts) ? refundTexts : []).forEach((item) => {
+    const example = {
       text: truncateText(item.text, 180),
       noteText: truncateText(item.noteText, 180),
       reasonText: truncateText(item.reasonText, 180),
@@ -7503,8 +11635,22 @@ function summarizeRefundOperationalAnalysisItems({ refundTexts = [], refunds = [
       variant: item.variant || "",
       amount: item.amount,
       adjustmentReasons: item.adjustmentReasons,
-    })),
-  };
+    };
+    const key = getRefundInsightExampleKey(example);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    examples.push(example);
+  });
+  return examples.slice(0, 4);
+}
+
+function getRefundInsightExampleKey(example = {}) {
+  const noteKey = normalizeText(example.noteText || "");
+  if (noteKey) return `note:${noteKey}`;
+  const textKey = normalizeText(example.text || "");
+  if (textKey) return `text:${textKey}`;
+  const reasonKey = normalizeText(example.reasonText || example.issueCode || "");
+  return reasonKey ? `reason:${reasonKey}` : "";
 }
 
 function buildIncrementalRefundOperationalInsights({ refunds = [], refundRate = 0, soldUnits = 0, refundUnits = 0, refundAmount = 0, previousCache = {}, cutoffAt = null, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
@@ -7570,11 +11716,13 @@ function resolveProductContentAnalysisState({ product = {}, previousCache = {}, 
   const productUpdatedAt = toIso(product.updatedAt || product.createdAt);
   const cachedContent = previousCache?.deterministicContent;
   const cachedSignature = String(previousCache?.signature || "");
+  const hasCachedSignature = Boolean(cachedSignature);
+  const signatureChanged = hasCachedSignature && cachedSignature !== signature;
   const changed = Boolean(
     !cutoff
     || !cachedContent
-    || cachedSignature !== signature
-    || isChangedAfterCutoff(productUpdatedAt, cutoff),
+    || !hasCachedSignature
+    || signatureChanged,
   );
 
   if (!changed && cachedContent) {
@@ -7596,8 +11744,21 @@ function resolveProductContentAnalysisState({ product = {}, previousCache = {}, 
     cachedContentGaps: null,
     reused: false,
     changed: true,
-    reason: cutoff ? "product_content_changed_or_cache_missing" : "no_previous_cutoff",
+    reason: getProductContentAnalysisChangeReason({
+      cutoff,
+      cachedContent,
+      hasCachedSignature,
+      signatureChanged,
+    }),
   };
+}
+
+function getProductContentAnalysisChangeReason({ cutoff = null, cachedContent = null, hasCachedSignature = false, signatureChanged = false } = {}) {
+  if (!cutoff) return "no_previous_cutoff";
+  if (!cachedContent) return "product_content_cache_missing";
+  if (!hasCachedSignature) return "product_content_signature_missing";
+  if (signatureChanged) return "product_content_signature_changed";
+  return "product_content_changed";
 }
 
 function buildProductContentSignature(product = {}) {
@@ -7610,6 +11771,7 @@ function buildProductContentSignature(product = {}) {
     templateSuffix: normalizeText(product.templateSuffix),
     vendor: normalizeText(product.vendor),
     productType: normalizeText(product.productType),
+    category: normalizeProductCategory(product.category),
     tags: (Array.isArray(product.tags) ? product.tags : []).map(normalizeText).sort(),
     collections: (Array.isArray(product.collections) ? product.collections : []).map(normalizeText).sort(),
     options: (Array.isArray(product.options) ? product.options : []).map((option) => ({
@@ -7764,11 +11926,19 @@ function trimSourceEventForCache(item = {}, type) {
     cacheKey,
     id: item.id || null,
     orderId: item.orderId || null,
+    lineItemId: item.lineItemId || null,
+    productId: item.productId || null,
+    orderDate: toIso(item.orderDate || item.orderProcessedAt || item.orderCreatedAt),
+    orderProcessedAt: toIso(item.orderProcessedAt),
+    orderCreatedAt: toIso(item.orderCreatedAt),
     createdAt: toIso(item.createdAt || item.processedAt || item.updatedAt),
     updatedAt: toIso(item.updatedAt || item.processedAt || item.createdAt),
+    customerKey: item.customerKey || item.customerId || item.customerGid || item.customer?.id || null,
     quantity: Number(item.quantity || 0),
     amount: Number(item.amount || 0),
     title: truncateText(item.title || "", 180),
+    imageUrl: truncateText(item.imageUrl || item.image_url || "", 600),
+    imageAlt: truncateText(item.imageAlt || item.image_alt || "", 220),
     sku: String(item.sku || ""),
     variantId: item.variantId || null,
     variantTitle: truncateText(item.variantTitle || "", 160),
@@ -7776,9 +11946,21 @@ function trimSourceEventForCache(item = {}, type) {
       name: truncateText(option?.name || "", 80),
       value: truncateText(option?.value || "", 120),
     })) : [],
+    geography: normalizeSalesEventGeography(item),
+    country: item.country || item.geography?.country || "",
+    countryCode: normalizeGeographyCode(item.countryCode || item.geography?.countryCode),
+    province: item.province || item.geography?.province || "",
+    provinceCode: normalizeGeographyCode(item.provinceCode || item.geography?.provinceCode),
+    city: item.city || item.geography?.city || "",
   };
 
-  if (type === "sales") return base;
+  if (type === "sales") {
+    return {
+      ...base,
+      basketFingerprint: item.basketFingerprint || "",
+      basketLineItems: normalizeCachedBasketLineItems(item.basketLineItems),
+    };
+  }
   if (type === "returns") {
     return {
       ...base,
@@ -7807,6 +11989,25 @@ function trimSourceEventForCache(item = {}, type) {
     };
   }
   return base;
+}
+
+function normalizeCachedBasketLineItems(lineItems = []) {
+  return (Array.isArray(lineItems) ? lineItems : [])
+    .slice(0, DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE)
+    .map((lineItem) => ({
+      id: lineItem.id || null,
+      lineItemId: lineItem.lineItemId || lineItem.id || null,
+      productId: lineItem.productId || null,
+      handle: truncateText(lineItem.handle || "", 160),
+      title: truncateText(lineItem.title || "", 180),
+      imageUrl: truncateText(lineItem.imageUrl || lineItem.image_url || "", 600),
+      imageAlt: truncateText(lineItem.imageAlt || lineItem.image_alt || "", 220),
+      variantId: lineItem.variantId || null,
+      variantTitle: truncateText(lineItem.variantTitle || "", 160),
+      sku: String(lineItem.sku || ""),
+      quantity: Number(lineItem.quantity || 0),
+      amount: Number(lineItem.amount || 0),
+    }));
 }
 
 function getSourceEventCacheKey(type, item = {}) {
@@ -7934,12 +12135,13 @@ function normalizeCachedAnalysisItems(items = []) {
       const emotion = sentiment === "positive" && getEmotionPolarity(rawEmotion) === "negative"
         ? classifyCustomerEmotion(analysisText || text, Math.max(rating, 5))
         : rawEmotion;
+      const issueCode = normalizeCachedAnalysisIssueCode(item, analysisText || text, { sentiment, rating });
       return {
         ...item,
         key: String(item.key),
         text,
         analysisText,
-        issueCode: normalizeIssueCode(item.issueCode) || classifyIssueText(analysisText || text, { sentiment, rating }),
+        issueCode,
         sentiment,
         emotion: normalizeEmotionCode(emotion) || "none",
         subjectiveNegative: sentiment === "positive" ? false : Boolean(item.subjectiveNegative),
@@ -7947,6 +12149,16 @@ function normalizeCachedAnalysisItems(items = []) {
         updatedAt: toIso(item.updatedAt || item.createdAt),
       };
     });
+}
+
+function normalizeCachedAnalysisIssueCode(item = {}, text = "", context = {}) {
+  const storedIssue = normalizeIssueCode(item.issueCode);
+  const detectedIssue = classifyIssueText(text, context);
+  if (!storedIssue) return detectedIssue;
+  if (detectedIssue === "compatibility" && ["fit_sizing", "product_quality", "refund_impact"].includes(storedIssue)) {
+    return detectedIssue;
+  }
+  return storedIssue;
 }
 
 function trimAnalysisItemsForCache(items = []) {
@@ -8000,7 +12212,26 @@ function getReturnTextCacheKey(item = {}) {
 }
 
 function getReviewTextCacheKey(review = {}) {
-  return stableEventCacheKey(review.sourceType || "review", review, [review.id, review.sourceRow, review.productId, review.handle, review.rating, review.title, review.body, review.createdAt]);
+  const prefix = review.sourceType || "review";
+  const explicitId = [review.id, review.externalId, review.sourceReviewId]
+    .find((part) => part !== undefined && part !== null && String(part).trim());
+  if (explicitId) return `${prefix}:${String(explicitId)}`;
+  return `${prefix}:${stableSignature([
+    review.productId,
+    review.sourceProductId,
+    review.handle,
+    review.rating,
+    review.title,
+    review.body,
+    getReviewDateCacheBucket(review.createdAt),
+    review.reviewerName,
+  ].map((part) => String(part || "")).join("|"))}`;
+}
+
+function getReviewDateCacheBucket(value = "") {
+  const date = parseValidDate(value);
+  if (date) return date.toISOString().slice(0, 10);
+  return String(value || "").trim().slice(0, 10);
 }
 
 function getRefundTextCacheKey(item = {}) {
@@ -8028,10 +12259,19 @@ function buildDiagnosisSourceFingerprint({
       "id",
       "orderId",
       "lineItemId",
+      "productId",
       "variantId",
       "sku",
       "quantity",
       "amount",
+      "basketFingerprint",
+      "countryCode",
+      "provinceCode",
+      "country",
+      "province",
+      "orderDate",
+      "orderProcessedAt",
+      "orderCreatedAt",
       "createdAt",
       "updatedAt",
     ]),
@@ -8047,6 +12287,9 @@ function buildDiagnosisSourceFingerprint({
       "customerNote",
       "quantity",
       "amount",
+      "orderDate",
+      "orderProcessedAt",
+      "orderCreatedAt",
       "createdAt",
       "updatedAt",
       "processedAt",
@@ -8064,6 +12307,9 @@ function buildDiagnosisSourceFingerprint({
       "restockType",
       "quantity",
       "amount",
+      "orderDate",
+      "orderProcessedAt",
+      "orderCreatedAt",
       "createdAt",
       "updatedAt",
       "processedAt",
@@ -8071,25 +12317,22 @@ function buildDiagnosisSourceFingerprint({
     ]),
     judgeMeReviews: buildFingerprintEvents(judgeMeReviews, [
       "id",
-      "sourceRow",
       "productId",
       "handle",
       "rating",
       "title",
       "body",
-      "createdAt",
-      "updatedAt",
+      "reviewerName",
     ]),
     csvReviews: buildFingerprintEvents(csvReviews, [
       "id",
-      "sourceRow",
       "productId",
       "handle",
       "rating",
       "title",
       "body",
-      "createdAt",
-      "updatedAt",
+      "reviewerName",
+      "sourceProductId",
     ]),
   });
 }
@@ -8169,11 +12412,17 @@ function summarizeTextSource(items) {
   return {
     total: items.length,
     sentiment,
+    sentimentTrend: buildSentimentTrend(items),
+    ratingTrend: buildRatingTrend(items),
     emotions,
     subjectiveNegativity: summarizeSubjectiveNegativity(items),
     repeatedLanguage: extractRepeatedLanguage(items).slice(0, 5),
-    examples: items
-      .filter((item) => item.sentiment === "negative" || item.isOther)
+    examples: uniqueBy(
+      items
+        .filter((item) => item.sentiment === "negative" || item.isOther)
+        .filter((item) => item.text),
+      (item) => normalizeText(item.text || item.noteText || ""),
+    )
       .slice(0, 4)
       .map((item) => ({
         text: truncateText(item.text, 180),
@@ -8185,8 +12434,106 @@ function summarizeTextSource(items) {
         variant: item.variant || "",
         source: item.source || "",
         sourceLabel: item.sourceLabel || "",
+        createdAt: toIso(item.createdAt),
       })),
   };
+}
+
+function buildSentimentTrend(items = []) {
+  const rows = (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const date = parseValidDate(item.createdAt || item.updatedAt);
+      const sentiment = ["positive", "neutral", "negative"].includes(item.sentiment) ? item.sentiment : "neutral";
+      return date ? { date, sentiment } : null;
+    })
+    .filter(Boolean)
+    .sort((first, second) => first.date.getTime() - second.date.getTime());
+  if (!rows.length) return [];
+
+  const firstDate = rows[0].date;
+  const lastDate = rows[rows.length - 1].date;
+  const spanDays = Math.max(1, (lastDate.getTime() - firstDate.getTime()) / (24 * 60 * 60 * 1000));
+  const bucketMode = spanDays > 120 ? "month" : spanDays > 28 ? "week" : "day";
+  const buckets = new Map();
+
+  rows.forEach((row) => {
+    const key = getSentimentTrendBucketKey(row.date, bucketMode);
+    const current = buckets.get(key) || {
+      key,
+      label: getSentimentTrendBucketLabel(row.date, bucketMode),
+      date: row.date.toISOString(),
+      positive: 0,
+      neutral: 0,
+      negative: 0,
+      total: 0,
+    };
+    current[row.sentiment] += 1;
+    current.total += 1;
+    buckets.set(key, current);
+  });
+
+  return Array.from(buckets.values()).sort((first, second) => new Date(first.date).getTime() - new Date(second.date).getTime());
+}
+
+function buildRatingTrend(items = []) {
+  const rows = (Array.isArray(items) ? items : [])
+    .map((item) => {
+      const date = parseValidDate(item.createdAt || item.updatedAt);
+      const rating = Number(item.rating || 0);
+      return date && rating > 0 ? { date, rating: clamp(rating, 0, 5) } : null;
+    })
+    .filter(Boolean)
+    .sort((first, second) => first.date.getTime() - second.date.getTime());
+  if (!rows.length) return [];
+
+  const firstDate = rows[0].date;
+  const lastDate = rows[rows.length - 1].date;
+  const spanDays = Math.max(1, (lastDate.getTime() - firstDate.getTime()) / (24 * 60 * 60 * 1000));
+  const bucketMode = spanDays > 120 ? "month" : spanDays > 28 ? "week" : "day";
+  const buckets = new Map();
+
+  rows.forEach((row) => {
+    const key = getSentimentTrendBucketKey(row.date, bucketMode);
+    const current = buckets.get(key) || {
+      key,
+      label: getSentimentTrendBucketLabel(row.date, bucketMode),
+      date: row.date.toISOString(),
+      ratingSum: 0,
+      reviewCount: 0,
+    };
+    current.ratingSum += row.rating;
+    current.reviewCount += 1;
+    buckets.set(key, current);
+  });
+
+  return Array.from(buckets.values())
+    .sort((first, second) => new Date(first.date).getTime() - new Date(second.date).getTime())
+    .map((row) => ({
+      key: row.key,
+      label: row.label,
+      date: row.date,
+      averageRating: roundRate(row.reviewCount ? row.ratingSum / row.reviewCount : 0, 1),
+      reviewCount: row.reviewCount,
+    }));
+}
+
+function getSentimentTrendBucketKey(date, bucketMode = "month") {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  if (bucketMode === "day") return `${year}-${month}-${day}`;
+  if (bucketMode === "week") {
+    const weekStart = new Date(Date.UTC(year, date.getUTCMonth(), date.getUTCDate()));
+    weekStart.setUTCDate(weekStart.getUTCDate() - weekStart.getUTCDay());
+    return `${weekStart.getUTCFullYear()}-${String(weekStart.getUTCMonth() + 1).padStart(2, "0")}-${String(weekStart.getUTCDate()).padStart(2, "0")}`;
+  }
+  return `${year}-${month}`;
+}
+
+function getSentimentTrendBucketLabel(date, bucketMode = "month") {
+  if (bucketMode === "day") return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  if (bucketMode === "week") return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return date.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 }
 
 function summarizeEmotionCounts(items) {
@@ -8406,7 +12753,7 @@ function extractRepeatedLanguage(items) {
         term,
         count: 0,
         sources: new Set(),
-        issueCode: classifyIssueText(term),
+        issueCode: classifyIssueText(`${term} ${analysisText}`),
         sentiments: { positive: 0, neutral: 0, negative: 0 },
         example: "",
       };
@@ -8475,6 +12822,7 @@ function classifyCustomerSentiment(text, rating = 0) {
   const positiveMatches = countRegexMatches(normalized, /(great|good|love|loved|perfect|excellent|happy|quality|comfortable|recommend|works well|beautiful)/g);
   const ratingNumber = Number(rating || 0);
   if (ratingNumber > 0 && ratingNumber <= 2) return "negative";
+  if (ratingNumber === 3 && Math.abs(negativeMatches - positiveMatches) <= 1) return "neutral";
   if (
     ratingNumber >= 4
     && hasPositiveRecoveryCustomerLanguage(normalized)
@@ -8753,6 +13101,90 @@ function getMainIssueFromCounts(counts, fallback) {
   return normalizeIssueCode(fallback) || "product_quality";
 }
 
+function getEvidencePreferredMainIssue(deterministic = {}, proposedIssue = "") {
+  const proposed = normalizeIssueCode(proposedIssue) || normalizeIssueCode(deterministic.mainIssue) || "product_quality";
+  const counts = deterministic.issueSignalCounts || {};
+  const current = counts[proposed] ? proposed : normalizeIssueCode(deterministic.mainIssue) || proposed;
+  if (Number(counts.setup_expectation || 0) > 0 && hasSetupExpectationTextSignals(deterministic)) return "setup_expectation";
+  if (shouldPreferFitSizingMainIssue(deterministic, counts, current)) return "fit_sizing";
+  if (["quality_defect", "durability", "safety_concern", "refund_impact"].includes(current)) return current;
+  if (!hasProductFailureTextSignals(deterministic)) return current;
+  if (Number(deterministic.riskScore || 0) < 70 || !hasMaterialCustomerProblemEvidence(deterministic)) return current;
+  if (Number(counts.safety_concern || 0) > 0) return "safety_concern";
+  if (Number(counts.durability || 0) > 0) return "durability";
+  if (shouldPreferFitSizingMainIssue(deterministic, counts, current)) return "fit_sizing";
+  if (Number(counts.quality_defect || 0) > 0) return "quality_defect";
+  return "quality_defect";
+}
+
+function shouldPreferFitSizingMainIssue(deterministic = {}, counts = {}, current = "") {
+  if (!hasFitSizingTextSignals(deterministic)) return false;
+  const fitSignals = Number(counts.fit_sizing || 0)
+    + countIssueCountRows(deterministic.metrics?.refundInsights?.issueCounts, "fit_sizing")
+    + countRepeatedLanguageIssueRows(deterministic.metrics?.textInsights?.repeatedLanguage, "fit_sizing");
+  const qualitySignals = Number(counts.quality_defect || 0)
+    + Number(counts.product_quality || 0)
+    + countIssueCountRows(deterministic.metrics?.refundInsights?.issueCounts, "quality_defect")
+    + countIssueCountRows(deterministic.metrics?.refundInsights?.issueCounts, "product_quality")
+    + countRepeatedLanguageIssueRows(deterministic.metrics?.textInsights?.repeatedLanguage, "quality_defect")
+    + countRepeatedLanguageIssueRows(deterministic.metrics?.textInsights?.repeatedLanguage, "product_quality");
+  if (fitSignals >= 2 && fitSignals >= qualitySignals) return true;
+  const normalizedCurrent = normalizeIssueCode(current);
+  return ["quality_defect", "product_quality"].includes(normalizedCurrent)
+    && fitSignals >= 2
+    && isApparelLikeDiagnosis(deterministic);
+}
+
+function countIssueCountRows(rows = [], issueCode = "") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  return (Array.isArray(rows) ? rows : []).reduce((total, row) => {
+    const label = normalizeIssueCode(row?.label || row?.issueCode || row?.issue_code || row?.issue);
+    return total + (label === normalizedIssue ? Number(row?.count || 0) : 0);
+  }, 0);
+}
+
+function countRepeatedLanguageIssueRows(rows = [], issueCode = "") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  return (Array.isArray(rows) ? rows : []).reduce((total, row) => {
+    const label = normalizeIssueCode(row?.issueCode || row?.issue_code || row?.issueCategory || row?.issue_category);
+    return total + (label === normalizedIssue ? Number(row?.count || 1) : 0);
+  }, 0);
+}
+
+function hasFitSizingTextSignals(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const text = normalizeText([
+    deterministic.mainIssue,
+    deterministic.mainFinding?.title,
+    deterministic.mainFinding?.summary,
+    deterministic.mainFinding?.detail,
+    deterministic.product?.title,
+    deterministic.product?.productType,
+    ...(Array.isArray(deterministic.product?.tags) ? deterministic.product.tags : []),
+    ...(Array.isArray(deterministic.evidenceSnippets) ? deterministic.evidenceSnippets : []).map((item) => item.text || item.body || item.quote || item.summary || ""),
+    ...(Array.isArray(metrics.topReturnReasonDetails) ? metrics.topReturnReasonDetails : []).flatMap((item) => [
+      item.label,
+      item.detail,
+      ...(Array.isArray(item.subReasons) ? item.subReasons.map((subReason) => subReason.label) : []),
+    ]),
+    ...(Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : []),
+    ...(Array.isArray(metrics.textInsights?.repeatedLanguage) ? metrics.textInsights.repeatedLanguage : []).map((item) => `${item.term || ""} ${item.example || ""} ${item.issueCode || ""}`),
+    ...(Array.isArray(metrics.refundInsights?.examples) ? metrics.refundInsights.examples : []).map((item) => `${item.text || ""} ${item.noteText || ""} ${item.issueCode || ""}`),
+  ].flat().filter(Boolean).join(" "));
+  return /\b(fit|fits|fitting|size|sizing|too small|too large|runs small|runs large|chest|shoulder|sleeve|upper arm|garment measurement|body measurement|size chart|layering|sweatshirt|waist|inseam)\b/.test(text);
+}
+
+function isApparelLikeDiagnosis(deterministic = {}) {
+  const product = deterministic.product || {};
+  const text = normalizeText([
+    product.title,
+    product.productType,
+    product.description,
+    ...(Array.isArray(product.tags) ? product.tags : []),
+  ].filter(Boolean).join(" "));
+  return /\b(apparel|clothing|overshirt|shirt|garment|jacket|sleeve|shoulder|size chart|body measurement)\b/.test(text);
+}
+
 function classifyIssueText(text, context = {}) {
   const normalized = normalizeText(text);
   const sentiment = String(context.sentiment || "").toLowerCase();
@@ -8760,18 +13192,34 @@ function classifyIssueText(text, context = {}) {
   const positiveContext = sentiment === "positive" || rating >= 4;
   const explicitIssue = containsIssueLanguage(normalized) || isObjectiveSafetyText(normalized) || isSubjectiveNegativeText(normalized);
   if (positiveContext && !explicitIssue) return "product_quality";
+  if (/(not compatible|incompatible|compatibility issue|compatibility mismatch|compatibility gap|compatibility boundary|outside supported compatibility|doesn t work with|doesnt work with|won t work with|wont work with|does not work with|fit with)/.test(normalized)) return "compatibility";
+  if (!positiveContext && /(compatibility|compatible)/.test(normalized) && /(case|setup|boundary|unsupported|supported|mismatch|gap|outside|discovering|confusion)/.test(normalized)) return "compatibility";
+  if (isSetupExpectationMismatchText(normalized, { positiveContext })) return "setup_expectation";
   if (/(too small|too large|doesn t fit|doesnt fit|does not fit|didn t fit|didnt fit|not fit|wrong size|runs small|runs large|fit issue|fit problem|sizing issue|tight|loose|waist|chest|shoulder|sleeve|length)/.test(normalized)
-    || (!positiveContext && /(fit|size|sizing|small|large)/.test(normalized) && explicitIssue)) return "fit_sizing";
+    || (!positiveContext && /\b(fit|size|sizing|small|large)\b/.test(normalized) && explicitIssue)) return "fit_sizing";
   if (isObjectiveSafetyText(normalized)) return "safety_concern";
   if (isSubjectiveNegativeText(normalized)) return "subjective_negative_reaction";
   if (/(wrong color|different color|not as pictured|not pictured|picture|pictured|photo|image|shade|looks different|looked different|color mismatch|colour mismatch)/.test(normalized)
     || (!positiveContext && /(color|colour)/.test(normalized) && explicitIssue)) return "color_expectation";
   if (/(break|broken|defect|defective|damage|damaged|poor quality|cheap|durability|leak|leaking|spill|spilled|crack|cracked|chip|chipped|tear|ripped|malfunction|failed|failure|rough|scratchy|stiff|thin material|bad material|bad fabric)/.test(normalized)
     || (!positiveContext && /(quality|soft|softness|material|fabric|texture|build)/.test(normalized) && explicitIssue)) return "quality_defect";
-  if (/(not compatible|incompatible|compatibility issue|doesn t work with|doesnt work with|won t work with|wont work with|does not work with|fit with)/.test(normalized)) return "compatibility";
   if (/(late|delayed|lost package|lost shipment|shipping problem|delivery problem|arrived damaged|damaged in transit)/.test(normalized)
     || (!positiveContext && /(shipping|delivery|arrived)/.test(normalized) && explicitIssue)) return "shipping_delivery";
   return "product_quality";
+}
+
+function isSetupExpectationMismatchText(normalizedText = "", { positiveContext = false } = {}) {
+  if (positiveContext) return false;
+  const setupTerms = /\b(setup|install|installation|mount|mounting|adhesive|surface|surfaces|clamp|clamps|cure|oiled|textured|porous|sealed|warm underside|shelf|cable|routing|left side|right side|flip|flipping|adapter|wall brick|wall adapter|usb c|usb-c|webcam|camera|banding|bands|flicker|glossy|reflection|glare|min line|minimum fill|min fill|fill line|120v|120 v|voltage|converter|travel converter|power bank|car socket|steam vent|vent clearance|counter placement|outlet|boil|boiling)\b/.test(normalizedText);
+  if (!setupTerms) return false;
+  const expectationTerms = /\b(expectation|mismatch|confusing|unclear|buried|missed|not obvious|did not understand|didn t understand|page|listing|description|pdp|checklist|rule|guidance|before checkout|before buying|support pointed|technically explains|probably present|not broken|conditional)\b/.test(normalizedText);
+  const supportedSetupTerms = /\b(use clamps|clamp feet|smooth sealed|surface checklist|camera warning|no wall adapter|cable exits|flip option|control button|not a video|not video|not included|120 v only|120v only|above the min line|min fill line|steam vent|travel converters|power banks|car sockets)\b/.test(normalizedText);
+  return expectationTerms || supportedSetupTerms;
+}
+
+function hasSetupExpectationTextSignals(deterministic = {}) {
+  return getOperationalSignalTextValues(deterministic)
+    .some((value) => isSetupExpectationMismatchText(normalizeText(value)));
 }
 
 function analyzeProductContentDeterministically(product) {
@@ -8780,6 +13228,7 @@ function analyzeProductContentDeterministically(product) {
   const normalizedDescription = normalizeText(description);
   const normalizedTitle = normalizeText(product.title);
   const productType = normalizeText(product.productType);
+  const productCategory = normalizeProductCategory(product.category);
   const seoTitle = String(product.seoTitle || "").replace(/\s+/g, " ").trim();
   const seoDescription = String(product.seoDescription || "").replace(/\s+/g, " ").trim();
   const handle = String(product.handle || "").trim();
@@ -8854,8 +13303,8 @@ function analyzeProductContentDeterministically(product) {
     advisories.push(buildContentAdvisory("missing_specs_block", "Specs/details block could improve clarity", "The description does not clearly separate specifications, compatibility, included items, materials, care or limits."));
   }
 
-  if (!String(product.vendor || "").trim() || !String(product.productType || "").trim()) {
-    advisories.push(buildContentAdvisory("classification_incomplete", "Product classification needs review", "Vendor or product type is missing, which can weaken catalog workflows and reporting."));
+  if (!String(product.vendor || "").trim() || !String(product.productType || "").trim() || !productCategory.id) {
+    advisories.push(buildContentAdvisory("classification_incomplete", "Product classification needs review", "Vendor, product type or Shopify category is missing, which can weaken catalog workflows and reporting."));
   }
 
   const templateNeedsReview = Boolean(!templateSuffix && (specsBlockRecommended || issues.some((issue) => ["missing_description", "short_description", "description_variant_mismatch"].includes(issue.code))));
@@ -9032,15 +13481,18 @@ function buildContentAnalysis(deterministic, contentGaps) {
   const aiIssues = aiFindings.issues;
   const aiAdvisories = aiFindings.advisories;
   const issues = uniqueBy([...deterministicIssues, ...aiIssues], (issue) => `${issue.code}-${issue.label}`);
-  const advisories = uniqueBy([...deterministicAdvisories, ...aiAdvisories], (issue) => `${issue.code}-${issue.label}`);
+  const descriptionDepthAdvisory = buildDescriptionDepthAdvisory(deterministic.metrics);
+  const advisories = uniqueBy([
+    ...deterministicAdvisories,
+    ...aiAdvisories,
+    ...(descriptionDepthAdvisory ? [descriptionDepthAdvisory] : []),
+  ], (issue) => `${issue.code}-${issue.label}`);
   const aiRiskLift = Math.min(18, aiIssues.reduce((total, issue) => total + issue.riskLift, 0));
   const deterministicRiskLift = Number(deterministic.metrics.contentQualityRisk || 0);
-  const riskLift = Math.min(18, Math.max(deterministicRiskLift, aiRiskLift));
+  const score = calculateContentQualityScore(deterministic.metrics, contentGaps, issues);
+  const scoreRiskLift = getContentQualityScoreRiskLift(score);
+  const riskLift = Math.min(18, Math.max(deterministicRiskLift, aiRiskLift, scoreRiskLift));
   const additionalRiskLift = Math.min(10, Math.max(0, riskLift - deterministicRiskLift));
-  const aiScore = Number(contentGaps?.content_quality_score);
-  const score = Number.isFinite(aiScore)
-    ? clamp(Math.round(aiScore), 0, 100)
-    : Number(deterministic.metrics.contentQualityScore || 100);
 
   return {
     score,
@@ -9053,6 +13505,53 @@ function buildContentAnalysis(deterministic, contentGaps) {
     riskLift,
     additionalRiskLift,
   };
+}
+
+function calculateContentQualityScore(metrics = {}, contentGaps = {}, issues = []) {
+  const deterministicScore = clamp(Number(metrics.contentQualityScore || 100), 0, 100);
+  const aiScore = Number(contentGaps?.content_quality_score);
+  const normalizedAiScore = Number.isFinite(aiScore) ? clamp(Math.round(aiScore), 0, 100) : null;
+  const blendedScore = normalizedAiScore == null
+    ? deterministicScore
+    : Math.min(
+      Math.round((deterministicScore * 0.35) + (normalizedAiScore * 0.65)),
+      normalizedAiScore + 8,
+    );
+  const descriptionCap = getDescriptionDepthContentQualityCap(metrics, issues);
+  return clamp(Math.min(blendedScore, descriptionCap), 0, 100);
+}
+
+function getDescriptionDepthContentQualityCap(metrics = {}, issues = []) {
+  const wordCount = Number(metrics.descriptionWordCount || 0);
+  const issueCodes = new Set((Array.isArray(issues) ? issues : []).map((issue) => normalizeContentIssueCode(issue.code)));
+
+  if (issueCodes.has("missing_description") || wordCount <= 0) return 30;
+  if (wordCount < 15) return 50;
+  if (wordCount < 25) return 62;
+  if (wordCount < 35) return 72;
+  if (wordCount < 50) return 80;
+  if (wordCount < 80) return issueCodes.has("missing_specifications") || issueCodes.has("missing_customer_guidance") ? 84 : 88;
+  return 100;
+}
+
+function buildDescriptionDepthAdvisory(metrics = {}) {
+  const wordCount = Number(metrics.descriptionWordCount || 0);
+  if (wordCount <= 0 || wordCount >= 50) return null;
+  return buildContentAdvisory(
+    "thin_description",
+    "Description depth is limited",
+    `The description has ${wordCount} words, so ProductPulse caps content quality even when the copy is coherent.`,
+  );
+}
+
+function getContentQualityScoreRiskLift(score) {
+  const numericScore = Number(score);
+  if (!Number.isFinite(numericScore)) return 0;
+  if (numericScore < 45) return 12;
+  if (numericScore < 60) return 8;
+  if (numericScore < 75) return 5;
+  if (numericScore < 85) return 2;
+  return 0;
 }
 
 function adjustRiskComponentsForContentAnalysis(riskComponents = {}, contentAnalysis = {}) {
@@ -9144,6 +13643,7 @@ function getContentAdvisoryLabel(code, fallback) {
   if (code === "tag_description_mismatch") return "Tags could be reflected in description";
   if (code === "collection_mismatch") return "Collection context could be clearer";
   if (code === "title_description_mismatch") return "Title and description alignment could be reviewed";
+  if (code === "thin_description") return "Description depth is limited";
   return fallback;
 }
 
@@ -9151,6 +13651,7 @@ const CONTENT_ADVISORY_CODES = new Set([
   "missing_product_type_context",
   "tag_description_mismatch",
   "collection_mismatch",
+  "thin_description",
 ]);
 
 function summarizeContentIssues(issues) {
@@ -9186,6 +13687,7 @@ function normalizeSeverity(value) {
 function buildMainFindingDetail(aiDetail, deterministic, contentAnalysis) {
   const base = normalizeMainFindingDetail(aiDetail || buildEvidenceSummary(deterministic));
   if (!contentAnalysis?.issues?.length) return base;
+  if (splitMainFindingParagraphs(base).length >= 5) return base;
   const contentLabels = contentAnalysis.issues
     .slice(0, 3)
     .map((issue) => issue.label || getContentIssueLabel(issue.code))
@@ -9197,15 +13699,15 @@ function buildMainFindingDetail(aiDetail, deterministic, contentAnalysis) {
 function normalizeMainFindingDetail(value) {
   const paragraphs = splitMainFindingParagraphs(value);
   if (!paragraphs.length) return "";
-  return paragraphs.slice(0, 3).join("\n\n");
+  return paragraphs.slice(0, 5).join("\n\n");
 }
 
 function appendMainFindingParagraph(value, paragraph) {
   const paragraphs = splitMainFindingParagraphs(value);
   const nextParagraph = String(paragraph || "").replace(/\s+/g, " ").trim();
   if (!nextParagraph) return normalizeMainFindingDetail(value);
-  if (paragraphs.length >= 3) return [...paragraphs.slice(0, 2), nextParagraph].join("\n\n");
-  return [...paragraphs, nextParagraph].slice(0, 3).join("\n\n");
+  if (paragraphs.length >= 5) return [...paragraphs.slice(0, 4), nextParagraph].join("\n\n");
+  return [...paragraphs, nextParagraph].slice(0, 5).join("\n\n");
 }
 
 function splitMainFindingParagraphs(value) {
@@ -9584,9 +14086,21 @@ function buildEvidenceSummary(deterministic) {
   } else if (Number(metrics.contentIssueCount || 0) > 0) {
     pieces.push(`${metrics.contentIssueCount} product content issue${Number(metrics.contentIssueCount) === 1 ? "" : "s"}`);
   }
+  const retentionSummary = buildRetentionEvidenceSummary(metrics.productRetention);
+  if (retentionSummary) pieces.push(retentionSummary);
   if (affectedVariants.length) pieces.push(`affected variants: ${affectedVariants.join(", ")}`);
   if (!pieces.length) return "The diagnosis has product metadata but no strong product-specific customer signal yet.";
   return pieces.join("; ");
+}
+
+function buildRetentionEvidenceSummary(retention = null) {
+  const aiRetention = buildAiProductRetentionInput(retention);
+  if (!aiRetention?.shouldMention) return "";
+  const pieces = [];
+  if (aiRetention.retentionHealthScore != null) pieces.push(`retention health ${Math.round(aiRetention.retentionHealthScore)}/100`);
+  if (aiRetention.repeatPurchaseRate90d != null) pieces.push(`${Math.round(aiRetention.repeatPurchaseRate90d * 1000) / 10}% 90-day repeat`);
+  if (aiRetention.productLtv90Cents != null && aiRetention.productLtv90Cents > 0) pieces.push(`${formatMoney(aiRetention.productLtv90Cents / 100)} 90-day LTV`);
+  return pieces.length ? `retention context: ${pieces.join(", ")}` : "";
 }
 
 function buildFallbackClusters(deterministic, mainIssue) {
@@ -9643,6 +14157,242 @@ function countTopValues(values, limit) {
     .map(([label, count]) => ({ label, count }));
 }
 
+function buildTopReturnReasonDetails(returns = [], limit = 4) {
+  const groups = new Map();
+
+  (Array.isArray(returns) ? returns : []).forEach((item) => {
+    const category = normalizeReturnReasonLabel(item.reasonLabel || item.reason || "Return");
+    if (!category) return;
+
+    const key = normalizeReturnReasonKey(category);
+    const quantity = Math.max(1, Number(item.quantity || item.processedQuantity || item.refundedQuantity || 1));
+    const note = getReturnReasonNoteSummary(item);
+    const group = groups.get(key) || {
+      key,
+      label: category,
+      count: 0,
+      subReasonMap: new Map(),
+    };
+
+    group.count += quantity;
+
+    if (note && !isDefaultCustomerLanguageTerm(note)) {
+      const noteKey = normalizeReturnReasonKey(note);
+      const subReason = group.subReasonMap.get(noteKey) || {
+        key: noteKey,
+        label: note,
+        count: 0,
+      };
+      subReason.count += quantity;
+      group.subReasonMap.set(noteKey, subReason);
+    }
+
+    groups.set(key, group);
+  });
+
+  return [...groups.values()]
+    .map((group) => {
+      const subReasons = [...group.subReasonMap.values()]
+        .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label));
+      const dominantSubReason = subReasons[0] || null;
+      const isOther = group.key === "other";
+      const label = isOther && dominantSubReason
+        ? `Other: ${dominantSubReason.label}`
+        : group.label;
+
+      return {
+        key: group.key,
+        label,
+        category: group.label,
+        count: group.count,
+        detail: dominantSubReason
+          ? `${group.label} · ${dominantSubReason.count} unit${dominantSubReason.count === 1 ? "" : "s"}`
+          : `${group.count} unit${group.count === 1 ? "" : "s"}`,
+        subReasons: subReasons.slice(0, 4),
+      };
+    })
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .slice(0, limit);
+}
+
+function getReturnReasonNoteSummary(item = {}) {
+  const notes = [item.reasonNote, item.customerNote]
+    .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const first = notes[0] || "";
+  return first
+    .replace(/^other\s*(reason)?\s*[:/-]\s*/i, "")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim();
+}
+
+function normalizeReturnReasonKey(value) {
+  const normalized = normalizeText(value)
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+  if (isGenericOtherReason(normalized) || ["other reason", "other reasons"].includes(normalized)) return "other";
+  if (["not as described", "not described"].includes(normalized)) return "not_as_described";
+  if (["quality issue", "quality"].includes(normalized)) return "quality_issue";
+  if (["wrong item", "wrong product"].includes(normalized)) return "wrong_item";
+  if (["color", "colour"].includes(normalized)) return "color";
+  return normalized;
+}
+
+function normalizeReturnReasonLabel(value) {
+  const normalized = String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  const key = normalizeReturnReasonKey(normalized);
+  if (key === "other") return "Other";
+  if (key === "not_as_described") return "Not as described";
+  if (key === "quality_issue") return "Quality issue";
+  if (key === "wrong_item") return "Wrong item";
+  if (key === "color") return "Color";
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function buildOrderGeographyRows(sales = []) {
+  const orders = new Map();
+
+  (Array.isArray(sales) ? sales : []).forEach((event, index) => {
+    const orderKey = event.orderId || event.id || `sale:${index}`;
+    const geography = normalizeSalesEventGeography(event);
+    const current = orders.get(orderKey) || { geography: null, units: 0, amount: 0 };
+    current.units += Number(event.quantity || 0);
+    current.amount += Number(event.amount || 0);
+    if (!current.geography || isMoreSpecificGeography(geography, current.geography)) {
+      current.geography = geography;
+    }
+    orders.set(orderKey, current);
+  });
+
+  const totalOrders = orders.size;
+  if (!totalOrders) return [];
+
+  const groups = new Map();
+  orders.forEach((order) => {
+    const region = getOrderGeographyRegion(order.geography);
+    const current = groups.get(region.key) || {
+      key: region.key,
+      label: region.label,
+      country: region.country,
+      countryCode: region.countryCode,
+      province: region.province,
+      provinceCode: region.provinceCode,
+      cityCounts: new Map(),
+      orders: 0,
+      units: 0,
+      amount: 0,
+    };
+    current.orders += 1;
+    current.units += Number(order.units || 0);
+    current.amount += Number(order.amount || 0);
+    if (order.geography?.city) {
+      current.cityCounts.set(order.geography.city, (current.cityCounts.get(order.geography.city) || 0) + 1);
+    }
+    groups.set(region.key, current);
+  });
+
+  return [...groups.values()]
+    .map((group) => {
+      const share = roundRate((group.orders / totalOrders) * 100, 1);
+      const topCities = [...group.cityCounts.entries()]
+        .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]))
+        .slice(0, 2)
+        .map(([city, count]) => `${city}${count > 1 ? ` (${count})` : ""}`);
+      return {
+        key: group.key,
+        label: group.label,
+        count: group.orders,
+        orders: group.orders,
+        units: group.units,
+        amount: roundCurrency(group.amount),
+        share,
+        percent: share,
+        detail: [
+          `${group.orders} order${group.orders === 1 ? "" : "s"}`,
+          `${share}%`,
+          topCities.length ? topCities.join(", ") : "",
+        ].filter(Boolean).join(" · "),
+        country: group.country,
+        countryCode: group.countryCode,
+        province: group.province,
+        provinceCode: group.provinceCode,
+      };
+    })
+    .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label))
+    .slice(0, 12);
+}
+
+function normalizeSalesEventGeography(event = {}) {
+  return normalizeOrderAddressGeography(event.geography)
+    || normalizeOrderAddressGeography(event)
+    || null;
+}
+
+function isMoreSpecificGeography(candidate = null, current = null) {
+  if (!candidate) return false;
+  if (!current) return true;
+  const score = (item) => ["countryCode", "country", "provinceCode", "province", "city"]
+    .reduce((total, key) => total + (item?.[key] ? 1 : 0), 0);
+  return score(candidate) > score(current);
+}
+
+function getOrderGeographyRegion(geography = null) {
+  if (!geography) {
+    return {
+      key: "unknown",
+      label: "Unknown location",
+      country: "",
+      countryCode: "",
+      province: "",
+      provinceCode: "",
+    };
+  }
+  const countryCode = normalizeGeographyCode(geography.countryCode);
+  const provinceCode = normalizeGeographyCode(geography.provinceCode);
+  const country = geography.country || getCountryLabel(countryCode);
+  const isUnitedStates = countryCode === "US" || normalizeText(country) === "united states" || normalizeText(country) === "united states of america";
+  if (isUnitedStates && (provinceCode || geography.province)) {
+    const stateLabel = US_STATE_NAMES[provinceCode] || geography.province || provinceCode;
+    return {
+      key: `US-${provinceCode || normalizeText(stateLabel)}`,
+      label: `${stateLabel}, United States`,
+      country: "United States",
+      countryCode: "US",
+      province: stateLabel,
+      provinceCode,
+    };
+  }
+  const countryLabel = country || countryCode || "Unknown location";
+  return {
+    key: `COUNTRY-${countryCode || normalizeText(countryLabel)}`,
+    label: countryLabel,
+    country: countryLabel === "Unknown location" ? "" : countryLabel,
+    countryCode,
+    province: "",
+    provinceCode: "",
+  };
+}
+
+function getCountryLabel(countryCode = "") {
+  if (countryCode === "US") return "United States";
+  if (countryCode && Intl?.DisplayNames) {
+    try {
+      return new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode) || countryCode;
+    } catch {
+      return countryCode;
+    }
+  }
+  return countryCode || "";
+}
+
 function buildMonthlyOrderActivity({
   sales = [],
   returns = [],
@@ -9656,41 +14406,45 @@ function buildMonthlyOrderActivity({
   const monthStarts = getMonthStartsBetween(startOfUtcMonth(sinceDate), startOfUtcMonth(currentDate))
     .slice(-MONTHLY_ORDER_ACTIVITY_MAX_MONTHS);
   const buckets = new Map(monthStarts.map((date) => [formatUtcMonthKey(date), createMonthlyOrderActivityBucket(date)]));
+  const weekStarts = getWeekStartsBetween(startOfUtcWeek(sinceDate), startOfUtcWeek(currentDate))
+    .slice(-RETURN_RATE_PREDICTION_MAX_WEEKS);
+  const weekBuckets = new Map(weekStarts.map((date) => [formatUtcDateKey(date), createWeeklyOrderActivityBucket(date)]));
   const orderMonthById = new Map();
+  const orderWeekById = new Map();
 
   sales.forEach((event, index) => {
-    const monthKey = getEventMonthKey(event.createdAt);
-    if (!buckets.has(monthKey)) return;
-    if (event.orderId) orderMonthById.set(event.orderId, monthKey);
-    const bucket = buckets.get(monthKey);
-    const orderKey = event.orderId || event.id || `sale:${index}:${monthKey}`;
-    bucket.orderIds.add(orderKey);
-    bucket.orderUnits += Number(event.quantity || 0);
-    bucket.revenue += Number(event.amount || 0);
+    const cohortDate = getOrderCohortDate(event, { includeEventDate: true });
+    const monthKey = getEventMonthKey(cohortDate);
+    const weekKey = getEventWeekKey(cohortDate);
+    const orderKey = event.orderId || event.id || `sale:${index}:${monthKey || weekKey}`;
+    if (buckets.has(monthKey)) {
+      if (event.orderId) orderMonthById.set(event.orderId, monthKey);
+      addSaleToOrderActivityBucket(buckets.get(monthKey), orderKey, event);
+    }
+    if (weekBuckets.has(weekKey)) {
+      if (event.orderId) orderWeekById.set(event.orderId, weekKey);
+      addSaleToOrderActivityBucket(weekBuckets.get(weekKey), orderKey, event);
+    }
   });
 
   returns.forEach((event, index) => {
     const monthKey = getOperationalEventMonthKey(event, orderMonthById);
-    const bucket = buckets.get(monthKey);
-    if (!bucket) return;
-    const orderKey = event.orderId || event.id || `return:${index}:${monthKey}`;
-    bucket.orderIds.add(orderKey);
-    bucket.returnOrderIds.add(orderKey);
-    bucket.returnedUnits += getOperationalEventQuantity(event);
+    const weekKey = getOperationalEventWeekKey(event, orderWeekById);
+    const orderKey = event.orderId || event.id || `return:${index}:${monthKey || weekKey}`;
+    if (buckets.has(monthKey)) addReturnToOrderActivityBucket(buckets.get(monthKey), orderKey, event);
+    if (weekBuckets.has(weekKey)) addReturnToOrderActivityBucket(weekBuckets.get(weekKey), orderKey, event);
   });
 
   refunds.forEach((event, index) => {
     const monthKey = getOperationalEventMonthKey(event, orderMonthById);
-    const bucket = buckets.get(monthKey);
-    if (!bucket) return;
-    const orderKey = event.orderId || event.id || `refund:${index}:${monthKey}`;
-    bucket.orderIds.add(orderKey);
-    bucket.refundOrderIds.add(orderKey);
-    bucket.refundedUnits += getOperationalEventQuantity(event);
-    bucket.refundAmount += Number(event.amount || event.totalRefundedAmount || 0);
+    const weekKey = getOperationalEventWeekKey(event, orderWeekById);
+    const orderKey = event.orderId || event.id || `refund:${index}:${monthKey || weekKey}`;
+    if (buckets.has(monthKey)) addRefundToOrderActivityBucket(buckets.get(monthKey), orderKey, event);
+    if (weekBuckets.has(weekKey)) addRefundToOrderActivityBucket(weekBuckets.get(weekKey), orderKey, event);
   });
 
   const months = [...buckets.values()].map(normalizeMonthlyOrderActivityBucket);
+  const weeks = [...weekBuckets.values()].map(normalizeMonthlyOrderActivityBucket);
   const summary = months.reduce((totals, month) => ({
     totalOrders: totals.totalOrders + month.orders,
     totalOrderUnits: totals.totalOrderUnits + month.orderUnits,
@@ -9718,6 +14472,7 @@ function buildMonthlyOrderActivity({
     windowDays: safeWindowDays,
     generatedAt: toIso(currentDate),
     months,
+    weeks,
     summary: {
       ...summary,
       totalRevenue: roundCurrency(summary.totalRevenue),
@@ -9753,7 +14508,7 @@ function buildReturnRatePrediction({
   const orderWeekById = new Map();
 
   sales.forEach((event, index) => {
-    const weekKey = getEventWeekKey(event.createdAt);
+    const weekKey = getEventWeekKey(getOrderCohortDate(event, { includeEventDate: true }));
     if (!buckets.has(weekKey)) return;
     if (event.orderId) orderWeekById.set(event.orderId, weekKey);
     const bucket = buckets.get(weekKey);
@@ -9863,34 +14618,60 @@ export function buildProductMomentum({
   const last30 = sumSalesInWindow(safeSales, currentDate, 30);
   const previous30 = sumSalesBetween(safeSales, addUtcDays(currentDate, -60), addUtcDays(currentDate, -30));
   const previous90 = sumSalesBetween(safeSales, addUtcDays(currentDate, -120), addUtcDays(currentDate, -30));
-  const weeklyBuckets = buildProductMomentumWeeklyBuckets(safeSales, currentDate);
+  const weeklyBuckets = buildProductMomentumWeeklyBuckets(safeSales, currentDate, 4);
+  const extendedWeeklyBuckets = buildProductMomentumWeeklyBuckets(safeSales, currentDate, 8);
   const weeklyUnits = weeklyBuckets.map((bucket) => bucket.units);
   const weeklyRevenue = weeklyBuckets.map((bucket) => roundCurrency(bucket.revenue));
+  const extendedWeeklyUnits = extendedWeeklyBuckets.map((bucket) => bucket.units);
+  const extendedWeeklyRevenue = extendedWeeklyBuckets.map((bucket) => roundCurrency(bucket.revenue));
   const catalog = catalogBaseline || {};
   const unitsDistribution = Array.isArray(catalog.unitsLast30Distribution) ? catalog.unitsLast30Distribution : [];
   const revenueDistribution = Array.isArray(catalog.revenueLast30Distribution) ? catalog.revenueLast30Distribution : [];
   const unitsVelocityScore = percentileRank(last30.units, unitsDistribution);
   const revenueVelocityScore = percentileRank(last30.revenue, revenueDistribution);
-  const currentVelocityScore = clamp((0.65 * unitsVelocityScore) + (0.35 * revenueVelocityScore), 0, 100);
+  const currentVelocityScore = clamp((0.65 * unitsVelocityScore) + (0.35 * revenueVelocityScore), 0, 96);
   const smoothingUnits = Math.max(3, Number(catalog.medianUnitsLast30 || 0) * 0.10);
   const smoothingRevenue = Math.max(10, Number(catalog.medianRevenueLast30 || 0) * 0.10);
   const unitsGrowthRatio = (last30.units + smoothingUnits) / (previous30.units + smoothingUnits);
   const revenueGrowthRatio = (last30.revenue + smoothingRevenue) / (previous30.revenue + smoothingRevenue);
   const combinedGrowthRatio = (0.65 * unitsGrowthRatio) + (0.35 * revenueGrowthRatio);
-  const growthScore = clamp(50 + (35 * safeLog2(combinedGrowthRatio)), 0, 100);
+  const growthScore = getValidatedMomentumGrowthScore({
+    unitsLast30: last30.units,
+    unitsPrevious30: previous30.units,
+    revenueLast30: last30.revenue,
+    revenuePrevious30: previous30.revenue,
+  });
   const storeUnitsLast30 = Math.max(0, Number(catalog.storeUnitsLast30 || 0)) || last30.units;
   const storeUnitsPrevious90 = Math.max(0, Number(catalog.storeUnitsPrevious90 || 0)) || previous90.units;
   const productShareLast30 = last30.units / Math.max(storeUnitsLast30, 1);
   const productShareBaseline = previous90.units / Math.max(storeUnitsPrevious90, 1);
   const shareLiftRatio = (productShareLast30 + 0.0001) / (productShareBaseline + 0.0001);
-  const catalogShareScore = clamp(50 + (35 * safeLog2(shareLiftRatio)), 0, 100);
+  const topCatalogPercent = unitsDistribution.length
+    ? Math.max(1, Math.round(100 - unitsVelocityScore))
+    : null;
+  const catalogShareScore = getValidatedMomentumCatalogShareScore({
+    storedScore: 0,
+    currentVelocityScore,
+    topCatalogPercent,
+    productShareBaseline: productShareBaseline * 100,
+    shareLiftRatio,
+    hasCatalogBaseline: catalog.hasCatalogBaseline,
+    unitsLast30: last30.units,
+  });
   const activeWeekRatio = weeklyUnits.filter((value) => Number(value || 0) > 0).length / 4;
   const weeklySlope = linearRegressionSlope(weeklyUnits);
   const averageWeeklyUnits = average(weeklyUnits);
   const normalizedSlope = weeklySlope / Math.max(averageWeeklyUnits, 1);
-  const trendDirectionScore = clamp(50 + (100 * normalizedSlope), 0, 100);
-  const trendConsistencyScore = clamp((0.60 * trendDirectionScore) + (0.40 * activeWeekRatio * 100), 0, 100);
-  const recencyScore = last7.units > 0 ? 100 : last14.units > 0 ? 70 : last30.units > 0 ? 40 : 0;
+  const trendDirectionScore = clamp(50 + (70 * normalizedSlope), 0, 100);
+  const trendConsistencyScore = clamp((0.58 * trendDirectionScore) + (0.42 * activeWeekRatio * 100), 0, 100);
+  const recencyScore = getValidatedMomentumRecencyScore({
+    weeklyUnits,
+    unitsLast30: last30.units,
+    unitsLast7Days: last7.units,
+    unitsLast14Days: last14.units,
+    lastSaleAt: getLatestEventDate(safeSales),
+    now: currentDate,
+  });
   const rawScore = (0.35 * currentVelocityScore)
     + (0.25 * growthScore)
     + (0.20 * catalogShareScore)
@@ -9901,6 +14682,9 @@ export function buildProductMomentum({
   if (last30.units === 0 && last30.revenue === 0) score = 0;
   if (last30.units < 2 && revenueVelocityScore < 80) score = Math.min(score, 40);
   if (last30.units < 5 && currentVelocityScore < 80) score = Math.min(score, 65);
+  if (previous30.units === 0 && previous30.revenue === 0 && last30.units > 0) {
+    score = Math.min(score, Math.round(78 + Math.min(9, Math.log1p(last30.units) * 2.6)));
+  }
   if (productAgeDays !== null && productAgeDays < 30) score = Math.min(score, 85);
 
   const historyConfidence = previous90.units > 0 || previous90.revenue > 0
@@ -9937,9 +14721,6 @@ export function buildProductMomentum({
     smoothingUnits,
     inventoryConstraint: inventoryState.inventoryConstraint,
   });
-  const topCatalogPercent = unitsDistribution.length
-    ? Math.max(1, Math.round(100 - unitsVelocityScore))
-    : null;
   const growthPercent = previous30.units || previous30.revenue
     ? roundRate((combinedGrowthRatio - 1) * 100, 1)
     : last30.units > 0
@@ -9978,6 +14759,8 @@ export function buildProductMomentum({
       uniqueCustomersLast30Days: null,
       weeklyUnitsLast4Weeks: weeklyUnits,
       weeklyRevenueLast4Weeks: weeklyRevenue,
+      weeklyUnitsLast8Weeks: extendedWeeklyUnits,
+      weeklyRevenueLast8Weeks: extendedWeeklyRevenue,
       lastSaleAt: getLatestEventDate(safeSales),
     },
     catalog: {
@@ -10013,6 +14796,74 @@ export function buildProductMomentum({
   };
 }
 
+function getValidatedMomentumGrowthScore({ unitsLast30 = 0, unitsPrevious30 = 0, revenueLast30 = 0, revenuePrevious30 = 0 } = {}) {
+  const currentUnits = Math.max(0, Number(unitsLast30 || 0));
+  const previousUnits = Math.max(0, Number(unitsPrevious30 || 0));
+  const currentRevenue = Math.max(0, Number(revenueLast30 || 0));
+  const previousRevenue = Math.max(0, Number(revenuePrevious30 || 0));
+  if (!currentUnits && !currentRevenue) return 0;
+  if (!previousUnits && !previousRevenue) {
+    const volumeConfidence = Math.log1p(currentUnits) / Math.log1p(Math.max(40, currentUnits));
+    return clamp(66 + (22 * volumeConfidence), 0, 88);
+  }
+  const ratios = [];
+  if (previousUnits > 0 || currentUnits > 0) {
+    ratios.push({ ratio: (currentUnits + 3) / (previousUnits + 3), weight: previousUnits > 0 ? 0.72 : 0.35 });
+  }
+  if (previousRevenue > 0) {
+    ratios.push({ ratio: (currentRevenue + 25) / (previousRevenue + 25), weight: 0.28 });
+  }
+  const totalWeight = ratios.reduce((total, item) => total + item.weight, 0);
+  const combinedRatio = totalWeight
+    ? ratios.reduce((total, item) => total + (item.ratio * item.weight), 0) / totalWeight
+    : 1;
+  return clamp(50 + (28 * safeLog2(combinedRatio)), 0, 96);
+}
+
+function getValidatedMomentumCatalogShareScore({
+  storedScore = 0,
+  currentVelocityScore = 0,
+  topCatalogPercent = 0,
+  productShareBaseline = 0,
+  shareLiftRatio = 0,
+  hasCatalogBaseline = false,
+  unitsLast30 = 0,
+} = {}) {
+  const stored = clamp(Number(storedScore || 0), 0, 100);
+  const velocity = clamp(Number(currentVelocityScore || 0), 0, 96);
+  const baseline = Number(productShareBaseline || 0);
+  const lift = Number(shareLiftRatio || 0);
+  const topPercent = Number(topCatalogPercent || 0);
+  if (hasCatalogBaseline && baseline > 0 && lift > 0) {
+    const liftScore = clamp(50 + (26 * safeLog2(lift)), 0, 96);
+    return clamp((0.55 * liftScore) + (0.45 * velocity), 0, 96);
+  }
+  if (topPercent > 0) {
+    const positionScore = clamp(98 - (topPercent * 1.55), 42, 94);
+    return clamp((0.65 * positionScore) + (0.35 * Math.min(stored || positionScore, 92)), 0, 94);
+  }
+  const volumeScore = clamp(42 + ((Math.log1p(Math.max(0, unitsLast30)) / Math.log1p(Math.max(40, unitsLast30))) * 36), 0, 82);
+  return clamp(stored ? Math.min(stored, volumeScore) : volumeScore, 0, 86);
+}
+
+function getValidatedMomentumRecencyScore({ weeklyUnits = [], unitsLast30 = 0, unitsLast7Days = 0, unitsLast14Days = 0, lastSaleAt = null, now = new Date() } = {}) {
+  const latestWeekUnits = Array.isArray(weeklyUnits) && weeklyUnits.length ? Number(weeklyUnits[weeklyUnits.length - 1] || 0) : 0;
+  const recent7 = Math.max(0, Number(unitsLast7Days || 0) || latestWeekUnits);
+  const recent14 = Math.max(0, Number(unitsLast14Days || 0));
+  const currentUnits = Math.max(0, Number(unitsLast30 || 0));
+  const currentDate = parseValidDate(now) || new Date();
+  const lastSaleDate = parseValidDate(lastSaleAt);
+  const daysSinceLastSale = lastSaleDate
+    ? Math.max(0, Math.floor((currentDate.getTime() - lastSaleDate.getTime()) / (24 * 60 * 60 * 1000)))
+    : null;
+  let base = recent7 > 0 ? 82 : recent14 > 0 ? 64 : currentUnits > 0 ? 42 : 0;
+  if (daysSinceLastSale !== null) {
+    base = daysSinceLastSale <= 2 ? 86 : daysSinceLastSale <= 7 ? 78 : daysSinceLastSale <= 14 ? 60 : daysSinceLastSale <= 30 ? 38 : 0;
+  }
+  const recentShare = currentUnits ? clamp(recent7 / currentUnits, 0, 1) : 0;
+  return clamp(base + (recentShare * 10) + (recent7 >= 5 ? 4 : 0), 0, 96);
+}
+
 function sumSalesInWindow(sales, currentDate, days) {
   return sumSalesBetween(sales, addUtcDays(currentDate, -days), currentDate);
 }
@@ -10035,9 +14886,10 @@ function sumSalesBetween(sales = [], startDate, endDate) {
   };
 }
 
-function buildProductMomentumWeeklyBuckets(sales = [], currentDate = new Date()) {
-  const startDate = addUtcDays(startOfUtcWeek(currentDate), -21);
-  const buckets = new Map(Array.from({ length: 4 }, (_, index) => {
+function buildProductMomentumWeeklyBuckets(sales = [], currentDate = new Date(), weekCount = 4) {
+  const bucketCount = Math.max(1, Math.round(Number(weekCount || 4)));
+  const startDate = addUtcDays(startOfUtcWeek(currentDate), -7 * (bucketCount - 1));
+  const buckets = new Map(Array.from({ length: bucketCount }, (_, index) => {
     const date = addUtcDays(startDate, index * 7);
     return [formatUtcDateKey(date), { key: formatUtcDateKey(date), units: 0, revenue: 0 }];
   }));
@@ -10158,12 +15010,26 @@ function getProductMomentumTrendLabelFromScores({ growthScore = 0, trendConsiste
 }
 
 function getProductMomentumTrendLabel(weeklyUnits = []) {
-  const first = Number(weeklyUnits[0] || 0);
-  const last = Number(weeklyUnits[weeklyUnits.length - 1] || 0);
-  if (weeklyUnits.every((value) => Number(value || 0) === 0)) return "No recent sales activity";
-  if (last > first) return "Sales increasing over the last 4 weeks";
-  if (last < first) return "Sales decreasing over the last 4 weeks";
-  return "Sales activity is stable over the last 4 weeks";
+  const values = (Array.isArray(weeklyUnits) ? weeklyUnits : [])
+    .map((value) => Math.max(0, Number(value || 0)))
+    .slice(-4);
+  const normalizedValues = [...Array(Math.max(0, 4 - values.length)).fill(0), ...values].slice(-4);
+  const activeWeeks = normalizedValues.filter((value) => value > 0).length;
+  const first = normalizedValues[0] || 0;
+  const last = normalizedValues[normalizedValues.length - 1] || 0;
+  const peak = Math.max(0, ...normalizedValues);
+  const averageUnits = average(normalizedValues);
+  const slope = linearRegressionSlope(normalizedValues);
+
+  if (!activeWeeks) return "No recent sales activity";
+  if (activeWeeks === 1 && last > 0) return "Latest-week sales spike after quiet weeks";
+  if (activeWeeks <= 2 && last === 0) return "Intermittent activity; no latest-week sales";
+  if (last > first && slope > 0) return "Sales increasing over the last 4 weeks";
+  if (last < first && slope < 0) return "Sales decreasing over the last 4 weeks";
+  if (activeWeeks === normalizedValues.length && peak - Math.min(...normalizedValues) <= Math.max(1, averageUnits * 0.25)) {
+    return "Sales holding steady across active weeks";
+  }
+  return "Mixed sales activity across the last 4 weeks";
 }
 
 function formatSignedPercent(value) {
@@ -10366,6 +15232,45 @@ function createMonthlyOrderActivityBucket(date) {
   };
 }
 
+function createWeeklyOrderActivityBucket(date) {
+  return {
+    key: formatUtcDateKey(date),
+    label: formatWeekLabel(date),
+    shortLabel: formatWeekLabel(date),
+    startAt: toIso(date),
+    orderIds: new Set(),
+    returnOrderIds: new Set(),
+    refundOrderIds: new Set(),
+    orderUnits: 0,
+    revenue: 0,
+    returnedUnits: 0,
+    refundedUnits: 0,
+    refundAmount: 0,
+  };
+}
+
+function addSaleToOrderActivityBucket(bucket, orderKey, event = {}) {
+  if (!bucket || !orderKey) return;
+  bucket.orderIds.add(orderKey);
+  bucket.orderUnits += Number(event.quantity || 0);
+  bucket.revenue += Number(event.amount || 0);
+}
+
+function addReturnToOrderActivityBucket(bucket, orderKey, event = {}) {
+  if (!bucket || !orderKey) return;
+  bucket.orderIds.add(orderKey);
+  bucket.returnOrderIds.add(orderKey);
+  bucket.returnedUnits += getOperationalEventQuantity(event);
+}
+
+function addRefundToOrderActivityBucket(bucket, orderKey, event = {}) {
+  if (!bucket || !orderKey) return;
+  bucket.orderIds.add(orderKey);
+  bucket.refundOrderIds.add(orderKey);
+  bucket.refundedUnits += getOperationalEventQuantity(event);
+  bucket.refundAmount += Number(event.amount || event.totalRefundedAmount || 0);
+}
+
 function normalizeMonthlyOrderActivityBucket(bucket) {
   const orders = bucket.orderIds.size;
   const returnedOrders = bucket.returnOrderIds.size;
@@ -10397,12 +15302,24 @@ function getOperationalEventQuantity(event = {}) {
 
 function getOperationalEventMonthKey(event, orderMonthById) {
   if (event?.orderId && orderMonthById.has(event.orderId)) return orderMonthById.get(event.orderId);
+  const cohortMonthKey = getEventMonthKey(getOrderCohortDate(event));
+  if (cohortMonthKey) return cohortMonthKey;
   return getEventMonthKey(event?.createdAt || event?.processedAt || event?.updatedAt);
 }
 
 function getOperationalEventWeekKey(event, orderWeekById) {
   if (event?.orderId && orderWeekById.has(event.orderId)) return orderWeekById.get(event.orderId);
+  const cohortWeekKey = getEventWeekKey(getOrderCohortDate(event));
+  if (cohortWeekKey) return cohortWeekKey;
   return getEventWeekKey(event?.createdAt || event?.processedAt || event?.updatedAt);
+}
+
+function getOrderCohortDate(event = {}, { includeEventDate = false } = {}) {
+  return event.orderDate
+    || event.orderProcessedAt
+    || event.orderCreatedAt
+    || event.orderCreated_at
+    || (includeEventDate ? event.processedAt || event.createdAt || event.updatedAt : null);
 }
 
 function getEventMonthKey(value) {
@@ -10493,6 +15410,12 @@ function preferFreshNumber(fresh, fallback) {
   return Number(fallback || 0);
 }
 
+function numberOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 function sumBy(items, field) {
   return items.reduce((total, item) => total + Number(item[field] || 0), 0);
 }
@@ -10555,8 +15478,9 @@ function normalizeIssueCode(value) {
   if (normalized.includes("safety") || normalized.includes("unsafe") || normalized.includes("danger") || normalized.includes("hazard") || normalized.includes("peligro")) return "safety_concern";
   if (normalized.includes("subjective") || normalized.includes("preference") || normalized.includes("dislike") || normalized.includes("fear") || normalized.includes("scare") || normalized.includes("creepy") || normalized.includes("miedo") || normalized.includes("asusta") || normalized.includes("terror")) return "subjective_negative_reaction";
   if (normalized.includes("durability")) return "durability";
-  if (normalized.includes("defect") || normalized.includes("quality") || normalized.includes("soft") || normalized.includes("rough") || normalized.includes("scratchy") || normalized.includes("stiff") || normalized.includes("material") || normalized.includes("fabric") || normalized.includes("texture")) return "quality_defect";
   if (normalized.includes("compat")) return "compatibility";
+  if (normalized.includes("setup") || normalized.includes("expectation") || normalized.includes("install") || normalized.includes("mount") || normalized.includes("adhesive") || normalized.includes("surface") || normalized.includes("adapter") || normalized.includes("cable") || normalized.includes("webcam") || normalized.includes("camera") || normalized.includes("banding") || normalized.includes("glare")) return "setup_expectation";
+  if (normalized.includes("defect") || normalized.includes("quality") || normalized.includes("soft") || normalized.includes("rough") || normalized.includes("scratchy") || normalized.includes("stiff") || normalized.includes("material") || normalized.includes("fabric") || normalized.includes("texture")) return "quality_defect";
   if (normalized.includes("shipping")) return "shipping_delivery";
   if (normalized.includes("refund")) return "refund_impact";
   if (normalized.includes("content") || normalized.includes("description") || normalized.includes("metadata")) return "product_content";
@@ -10571,6 +15495,7 @@ function getHumanIssueLabel(issue) {
     durability: "Durability",
     quality_defect: "Product quality",
     compatibility: "Compatibility",
+    setup_expectation: "Setup expectations",
     shipping_delivery: "Shipping or delivery",
     product_content: "Product content",
     product_quality: "Product quality",
@@ -10592,6 +15517,7 @@ function getPdpActionId(issue) {
   if (issue === "safety_concern") return "draft-safety-expectation-note";
   if (issue === "subjective_negative_reaction") return "draft-subjective-expectation-note";
   if (issue === "compatibility") return "draft-compatibility-faq";
+  if (issue === "setup_expectation") return "improve-setup-guidance";
   if (issue === "product_content") return "rewrite-product-description";
   if (issue === "quality_defect" || issue === "durability") return "draft-quality-note";
   return "draft-pdp-copy";
@@ -10603,13 +15529,14 @@ function getPdpActionLabel(issue) {
   if (issue === "safety_concern") return "Draft safety expectation note";
   if (issue === "subjective_negative_reaction") return "Draft expectation-setting note";
   if (issue === "compatibility") return "Draft compatibility FAQ";
+  if (issue === "setup_expectation") return "Improve setup guidance";
   if (issue === "durability") return "Draft durability expectation note";
   if (issue === "product_content") return "Rewrite product description";
   return "Draft product quality note";
 }
 
 function getPdpCopyPlacement(issue) {
-  if (issue === "compatibility") return "append";
+  if (issue === "compatibility" || issue === "setup_expectation") return "append";
   return "prepend";
 }
 
@@ -10617,6 +15544,7 @@ function getIssueTag(issue) {
   if (issue === "fit_sizing") return "fit_issue";
   if (issue === "color_expectation") return "color_expectation_issue";
   if (issue === "durability") return "durability_issue";
+  if (issue === "setup_expectation") return "setup_expectation_issue";
   if (issue === "quality_defect") return "quality_issue";
   if (issue === "safety_concern") return "safety_concern";
   if (issue === "subjective_negative_reaction") return "";
@@ -10681,6 +15609,127 @@ function buildCorrectedDescriptionDraft({ currentDescription = "", replacements 
   return applyTextReplacements(normalizeDraftParagraph(currentDescription), replacements);
 }
 
+function buildEmptyDescriptionEnhancementPlan(reason = "") {
+  return {
+    shouldRecommend: false,
+    draftText: "",
+    descriptionReplacements: [],
+    coverage: {
+      skipped: true,
+      reason,
+    },
+  };
+}
+
+function buildTargetedDescriptionEnhancementPlan({ currentDescription = "", contentIssues = [], product = {} } = {}) {
+  const current = normalizeDraftParagraph(currentDescription);
+  if (!current) return buildEmptyDescriptionEnhancementPlan("Current product copy is empty; use a rewrite instead.");
+  const additions = buildTargetedDescriptionEnhancementSentences({ contentIssues, product, currentDescription: current });
+  const missingAdditions = additions.filter((sentence) => !isTextCoveredByCurrentContent(sentence, current, { minTokenCoverage: 0.66 }));
+  if (!missingAdditions.length) return buildEmptyDescriptionEnhancementPlan("Current product copy already covers the targeted enhancement.");
+  const anchor = findDescriptionEnhancementAnchor(current, missingAdditions.join(" "), contentIssues);
+  if (!anchor) return buildEmptyDescriptionEnhancementPlan("No stable sentence anchor was found for a targeted description edit.");
+  const additionText = missingAdditions.join(" ");
+  const replacement = {
+    from: anchor,
+    to: `${anchor} ${additionText}`.replace(/\s+/g, " ").trim(),
+    reason: "Targeted ProductPulse description enhancement based on detected content gaps.",
+  };
+  const draftText = buildCorrectedDescriptionDraft({ currentDescription: current, replacements: [replacement] });
+  if (!isMeaningfullyDifferentDescription(current, draftText)) return buildEmptyDescriptionEnhancementPlan("Targeted enhancement did not change the description.");
+  return {
+    shouldRecommend: true,
+    draftText,
+    descriptionReplacements: [replacement],
+    coverage: {
+      currentCoverage: "partial",
+      extractedMissingOnly: true,
+      changeStrategy: "targeted-enhancement",
+      missingSentenceCount: missingAdditions.length,
+    },
+  };
+}
+
+function buildTargetedDescriptionEnhancementSentences({ contentIssues = [], product = {}, currentDescription = "" } = {}) {
+  const issues = Array.isArray(contentIssues) ? contentIssues : [];
+  const text = normalizeText([
+    product.title,
+    product.productType,
+    currentDescription,
+    ...issues.flatMap((issue) => [issue.code, issue.label, issue.evidence, issue.suggestedAction]),
+  ].filter(Boolean).join(" "));
+  const sentences = [];
+  const context = getTargetedDescriptionProductContext(text);
+
+  if (/\b(color temperature|brightness|lumen|lumens|cri|beam angle|optical|five brightness|three color temperatures)\b/.test(text)) {
+    sentences.push(context.photoPanel
+      ? "If color accuracy matters, compare the lighting mode examples and confirm brightness, color-temperature behavior, and print finish before purchase."
+      : "If exact lighting measurements matter, verify color-temperature values, brightness or lumen range, CRI, and beam-angle details against the selected variant before purchase.");
+  }
+  if (/\b(width|height|dimension|dimensions|coverage|diffuser|rail|length|capacity|wattage|watt|voltage|power|min line|minimum fill|print area|card thickness|thickness|surface compatibility)\b/.test(text)) {
+    sentences.push(context.photoPanel
+      ? "Before purchase, confirm panel outer dimensions, visible 5 x 7 print area, card thickness, USB power needs, and the surface where adhesive tabs or the tabletop foot will be used."
+      : context.railLike
+        ? "For tight desks or shelves, verify rail width and height, diffuser dimensions, and coverage for the selected length before purchase."
+        : context.apparel
+          ? "For precise fit, compare the body-size chart with finished garment measurements such as shoulder width, chest width, sleeve length, and upper-arm ease for the selected size."
+          : context.kettle
+            ? "Before purchase, confirm kettle capacity, wattage, counter clearance, and that your intended use can stay above the MIN fill line on a 120 V outlet."
+            : "Confirm product dimensions, included parts, materials, care, and setup limits for the selected variant before purchase.");
+  }
+  if (/\b(clean|cleaning|care|solvent|abrasive|maintenance)\b/.test(text)) {
+    sentences.push(context.photoPanel
+      ? "Clean the magnetic face and panel only with a soft dry or lightly damp cloth, and avoid solvents, abrasives, or soaking."
+      : context.railLike
+        ? "Clean the rail and diffuser only with a soft dry or lightly damp cloth, and avoid solvents, abrasives, or soaking unless the listed materials confirm otherwise."
+        : context.apparel
+          ? "For care, cold wash and hang dry; avoid tumble drying if shoulder, sleeve, or upper-arm fit is important."
+          : context.kettle
+            ? "For care, rinse before first use, descale when mineral buildup appears, keep the powered base out of water, and avoid abrasives on the silicone body, lid, and steam vent."
+            : "Clean only according to the listed material guidance, and avoid solvents, abrasives, or soaking unless the product instructions explicitly allow it.");
+  }
+  if (/\b(variant|variants|both|same across|differs|differences|cable length|brightness levels)\b/.test(text)) {
+    sentences.push(context.photoPanel
+      ? "Check whether frame finish, brightness behavior, cable routing, and included mounting parts are identical across variants if those details matter for your setup."
+      : context.kettle
+        ? "Check whether capacity, wattage, cord length, and safety markings are identical across variants if those details matter for your setup."
+        : context.apparel
+          ? "Check which color and size combinations are available, and confirm whether finished garment measurements or fit notes differ by variant."
+        : "Check variant-specific specs and setup details before purchase if those differences matter for your use case.");
+  }
+
+  return uniqueBy(sentences, normalizeText).slice(0, 3);
+}
+
+function getTargetedDescriptionProductContext(text = "") {
+  const kettleCore = /\b(kettle|boil|boiling|min line|minimum fill|min fill|fill line|converter|power bank|car socket|silicone body|steam vent|descale)\b/.test(text)
+    || (/\bsteam\b/.test(text) && /\b(vent|boil|boiling|kettle|fill|outlet|counter|descale)\b/.test(text));
+  return {
+    railLike: /\b(rail|diffuser|light bar|bar light|strip light|lumispan)\b/.test(text),
+    apparel: /\b(apparel|overshirt|shirt|garment|fabric|sleeve|shoulder|upper arm|chest|body measurement|body-size chart|size chart|sizing chart)\b/.test(text),
+    kettle: kettleCore,
+    photoPanel: /\b(photo|print|panel|backlit|magnetic face|art card|5 x 7|5x7|gallery neutral|warm shelf|night amber|white border|edge shadow|wall tabs|tabletop foot)\b/.test(text),
+  };
+}
+
+function findDescriptionEnhancementAnchor(currentDescription = "", additionText = "", contentIssues = []) {
+  const sentences = splitDescriptionCoverageSentences(currentDescription);
+  if (!sentences.length) return "";
+  const issueTokens = new Set(meaningfulTokens([
+    additionText,
+    ...(Array.isArray(contentIssues) ? contentIssues : []).flatMap((issue) => [issue.label, issue.evidence, issue.suggestedAction]),
+  ].filter(Boolean).join(" ")));
+  const scored = sentences
+    .map((sentence, index) => {
+      const tokens = meaningfulTokens(sentence);
+      const shared = tokens.filter((token) => issueTokens.has(token)).length;
+      const setupBonus = /\b(spec|detail|variant|option|included|brightness|temperature|dimension|length|rail|diffuser|power|care|clean|size|fit|measurement|capacity|voltage|steam|print|panel|surface)\b/i.test(sentence) ? 2 : 0;
+      return { sentence, index, score: shared + setupBonus };
+    })
+    .sort((first, second) => second.score - first.score || first.index - second.index);
+  return scored[0]?.sentence || sentences[0] || "";
+}
+
 function applyTextReplacements(value, replacements = []) {
   return (Array.isArray(replacements) ? replacements : []).reduce((text, replacement) => {
     if (!replacement?.from || !replacement?.to) return text;
@@ -10689,9 +15738,11 @@ function applyTextReplacements(value, replacements = []) {
 }
 
 function replaceTextCaseInsensitive(value, from, to) {
-  const escaped = escapeRegExp(String(from || "").trim());
+  const source = String(from || "").trim();
+  const escaped = escapeRegExp(source);
   if (!escaped) return value;
-  return String(value || "").replace(new RegExp(`\\b${escaped}\\b`, "gi"), to);
+  const pattern = /[^\w\s]/.test(source) ? escaped : `\\b${escaped}\\b`;
+  return String(value || "").replace(new RegExp(pattern, "gi"), to);
 }
 
 function isMeaningfullyDifferentDescription(currentDescription = "", nextDescription = "") {
@@ -10700,21 +15751,101 @@ function isMeaningfullyDifferentDescription(currentDescription = "", nextDescrip
 }
 
 function buildDescriptionGuidanceAddendum({ title, contentIssues = [], suggestedDescription = "", shopperGuidance = "" }) {
+  const issueGuidance = buildCustomerFacingDescriptionAddendum({ contentIssues, title });
   const focusedGuidance = normalizeDraftParagraph(shopperGuidance);
-  if (focusedGuidance) return focusedGuidance;
+  if (focusedGuidance && !isGenericProductPulseDescriptionGuidance(focusedGuidance)) return focusedGuidance;
 
   const suggested = normalizeDraftParagraph(suggestedDescription);
-  if (suggested && !looksLikeFullDescriptionRewrite(suggested, title)) return suggested;
+  if (suggested && !looksLikeFullDescriptionRewrite(suggested, title) && !isInstructionalDescriptionDraft(suggested)) return suggested;
 
-  const issueLabels = (Array.isArray(contentIssues) ? contentIssues : [])
-    .map((issue) => issue.label || getContentIssueLabel(issue.code))
-    .filter(Boolean);
-  const evidence = (Array.isArray(contentIssues) ? contentIssues : [])
-    .map((issue) => issue.evidence)
-    .filter(Boolean);
-  const focus = issueLabels.length ? issueLabels.slice(0, 3).join(", ").toLowerCase() : "product expectations";
-  const detail = evidence.length ? ` This note is based on: ${evidence.slice(0, 2).join(" ")}` : "";
-  return `${title}: add a short shopper-facing note that clarifies ${focus}.${detail}`;
+  return issueGuidance || focusedGuidance || buildDefaultCustomerFacingDescriptionAddendum(title);
+}
+
+function isGenericProductPulseDescriptionGuidance(value = "") {
+  const text = normalizeText(value);
+  if (!text) return false;
+  return /productpulse detected .* signals/.test(text)
+    || /add clear shopper-facing guidance before purchase/.test(text)
+    || /review stored customer signals/.test(text);
+}
+
+function buildCustomerFacingDescriptionAddendum({ contentIssues = [], title = "" } = {}) {
+  const issueText = normalizeText((Array.isArray(contentIssues) ? contentIssues : [])
+    .map((issue) => `${issue.label || ""} ${issue.evidence || ""} ${issue.code || ""}`)
+    .join(" "));
+  const categoryText = normalizeText(title);
+  const categories = detectProductCategoryGroups(categoryText);
+  const context = getTargetedDescriptionProductContext(`${categoryText} ${issueText}`);
+  const apparelLike = categories.has("apparel") || /\b(garment|apparel|clothing|shirt|overshirt|jacket|trouser|pants|shoe|sleeve)\b/.test(categoryText);
+  const sentences = [];
+  if (/\b(material|fiber|fabric|linen|cotton|composition|blend)\b/.test(issueText)) {
+    sentences.push("Before ordering, confirm the fabric composition for the selected variant if exact material percentages are important to you.");
+  }
+  if (/\b(size chart|measurement|measurements|chest|shoulder|sleeve|inseam|waist|length|fit|sizing)\b/.test(issueText)) {
+    sentences.push(apparelLike
+      ? "Compare the selected size against the garment measurements, especially the fit points that matter most for how you want the item to sit."
+      : context.photoPanel
+        ? "Confirm panel outer dimensions, visible print area, card thickness, USB power needs, and mounting surface compatibility before purchase."
+        : context.kettle
+          ? "Confirm kettle capacity, wattage, counter clearance, and MIN fill requirements before purchase."
+          : "Confirm product dimensions, coverage guidance, and variant-specific measurements where shoppers compare options.");
+  } else if (context.photoPanel && /\b(spec|specification|dimension|dimensions|power|voltage|wattage|adapter|surface|adhesive|card thickness|print area)\b/.test(issueText)) {
+    sentences.push("Confirm panel outer dimensions, visible print area, card thickness, USB power needs, and mounting surface compatibility before purchase.");
+  } else if (context.kettle && /\b(spec|specification|capacity|power|voltage|wattage|counter|clearance|min line|minimum fill)\b/.test(issueText)) {
+    sentences.push("Confirm kettle capacity, wattage, counter clearance, and MIN fill requirements before purchase.");
+  }
+  if (/\b(included|package|box|bundle|accessor|accessories|comes with|what.*include)\b/.test(issueText)) {
+    sentences.push("Check the product details for what is included with the item before checkout.");
+  }
+  if (/\b(compatib|works with|adapter|device|model|setup)\b/.test(issueText)) {
+    sentences.push(context.photoPanel
+      ? "Confirm USB power needs, mounting surface compatibility, and tabletop versus wall setup before purchase."
+      : context.kettle
+        ? "Confirm the kettle will be used only with a supported 120 V outlet and above the MIN fill line before purchase."
+        : "Confirm the selected variant is compatible with your setup before purchase.");
+  }
+  if (/\b(color|colour|photo|image|lighting|appearance|pictured)\b/.test(issueText)) {
+    sentences.push("Review the selected variant photos and color name carefully, since lighting and screens can affect how the product appears.");
+  }
+  return uniqueBy(sentences, normalizeText).slice(0, 3).join(" ");
+}
+
+function buildDefaultCustomerFacingDescriptionAddendum(title = "") {
+  const label = String(title || "this product").trim();
+  return `Before ordering ${label}, review the selected variant, product details and any available measurements so the item matches your expectations.`;
+}
+
+function shouldSuppressCoveredPdpDescriptionAction({
+  mainIssue = "",
+  proposedText = "",
+  currentDescriptionText = "",
+  deterministic = {},
+} = {}) {
+  const issue = normalizeIssueCode(mainIssue);
+  if (!["setup_expectation", "compatibility"].includes(issue)) return false;
+  const proposed = normalizeDraftParagraph(proposedText);
+  const current = normalizeDraftParagraph(currentDescriptionText);
+  if (!proposed || !current) return false;
+  if (isTextCoveredByCurrentContent(proposed, current)) return true;
+
+  const proposedTopics = getExpectationGuidanceTopics(proposed);
+  const currentTopics = getExpectationGuidanceTopics(current);
+  if (proposedTopics.size > 0) {
+    return [...proposedTopics].every((topic) => currentTopics.has(topic));
+  }
+
+  const genericGuidance = /\b(productpulse detected|detected|signals|guidance|before purchase|before checkout|shopper-facing|expectation|expectations|setup)\b/.test(normalizeText(proposed));
+  if (!genericGuidance) return false;
+  if (issue === "setup_expectation") return currentTopics.size >= 2 && hasSetupExpectationTextSignals(deterministic);
+  return currentTopics.size >= 1;
+}
+
+function isInstructionalDescriptionDraft(value = "") {
+  const normalized = normalizeText(value);
+  return /\b(add|insert|create|write|draft|include|clarif(y|ies)|update)\b.{0,80}\b(shopper facing|customer facing|note|section|copy|description|faq)\b/.test(normalized)
+    || /\bthis note is based on\b/.test(normalized)
+    || /\bdescription says\b/.test(normalized)
+    || /\bcopy repeatedly advises\b/.test(normalized);
 }
 
 function looksLikeFullDescriptionRewrite(value, title) {
@@ -10766,6 +15897,215 @@ function getAppendedDescriptionText(currentDescription = "", proposedDescription
     .slice(current.length)
     .replace(/^[\s:;,.-]+/, "")
     .trim();
+}
+
+function getCurrentProductDescriptionText(product = {}) {
+  const plain = normalizeDraftParagraph(product?.description || "");
+  const html = normalizeDraftParagraph(stripHtml(product?.descriptionHtml || product?.bodyHtml || ""));
+  if (!plain) return html;
+  if (!html) return plain;
+  const normalizedPlain = normalizeText(plain);
+  const normalizedHtml = normalizeText(html);
+  if (!normalizedPlain) return html;
+  if (!normalizedHtml) return plain;
+  if (normalizedHtml.includes(normalizedPlain)) return html;
+  if (normalizedPlain.includes(normalizedHtml)) return plain;
+  if (hasSubstantialOverlap(plain, html)) return plain;
+  return `${plain}\n\n${html}`;
+}
+
+function buildEmptyDescriptionCoveragePlan(reason = "") {
+  return {
+    shouldRecommend: false,
+    draftText: "",
+    operation: "",
+    coverage: {
+      skipped: true,
+      reason,
+    },
+  };
+}
+
+function buildDescriptionCoveragePlan({
+  currentDescription = "",
+  proposedText = "",
+  operation = "append",
+  allowReplace = false,
+} = {}) {
+  const current = normalizeDraftParagraph(currentDescription);
+  const proposed = normalizeDraftParagraph(cleanDescriptionDraftForCoverage(proposedText));
+  const requestedOperation = ["replace", "prepend", "append"].includes(operation) ? operation : "append";
+  if (!proposed) return buildEmptyDescriptionCoveragePlan("No proposed text was generated.");
+  if (!current) {
+    return {
+      shouldRecommend: true,
+      draftText: proposed,
+      operation: allowReplace && requestedOperation === "replace" ? "replace" : requestedOperation,
+      coverage: { currentCoverage: "none", extractedMissingOnly: false },
+    };
+  }
+
+  const appended = getAppendedDescriptionText(current, proposed);
+  if (appended && !isTextCoveredByCurrentContent(appended, current)) {
+    return {
+      shouldRecommend: true,
+      draftText: appended,
+      operation: "append",
+      coverage: { currentCoverage: "partial", extractedMissingOnly: true },
+    };
+  }
+
+  if (isTextCoveredByCurrentContent(proposed, current)) {
+    return buildEmptyDescriptionCoveragePlan("Current product copy already covers the proposed text.");
+  }
+
+  const units = splitDraftIntoCoverageUnits(proposed);
+  const missingUnits = units.filter((unit) => !isTextCoveredByCurrentContent(unit, current));
+  if (missingUnits.length && missingUnits.length < units.length) {
+    const draftText = missingUnits.join("\n\n").trim();
+    return {
+      shouldRecommend: Boolean(draftText),
+      draftText,
+      operation: requestedOperation === "prepend" ? "prepend" : "append",
+      coverage: {
+        currentCoverage: "partial",
+        extractedMissingOnly: true,
+        originalUnitCount: units.length,
+        missingUnitCount: missingUnits.length,
+      },
+    };
+  }
+
+  if (requestedOperation === "replace" && allowReplace) {
+    return {
+      shouldRecommend: true,
+      draftText: proposed,
+      operation: "replace",
+      coverage: { currentCoverage: "low", extractedMissingOnly: false },
+    };
+  }
+
+  return {
+    shouldRecommend: true,
+    draftText: proposed,
+    operation: requestedOperation === "replace" ? "append" : requestedOperation,
+    coverage: { currentCoverage: "low", extractedMissingOnly: false },
+  };
+}
+
+function splitDraftIntoCoverageUnits(value = "") {
+  const text = normalizeDraftParagraph(value);
+  if (!text) return [];
+  return text
+    .split(/\n{2,}/)
+    .flatMap((paragraph) => {
+      const trimmed = paragraph.trim();
+      if (!trimmed) return [];
+      const lines = trimmed.split(/\n/).map((line) => line.trim()).filter(Boolean);
+      if (lines.length > 1) return lines.flatMap(splitDescriptionCoverageSentences);
+      return splitDescriptionCoverageSentences(trimmed);
+    })
+    .map(cleanDescriptionDraftUnitForCoverage)
+    .filter((unit) => !isInstructionalDescriptionDraft(unit))
+    .filter((unit) => meaningfulTokens(unit).length >= 2 || unit.length >= 18);
+}
+
+function isTextCoveredByCurrentContent(proposedText = "", currentText = "", { minTokenCoverage = 0.8 } = {}) {
+  const proposed = normalizeDraftParagraph(proposedText);
+  const current = normalizeDraftParagraph(currentText);
+  if (!proposed || !current) return false;
+  const normalizedProposed = normalizeText(proposed);
+  const normalizedCurrent = normalizeText(current);
+  if (!normalizedProposed || !normalizedCurrent) return false;
+  if (hasSpecificNewVariantOrOptionDetail(proposed, current)) return false;
+  if (normalizedCurrent.includes(normalizedProposed)) return true;
+  if (isExpectationGuidanceCoveredByCurrentContent(proposed, current)) return true;
+  if (isCoveredFitOrCareGuidance(normalizedProposed, normalizedCurrent) && tokenCoverage(proposed, current) >= 0.45) return true;
+  if (hasSubstantialOverlap(current, proposed)) return true;
+  return tokenCoverage(proposed, current) >= minTokenCoverage;
+}
+
+function isExpectationGuidanceCoveredByCurrentContent(proposedText = "", currentText = "") {
+  const proposedTopics = getExpectationGuidanceTopics(proposedText);
+  if (!proposedTopics.size) return false;
+  const currentTopics = getExpectationGuidanceTopics(currentText);
+  return [...proposedTopics].every((topic) => currentTopics.has(topic));
+}
+
+function getExpectationGuidanceTopics(value = "") {
+  const text = normalizeText(value);
+  const topics = new Set();
+  if (!text) return topics;
+  if (/\b(adhesive|mount|mounting|surface|surfaces|clamp|clamps|oiled|textured|porous|sealed|cure|warm underside|shelf underside)\b/.test(text)) {
+    topics.add("mounting_surface");
+  }
+  if (/\b(cable|left side|right side|left|right|routing|route|flip|flipping|control button|hub|outlet|usb c|usb-c)\b/.test(text)) {
+    topics.add("cable_routing");
+  }
+  if (/\b(camera|webcam|video call|video calls|banding|bands|flicker|pulse|shutter|key light|studio light)\b/.test(text)) {
+    topics.add("camera_flicker");
+  }
+  if (/\b(adapter|wall adapter|wall brick|power adapter|not included|box includes|included in the box|usb c cable|usb-c cable)\b/.test(text)) {
+    topics.add("included_power_adapter");
+  }
+  if (/\b(glossy|reflection|reflect|glare|glass|monitor)\b/.test(text)) {
+    topics.add("glare_reflection");
+  }
+  if (/\b(indoor|outdoor|waterproof|damp|wet|humidity)\b/.test(text)) {
+    topics.add("environment_limits");
+  }
+  return topics;
+}
+
+function tokenCoverage(needleText = "", haystackText = "") {
+  const needleTokens = meaningfulTokens(needleText);
+  if (!needleTokens.length) return 0;
+  const haystackTokens = new Set(meaningfulTokens(haystackText));
+  if (!haystackTokens.size) return 0;
+  const shared = needleTokens.filter((token) => haystackTokens.has(token)).length;
+  return shared / needleTokens.length;
+}
+
+function splitDescriptionCoverageSentences(value = "") {
+  return String(value || "")
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isCoveredFitOrCareGuidance(normalizedProposed = "", normalizedCurrent = "") {
+  const proposesSizingGuidance = /\b(between sizes|size up|sizing up|roomier|extra room|snug|tight|fit)\b/.test(normalizedProposed);
+  const currentHasSizingGuidance = /\b(between sizes|size up|sizing up|roomier|extra room|snug|tight|fit|size chart|measurements)\b/.test(normalizedCurrent);
+  if (proposesSizingGuidance && currentHasSizingGuidance) return true;
+  const proposesCareGuidance = /\b(wash|washing|washed|care instructions|hang dry|tighter after washing)\b/.test(normalizedProposed);
+  const currentHasCareGuidance = /\b(wash|washing|washed|care instructions|hang dry|tighter after washing|tighter feel after washing)\b/.test(normalizedCurrent);
+  return proposesCareGuidance && currentHasCareGuidance;
+}
+
+function cleanDescriptionDraftForCoverage(value = "") {
+  return normalizeDraftParagraph(value)
+    .split(/\n+/)
+    .map(cleanDescriptionDraftUnitForCoverage)
+    .filter(Boolean)
+    .join("\n");
+}
+
+function cleanDescriptionDraftUnitForCoverage(value = "") {
+  return String(value || "")
+    .replace(/^\s*(fit note|product note|important note|note)\s*\([^)]*\)\s*:\s*/i, "")
+    .replace(/^\s*(please\s+)?(add|insert|place)\s+[^:]{0,120}:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasSpecificNewVariantOrOptionDetail(proposedText = "", currentText = "") {
+  const proposedTokens = new Set(meaningfulTokens(proposedText));
+  const currentTokens = new Set(meaningfulTokens(currentText));
+  const specificTokens = [
+    "white", "black", "blue", "navy", "green", "red", "pink", "purple", "yellow", "brown", "gray", "grey", "beige", "cream", "orange",
+    "xs", "small", "medium", "large", "xl", "xxl", "petite", "tall", "wide", "narrow",
+  ];
+  return specificTokens.some((token) => proposedTokens.has(token) && !currentTokens.has(token));
 }
 
 function normalizeDraftParagraph(value) {
@@ -10922,6 +16262,7 @@ function toIso(value) {
 }
 
 export const __productPulseDiagnosisTestHooks = {
+  buildDiagnosisSalesQuery,
   buildDiagnosisRefundsQuery,
   buildDiagnosisReturnsQuery,
   buildRefundOrderQueries,
@@ -10933,11 +16274,15 @@ export const __productPulseDiagnosisTestHooks = {
   getRefundAdjustmentReasons,
   getReturnLineItemNoteText,
   getReturnReasonValue,
+  buildTopReturnReasonDetails,
   getNodes,
   buildCustomerTextInsights,
   buildCustomerTextAnalysisItems,
+  buildDiagnosisVariantInsights,
+  buildOrderGeographyRows,
   buildIssueSignalCountsFromAnalysis,
   calculateDeterministicDiagnosis,
+  buildAiDeterministicInput,
   buildMonthlyOrderActivity,
   buildReturnRatePrediction,
   buildProductMomentum,
@@ -10949,6 +16294,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildSignalRelevanceGuidance,
   buildFinalIssues,
   buildFinalRecommendations,
+  withAiPurchaseContextInterpretation,
   analyzeFaqOpportunity,
   buildRecommendedFaqItems,
   analyzeProductContentDeterministically,
@@ -10957,16 +16303,26 @@ export const __productPulseDiagnosisTestHooks = {
   getNoChangeDiagnosisReuseDecision,
   getIncrementalSourceFetchContext,
   mergeIncrementalSourceEvents,
+  filterDiagnosisEventsForProduct,
+  backfillMissingSalesFromOperationalEvents,
   buildSourceEventCache,
   buildIncrementalSinceDate,
   buildDiagnosisSourceFingerprint,
+  buildProductRelationshipCandidateSnapshotPayloads,
+  buildSuggestedMetaDescription,
+  buildSuggestedSeoTitle,
+  buildNoChangeDiagnosisRefreshData,
   normalizeAiClassifiedSignals,
   countAiSignalsByIssue,
   classifyIssueText,
+  getEvidencePreferredMainIssue,
+  getReviewTextCacheKey,
   getCsvReviewMatchConfidence,
   isShopifyQueryCostLimitError,
   lineItemMatchesProduct,
   cleanProductDescription,
+  buildCustomerFacingDescriptionAddendum,
+  buildTargetedDescriptionEnhancementSentences,
 };
 
 function formatMoney(value) {

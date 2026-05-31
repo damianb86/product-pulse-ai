@@ -1,10 +1,11 @@
 /* eslint-env node */
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import prisma from "../../app/db.server";
 import {
+  analyzeCsvReviewUpload,
   getNormalizedCsvReviewsForShop,
   parseCsvText,
   processCsvReviewUpload,
@@ -102,6 +103,64 @@ describe("ProductPulse CSV review import", () => {
     expect(normalized).toContain("\"Comfortable, light vest\"");
   });
 
+  it("falls back to a Shopify product ID column when sampled handles do not exist", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      output_text: JSON.stringify({
+        product_handle: "Handle",
+        shopify_product_id: null,
+        rating: "Stars",
+        review_body: "Review Body",
+        review_title: "Title",
+        review_date: "Created At",
+        reviewer_name: "Reviewer",
+        review_status: "Status",
+        source_product_id: "External Product ID",
+        confidence: 0.94,
+        notes: "Headers identify review fields.",
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    const admin = {
+      graphql: vi.fn(async (query, options) => {
+        if (String(query).includes("ProductPulseCsvProductByHandle")) {
+          return new Response(JSON.stringify({ data: { products: { nodes: [] } } }), { status: 200 });
+        }
+        if (options?.variables?.id === "gid://shopify/Product/10002") {
+          return new Response(JSON.stringify({
+            data: { product: { id: "gid://shopify/Product/10002", handle: "valid-desk", title: "Valid Desk" } },
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ data: { product: null } }), { status: 200 });
+      }),
+    };
+
+    const csv = [
+      "Handle,External Product ID,Stars,Title,Review Body,Created At,Reviewer,Status",
+      "not-a-real-handle,10001,5,Great,First review,2026-05-01,Ana,published",
+      "still-not-real,10002,4,Good,Second review,2026-05-02,Leo,published",
+    ].join("\n");
+
+    const result = await analyzeCsvReviewUpload({
+      shop: "Test-Shop.myshopify.com",
+      admin,
+      file: new File([csv], "reviews.csv", { type: "text/csv" }),
+    });
+
+    expect(result.mapping.product_handle).toBeNull();
+    expect(result.mapping.shopify_product_id).toBe("External Product ID");
+    expect(result.productRelation).toMatchObject({
+      status: "confirmed",
+      field: "shopify_product_id",
+      header: "External Product ID",
+      sampleValue: "gid://shopify/Product/10002",
+    });
+    expect(result.previewRows[0]).toMatchObject({
+      shopifyProductId: "10001",
+      rating: "5",
+      reviewBody: "First review",
+    });
+  });
+
   it("does not load normalized CSV rows when the CSV source is disabled", async () => {
     vi.spyOn(prisma.productPulseSource, "findUnique").mockResolvedValue({
       connected: true,
@@ -110,5 +169,35 @@ describe("ProductPulse CSV review import", () => {
     });
 
     await expect(getNormalizedCsvReviewsForShop("Test-Shop.myshopify.com")).resolves.toEqual([]);
+  });
+
+  it("keeps normalized CSV review ids stable when source rows move", async () => {
+    const filePath = path.join(tempDir, "stable.normalized.csv");
+    vi.spyOn(prisma.productPulseSource, "findUnique").mockResolvedValue({
+      connected: true,
+      active: true,
+      config: { normalizedFilePath: filePath },
+    });
+    const header = "source_row,product_handle,shopify_product_id,rating,review_title,review_body,review_date,reviewer_name,review_status,source_product_id";
+
+    await writeFile(filePath, [
+      header,
+      "2,gen-voltnest,,2,MIN line,The fill mark disappears,2026-05-29,Ana,published,voltnest-v2",
+      "3,other-product,,5,Other,Other review,2026-05-29,Leo,published,other-v1",
+    ].join("\n"), "utf8");
+    const first = await getNormalizedCsvReviewsForShop("Test-Shop.myshopify.com");
+
+    await writeFile(filePath, [
+      header,
+      "2,other-product,,5,Other,Other review,2026-05-29,Leo,published,other-v1",
+      "3,gen-voltnest,,2,MIN line,The fill mark disappears,2026-05-29,Ana,published,voltnest-v2",
+    ].join("\n"), "utf8");
+    const second = await getNormalizedCsvReviewsForShop("Test-Shop.myshopify.com");
+
+    const firstReview = first.find((row) => row.productHandle === "gen-voltnest");
+    const secondReview = second.find((row) => row.productHandle === "gen-voltnest");
+    expect(firstReview.sourceRow).toBe(2);
+    expect(secondReview.sourceRow).toBe(3);
+    expect(secondReview.id).toBe(firstReview.id);
   });
 });

@@ -16,14 +16,14 @@ describe("ProductPulse actions", () => {
     });
   });
 
-  it("starts diagnosis and consumes one credit", () => {
+  it("starts diagnosis and consumes one diagnosis credit", () => {
     expect(startProductDiagnosis("core-linen-trouser", 3)).toMatchObject({
       status: "success",
       creditsRemaining: 2,
     });
   });
 
-  it("blocks diagnosis without credits", () => {
+  it("blocks diagnosis without diagnosis credits", () => {
     expect(startProductDiagnosis("core-linen-trouser", 0)).toMatchObject({
       status: "validation_error",
     });
@@ -120,7 +120,7 @@ describe("ProductPulse actions", () => {
     expect(analytics.actionPerformance.effectiveness).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "Product risk change", value: "Down 24 pts" }),
       expect.objectContaining({ label: "Post-fix return rate", value: "Down 7 pts" }),
-      expect.objectContaining({ label: "Margin at risk reduced", value: "$280 lower" }),
+      expect.objectContaining({ label: "Estimated Margin Exposure reduced", value: "$280 lower" }),
     ]));
   });
 
@@ -245,6 +245,91 @@ describe("ProductPulse actions", () => {
     });
   });
 
+  it("does not count one applied same-label action as every same-label recommendation", () => {
+    const product = {
+      id: "gid://shopify/Product/faq",
+      handle: "faq-product",
+      title: "FAQ Product",
+      riskScore: 74,
+      confidence: 82,
+      analysisDepth: "full",
+      primaryIssue: "Product content",
+      metrics: {
+        latestDiagnosisId: "diagnosis-faq",
+        marginAtRisk: 260,
+        revenueAtRisk: 780,
+        signalCount: 10,
+      },
+      recommendedActions: [
+        { id: "create-fit-faq", label: "Create product FAQ", type: "PDP copy", status: "Ready" },
+        { id: "create-compatibility-faq", label: "Create product FAQ", type: "PDP copy", status: "Ready" },
+      ],
+      actionHistory: [
+        {
+          id: "stored-create-fit-faq",
+          actionId: "create-fit-faq",
+          label: "Create product FAQ",
+          status: "applied",
+          payload: { actionAliases: ["create-product-faq"] },
+        },
+      ],
+    };
+
+    const dashboard = buildDashboardViewData([product]);
+    const analytics = buildAnalyticsViewData([product]);
+
+    expect(dashboard.totals.pendingActions).toBe(1);
+    expect(dashboard.totals.appliedActions).toBe(1);
+    expect(dashboard.actionQueue.total).toBe(1);
+    expect(analytics.actionPerformance).toMatchObject({
+      suggested: 2,
+      pending: 1,
+      applied: 1,
+    });
+  });
+
+  it("keeps a repeated recommendation open when the matching action belongs to an older diagnosis", () => {
+    const product = {
+      id: "gid://shopify/Product/reanalyzed",
+      handle: "reanalyzed-product",
+      title: "Reanalyzed Product",
+      riskScore: 78,
+      confidence: 84,
+      analysisDepth: "full",
+      primaryIssue: "Product content",
+      metrics: {
+        latestDiagnosisId: "diagnosis-new",
+        marginAtRisk: 420,
+        revenueAtRisk: 1100,
+        signalCount: 9,
+      },
+      recommendedActions: [
+        { id: "rewrite-description", label: "Rewrite product description", type: "PDP copy", status: "Ready" },
+      ],
+      actionHistory: [
+        {
+          id: "action-old-rewrite",
+          diagnosisId: "diagnosis-old",
+          actionId: "rewrite-description",
+          label: "Rewrite product description",
+          status: "applied",
+        },
+      ],
+    };
+
+    const dashboard = buildDashboardViewData([product]);
+    const analytics = buildAnalyticsViewData([product]);
+
+    expect(dashboard.totals.pendingActions).toBe(1);
+    expect(dashboard.totals.appliedActions).toBe(1);
+    expect(dashboard.actionQueue.total).toBe(1);
+    expect(analytics.actionPerformance).toMatchObject({
+      suggested: 2,
+      pending: 1,
+      applied: 1,
+    });
+  });
+
   it("prioritizes product-change actions over investigation-only actions on the dashboard", () => {
     const investigationOnlyProduct = {
       id: "gid://shopify/Product/investigate",
@@ -312,6 +397,7 @@ describe("ProductPulse actions", () => {
       title: "Windowed Product",
       riskScore: 64,
       analysisDepth: "full",
+      lastAnalysis: "2026-05-20T00:00:00.000Z",
       metrics: {
         marginAtRisk: 900,
         revenueAtRisk: 1800,
@@ -326,7 +412,152 @@ describe("ProductPulse actions", () => {
 
     expect(analytics.windowDays).toBe(45);
     expect(analytics.windowLabel).toBe("Last 45 days");
-    expect(analytics.impactTrend.labels[0]).toBe("45d ago");
+    expect(analytics.impactTrend.labels[0]).toBe("Apr 5");
+    expect(analytics.impactTrend.labels.at(-1)).toBe("May 20");
+  });
+
+  it("builds analytics chart data from Product Diagnosis products only", () => {
+    const fullDiagnosisProduct = {
+      id: "gid://shopify/Product/deep",
+      handle: "deep-product",
+      title: "Deep Product",
+      riskScore: 82,
+      confidence: 91,
+      analysisDepth: "full",
+      primaryIssue: "Product quality",
+      lastAnalysis: "2026-05-20T00:00:00.000Z",
+      metrics: {
+        latestDiagnosisId: "diagnosis-deep",
+        returnRate: 7,
+        marginAtRisk: 1000,
+        revenueAtRisk: 4000,
+        signalCount: 4,
+        returnUnits: 2,
+        refundUnits: 1,
+        reviewCount: 5,
+        csvReviewCount: 2,
+        soldUnits: 10,
+        contentIssueCount: 2,
+        riskHistory: [
+          { recordedAt: "2026-05-01T00:00:00.000Z", riskScore: 90, returnRate: 12, marginAtRisk: 1400, revenueAtRisk: 5200 },
+          { recordedAt: "2026-05-20T00:00:00.000Z", riskScore: 82, returnRate: 7, marginAtRisk: 1000, revenueAtRisk: 4000 },
+        ],
+      },
+      actionHistory: [
+        {
+          id: "action-impact-1",
+          actionId: "rewrite-description",
+          label: "Rewrite description",
+          status: "applied",
+          appliedAt: "2026-05-10T00:00:00.000Z",
+        },
+      ],
+    };
+    const quickScanProduct = {
+      id: "gid://shopify/Product/quick",
+      handle: "quick-product",
+      title: "Quick Product",
+      riskScore: 90,
+      analysisDepth: "quickscan",
+      primaryIssue: "Refund impact",
+      metrics: {
+        marginAtRisk: 9000,
+        revenueAtRisk: 30000,
+        signalCount: 20,
+        returnUnits: 12,
+        refundUnits: 8,
+        reviewCount: 40,
+        soldUnits: 50,
+      },
+    };
+
+    const analytics = buildAnalyticsViewData([fullDiagnosisProduct, quickScanProduct]);
+    const trendSeries = analytics.deepDiagnosisCharts.riskMarginTrend.series;
+    const actionImpactSeries = analytics.actionImpactTrend.series;
+
+    expect(analytics.deepDiagnosisCharts.productCount).toBe(1);
+    expect(trendSeries.find((series) => series.key === "marginAtRisk").values.at(-1)).toBe(1000);
+    expect(trendSeries.find((series) => series.key === "revenueAtRisk").values.at(-1)).toBe(4000);
+    expect(analytics.deepDiagnosisCharts.issueDistribution.rows[0]).toMatchObject({
+      label: "Product quality",
+      count: 4,
+    });
+    expect(analytics.deepDiagnosisCharts.sourceCoverageMix.rows.map((row) => row.label)).toEqual(expect.arrayContaining([
+      "Orders",
+      "Reviews",
+      "CSV Reviews",
+      "Returns",
+      "Refunds",
+      "Product content",
+    ]));
+    expect(analytics.deepDiagnosisCharts.sourceCoverageMix.total).toBe(20);
+    expect(actionImpactSeries.find((series) => series.key === "actionsApplied").values.at(-1)).toBe(1);
+    expect(actionImpactSeries.find((series) => series.key === "reducedRiskUsd").values.at(-1)).toBe(400);
+    expect(actionImpactSeries.find((series) => series.key === "reducedReturns").values.at(-1)).toBe(5);
+  });
+
+  it("builds analytics risk, margin, and issue charts from retroactive score history", () => {
+    const analytics = buildAnalyticsViewData([{
+      id: "gid://shopify/Product/retroactive",
+      handle: "retroactive-product",
+      title: "Retroactive Product",
+      riskScore: 80,
+      confidence: 90,
+      analysisDepth: "full",
+      primaryIssue: "Current issue should not replace historical mix",
+      lastAnalysis: "2026-05-20T00:00:00.000Z",
+      metrics: {
+        latestDiagnosisId: "diagnosis-retroactive",
+        marginAtRisk: 800,
+        revenueAtRisk: 2000,
+        signalCount: 99,
+        riskHistory: [
+          {
+            recordedAt: "2025-06-30T00:00:00.000Z",
+            riskScore: 40,
+            marginAtRisk: 100,
+            revenueAtRisk: 300,
+            primaryIssue: "Return pressure",
+            signalCount: 2,
+          },
+          {
+            recordedAt: "2025-12-31T00:00:00.000Z",
+            riskScore: 72,
+            marginAtRisk: 500,
+            revenueAtRisk: 1500,
+            primaryIssue: "Product quality",
+            signalCount: 5,
+          },
+          {
+            recordedAt: "2026-05-20T00:00:00.000Z",
+            riskScore: 80,
+            marginAtRisk: 800,
+            revenueAtRisk: 2000,
+            primaryIssue: "Product quality",
+            signalCount: 6,
+          },
+        ],
+      },
+    }]);
+
+    const trend = analytics.deepDiagnosisCharts.riskMarginTrend;
+    expect(trend.labels).toEqual(["Jun 30", "Dec 31", "May 20"]);
+    expect(trend.detail).toContain("saved score-history exposure");
+    expect(trend.series.find((series) => series.key === "marginAtRisk").values).toEqual([100, 500, 800]);
+    expect(trend.series.find((series) => series.key === "revenueAtRisk").values).toEqual([300, 1500, 2000]);
+    expect(analytics.deepDiagnosisCharts.issueDistribution.rows[0]).toMatchObject({
+      label: "Product quality",
+      count: 11,
+    });
+    expect(analytics.deepDiagnosisCharts.issueDistribution.rows[1]).toMatchObject({
+      label: "Return pressure",
+      count: 2,
+    });
+    expect(analytics.issueImpact.rows[0]).toMatchObject({
+      label: "Product quality",
+      signalCount: 11,
+      productsAffected: 1,
+    });
   });
 
   it("creates expanded recommended action recipes with impact tiers", () => {
@@ -389,6 +620,7 @@ describe("ProductPulse actions", () => {
         handleNeedsReview: content.handleNeedsReview,
         specsBlockRecommended: content.specsBlockRecommended,
         classificationNeedsReview: content.classificationNeedsReview,
+        catalogProductTypes: ["Game console", "Puzzle", "Wall Art"],
         templateNeedsReview: content.templateNeedsReview,
         faqNeed: { shouldRecommend: false },
         textInsights: {},
@@ -413,7 +645,7 @@ describe("ProductPulse actions", () => {
     expect(byId.get("improve-url-handle")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
     expect(byId.get("add-specs-details-block")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
     expect(byId.get("update-product-classification")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
-    expect(byId.get("add-structured-metafields")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
+    expect(byId.has("add-structured-metafields")).toBe(false);
     expect(byId.get("add-to-watchlist")?.payload).toMatchObject({ impactLevel: "Medium impact", actionTier: 2 });
   });
 });

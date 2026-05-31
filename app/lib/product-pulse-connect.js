@@ -1,10 +1,5 @@
 export const CSV_REVIEW_IMPORT_DISPLAY_NAME = "CSV import";
 
-export const chatMeConnectionLinks = {
-  app: "https://apps.shopify.com/what-is-chatme-app-button",
-  docs: "https://chatme.ai/docs/api-token",
-};
-
 export const judgeMeConnectionLinks = {
   app: "https://judge.me/settings?jump_to=judge.me+api",
   docs: "https://judge.me/help/en/articles/8409180-judge-me-api",
@@ -31,6 +26,16 @@ export const connectCategoryDefinitions = [
         actionKind: "judgeme",
       },
       {
+        key: "looxReviews",
+        name: "Loox Reviews",
+        logoUrl: "https://www.google.com/s2/favicons?domain=loox.io&sz=64",
+        tone: "purple",
+        source: "Photo, video and visual product reviews",
+        provides: "Ratings, UGC, visual proof, sentiment",
+        available: false,
+        comingSoonMessage: "Loox review import is coming soon.",
+      },
+      {
         key: "yotpoReviews",
         name: "Yotpo Reviews",
         logoUrl: "https://www.google.com/s2/favicons?domain=yotpo.com&sz=64",
@@ -41,15 +46,14 @@ export const connectCategoryDefinitions = [
         comingSoonMessage: "Yotpo import is coming soon.",
       },
       {
-        key: "chatmeReviews",
-        name: "ChatMe Reviews",
-        logoUrl: "https://www.google.com/s2/favicons?domain=chatme.ai&sz=64",
-        tone: "cyan",
-        source: "Product reviews & Q&A",
-        provides: "Sentiment, topics, pros & cons",
+        key: "stampedReviews",
+        name: "Stamped Reviews",
+        logoUrl: "https://www.google.com/s2/favicons?domain=stamped.io&sz=64",
+        tone: "orange",
+        source: "Product reviews, loyalty and customer UGC",
+        provides: "Ratings, review themes, loyalty context",
         available: false,
-        actionKind: "chatme",
-        comingSoonMessage: "ChatMe Reviews connector is coming soon.",
+        comingSoonMessage: "Stamped review import is coming soon.",
       },
       {
         key: "csvReviews",
@@ -281,7 +285,7 @@ function getSourceAction({ source, available, connected, active, locked }) {
   if (locked) return "Included";
   if (!available) return "Coming soon";
   if (source.actionKind === "csv") return connected ? "Replace CSV" : "Upload CSV";
-  if (source.actionKind === "judgeme" || source.actionKind === "chatme") return active || !connected ? "Manage" : "Resume";
+  if (source.actionKind === "judgeme") return active || !connected ? "Manage" : "Resume";
   return connected ? "Manage" : "Connect";
 }
 
@@ -291,9 +295,9 @@ function getSourceDetail({ source, record, available, connected, active, locked 
   if (connected && !active) {
     if (source.actionKind === "csv") {
       const displayFileName = getCsvImportDisplayFileName(record?.config);
-      return `${displayFileName} disabled; ignored by scans and diagnostics.`;
+      return `${displayFileName} disabled; ignored by Catalog Scan and Product Diagnosis.`;
     }
-    return "Disabled; ignored by scans and diagnostics.";
+    return "Disabled; ignored by Catalog Scan and Product Diagnosis.";
   }
   if (connected) {
     if (source.actionKind === "csv" && (record?.config?.fileName || record?.config?.displayFileName || record?.config?.normalizedFileName)) {

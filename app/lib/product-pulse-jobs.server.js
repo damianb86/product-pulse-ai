@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import prisma from "../db.server";
 import { unauthenticated } from "../shopify.server";
 import {
@@ -11,6 +12,7 @@ import {
   recordJobLog,
   serializeError,
 } from "./product-pulse-job-logs.server";
+import { getProductRetentionPayloadForDiagnosis } from "./product-pulse-retention.server";
 import {
   PRODUCT_PULSE_SETTINGS_SOURCE_KEY,
   getProductPulseSettings,
@@ -21,23 +23,57 @@ import {
   getStatusLabelForScore,
 } from "./product-pulse-settings.server";
 import {
+  PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS,
+  getProductPulseHtmlStylePreset,
+  getProductPulseHtmlStyleTemplate,
+  normalizeProductPulseHtmlStyle,
+} from "./product-pulse-html-style-presets";
+import {
+  filterDisabledProductActions,
+  isDisabledProductAction,
+} from "./product-pulse-disabled-actions";
+import {
   getProductScoreHistoryForProductsForShop,
   getProductScoreHistoryForShop,
 } from "./product-pulse-history.server";
+import {
+  getProductTimelineForShop,
+  recordTimelineForProductAction,
+} from "./product-pulse-timeline.server";
 import { addWatchedProductForShop } from "./product-pulse-watchlist.server";
 import {
   SHOPIFY_MOCK_DATASET_KIND,
   SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS,
+  SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
+  SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
   SHOPIFY_MOCK_DATASET_STAGE_LABELS,
   getMissingShopifyMockDatasetScopes,
   normalizeShopifyMockDatasetStage,
   runShopifyMockDatasetJob,
 } from "./product-pulse-shopify-mock-dataset.server";
+import {
+  creditStorePointsForShop,
+  debitStorePointsForShop,
+  getStorePointBalanceForShop,
+  getStorePointSummaryForShop,
+  lockStorePointLedgerForShop,
+  validateStorePointsForShop,
+} from "./product-pulse-points.server";
+import { maybeSendWatchlistRunAlertForJob } from "./product-pulse-watchlist-alerts.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
+const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
+const BACKGROUND_PROCESS_PAGE_SIZE = 10;
+const BACKGROUND_PROCESS_ACTIVE_LIMIT = 10;
+const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
+const ANALYTICS_SCORE_HISTORY_TAKE = 520;
+const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
+const SEO_TITLE_MAX_LENGTH = 70;
+const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
@@ -65,14 +101,23 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
       shop,
       jobId: activeJob.id,
       event: "quick_scan.already_running",
-      message: "Fast product scan request reused the active background job.",
+      message: "Catalog Scan request reused the active background job.",
       data: { status: activeJob.status, source: activeJob.source },
     });
     return {
       status: "success",
       suppressBanner: true,
-      message: "Fast product scan is already running.",
+      message: "Catalog Scan is already running.",
       job: formatJob(activeJob),
+    };
+  }
+
+  const pointCheck = await validateStorePointsForShop(shop, 1);
+  if (!pointCheck.valid) {
+    return {
+      status: "validation_error",
+      message: pointCheck.message,
+      pointBalance: pointCheck.balance,
     };
   }
 
@@ -82,28 +127,53 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     data: {
       shop,
       kind: FAST_PRODUCT_SCAN_KIND,
-      source: `Queued Shopify QuickScan - ${windowDays}-day order window`,
+      source: `Queued Shopify Catalog Scan - ${windowDays}-day order window`,
       status: "Queued",
       progress: 0,
+      payload: {
+        pointCost: 1,
+        queuedAt: new Date().toISOString(),
+      },
     },
   });
+
+  const pointDebit = await debitStorePointsForShop(shop, {
+    amount: 1,
+    reason: `Catalog Scan diagnosis credit debit quick-scan:${job.id}`,
+    idempotencyKey: `quick-scan:${job.id}`,
+    metadata: {
+      source: "quick_scan",
+      jobId: job.id,
+      windowDays,
+    },
+  });
+  if (!["success", "already_recorded"].includes(pointDebit.status)) {
+    await markJobFailed(job.id, new Error(pointDebit.message || "Insufficient Diagnosis Credits."), "Catalog Scan not queued");
+    return {
+      status: "validation_error",
+      message: pointDebit.message || "Catalog Scan needs 1.0 diagnosis credit before it can start.",
+      pointBalance: pointDebit.balance,
+    };
+  }
 
   ensureFastProductScanWorker(job, { admin, scopes });
   await recordJobLog({
     shop,
     jobId: job.id,
     event: "quick_scan.queued",
-    message: "QuickScan queued as a persistent background job.",
+    message: "Catalog Scan queued as a persistent background job.",
     data: {
       windowDays,
       scopeMode: "configured_analysis_lookback",
+      pointsConsumed: 1,
+      pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
     },
   });
 
   return {
     status: "success",
     suppressBanner: true,
-    message: "QuickScan started. ProductPulse is checking native Shopify product, order, refund and return signals.",
+    message: "Catalog Scan started. ProductPulse is checking native Shopify product, order, refund and return signals.",
     job: formatJob(job),
   };
 }
@@ -115,7 +185,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
   if (missingScopes.length) {
     return {
       status: "validation_error",
-      message: `Shopify mock dataset generation needs these scopes before it can create products, orders, returns and refunds: ${missingScopes.join(", ")}. Reauthorize the app after updating Shopify app scopes.`,
+      message: `Shopify mock dataset generation needs these scopes before it can create products, customers, orders, returns and refunds: ${missingScopes.join(", ")}. Reauthorize the app after updating Shopify app scopes.`,
       missingScopes,
     };
   }
@@ -149,8 +219,9 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
         queuedAt: new Date().toISOString(),
         stage,
         stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
-        expectedProducts: 10,
-        expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? 120,
+        expectedProducts: SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
+        expectedCustomers: SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
+        expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS.all,
       },
     },
   });
@@ -161,7 +232,12 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
     jobId: job.id,
     event: "mock_dataset.queued",
     message: `Shopify mock dataset stage queued: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
-    data: { stage, expectedProducts: 10, expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? 120 },
+    data: {
+      stage,
+      expectedProducts: SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
+      expectedCustomers: SHOPIFY_MOCK_DATASET_CUSTOMER_COUNT,
+      expectedOrders: SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS[stage] ?? SHOPIFY_MOCK_DATASET_EXPECTED_ORDER_COUNTS.all,
+    },
   });
 
   return {
@@ -190,13 +266,14 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+  const activeDiagnosisProductKeys = getActiveDiagnosisProductKeySet(activeDiagnosisJobs);
   const [latestDiagnosisByProductGid, resolvedActionsByProductGid] = await Promise.all([
     getLatestCompletedDiagnosisMap(shop, snapshots),
     getResolvedProductActionsMap(shop, snapshots),
   ]);
-  const filterOptions = getProductTableFilterOptions(snapshots, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid);
+  const filterOptions = getProductTableFilterOptions(snapshots, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
   const filteredSnapshots = sortProductSnapshots(
-    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid),
+    filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys),
     filters,
     resolvedActionsByProductGid,
   );
@@ -235,17 +312,50 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
   };
 }
 
+export async function addShopifyProductCandidateForShop(shop, admin, productId) {
+  const normalizedProductId = String(productId || "").trim();
+  if (!normalizedProductId) {
+    return { status: "validation_error", message: "Choose a Shopify product before adding it to Candidates." };
+  }
+
+  const existingSnapshot = await findProductRiskSnapshot(shop, normalizedProductId);
+  if (existingSnapshot) {
+    return {
+      status: "success",
+      message: `${existingSnapshot.productTitle || "This product"} is already stored in ProductPulse.`,
+      action: {
+        id: "add-shopify-product-candidate",
+        productGid: existingSnapshot.productGid,
+        handle: existingSnapshot.handle,
+        alreadyStored: true,
+      },
+    };
+  }
+
+  const snapshot = await createManualProductRiskSnapshot(shop, admin, normalizedProductId);
+  if (!snapshot) {
+    return { status: "validation_error", message: "ProductPulse could not find that Shopify product." };
+  }
+
+  return {
+    status: "success",
+    message: `${snapshot.productTitle || "Product"} was added to Candidates without running a diagnosis.`,
+    action: {
+      id: "add-shopify-product-candidate",
+      productGid: snapshot.productGid,
+      handle: snapshot.handle,
+    },
+  };
+}
+
 export async function getDashboardDataForShop(shop, admin) {
   await failStaleFastProductScans(shop);
-  const [snapshots, latestLedgerEntry, activeJob, activeDiagnosisJobs, settings, catalogProductCount, actions] = await Promise.all([
+  const [snapshots, pointBalance, activeJob, activeDiagnosisJobs, settings, catalogProductCount, actions] = await Promise.all([
     prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
     }),
-    prisma.creditLedgerEntry.findFirst({
-      where: { shop },
-      orderBy: { createdAt: "desc" },
-    }),
+    getStorePointBalanceForShop(shop),
     getActiveFastProductScan(shop),
     getActiveProductDiagnosisJobs(shop),
     getProductPulseSettings(shop),
@@ -271,7 +381,7 @@ export async function getDashboardDataForShop(shop, admin) {
   const dashboardProductsWithJobs = attachActiveProductDiagnosisJobs(dashboardProducts, activeDiagnosisJobs);
 
   return buildDashboardViewData(dashboardProductsWithJobs, {
-    billing: latestLedgerEntry ? { creditsAvailable: latestLedgerEntry.balanceAfter } : null,
+    billing: { creditsAvailable: pointBalance.available, pointBalance },
     catalogProductCount,
     settings,
   });
@@ -319,10 +429,21 @@ export async function getAnalyticsDataForShop(shop) {
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
 
   const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
+  const analyticsHistoryWindowDays = Math.max(
+    ANALYTICS_RETROACTIVE_HISTORY_DAYS,
+    Number(settings?.analysis?.lookbackDays || 0),
+  );
+  const analyticsHistorySince = new Date(
+    Date.now() - (analyticsHistoryWindowDays + ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS) * 24 * 60 * 60 * 1000,
+  );
   const scoreHistoryByProductGid = await getProductScoreHistoryForProductsForShop(
     shop,
     snapshots.map((snapshot) => snapshot.productGid),
-    { take: 80 },
+    {
+      take: Math.max(ANALYTICS_SCORE_HISTORY_TAKE, analyticsHistoryWindowDays + 30),
+      since: analyticsHistorySince,
+      includeBaselineBefore: true,
+    },
   );
   const analyticsProducts = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
     snapshot,
@@ -390,31 +511,45 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
   if (!uniqueProductIds.length) {
     return { status: "validation_error", message: "Select at least one product to analyze." };
   }
-  const settings = options.settings || await getProductPulseSettings(shop);
-  const maxQueued = Number(settings.diagnosis?.maxQueuedPerSubmission || 25);
-  if (uniqueProductIds.length > maxQueued) {
+
+  const pointCheck = await validateStorePointsForShop(shop, uniqueProductIds.length);
+  if (!pointCheck.valid) {
     return {
       status: "validation_error",
-      message: `You can queue up to ${maxQueued} product diagnosis job${maxQueued === 1 ? "" : "s"} at once. Update this limit in Settings if needed.`,
+      message: pointCheck.message,
+      pointBalance: pointCheck.balance,
     };
   }
 
   const jobs = [];
+  const pointFailures = [];
   for (const productId of uniqueProductIds) {
-    const job = await createProductDiagnosisJob(shop, productId, options);
+    const job = await createProductDiagnosisJob(shop, productId, { ...options, skipPointBalanceCheck: true });
+    if (job?.pointValidationError) {
+      pointFailures.push(job.pointValidationError);
+      continue;
+    }
     if (job) jobs.push(job);
   }
 
   if (!jobs.length) {
-    return { status: "validation_error", message: "Selected products were not found in ProductPulse or Shopify." };
+    const pointFailure = pointFailures[0];
+    return {
+      status: "validation_error",
+      message: pointFailure?.message || "Selected products were not found in ProductPulse or Shopify.",
+      pointBalance: pointFailure?.balance,
+    };
   }
 
   ensureProductDiagnosisQueueWorker(shop);
+  const skippedForPoints = pointFailures.length;
 
   return {
     status: "success",
     suppressBanner: true,
-    message: `${jobs.length} product diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
+    message: skippedForPoints
+      ? `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because diagnosis credits were no longer available.`
+      : `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
     queuedCount: jobs.length,
     jobs: jobs.map(formatJob),
   };
@@ -425,7 +560,7 @@ export async function getRecentJobsForShop(shop) {
   const jobs = await prisma.catalogSignalJob.findMany({
     where: { shop },
     orderBy: [{ updatedAt: "desc" }],
-    take: 12,
+    take: JOB_MONITOR_RECENT_JOB_LIMIT,
   });
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
@@ -439,13 +574,14 @@ export async function getRecentJobsForShop(shop) {
 
 export async function getJobMonitorForShop(shop) {
   await failStaleFastProductScans(shop);
-  const [jobs, logs] = await Promise.all([
+  const [jobs, logs, pointSummary] = await Promise.all([
     prisma.catalogSignalJob.findMany({
       where: { shop },
       orderBy: [{ updatedAt: "desc" }],
-      take: 12,
+      take: JOB_MONITOR_RECENT_JOB_LIMIT,
     }),
     getJobLogsForShop(shop, 100),
+    getStorePointSummaryForShop(shop),
   ]);
 
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
@@ -460,6 +596,182 @@ export async function getJobMonitorForShop(shop) {
     activeJobs: jobs.filter((job) => isActiveStatus(job.status)).map(formatJob),
     recentJobs: jobs.map(formatJob),
     logs: logs.map(formatJobLog),
+    pointBalance: pointSummary.balance,
+    pointSummary,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function cancelBackgroundJobForShop(shop, jobId) {
+  const normalizedJobId = String(jobId || "").trim();
+  if (!normalizedJobId) {
+    return { status: "validation_error", message: "Choose a background job to cancel." };
+  }
+
+  const job = await prisma.catalogSignalJob.findFirst({
+    where: {
+      shop,
+      id: normalizedJobId,
+    },
+  });
+
+  if (!job) {
+    return { status: "validation_error", message: "That background job could not be found." };
+  }
+
+  if (!isActiveStatus(job.status)) {
+    return { status: "validation_error", message: "Only queued or running jobs can be cancelled." };
+  }
+
+  const cancellationRefund = await refundCancelledQueuedProductDiagnosisJob(job);
+  const cancellationPayload = cancellationRefund?.refunded
+    ? {
+      ...(job.payload || {}),
+      creditsConsumed: 0,
+      pointsConsumed: 0,
+      pointRefundLedgerEntryId: cancellationRefund.ledgerEntry?.id || null,
+      pointDebitStatus: "refunded",
+    }
+    : job.payload;
+
+  await prisma.catalogSignalJob.updateMany({
+    where: {
+      shop,
+      id: normalizedJobId,
+      status: { in: ["Queued", "Running"] },
+    },
+    data: {
+      status: "Failed",
+      progress: 100,
+      source: "Canceled by user",
+      errorMessage: cancellationRefund?.refunded
+        ? "Canceled from Background processes. Reserved diagnosis credit was refunded."
+        : "Canceled from Background processes. Any diagnosis credits already consumed by the queued job are not automatically refunded.",
+      payload: cancellationPayload,
+      finishedAt: new Date(),
+    },
+  });
+
+  await recordJobLog({
+    shop,
+    jobId: normalizedJobId,
+    event: "job.cancelled",
+    message: "Background job was cancelled from the job monitor.",
+    data: {
+      kind: job.kind,
+      previousStatus: job.status,
+      pointCost: getJobPointCost(job),
+      pointRefundStatus: cancellationRefund?.status || null,
+      pointRefundLedgerEntryId: cancellationRefund?.ledgerEntry?.id || null,
+    },
+  });
+
+  const updatedJob = await prisma.catalogSignalJob.findUnique({ where: { id: normalizedJobId } });
+
+  return {
+    status: "success",
+    suppressBanner: true,
+    message: "Background job cancelled.",
+    job: updatedJob ? formatJob(updatedJob) : null,
+  };
+}
+
+async function refundCancelledQueuedProductDiagnosisJob(job) {
+  if (job.kind !== PRODUCT_DIAGNOSIS_KIND || job.status !== "Queued") return null;
+  const payload = job.payload || {};
+  if (!payload.pointLedgerEntryId || payload.pointRefundLedgerEntryId) return null;
+
+  const amount = Number(payload.pointCost || payload.pointsConsumed || payload.creditsConsumed || 1);
+  const refund = await creditStorePointsForShop(job.shop, {
+    amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
+    reason: `Product diagnosis credit refund product-diagnosis-cancel-refund:${job.id} - ${payload.productTitle || "selected product"}`,
+    idempotencyKey: `product-diagnosis-cancel-refund:${job.id}`,
+    metadata: {
+      source: "product_diagnosis_refund",
+      jobId: job.id,
+      originalLedgerEntryId: payload.pointLedgerEntryId,
+      productGid: payload.productGid || null,
+      productTitle: payload.productTitle || null,
+      cancelled: true,
+    },
+  });
+
+  if (!isPointCreditRecorded(refund)) {
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      level: "error",
+      event: "product_diagnosis.points_refund_failed",
+      message: refund.message || "Cancelled Product Diagnosis credit refund could not be recorded.",
+      data: {
+        pointRefundStatus: refund.status,
+        pointBalance: refund.balance || null,
+      },
+    });
+    return { status: refund.status, refunded: false, balance: refund.balance || null };
+  }
+
+  return {
+    status: refund.status,
+    refunded: true,
+    ledgerEntry: refund.ledgerEntry || null,
+    balance: refund.balance || null,
+  };
+}
+
+export async function getBackgroundProcessesForShop(shop, options = {}) {
+  await failStaleFastProductScans(shop);
+  const requestedPage = normalizeBackgroundProcessPage(options.page);
+  const [total, statusGroups, kindGroups, logs] = await Promise.all([
+    prisma.catalogSignalJob.count({ where: { shop } }),
+    prisma.catalogSignalJob.groupBy({
+      by: ["status"],
+      where: { shop },
+      _count: { _all: true },
+    }),
+    prisma.catalogSignalJob.groupBy({
+      by: ["kind"],
+      where: { shop },
+      _count: { _all: true },
+    }),
+    getJobLogsForShop(shop, BACKGROUND_PROCESS_LOG_LIMIT),
+  ]);
+  const page = clampBackgroundProcessPage(requestedPage, total);
+  const [jobs, activeJobs] = await Promise.all([
+    prisma.catalogSignalJob.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }],
+      skip: (page - 1) * BACKGROUND_PROCESS_PAGE_SIZE,
+      take: BACKGROUND_PROCESS_PAGE_SIZE,
+    }),
+    prisma.catalogSignalJob.findMany({
+      where: { shop, status: { in: ["Queued", "Running"] } },
+      orderBy: [{ updatedAt: "desc" }],
+      take: BACKGROUND_PROCESS_ACTIVE_LIMIT,
+    }),
+  ]);
+
+  ensureWorkersForJobs(shop, activeJobs);
+
+  const formattedLogs = logs.map(formatJobLog);
+  const logsByJob = groupJobLogsByJobId(formattedLogs);
+  const processes = jobs.map((job) => formatBackgroundProcess(job, logsByJob.get(job.id) || []));
+  const activeProcesses = activeJobs.map((job) => formatBackgroundProcess(job, logsByJob.get(job.id) || []));
+  const statusCounts = mapBackgroundProcessStatusCounts(statusGroups);
+  const kindCounts = mapBackgroundProcessKindCounts(kindGroups);
+
+  return {
+    processes,
+    activeProcesses,
+    logs: formattedLogs,
+    stats: buildBackgroundProcessStats(jobs, formattedLogs, {
+      total,
+      statusCounts,
+      kindCounts,
+    }),
+    pagination: buildBackgroundProcessPagination(page, total),
+    logsLimited: formattedLogs.length >= BACKGROUND_PROCESS_LOG_LIMIT,
+    logLimit: BACKGROUND_PROCESS_LOG_LIMIT,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -468,7 +780,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory] = await Promise.all([
+  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory, timeline] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -484,15 +796,49 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
       where: { shop_productGid: { shop, productGid: snapshot.productGid } },
       select: { status: true },
     }),
-    getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 80 }),
+    getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 180 }),
+    getProductTimelineForShop(shop, snapshot.productGid, { limit: 100 }),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+  const storedProductRetention = await getProductRetentionPayloadForDiagnosis({
+    shopId: shop,
+    productGid: snapshot.productGid,
+    diagnosisId: latestDiagnosis?.id || snapshot.metrics?.latestDiagnosisId || "",
+  });
+  const productRetention = hasStoredProductRetentionPayload(storedProductRetention)
+    ? storedProductRetention
+    : snapshot.metrics?.productRetention || null;
+  const snapshotWithRetention = productRetention
+    ? {
+      ...snapshot,
+      metrics: {
+        ...(snapshot.metrics || {}),
+        productRetention,
+        productRetentionSummary: productRetention.summary || null,
+      },
+    }
+    : snapshot;
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
   const product = {
-    ...formatSnapshotForDiagnosis(snapshot, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
+    ...formatSnapshotForDiagnosis(snapshotWithRetention, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
+    timeline,
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
-  return attachProductImageToDiagnosis(withShopifyAdminUrl(product, shop), admin);
+  const productWithUrls = withShopifyAdminUrl(product, shop);
+  const productWithRelationshipImages = await attachProductRelationshipImagesToDiagnosis(productWithUrls, admin);
+  return attachProductImageToDiagnosis(productWithRelationshipImages, admin);
+}
+
+function hasStoredProductRetentionPayload(retention = null) {
+  const summary = retention?.summary || {};
+  return Boolean(
+    retention?.run
+      || Number(summary.totalCustomersAnalyzed || 0) > 0
+      || Number(summary.totalProductOrdersAnalyzed || 0) > 0
+      || (Array.isArray(retention?.dailyRetentionTrend) && retention.dailyRetentionTrend.length)
+      || (Array.isArray(retention?.retentionHealthTrend) && retention.retentionHealthTrend.length)
+      || (Array.isArray(retention?.ltvCurve) && retention.ltvCurve.length)
+  );
 }
 
 export async function getProductDetailForShop(shop, productId, admin) {
@@ -501,19 +847,26 @@ export async function getProductDetailForShop(shop, productId, admin) {
   return getLiveShopifyProductDetail(productId, admin, shop);
 }
 
-export async function rerunProductDiagnosisForShop(shop, productId) {
-  return queueProductDiagnosisForShop(shop, productId);
+export async function rerunProductDiagnosisForShop(shop, productId, options = {}) {
+  return queueProductDiagnosisForShop(shop, productId, options);
 }
 
-export async function queueProductDiagnosisForShop(shop, productId) {
-  const job = await createProductDiagnosisJob(shop, productId);
+export async function queueProductDiagnosisForShop(shop, productId, options = {}) {
+  const job = await createProductDiagnosisJob(shop, productId, options);
   if (!job) return null;
+  if (job.pointValidationError) {
+    return {
+      status: "validation_error",
+      message: job.pointValidationError.message,
+      pointBalance: job.pointValidationError.balance,
+    };
+  }
   ensureProductDiagnosisQueueWorker(shop);
 
   return {
     status: "success",
     suppressBanner: true,
-    message: `AI Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
+    message: `Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
     job: formatJob(job),
   };
 }
@@ -617,13 +970,17 @@ export async function searchShopifyProductsForDiagnosis(shop, admin, rawQuery) {
 export async function recordProductDetailActionForShop(shop, productId, actionId, payloadOverride = {}, admin = null) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
+  if (isDisabledProductAction(actionId)) {
+    return { status: "validation_error", message: "This recommended action is disabled." };
+  }
+  const descriptionChangesOverride = normalizeDescriptionChangesOverride(payloadOverride.descriptionChangesJson || payloadOverride.descriptionChanges);
 
   const metrics = snapshot.metrics || {};
   const latestDiagnosis = await prisma.productDiagnosis.findFirst({
     where: { shop, productGid: snapshot.productGid, status: "Completed" },
     orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
   });
-  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : [];
+  const diagnosisRecommendations = filterDisabledProductActions(Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : []);
   let action = null;
   if (actionId === "mark-resolved") {
     action = getResolvedAction(snapshot);
@@ -642,8 +999,8 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     action = getSyntheticProductActionForRecord(actionId, payloadOverride);
   }
 
-  if (!action && payloadOverride.draftText) {
-    const isDescriptionFallback = actionId === "product-description-changes" || payloadOverride.descriptionOperation;
+  if (!action && (payloadOverride.draftText || descriptionChangesOverride.length)) {
+    const isDescriptionFallback = actionId === "product-description-changes" || payloadOverride.descriptionOperation || descriptionChangesOverride.length;
     action = {
       id: actionId || "custom-draft",
       label: payloadOverride.label || "Custom product action draft",
@@ -654,6 +1011,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
         draftText: payloadOverride.draftText,
         ...(payloadOverride.field ? { field: payloadOverride.field } : {}),
         ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
+        ...(descriptionChangesOverride.length ? { descriptionChangeGroup: true, descriptionChanges: descriptionChangesOverride } : {}),
       },
     };
   }
@@ -669,6 +1027,10 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     ...(payloadOverride.tag ? { tag: payloadOverride.tag } : {}),
     ...(payloadOverride.actionVariant ? { actionVariant: payloadOverride.actionVariant } : {}),
     ...(payloadOverride.descriptionOperation ? { operation: payloadOverride.descriptionOperation } : {}),
+    ...(descriptionChangesOverride.length ? { descriptionChangeGroup: true, descriptionChanges: descriptionChangesOverride } : {}),
+    ...(payloadOverride.metafieldNamespace ? { metafieldNamespace: payloadOverride.metafieldNamespace } : {}),
+    ...(payloadOverride.metafieldKey ? { metafieldKey: payloadOverride.metafieldKey } : {}),
+    ...(payloadOverride.metafieldType ? { metafieldType: payloadOverride.metafieldType } : {}),
   };
   const recordActionId = action.id || actionId || payloadOverride.label || "product-action";
   const recordLabel = action.label || payloadOverride.label || actionId || "Product action";
@@ -689,13 +1051,15 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       ...(equivalentActionIds.length ? [{ actionType: { in: equivalentActionIds } }] : []),
       ...(equivalentActionLabels.length ? [{ label: { in: equivalentActionLabels } }] : []),
     ];
+    const restoreWhere = {
+      shop,
+      productGid: snapshot.productGid,
+      status: "dismissed",
+      OR: restoreMatchers.length ? restoreMatchers : [{ actionType: recordActionId }],
+    };
+    if (latestDiagnosis?.id) restoreWhere.diagnosisId = latestDiagnosis.id;
     await prisma.productAction.updateMany({
-      where: {
-        shop,
-        productGid: snapshot.productGid,
-        status: "dismissed",
-        OR: restoreMatchers.length ? restoreMatchers : [{ actionType: recordActionId }],
-      },
+      where: restoreWhere,
       data: {
         status: "active",
         appliedAt: null,
@@ -736,13 +1100,15 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       ...(equivalentActionIds.length ? [{ actionType: { in: equivalentActionIds } }] : []),
       ...(equivalentActionLabels.length ? [{ label: { in: equivalentActionLabels } }] : []),
     ];
+    const duplicateWhere = {
+      shop,
+      productGid: snapshot.productGid,
+      status,
+      OR: duplicateMatchers.length ? duplicateMatchers : [{ actionType: recordActionId }],
+    };
+    if (latestDiagnosis?.id) duplicateWhere.diagnosisId = latestDiagnosis.id;
     const existingCompletedAction = await prisma.productAction.findFirst({
-      where: {
-        shop,
-        productGid: snapshot.productGid,
-        status,
-        OR: duplicateMatchers.length ? duplicateMatchers : [{ actionType: recordActionId }],
-      },
+      where: duplicateWhere,
       orderBy: { createdAt: "desc" },
     });
     if (existingCompletedAction) {
@@ -756,7 +1122,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     }
   }
 
-  await prisma.productAction.create({
+  const actionRecord = await prisma.productAction.create({
     data: {
       shop,
       diagnosisId: latestDiagnosis?.id || null,
@@ -768,6 +1134,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       appliedAt: isCompletedProductActionStatus(status) ? new Date() : null,
     },
   });
+  await recordTimelineForProductAction({ shop, snapshot, actionRecord, action });
 
   return {
     status: "success",
@@ -806,6 +1173,7 @@ export async function deleteProductAnalysisForShop(shop, productId) {
     const actions = await tx.productAction.deleteMany({ where: { shop, productGid } });
     const diagnoses = await tx.productDiagnosis.deleteMany({ where: { shop, productGid } });
     const scoreHistory = await tx.productScoreHistory.deleteMany({ where: { shop, productGid } });
+    const timelineEvents = await tx.productTimelineEvent.deleteMany({ where: { shop, productGid } });
     const watchActivities = await tx.productWatchActivity.deleteMany({ where: { shop, productGid } });
     const watchlistItems = await tx.productWatchlistItem.deleteMany({ where: { shop, productGid } });
     const snapshots = await tx.productRiskSnapshot.deleteMany({ where: { shop, productGid } });
@@ -820,6 +1188,7 @@ export async function deleteProductAnalysisForShop(shop, productId) {
       actions: actions.count,
       diagnoses: diagnoses.count,
       scoreHistory: scoreHistory.count,
+      timelineEvents: timelineEvents.count,
       watchActivities: watchActivities.count,
       watchlistItems: watchlistItems.count,
       snapshots: snapshots.count,
@@ -913,6 +1282,44 @@ function getSyntheticProductActionForRecord(actionId, payloadOverride = {}) {
   };
 }
 
+function normalizeDescriptionChangesOverride(value) {
+  const rawChanges = (() => {
+    if (Array.isArray(value)) return value;
+    const text = String(value || "").trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  return rawChanges
+    .map((change, index) => {
+      const operation = ["replace", "prepend", "append"].includes(change?.operation) ? change.operation : "append";
+      const text = String(change?.text || change?.draftText || "").trim();
+      if (!text) return null;
+      const id = String(change?.id || change?.actionId || `description-change-${index + 1}`).trim() || `description-change-${index + 1}`;
+      return {
+        id,
+        actionId: String(change?.actionId || id).trim() || id,
+        title: String(change?.title || getDescriptionOperationTextForChange(operation)).trim(),
+        operation,
+        operationLabel: String(change?.operationLabel || getDescriptionOperationTextForChange(operation)).trim(),
+        text,
+      };
+    })
+    .filter(Boolean);
+}
+
+function getDescriptionOperationTextForChange(operation = "") {
+  if (operation === "replace") return "Rewrite product description";
+  if (operation === "prepend") return "Add to top of description";
+  if (operation === "append") return "Add to end of description";
+  return "Update product description";
+}
+
 function inferProductActionTypeFromText(value = "") {
   if (/\b(tag|collection|workflow)\b/.test(value)) return "Workflow";
   if (/\b(variant|sku|option)\b/.test(value)) return "Product variant";
@@ -1000,12 +1407,13 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     return { status: "validation_error", message: "Shopify Admin access is required to apply this action." };
   }
 
+  const htmlStyle = normalizeProductPulseHtmlStyle((await getProductPulseSettings(snapshot.shop)).htmlStyle);
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
   const normalizedField = String(payload.field || "").toLowerCase();
 
   if (isFaqRecommendationAction(action, payload)) {
-    return applyFaqRecommendationAction({ admin, snapshot, action, payload });
+    return applyFaqRecommendationAction({ admin, snapshot, action, payload, htmlStyle });
   }
 
   if (normalizedId.includes("add-to-watchlist")) {
@@ -1023,6 +1431,27 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
         target: "ProductPulse Watchlist",
         operation: "add",
         value: snapshot.productGid,
+      },
+    };
+  }
+
+  if (payload.collectionId || normalizedId.includes("related-product-collection")) {
+    const collectionId = String(payload.collectionId || "").trim();
+    const collectionName = String(payload.collectionName || "selected collection").replace(/\s+/g, " ").trim();
+    if (!collectionId) return { status: "validation_error", message: "This collection action does not include a Shopify collection ID to apply." };
+    const result = await addProductToCollection(admin, snapshot.productGid, collectionId);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `${snapshot.productTitle} was added to ${collectionName}.`,
+      change: {
+        target: "Collection membership",
+        operation: "add",
+        value: {
+          collectionId,
+          collectionName,
+          productGid: snapshot.productGid,
+          jobId: result.jobId || null,
+        },
       },
     };
   }
@@ -1079,7 +1508,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
   }
 
   if (payload.field === "seo.title" || normalizedId.includes("seo-title")) {
-    const title = String(payload.draftText || payload.draftTitle || "").replace(/\s+/g, " ").trim();
+    const title = limitSeoText(payload.draftText || payload.draftTitle || "", SEO_TITLE_MAX_LENGTH);
     if (!title) return { status: "validation_error", message: "This SEO title action does not include text to apply." };
     const result = await updateProductFields(admin, snapshot.productGid, { seo: { title } });
     if (result.status === "validation_error") return result;
@@ -1094,7 +1523,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
   }
 
   if (payload.field === "seo.description" || normalizedId.includes("meta-description")) {
-    const description = String(payload.draftText || "").replace(/\s+/g, " ").trim();
+    const description = limitSeoText(payload.draftText || "", SEO_META_DESCRIPTION_MAX_LENGTH, { terminalPeriod: true });
     if (!description) return { status: "validation_error", message: "This meta description action does not include text to apply." };
     const result = await updateProductFields(admin, snapshot.productGid, { seo: { description } });
     if (result.status === "validation_error") return result;
@@ -1167,10 +1596,15 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     const parsed = parseClassificationDraft(payload.draftText || payload.value || "");
     const vendor = String(payload.draftVendor || parsed.vendor || "").replace(/\s+/g, " ").trim();
     const productType = String(payload.draftProductType || parsed.productType || "").replace(/\s+/g, " ").trim();
+    const categoryId = String(payload.draftCategoryId || payload.categoryId || "").trim();
+    const currentVendor = String(snapshot.metrics?.vendor || "").replace(/\s+/g, " ").trim();
+    const currentProductType = String(snapshot.metrics?.productType || "").replace(/\s+/g, " ").trim();
+    const currentCategoryId = String(snapshot.metrics?.categoryId || snapshot.metrics?.category?.id || "").trim();
     const productFields = {};
-    if (vendor) productFields.vendor = vendor;
-    if (productType) productFields.productType = productType;
-    if (!Object.keys(productFields).length) return { status: "validation_error", message: "This classification action does not include a vendor or product type to apply." };
+    if (vendor && vendor.toLowerCase() !== currentVendor.toLowerCase()) productFields.vendor = vendor;
+    if (productType && productType.toLowerCase() !== currentProductType.toLowerCase()) productFields.productType = productType;
+    if (categoryId && categoryId !== currentCategoryId) productFields.category = categoryId;
+    if (!Object.keys(productFields).length) return { status: "validation_error", message: "This classification action does not include a new vendor, product type or Shopify category to apply." };
     const result = await updateProductFields(admin, snapshot.productGid, productFields);
     if (result.status === "validation_error") return result;
     return {
@@ -1211,6 +1645,28 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
+  if (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length && (normalizedType.includes("pdp") || normalizedId.includes("description") || payload.descriptionChangeGroup)) {
+    const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
+    if (currentProduct.status === "validation_error") return currentProduct;
+    const descriptionHtml = buildUpdatedProductDescriptionHtmlFromChanges({
+      currentHtml: currentProduct.descriptionHtml || "",
+      changes: payload.descriptionChanges,
+      action,
+      htmlStyle,
+    });
+    if (!descriptionHtml) return { status: "validation_error", message: "This description action does not include text to apply." };
+    const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
+    if (result.status === "validation_error") return result;
+    return {
+      message: `Selected product description changes were applied for ${snapshot.productTitle}.`,
+      change: {
+        target: "Product description",
+        operation: "apply_grouped_changes",
+        value: payload.descriptionChanges,
+      },
+    };
+  }
+
   if (payload.draftText && (normalizedType.includes("pdp") || normalizedType.includes("faq") || normalizedId.includes("description") || normalizedId.includes("fit"))) {
     const operation = getDescriptionOperationForAction({ ...action, payload });
     const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
@@ -1220,6 +1676,7 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
       draftText: payload.draftText,
       operation,
       action,
+      htmlStyle,
     });
     const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
     if (result.status === "validation_error") return result;
@@ -1416,50 +1873,85 @@ async function addProductTags(admin, productGid, tags) {
   }
 }
 
-async function applyFaqRecommendationAction({ admin, snapshot, action, payload }) {
+async function addProductToCollection(admin, productGid, collectionId) {
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseAddProductToCollection($id: ID!, $productIds: [ID!]!) {
+        collectionAddProductsV2(id: $id, productIds: $productIds) {
+          job {
+            id
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }`,
+      { variables: { id: collectionId, productIds: [productGid] } },
+    );
+    const json = await response.json();
+    const errors = json.errors || json.data?.collectionAddProductsV2?.userErrors || [];
+    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
+    return {
+      status: "success",
+      jobId: json.data?.collectionAddProductsV2?.job?.id || null,
+    };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to add product to collection: ${error.message}` };
+  }
+}
+
+async function applyFaqRecommendationAction({ admin, snapshot, action, payload, htmlStyle }) {
   const variant = getFaqApplyVariant(payload);
   const faqItems = normalizeFaqItemsForApply(payload.faqItems, payload.draftText);
   if (!faqItems.length) {
     return { status: "validation_error", message: "This FAQ action does not include questions and answers to apply." };
   }
 
-  if (variant === "metafield-json") {
-    const metafield = payload.metafield || {};
-    const namespace = metafield.namespace || "productpulse";
-    const key = metafield.key || "faq_items";
-    const type = metafield.type || "json";
+  if (isFaqMetafieldApplyVariant(variant)) {
+    const metafield = getFaqMetafieldConfig(payload);
     const result = await setProductFaqMetafield(admin, snapshot.productGid, {
-      namespace,
-      key,
-      type,
+      namespace: metafield.namespace,
+      key: metafield.key,
+      type: metafield.type,
       faqItems,
       sourceActionId: action.id,
+      htmlStyle,
     });
     if (result.status === "validation_error") return result;
     return {
-      message: `Product FAQ metafield ${namespace}.${key} was saved for ${snapshot.productTitle}.`,
+      message: `Product FAQ metafield ${metafield.namespace}.${metafield.key} was saved for ${snapshot.productTitle}.`,
       change: {
         target: "Product metafield",
         operation: "set",
-        value: faqItems,
-        namespace,
-        key,
+        value: buildProductPulseFaqHtml({ faqItems, variant: "description-section", action, htmlStyle }),
+        namespace: metafield.namespace,
+        key: metafield.key,
+        type: metafield.type,
       },
     };
   }
 
   const currentProduct = await getProductDescriptionForUpdate(admin, snapshot.productGid);
   if (currentProduct.status === "validation_error") return currentProduct;
-  const faqHtml = buildProductPulseFaqHtml({ faqItems, variant, action });
-  const descriptionHtml = [currentProduct.descriptionHtml || "", faqHtml].filter(Boolean).join("\n");
+  const faqHtml = buildProductPulseFaqHtml({ faqItems, variant, action, htmlStyle });
+  const mergedFaqHtml = payload.existingFaqDetected
+    ? mergeFaqItemsIntoExistingDescriptionHtml({
+        descriptionHtml: currentProduct.descriptionHtml || "",
+        faqItems,
+      })
+    : "";
+  const operation = mergedFaqHtml ? "merge-existing-faq" : variant;
+  const descriptionHtml = mergedFaqHtml || [currentProduct.descriptionHtml || "", faqHtml].filter(Boolean).join("\n");
   const result = await updateProductDescription(admin, snapshot.productGid, descriptionHtml);
   if (result.status === "validation_error") return result;
 
   return {
-    message: `${getFaqApplyVariantLabel(variant)} for ${snapshot.productTitle}.`,
+    message: `${getFaqApplyVariantLabel(operation)} for ${snapshot.productTitle}.`,
     change: {
       target: "Product description",
-      operation: variant,
+      operation,
       value: faqItems,
       descriptionHtml,
     },
@@ -1473,13 +1965,20 @@ function isFaqRecommendationAction(action, payload = {}) {
 
 function getFaqApplyVariant(payload = {}) {
   const variant = String(payload.actionVariant || payload.defaultApplyMode || "").trim();
-  if (["description-section", "description-collapsible", "description-modal", "metafield-json"].includes(variant)) return variant;
+  if (variant === "metafield-json") return "metafield-html";
+  if (["description-section", "description-collapsible", "description-modal", "metafield-html"].includes(variant)) return variant;
   return "description-collapsible";
 }
 
+function isFaqMetafieldApplyVariant(variant = "") {
+  return variant === "metafield-html" || variant === "metafield-json";
+}
+
 function getFaqApplyVariantLabel(variant) {
+  if (variant === "merge-existing-faq") return "Missing FAQ questions were added to the existing FAQ";
   if (variant === "description-section") return "Product FAQ section was appended";
   if (variant === "description-modal") return "Product FAQ modal block was appended";
+  if (isFaqMetafieldApplyVariant(variant)) return "Product FAQ metafield was saved";
   return "Product FAQ was appended";
 }
 
@@ -1521,32 +2020,116 @@ function normalizeFaqAnswer(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function buildProductPulseFaqHtml({ faqItems, variant, action }) {
+function buildProductPulseDomId(prefix, value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${prefix}-${normalized || "item"}`;
+}
+
+function buildProductPulseFaqHtml({ faqItems, variant, action, htmlStyle }) {
   const actionId = escapeHtml(action.id || "product-faq");
-  const calloutAttributes = buildProductPulseCalloutAttributes(actionId, "productpulse-faq");
   const headingHtml = buildProductPulseCalloutHeading("Frequently asked questions");
-  const itemsHtml = faqItems.map((item) => (
-    `<dt style="font-weight:700;color:#111827;margin-top:12px;">${escapeHtml(item.question)}</dt>\n<dd style="margin:4px 0 0;color:#374151;line-height:1.55;">${escapeHtml(item.answer)}</dd>`
-  )).join("\n");
+  const itemsHtml = buildProductPulseFaqItemsHtml(faqItems);
 
   if (variant === "description-section") {
-    return `<section ${calloutAttributes}>\n${headingHtml}\n<dl style="margin:0;">\n${itemsHtml}\n</dl>\n</section>`;
+    return buildProductPulseStyledHtmlBlock({
+      actionId,
+      className: "productpulse-faq",
+      title: "Frequently asked questions",
+      contentHtml: `<dl style="margin:0;">\n${itemsHtml}\n</dl>`,
+      htmlStyle,
+    });
   }
 
   if (variant === "description-modal") {
-    return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Open frequently asked questions</summary>\n<div role="dialog" aria-label="Frequently asked questions" style="margin-top:12px;">\n${headingHtml}\n<dl style="margin:0;">\n${itemsHtml}\n</dl>\n</div>\n</details>\n</section>`;
+    const modalId = buildProductPulseDomId("productpulse-faq-dialog", action.id || "product-faq");
+    const escapedModalId = escapeHtml(modalId);
+    const modalItemsHtml = faqItems.map((item, index) => (
+      `<div style="${index > 0 ? "border-top:1px solid #e5e7eb;" : ""}padding:${index > 0 ? "14px" : "0"} 0 0;">\n<dt style="font-weight:800;color:#111827;font-size:15px;line-height:1.35;margin:0 0 6px;">${escapeHtml(item.question)}</dt>\n<dd style="margin:0;color:#475569;line-height:1.6;font-size:14px;">${escapeHtml(item.answer)}</dd>\n</div>`
+    )).join("\n");
+    const modalStyles = [
+      "<style>",
+      `#${escapedModalId}::backdrop{background:rgba(15,23,42,.44);backdrop-filter:blur(2px);}`,
+      `#${escapedModalId}{box-sizing:border-box;max-width:min(720px,calc(100vw - 32px));width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);border:1px solid rgba(148,163,184,.38);border-radius:18px;padding:0;background:#ffffff;color:#111827;box-shadow:0 24px 80px rgba(15,23,42,.28);overflow:hidden;}`,
+      `#${escapedModalId}[open]{display:block;}`,
+      "</style>",
+    ].join("");
+    return buildProductPulseStyledHtmlBlock({
+      actionId,
+      className: "productpulse-faq",
+      title: "Frequently asked questions",
+      contentHtml: `${modalStyles}\n<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">\n<div>\n${headingHtml}\n<p style="margin:0;color:#475569;line-height:1.55;font-size:14px;">Open a focused FAQ without expanding the full product description.</p>\n</div>\n<button type="button" onclick="var d=document.getElementById('${escapedModalId}');if(d&&d.showModal)d.showModal();" style="appearance:none;border:0;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800;padding:10px 14px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(99,102,241,.18);">View FAQ</button>\n</div>\n<dialog id="${escapedModalId}" aria-label="Frequently asked questions">\n<div style="padding:24px;max-height:calc(100vh - 48px);overflow:auto;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);">\n<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #e5e7eb;padding-bottom:14px;margin-bottom:16px;">\n<div>\n<p style="margin:0 0 6px;color:#4f46e5;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;">Product FAQ</p>\n<h3 style="margin:0;color:#111827;font-size:22px;line-height:1.2;font-weight:850;">Frequently asked questions</h3>\n<p style="margin:8px 0 0;color:#64748b;font-size:14px;line-height:1.5;">Quick answers based on the product details and customer evidence.</p>\n</div>\n<form method="dialog" style="margin:0;">\n<button type="submit" aria-label="Close FAQ modal" style="appearance:none;width:38px;height:38px;border:1px solid #dbe3ef;border-radius:12px;background:#ffffff;color:#334155;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.06);">&times;</button>\n</form>\n</div>\n<dl style="margin:0;display:grid;gap:0;">\n${modalItemsHtml}\n</dl>\n<form method="dialog" style="margin:22px 0 0;display:flex;justify-content:flex-end;">\n<button type="submit" style="appearance:none;border:0;border-radius:12px;background:#1f2937;color:#ffffff;font-weight:800;padding:11px 18px;cursor:pointer;box-shadow:0 8px 18px rgba(15,23,42,.18);">Close</button>\n</form>\n</div>\n</dialog>`,
+      htmlStyle,
+      includeHeading: false,
+    });
   }
 
-  return `<section ${calloutAttributes}>\n<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>\n</section>`;
+  return buildProductPulseStyledHtmlBlock({
+    actionId,
+    className: "productpulse-faq",
+    title: "Frequently asked questions",
+    contentHtml: `<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>`,
+    htmlStyle,
+    includeHeading: false,
+  });
 }
 
-async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId }) {
+function buildProductPulseFaqItemsHtml(faqItems = []) {
+  return (Array.isArray(faqItems) ? faqItems : []).map((item) => (
+    `<dt style="font-weight:700;color:#111827;margin-top:12px;">${escapeHtml(item.question)}</dt>\n<dd style="margin:4px 0 0;color:#374151;line-height:1.55;">${escapeHtml(item.answer)}</dd>`
+  )).join("\n");
+}
+
+function mergeFaqItemsIntoExistingDescriptionHtml({ descriptionHtml = "", faqItems = [] } = {}) {
+  const html = String(descriptionHtml || "");
+  const itemsHtml = buildProductPulseFaqItemsHtml(faqItems);
+  if (!html.trim() || !itemsHtml) return "";
+
+  const patterns = [
+    /(<section\b[^>]*class=(?:"[^"]*productpulse-faq[^"]*"|'[^']*productpulse-faq[^']*')[^>]*>[\s\S]*?<dl\b[^>]*>)([\s\S]*?)(<\/dl>)/i,
+    /(<details\b[^>]*>[\s\S]*?(?:faq|frequently asked questions)[\s\S]*?<dl\b[^>]*>)([\s\S]*?)(<\/dl>)/i,
+    /((?:faq|frequently asked questions)[\s\S]{0,1500}<dl\b[^>]*>)([\s\S]*?)(<\/dl>)/i,
+  ];
+
+  for (const pattern of patterns) {
+    if (!pattern.test(html)) continue;
+    return html.replace(pattern, (_match, opening, existingItems, closing) => (
+      `${opening}${String(existingItems || "").trim()}\n${itemsHtml}\n${closing}`
+    ));
+  }
+
+  return "";
+}
+
+function getFaqMetafieldConfig(payload = {}) {
+  const metafield = payload.metafield || {};
+  return {
+    namespace: normalizeShopifyMetafieldNamespace(payload.metafieldNamespace || metafield.namespace || "productpulse"),
+    key: normalizeShopifyMetafieldKey(payload.metafieldKey || metafield.key || "faq_html"),
+    type: "multi_line_text_field",
+  };
+}
+
+function normalizeShopifyMetafieldNamespace(value) {
+  const normalized = String(value || "").trim();
+  if (normalized === "$app") return normalized;
+  return normalized.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "productpulse";
+}
+
+function normalizeShopifyMetafieldKey(value) {
+  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "faq_html";
+}
+
+async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId, htmlStyle }) {
   try {
-    const value = JSON.stringify({
-      source: "ProductPulse AI",
-      sourceActionId,
-      updatedAt: new Date().toISOString(),
-      items: faqItems,
+    const value = buildProductPulseFaqHtml({
+      faqItems,
+      variant: "description-section",
+      action: { id: sourceActionId || "product-faq-metafield" },
+      htmlStyle,
     });
     const response = await admin.graphql(
       `#graphql
@@ -1570,9 +2153,9 @@ async function setProductFaqMetafield(admin, productGid, { namespace, key, type,
         variables: {
           metafields: [{
             ownerId: productGid,
-            namespace,
-            key,
-            type,
+            namespace: normalizeShopifyMetafieldNamespace(namespace),
+            key: normalizeShopifyMetafieldKey(key),
+            type: type || "multi_line_text_field",
             value,
           }],
         },
@@ -1634,6 +2217,8 @@ async function setProductMetafields(admin, productGid, metafields = []) {
 function getDescriptionOperationForAction(action) {
   const payload = action.payload || {};
   if (["replace", "prepend", "append"].includes(payload.operation)) return payload.operation;
+  if (["replace", "prepend", "append"].includes(payload.descriptionOperation)) return payload.descriptionOperation;
+  if (["replace", "prepend", "append"].includes(payload.insertionPosition)) return payload.insertionPosition;
   if (["prepend", "append"].includes(payload.placement)) return payload.placement;
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   if (normalized.includes("rewrite-product-description") || normalized.includes("rewrite")) return "replace";
@@ -1647,7 +2232,7 @@ function getDescriptionOperationLabel(operation) {
   return "Product description was updated";
 }
 
-function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action }) {
+function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action, htmlStyle }) {
   if (operation === "replace" && action?.payload?.preserveHtml && action?.payload?.descriptionReplacements?.length && currentHtml) {
     const patchedHtml = applyDescriptionHtmlReplacements(currentHtml, action.payload.descriptionReplacements);
     if (patchedHtml.changed) return patchedHtml.html;
@@ -1659,16 +2244,55 @@ function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation,
     });
     if (placementDraft) {
       const blocks = [];
-      if (placementDraft.prependText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.prependText, action));
+      if (placementDraft.prependText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.prependText, action, htmlStyle));
       blocks.push(currentHtml);
-      if (placementDraft.appendText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.appendText, action));
+      if (placementDraft.appendText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.appendText, action, htmlStyle));
       return blocks.filter(Boolean).join("\n");
     }
   }
-  if (operation === "replace") return buildProductPulseDescriptionReplacement(draftText, action);
-  const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action);
+  if (operation === "replace") return buildProductPulseDescriptionReplacement(draftText, action, htmlStyle);
+  const suggestionHtml = buildProductPulseDescriptionBlock(draftText, action, htmlStyle);
   if (operation === "append") return [currentHtml, suggestionHtml].filter(Boolean).join("\n");
   return [suggestionHtml, currentHtml].filter(Boolean).join("\n");
+}
+
+function buildUpdatedProductDescriptionHtmlFromChanges({ currentHtml, changes = [], action, htmlStyle }) {
+  const normalizedChanges = normalizeDescriptionChangesOverride(changes);
+  if (!normalizedChanges.length) return "";
+
+  const prependChanges = normalizedChanges.filter((change) => change.operation === "prepend");
+  const replacementChange = normalizedChanges.find((change) => change.operation === "replace");
+  const appendChanges = normalizedChanges.filter((change) => change.operation === "append");
+  const blocks = [];
+
+  prependChanges.forEach((change) => {
+    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change), htmlStyle));
+  });
+
+  if (replacementChange) {
+    blocks.push(buildProductPulseDescriptionReplacement(replacementChange.text, buildDescriptionChangeAction(action, replacementChange), htmlStyle));
+  } else if (currentHtml) {
+    blocks.push(currentHtml);
+  }
+
+  appendChanges.forEach((change) => {
+    blocks.push(buildProductPulseDescriptionBlock(change.text, buildDescriptionChangeAction(action, change), htmlStyle));
+  });
+
+  return blocks.filter(Boolean).join("\n");
+}
+
+function buildDescriptionChangeAction(action = {}, change = {}) {
+  const id = change.actionId || change.id || action.id || "product-description-change";
+  return {
+    ...action,
+    id,
+    label: change.title || action.label,
+    payload: {
+      ...(action.payload || {}),
+      operation: change.operation,
+    },
+  };
 }
 
 function applyDescriptionHtmlReplacements(currentHtml, replacements = []) {
@@ -1700,24 +2324,79 @@ function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildProductPulseDescriptionBlock(text, action) {
+function limitSeoText(value = "", maxLength, options = {}) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length <= maxLength) return finishSeoText(text, maxLength, options);
+  const clipped = text.slice(0, maxLength + 1);
+  const sentenceEnd = findLastSeoSentenceEnd(clipped, maxLength);
+  const candidate = sentenceEnd >= Math.min(80, Math.floor(maxLength * 0.55))
+    ? clipped.slice(0, sentenceEnd)
+    : clipped.replace(/\s+\S*$/, "");
+  return finishSeoText(candidate || clipped.slice(0, maxLength), maxLength, options);
+}
+
+function findLastSeoSentenceEnd(value = "", maxLength) {
+  let lastEnd = -1;
+  const regex = /[.!?](?=\s|$)/g;
+  let match = regex.exec(value);
+  while (match) {
+    const end = match.index + 1;
+    if (end <= maxLength) lastEnd = end;
+    match = regex.exec(value);
+  }
+  return lastEnd;
+}
+
+function finishSeoText(value = "", maxLength, options = {}) {
+  let text = String(value || "")
+    .replace(/(?:\.\.\.|…)$/g, "")
+    .replace(/\s+[|/-]?\s*$/g, "")
+    .replace(/\b(?:and|or|with|for|to|of|the|a|an|y|o|con|para|de|del|la|el|los|las)$/i, "")
+    .replace(/[,:;|\-–—]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (options.terminalPeriod && text && !/[.!?]$/.test(text) && text.length + 1 <= maxLength) {
+    text = `${text}.`;
+  }
+  return text.length > maxLength
+    ? text.slice(0, maxLength).replace(/\s+\S*$/, "").replace(/[,:;|\-–—.]+$/g, "").trim()
+    : text;
+}
+
+function buildProductPulseDescriptionBlock(text, action, htmlStyle) {
   const heading = String(action.id || "").includes("faq") ? "Product FAQ" : "Product note";
   const actionId = escapeHtml(action.id || "product-action");
-  return `<section ${buildProductPulseCalloutAttributes(actionId, "productpulse-note")}>\n${buildProductPulseCalloutHeading(heading)}\n${buildHtmlParagraphs(text)}\n</section>`;
+  return buildProductPulseStyledHtmlBlock({
+    actionId,
+    className: "productpulse-note",
+    title: heading,
+    contentHtml: buildHtmlParagraphs(text, htmlStyle),
+    htmlStyle,
+  });
 }
 
-function buildProductPulseDescriptionReplacement(text, action) {
-  const actionId = escapeHtml(action.id || "product-action");
-  return `<div ${buildProductPulseCalloutAttributes(actionId, "productpulse-description-update")}>\n${buildProductPulseCalloutHeading("Updated product description")}\n${buildHtmlParagraphs(text)}\n</div>`;
+function buildProductPulseDescriptionReplacement(text) {
+  return buildProductPulseDescriptionBodyHtml(text);
 }
 
-function buildHtmlParagraphs(text) {
-  if (containsAllowedProductPulseHtml(text)) return sanitizeProductPulseDescriptionHtml(text);
+function buildProductPulseDescriptionBodyHtml(text) {
+  if (containsAllowedProductPulseHtml(text)) return sanitizeProductPulseDescriptionBodyHtml(text);
   return String(text || "")
     .split(/\n{2,}|\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => `<p style="margin:0 0 10px;color:#374151;line-height:1.6;">${escapeHtml(line)}</p>`)
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join("\n");
+}
+
+function buildHtmlParagraphs(text, htmlStyle) {
+  if (containsAllowedProductPulseHtml(text)) return sanitizeProductPulseDescriptionHtml(text);
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
+  return String(text || "")
+    .split(/\n{2,}|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p style="${escapeHtml(preset.paragraphStyle)}">${escapeHtml(line)}</p>`)
     .join("\n");
 }
 
@@ -1734,6 +2413,22 @@ function sanitizeProductPulseDescriptionHtml(value = "") {
     .map((part) => {
       if (!part) return "";
       if (part.startsWith("<")) return sanitizeProductPulseDescriptionTag(part);
+      return escapeHtml(part);
+    })
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeProductPulseDescriptionBodyHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/(<[^>]+>)/g)
+    .map((part) => {
+      if (!part) return "";
+      if (part.startsWith("<")) return sanitizeProductPulseDescriptionBodyTag(part);
       return escapeHtml(part);
     })
     .join("")
@@ -1759,16 +2454,51 @@ function sanitizeProductPulseDescriptionTag(tag = "") {
   return escapeHtml(selfClosing ? `<${tagName} />` : tag);
 }
 
-function buildProductPulseCalloutAttributes(actionId, className = "productpulse-callout") {
+function sanitizeProductPulseDescriptionBodyTag(tag = "") {
+  const match = String(tag || "").match(/^<\s*(\/)?\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/)?>$/i);
+  if (!match) return escapeHtml(tag);
+  const closing = Boolean(match[1]);
+  const tagName = String(match[2] || "").toLowerCase();
+  const selfClosing = Boolean(match[3]);
+  const allowedTags = new Set(["strong", "b", "em", "i", "br", "p", "h3", "h4", "ul", "ol", "li"]);
+  if (!allowedTags.has(tagName)) return escapeHtml(selfClosing ? `<${tagName} />` : tag);
+  if (tagName === "br") return "<br>";
+  return closing ? `</${tagName}>` : `<${tagName}>`;
+}
+
+function buildProductPulseStyledHtmlBlock({ actionId, className, title, contentHtml, htmlStyle, includeHeading = true }) {
+  const style = normalizeProductPulseHtmlStyle(htmlStyle);
+  const preset = getProductPulseHtmlStylePreset(style.preset);
+  const template = getProductPulseHtmlStyleTemplate(style);
+  const attributes = buildProductPulseCalloutAttributes(actionId, className, style);
+  const headingHtml = includeHeading ? buildProductPulseCalloutHeading(title, style) : "";
+  const rendered = template
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes, attributes)
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.title, escapeHtml(title))
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.headingHtml, headingHtml)
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml, contentHtml || "");
+
+  if (rendered.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml)) {
+    return `<section ${attributes}>\n${headingHtml}\n${contentHtml || ""}\n</section>`;
+  }
+  if (!rendered.includes("data-productpulse-action=") && !template.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes)) {
+    return `<section ${attributes}>\n${rendered}\n</section>`;
+  }
+  return rendered.replaceAll("__PRODUCTPULSE_PRESET_TONE__", escapeHtml(preset.tone || "blue"));
+}
+
+function buildProductPulseCalloutAttributes(actionId, className = "productpulse-callout", htmlStyle) {
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
   return [
     `data-productpulse-action="${actionId}"`,
     `class="${escapeHtml(className)} productpulse-callout"`,
-    "style=\"margin:18px 0;padding:16px 18px;border:1px solid #bfdbfe;border-left:4px solid #3b82f6;border-radius:12px;background:#eff6ff;color:#1f2937;box-shadow:0 1px 2px rgba(15,23,42,0.04);\"",
+    `style="${escapeHtml(preset.attributeStyle)}"`,
   ].join(" ");
 }
 
-function buildProductPulseCalloutHeading(label) {
-  return `<p style="margin:0 0 10px;color:#1d4ed8;font-size:12px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;">${escapeHtml(label)}</p>`;
+function buildProductPulseCalloutHeading(label, htmlStyle) {
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
+  return `<p style="${escapeHtml(preset.headingStyle)}">${escapeHtml(label)}</p>`;
 }
 
 function extractPlacedDescriptionDraft({ currentText = "", draftText = "" } = {}) {
@@ -1875,26 +2605,76 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
     snapshot = await createManualProductRiskSnapshot(shop, options.admin, productId);
   }
   if (!snapshot) return null;
-  const activeJob = await getActiveProductDiagnosisJobForSnapshot(shop, snapshot);
-  if (activeJob) return activeJob;
 
-  const job = await prisma.catalogSignalJob.create({
-    data: {
-      shop,
-      kind: PRODUCT_DIAGNOSIS_KIND,
-      source: `Queued AI Product Diagnosis - ${snapshot.productTitle}`,
-      status: "Queued",
-      progress: 0,
-      payload: {
-        productId,
-        productGid: snapshot.productGid,
-        handle: snapshot.handle,
-        productTitle: snapshot.productTitle,
-        riskScore: snapshot.riskScore,
-        queuedAt: new Date().toISOString(),
+  const snapshotMetrics = snapshot.metrics || {};
+  const snapshotImage = await resolveSnapshotProductImage(shop, snapshot, options.admin);
+  const result = await prisma.$transaction(async (tx) => {
+    await lockStorePointLedgerForShop(tx, shop);
+
+    const activeJobs = await tx.catalogSignalJob.findMany({
+      where: {
+        shop,
+        kind: PRODUCT_DIAGNOSIS_KIND,
+        status: { in: ["Queued", "Running"] },
       },
-    },
+      orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
+    });
+    const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeJobs);
+    if (activeJob) return { job: activeJob, created: false };
+
+    if (!options.skipPointBalanceCheck) {
+      const pointCheck = await validateStorePointsForShop(shop, 1, { db: tx });
+      if (!pointCheck.valid) return { pointValidationError: pointCheck };
+    }
+
+    const jobId = randomUUID();
+    const pointDebit = await debitStorePointsForShop(shop, {
+      db: tx,
+      amount: 1,
+      reason: `Product diagnosis credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+      idempotencyKey: `product-diagnosis:${jobId}`,
+      metadata: {
+        source: "product_diagnosis",
+        jobId,
+        productGid: snapshot.productGid || null,
+        productTitle: snapshot.productTitle || null,
+        queued: true,
+      },
+    });
+    if (!isPointDebitRecorded(pointDebit)) return { pointValidationError: pointDebit };
+
+    const job = await tx.catalogSignalJob.create({
+      data: {
+        id: jobId,
+        shop,
+        kind: PRODUCT_DIAGNOSIS_KIND,
+        source: `Queued Product Diagnosis - ${snapshot.productTitle}`,
+        status: "Queued",
+        progress: 0,
+        payload: {
+          productId,
+          productGid: snapshot.productGid,
+          handle: snapshot.handle,
+          productTitle: snapshot.productTitle,
+          imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+          productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
+          imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
+          productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
+          riskScore: snapshot.riskScore,
+          pointCost: 1,
+          pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+          pointDebitStatus: pointDebit.status,
+          queuedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return { job, created: true, pointDebit };
   });
+
+  if (result.pointValidationError) return { pointValidationError: result.pointValidationError };
+  const { job, pointDebit, created } = result;
+  if (!created) return job;
 
   await recordJobLog({
     shop,
@@ -1906,6 +2686,8 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
       handle: snapshot.handle,
       title: snapshot.productTitle,
       riskScore: snapshot.riskScore,
+      pointsConsumed: 1,
+      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
     },
   });
 
@@ -1945,11 +2727,6 @@ async function getActiveShopifyMockDatasetJob(shop) {
   });
 }
 
-async function getActiveProductDiagnosisJobForSnapshot(shop, snapshot) {
-  const jobs = await getActiveProductDiagnosisJobs(shop);
-  return findActiveProductDiagnosisJobForSnapshot(snapshot, jobs);
-}
-
 function findActiveProductDiagnosisJobForSnapshot(snapshot, jobs = []) {
   const keys = new Set([
     snapshot?.productGid,
@@ -1971,8 +2748,8 @@ async function failStaleFastProductScans(shop) {
     },
     data: {
       status: "Failed",
-      errorMessage: "QuickScan worker timed out before completing.",
-      source: "QuickScan failed",
+      errorMessage: "Catalog Scan worker timed out before completing.",
+      source: "Catalog Scan failed",
       finishedAt: new Date(),
     },
   });
@@ -1988,7 +2765,7 @@ function ensureFastProductScanWorker(job, options = {}) {
         shop: job.shop,
         jobId: job.id,
         event: "quick_scan.worker_started",
-        message: "QuickScan worker started or rehydrated from an active persisted job.",
+        message: "Catalog Scan worker started or rehydrated from an active persisted job.",
         data: { status: job.status, source: job.source },
       });
       const admin = options.admin || await getOfflineAdmin(job.shop);
@@ -2005,7 +2782,7 @@ function ensureFastProductScanWorker(job, options = {}) {
         jobId: job.id,
         level: "error",
         event: "quick_scan.worker_failed",
-        message: "QuickScan worker failed.",
+        message: "Catalog Scan worker failed.",
         data: { error: serializeError(error) },
       });
       await markJobFailed(job.id, error);
@@ -2015,7 +2792,7 @@ function ensureFastProductScanWorker(job, options = {}) {
         shop: job.shop,
         jobId: job.id,
         event: "quick_scan.worker_stopped",
-        message: "QuickScan worker stopped.",
+        message: "Catalog Scan worker stopped.",
       });
     }
   }, 0);
@@ -2147,7 +2924,12 @@ function ensureProductDiagnosisQueueWorker(shop) {
             message: "Product diagnosis worker failed.",
             data: { error: serializeError(error), payload: job.payload },
           });
-          await markJobFailed(job.id, error, "AI Product Diagnosis failed");
+          await markJobFailed(job.id, error, "Product Diagnosis failed");
+          await maybeSendWatchlistRunAlertForJob({
+            ...job,
+            status: "Failed",
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
         }
       }
     } finally {
@@ -2171,7 +2953,7 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
     data: {
       status: "Queued",
       progress: 0,
-      source: "Requeued AI Product Diagnosis after worker recovery",
+      source: "Requeued Product Diagnosis after worker recovery",
     },
   });
 
@@ -2190,7 +2972,7 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
       shop: job.shop,
       jobId: job.id,
       event: "product_diagnosis.requeued",
-      message: "Recovered running product diagnosis job and returned it to the queue.",
+      message: "Recovered running Product Diagnosis job and returned it to the queue.",
       data: { payload: job.payload },
     })));
   }
@@ -2216,7 +2998,7 @@ async function claimNextProductDiagnosisJob(shop) {
     data: {
       status: "Running",
       progress: 5,
-      source: `Running AI Product Diagnosis - ${nextJob.payload?.productTitle || "selected product"}`,
+      source: `Running Product Diagnosis - ${nextJob.payload?.productTitle || "selected product"}`,
       startedAt: new Date(),
     },
   });
@@ -2255,9 +3037,11 @@ async function runProductDiagnosisJob(job) {
     },
   });
 
+  const pointDebit = await ensureProductDiagnosisPointDebit(job);
+
   await updateProductDiagnosisJob(job.id, {
     progress: 18,
-    source: `Preparing AI Product Diagnosis - ${snapshot.productTitle}`,
+    source: `Preparing Product Diagnosis - ${snapshot.productTitle}`,
   });
 
   await updateProductDiagnosisJob(job.id, {
@@ -2266,18 +3050,20 @@ async function runProductDiagnosisJob(job) {
   });
 
   const admin = await getOfflineAdmin(job.shop);
+  const productImage = await resolveSnapshotProductImage(job.shop, snapshot, admin);
   const diagnosis = await runDetailedProductDiagnosis({
     shop: job.shop,
     jobId: job.id,
     admin,
     snapshot,
   });
+  const pointCharge = await finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit);
 
   await updateProductDiagnosisJob(job.id, {
     progress: 92,
     source: diagnosis?.skipped
       ? `No product changes detected - reused diagnosis - ${snapshot.productTitle}`
-      : `Finalizing AI Product Diagnosis - ${snapshot.productTitle}`,
+      : `Finalizing Product Diagnosis - ${snapshot.productTitle}`,
   });
 
   await updateProductDiagnosisJob(job.id, {
@@ -2285,7 +3071,19 @@ async function runProductDiagnosisJob(job) {
     progress: 100,
     source: diagnosis?.skipped
       ? `No changes detected; previous diagnosis reused - ${snapshot.productTitle}`
-      : `AI Product Diagnosis completed - ${snapshot.productTitle}`,
+      : `Product Diagnosis completed - ${snapshot.productTitle}`,
+    payload: {
+      ...(job.payload || {}),
+      imageUrl: job.payload?.imageUrl || productImage.imageUrl || "",
+      productImageUrl: job.payload?.productImageUrl || productImage.imageUrl || "",
+      imageAlt: job.payload?.imageAlt || productImage.imageAlt || snapshot.productTitle,
+      productImageAlt: job.payload?.productImageAlt || productImage.imageAlt || snapshot.productTitle,
+      creditsConsumed: pointCharge.pointsConsumed,
+      pointsConsumed: pointCharge.pointsConsumed,
+      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
+      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
+      pointDebitStatus: pointCharge.status || "not_charged",
+    },
     finishedAt: new Date(),
   });
 
@@ -2293,15 +3091,20 @@ async function runProductDiagnosisJob(job) {
     shop: job.shop,
     jobId: job.id,
     event: "product_diagnosis.completed",
-    message: diagnosis?.skipped
-      ? "Product diagnosis finished from cache because no source changes were detected. No credit was consumed."
+    message: diagnosis?.skipped && pointCharge.pointsConsumed <= 0
+      ? "Product diagnosis finished from cache because no source changes were detected. No diagnosis credit was consumed."
       : "Product diagnosis completed.",
     data: {
       durationMs: Date.now() - startedAt,
       diagnosisId: diagnosis?.diagnosisId,
       skipped: Boolean(diagnosis?.skipped),
       skipReason: diagnosis?.skipReason,
-      creditsConsumed: diagnosis?.creditsConsumed ?? 1,
+      creditsConsumed: pointCharge.pointsConsumed,
+      pointsConsumed: pointCharge.pointsConsumed,
+      pointDebitStatus: pointCharge.status || "not_charged",
+      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
+      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
+      pointBalance: pointCharge.balance || null,
       riskScore: diagnosis?.riskScore,
       confidence: diagnosis?.confidence,
       estimatedImpact: diagnosis?.estimatedImpact,
@@ -2311,6 +3114,141 @@ async function runProductDiagnosisJob(job) {
       aiUsage: diagnosis?.aiUsage,
     },
   });
+
+  await maybeSendWatchlistRunAlertForJob({
+    ...job,
+    status: "Completed",
+    payload: {
+      ...(job.payload || {}),
+      creditsConsumed: pointCharge.pointsConsumed,
+      pointsConsumed: pointCharge.pointsConsumed,
+      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
+      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
+      pointDebitStatus: pointCharge.status || "not_charged",
+    },
+  });
+}
+
+function isPointDebitRecorded(pointDebit) {
+  return ["success", "already_recorded"].includes(pointDebit?.status);
+}
+
+function isPointCreditRecorded(pointCredit) {
+  return ["success", "already_recorded"].includes(pointCredit?.status);
+}
+
+function getExistingProductDiagnosisPointDebit(job) {
+  const payload = job.payload || {};
+  if (!payload.pointLedgerEntryId || !isPointDebitRecorded({ status: payload.pointDebitStatus })) return null;
+  const amount = Number(payload.pointCost || payload.pointsConsumed || payload.creditsConsumed || 1);
+  return {
+    status: payload.pointDebitStatus,
+    charged: false,
+    amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
+    ledgerEntry: { id: payload.pointLedgerEntryId },
+    balance: null,
+  };
+}
+
+async function ensureProductDiagnosisPointDebit(job) {
+  const existing = getExistingProductDiagnosisPointDebit(job);
+  if (existing) return existing;
+
+  const pointDebit = await debitStorePointsForShop(job.shop, {
+    amount: 1,
+    reason: `Product diagnosis credit debit product-diagnosis:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+    idempotencyKey: `product-diagnosis:${job.id}`,
+    metadata: {
+      source: "product_diagnosis",
+      jobId: job.id,
+      productGid: job.payload?.productGid || null,
+      productTitle: job.payload?.productTitle || null,
+      queued: false,
+    },
+  });
+
+  if (!isPointDebitRecorded(pointDebit)) {
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      level: "error",
+      event: "product_diagnosis.points_not_consumed",
+      message: pointDebit.message || "Product diagnosis credits could not be consumed.",
+      data: {
+        pointsConsumed: 1,
+        pointDebitStatus: pointDebit.status,
+        pointBalance: pointDebit.balance || null,
+      },
+    });
+    throw new Error(pointDebit.message || "Product diagnosis needs 1.0 diagnosis credit before it can start.");
+  }
+
+  await updateProductDiagnosisJob(job.id, {
+    payload: {
+      ...(job.payload || {}),
+      pointCost: 1,
+      pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+      pointDebitStatus: pointDebit.status,
+    },
+  });
+
+  return pointDebit;
+}
+
+async function finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit) {
+  const chargedAmount = Number(pointDebit?.amount || pointDebit?.ledgerEntry?.amount || job.payload?.pointCost || 1);
+  const normalizedChargedAmount = Number.isFinite(chargedAmount) && chargedAmount > 0 ? chargedAmount : 1;
+  const diagnosisPointsConsumed = Number(diagnosis?.creditsConsumed ?? 1);
+  if (!Number.isFinite(diagnosisPointsConsumed) || diagnosisPointsConsumed <= 0) {
+    const refund = await creditStorePointsForShop(job.shop, {
+      amount: normalizedChargedAmount,
+      reason: `Product diagnosis credit refund product-diagnosis-refund:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+      idempotencyKey: `product-diagnosis-refund:${job.id}`,
+      metadata: {
+        source: "product_diagnosis_refund",
+        jobId: job.id,
+        originalLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+        diagnosisId: diagnosis?.diagnosisId || null,
+        productGid: job.payload?.productGid || null,
+        productTitle: job.payload?.productTitle || null,
+        skipped: Boolean(diagnosis?.skipped),
+      },
+    });
+
+    if (!isPointCreditRecorded(refund)) {
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        level: "error",
+        event: "product_diagnosis.points_refund_failed",
+        message: refund.message || "Product diagnosis credit refund could not be recorded.",
+        data: {
+          pointDebitStatus: pointDebit?.status || "unknown",
+          pointRefundStatus: refund.status,
+          pointBalance: refund.balance || null,
+        },
+      });
+      return {
+        ...pointDebit,
+        status: `refund_${refund.status || "failed"}`,
+        pointsConsumed: normalizedChargedAmount,
+        balance: refund.balance || pointDebit?.balance || null,
+      };
+    }
+
+    return {
+      ...pointDebit,
+      status: "refunded",
+      pointsConsumed: 0,
+      refundLedgerEntry: refund.ledgerEntry || null,
+      balance: refund.balance || pointDebit?.balance || null,
+    };
+  }
+
+  return {
+    ...pointDebit,
+    pointsConsumed: normalizedChargedAmount,
+  };
 }
 
 async function getOfflineAdmin(shop) {
@@ -2343,7 +3281,7 @@ async function shopifyGraphql(admin, query, variables) {
   return json.data;
 }
 
-async function markJobFailed(jobId, error, source = "QuickScan failed") {
+async function markJobFailed(jobId, error, source = "Catalog Scan failed") {
   await prisma.catalogSignalJob.updateMany({
     where: {
       id: jobId,
@@ -2442,23 +3380,23 @@ function getProductAnalysisState(snapshot, latestDiagnosis = null) {
   if (hasFullDiagnosis) {
     return {
       depth: "full",
-      label: "Full diagnosis",
+      label: "Product diagnosis",
       tone: "success",
       icon: "wand",
       completedAt: toIso(completedAt),
       detail: completedAt
-        ? `Deep AI diagnosis completed ${formatJobDate(completedAt)}.`
-        : "Deep AI diagnosis completed.",
+        ? `Product Diagnosis completed ${formatJobDate(completedAt)}.`
+        : "Product Diagnosis completed.",
     };
   }
 
   return {
     depth: "quickscan",
-    label: "QuickScan only",
+    label: "Catalog Scan only",
     tone: "info",
     icon: "search",
     completedAt: null,
-    detail: "Preliminary Shopify scan only. Run product diagnosis for recommended actions.",
+    detail: "Preliminary Shopify scan only. Run Product Diagnosis for recommended actions.",
   };
 }
 
@@ -2489,13 +3427,28 @@ function getProductDiagnosisJobKeys(job) {
   ].filter(Boolean).map(String);
 }
 
+function getActiveDiagnosisProductKeySet(jobs = []) {
+  const keys = new Set();
+  jobs.forEach((job) => {
+    getProductDiagnosisJobKeys(job).forEach((key) => keys.add(key));
+  });
+  return keys;
+}
+
 function isPreferredProductDiagnosisJob(candidate, current) {
   if (candidate.status === "Running" && current.status !== "Running") return true;
   if (candidate.status !== "Running" && current.status === "Running") return false;
   return new Date(candidate.updatedAt).getTime() > new Date(current.updatedAt).getTime();
 }
 
-function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProductGid = new Map(), settings = undefined, latestDiagnosisByProductGid = new Map()) {
+function filterProductSnapshots(
+  snapshots,
+  filters = {},
+  resolvedActionsByProductGid = new Map(),
+  settings = undefined,
+  latestDiagnosisByProductGid = new Map(),
+  activeDiagnosisProductKeys = new Set(),
+) {
   const query = String(filters.query || "").trim().toLowerCase();
 
   return snapshots.filter((snapshot) => {
@@ -2517,7 +3470,9 @@ function filterProductSnapshots(snapshots, filters = {}, resolvedActionsByProduc
     ].filter(Boolean).join(" ").toLowerCase();
 
     if (query && !searchable.includes(query)) return false;
-    if (filters.analysis && filters.analysis !== "all" && getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid) !== filters.analysis) return false;
+    if (filters.resolution === "resolved" && !isResolved) return false;
+    if (["unresolved", "exclude-resolved"].includes(filters.resolution) && isResolved) return false;
+    if (filters.analysis && filters.analysis !== "all" && getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid, activeDiagnosisProductKeys) !== filters.analysis) return false;
     if (filters.risk && filters.risk !== "all" && getRiskFilterValue(snapshot.riskScore, settings) !== filters.risk) return false;
     if (filters.status && filters.status !== "all" && getStatusFilterValue(snapshot.riskScore, isResolved, settings) !== filters.status) return false;
     if (filters.issue && filters.issue !== "all" && slugifyFilterValue(snapshot.primaryIssue) !== filters.issue) return false;
@@ -2552,7 +3507,12 @@ function sortProductSnapshots(snapshots, filters = {}, resolvedActionsByProductG
   });
 }
 
-function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = new Map(), settings = undefined, latestDiagnosisByProductGid = new Map()) {
+function getProductTableFilterOptions(
+  snapshots,
+  settings = undefined,
+  latestDiagnosisByProductGid = new Map(),
+  activeDiagnosisProductKeys = new Set(),
+) {
   const issues = new Map();
   const sources = new Map();
   const vendors = new Map();
@@ -2562,11 +3522,10 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
 
   snapshots.forEach((snapshot) => {
     const metrics = snapshot.metrics || {};
-    const isResolved = resolvedActionsByProductGid.has(snapshot.productGid);
-    const analysisDepth = getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid);
+    const analysisDepth = getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
     if (analysisCounts[analysisDepth] !== undefined) analysisCounts[analysisDepth] += 1;
     addFilterOption(issues, snapshot.primaryIssue);
-    addFilterOption(statuses, getStatusLabel(snapshot.riskScore, isResolved, settings), getStatusFilterValue(snapshot.riskScore, isResolved, settings));
+    addFilterOption(statuses, getStatusLabel(snapshot.riskScore, false, settings), getStatusFilterValue(snapshot.riskScore, false, settings));
     (Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : []).forEach((source) => addFilterOption(sources, source));
     addFilterOption(vendors, metrics.vendor);
     (Array.isArray(metrics.collections) ? metrics.collections : []).forEach((collection) => addFilterOption(collections, collection));
@@ -2575,7 +3534,7 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
   return {
     analysis: [
       { value: "all", label: "All", count: analysisCounts.all },
-      { value: "quickscan", label: "QuickScan", count: analysisCounts.quickscan },
+      { value: "quickscan", label: "Catalog Scan", count: analysisCounts.quickscan },
       { value: "full", label: "Full diagnostic", count: analysisCounts.full },
     ],
     risks: [
@@ -2592,7 +3551,8 @@ function getProductTableFilterOptions(snapshots, resolvedActionsByProductGid = n
   };
 }
 
-function getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid = new Map()) {
+function getSnapshotAnalysisDepth(snapshot, latestDiagnosisByProductGid = new Map(), activeDiagnosisProductKeys = new Set()) {
+  if (activeDiagnosisProductKeys?.has(snapshot.productGid) || activeDiagnosisProductKeys?.has(snapshot.handle)) return "full";
   return getProductAnalysisState(snapshot, latestDiagnosisByProductGid.get(snapshot.productGid)).depth;
 }
 
@@ -2643,6 +3603,62 @@ function normalizeRowsPerPage(value) {
 function normalizePositiveInteger(value, fallback) {
   const number = Number.parseInt(value, 10);
   return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+async function resolveSnapshotProductImage(shop, snapshot, admin) {
+  const currentImage = getSnapshotProductImage(snapshot);
+  if (currentImage.imageUrl || !admin?.graphql || !snapshot?.productGid) return currentImage;
+
+  const [rowWithImage] = await attachProductImages([{ productGid: snapshot.productGid }], admin);
+  const imageUrl = normalizeJobPayloadString(rowWithImage?.imageUrl);
+  if (!imageUrl) return currentImage;
+
+  const imageAlt = normalizeJobPayloadString(rowWithImage?.imageAlt) || snapshot.productTitle || "";
+  const nextMetrics = {
+    ...(snapshot.metrics || {}),
+    imageUrl,
+    productImageUrl: imageUrl,
+    imageAlt,
+    productImageAlt: imageAlt,
+  };
+
+  await prisma.productRiskSnapshot.update({
+    where: {
+      shop_productGid: {
+        shop,
+        productGid: snapshot.productGid,
+      },
+    },
+    data: {
+      metrics: nextMetrics,
+    },
+  }).catch(() => null);
+
+  snapshot.metrics = nextMetrics;
+  return { imageUrl, imageAlt };
+}
+
+function getSnapshotProductImage(snapshot = {}) {
+  const metrics = snapshot.metrics || {};
+  const candidates = [
+    metrics.imageUrl,
+    metrics.productImageUrl,
+    metrics.featuredImageUrl,
+    typeof metrics.image === "string" ? metrics.image : metrics.image?.url,
+    metrics.featuredImage?.url,
+  ];
+  const altCandidates = [
+    metrics.imageAlt,
+    metrics.productImageAlt,
+    metrics.featuredImageAlt,
+    metrics.image?.altText,
+    metrics.featuredImage?.altText,
+    snapshot.productTitle,
+  ];
+  return {
+    imageUrl: candidates.map(normalizeJobPayloadString).find(Boolean) || "",
+    imageAlt: altCandidates.map(normalizeJobPayloadString).find(Boolean) || "",
+  };
 }
 
 async function attachProductImages(rows, admin) {
@@ -2705,6 +3721,76 @@ async function attachProductImages(rows, admin) {
   } catch {
     return rows;
   }
+}
+
+async function attachProductRelationshipImagesToDiagnosis(product, admin) {
+  const summary = product?.metrics?.productRelationshipIntelligenceSummary;
+  if (!summary || typeof summary !== "object" || !admin?.graphql) return product;
+  const ids = collectProductRelationshipProductIds(summary);
+  if (!ids.length) return product;
+
+  const rows = await attachProductImages(ids.map((productGid) => ({ productGid })), admin);
+  const imageByProductId = new Map(rows
+    .filter((row) => row.productGid && row.imageUrl)
+    .map((row) => [row.productGid, { imageUrl: row.imageUrl, imageAlt: row.imageAlt || "" }]));
+  if (!imageByProductId.size) return product;
+
+  return {
+    ...product,
+    metrics: {
+      ...product.metrics,
+      productRelationshipIntelligenceSummary: enrichProductRelationshipSummaryImages(summary, imageByProductId),
+    },
+  };
+}
+
+function collectProductRelationshipProductIds(summary) {
+  const ids = new Set();
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const productGid = normalizeShopifyProductGid(
+      value.related_product_id
+        || value.relatedProductId,
+    );
+    if (productGid) ids.add(productGid);
+    Object.values(value).forEach((child) => {
+      if (child && typeof child === "object") visit(child);
+    });
+  };
+  visit(summary);
+  return Array.from(ids);
+}
+
+function enrichProductRelationshipSummaryImages(summary, imageByProductId) {
+  const visit = (value) => {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(visit);
+    const next = { ...value };
+    const productGid = normalizeShopifyProductGid(
+      next.related_product_id
+        || next.relatedProductId,
+    );
+    const image = productGid ? imageByProductId.get(productGid) : null;
+    if (image && !next.related_product_image_url && !next.relatedProductImageUrl && !next.imageUrl && !next.image_url) {
+      next.related_product_image_url = image.imageUrl;
+      next.relatedProductImageUrl = image.imageUrl;
+      next.imageUrl = image.imageUrl;
+      if (image.imageAlt) {
+        next.related_product_image_alt = image.imageAlt;
+        next.relatedProductImageAlt = image.imageAlt;
+        next.imageAlt = image.imageAlt;
+      }
+    }
+    Object.entries(next).forEach(([key, child]) => {
+      if (child && typeof child === "object") next[key] = visit(child);
+    });
+    return next;
+  };
+  return visit(summary);
 }
 
 async function attachProductImageToDiagnosis(product, admin) {
@@ -3028,6 +4114,8 @@ function buildManualProductRiskSnapshotPayload(shop, product) {
   const skuCount = variants.filter((variant) => variant.sku).length;
   const collectionTitles = collections.map((collection) => collection.title).filter(Boolean);
   const now = new Date();
+  const mediaNode = product.media?.nodes?.[0] || {};
+  const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
 
   return {
     shop,
@@ -3068,6 +4156,10 @@ function buildManualProductRiskSnapshotPayload(shop, product) {
       hasDescription: descriptionWordCount > 0,
       descriptionWordCount,
       createdFromShopifySearchAt: now.toISOString(),
+      imageUrl: image.url || "",
+      productImageUrl: image.url || "",
+      imageAlt: image.altText || product.title || "",
+      productImageAlt: image.altText || product.title || "",
     },
     calculatedAt: now,
   };
@@ -3117,14 +4209,14 @@ function formatShopifyProductSearchResult(product, statusByProductGid = new Map(
 }
 
 function getProductPulseSearchStatusLabel(status) {
-  if (status === "full") return "Deep analysis completed";
-  if (status === "quickscan") return "QuickScan stored";
+  if (status === "full") return "Product Diagnosis completed";
+  if (status === "quickscan") return "Catalog Scan stored";
   return "Not in ProductPulse";
 }
 
 function getProductPulseSearchStatusDetail(status) {
-  if (status === "full") return "This product already has a completed deep product diagnosis in ProductPulse.";
-  if (status === "quickscan") return "This product is stored in ProductPulse with lightweight QuickScan signals only.";
+  if (status === "full") return "This product already has a completed Product Diagnosis in ProductPulse.";
+  if (status === "quickscan") return "This product is stored in ProductPulse with lightweight Catalog Scan signals only.";
   return "This Shopify product is not stored in ProductPulse yet. Run a diagnosis or add it to a workflow to start tracking it.";
 }
 
@@ -3154,6 +4246,7 @@ function withShopifyAdminUrl(product, shop) {
   return {
     ...product,
     shopifyAdminUrl: getShopifyProductAdminUrl(shop, product.id),
+    shopifyStorefrontUrl: getShopifyProductStorefrontUrl(shop, product.handle || product.slug),
   };
 }
 
@@ -3161,6 +4254,12 @@ function getShopifyProductAdminUrl(shop, productGid) {
   const numericId = String(productGid || "").split("/").pop();
   if (!shop || !numericId) return null;
   return `https://${shop}/admin/products/${numericId}`;
+}
+
+function getShopifyProductStorefrontUrl(shop, handle) {
+  const productHandle = String(handle || "").trim();
+  if (!shop || !productHandle) return null;
+  return `https://${shop}/products/${encodeURIComponent(productHandle)}`;
 }
 
 function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
@@ -3193,7 +4292,7 @@ function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
     lastAnalysis: null,
     analysisDepth: "catalog",
     analysisLabel: "Not scanned",
-    analysisDetail: "No QuickScan or product diagnosis has been stored yet.",
+    analysisDetail: "No Catalog Scan or Product Diagnosis has been stored yet.",
     analysisTone: "neutral",
     analysisIcon: "product",
     analysisCompletedAt: null,
@@ -3202,7 +4301,7 @@ function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
     latestDiagnosisId: null,
     primaryIssue: null,
     hasRiskSnapshot: false,
-    canDiagnose: false,
+    canDiagnose: true,
     canResolve: false,
     imageUrl: image.url || null,
     imageAlt: image.altText || null,
@@ -3247,8 +4346,10 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
   const diagnosisReport = metrics.diagnosisReport || {};
   const diagnosisIssues = Array.isArray(latestDiagnosis?.issues) ? latestDiagnosis.issues : null;
   const diagnosisEvidence = Array.isArray(latestDiagnosis?.evidence) ? latestDiagnosis.evidence : null;
-  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations) ? latestDiagnosis.recommendations : null;
-  const storedActions = actions.map(formatStoredProductAction);
+  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations)
+    ? filterDisabledProductActions(latestDiagnosis.recommendations)
+    : null;
+  const storedActions = filterDisabledProductActions(actions.map(formatStoredProductAction));
   const returnRatePrediction = adjustReturnRatePredictionForActions(metrics.returnRatePrediction, diagnosisRecommendations, storedActions);
   const resolvedAction = getActiveResolvedStoredAction(storedActions);
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
@@ -3322,6 +4423,27 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       monthlyOrderActivity: metrics.monthlyOrderActivity || null,
       returnRatePrediction,
       productMomentum: metrics.productMomentum || null,
+      returnRefundRelationshipSummary: metrics.returnRefundRelationshipSummary || null,
+      returnRefundRelationshipFactors: metrics.returnRefundRelationshipFactors || null,
+      returnRefundScoringImpact: Array.isArray(metrics.returnRefundScoringImpact) ? metrics.returnRefundScoringImpact : [],
+      financialExposureBreakdown: metrics.financialExposureBreakdown || null,
+      returnPressure: metrics.returnPressure || null,
+      refundLeakage: metrics.refundLeakage || null,
+      customerSignalBreakdown: metrics.customerSignalBreakdown || null,
+      productPurchaseContextSummary: metrics.productPurchaseContextSummary || null,
+      productPurchaseContextFactors: metrics.productPurchaseContextFactors || null,
+      productPurchaseContextScoringImpact: Array.isArray(metrics.productPurchaseContextScoringImpact)
+        ? metrics.productPurchaseContextScoringImpact
+        : [],
+      purchaseContextSignalBreakdown: metrics.purchaseContextSignalBreakdown || null,
+      productRelationshipIntelligenceSummary: metrics.productRelationshipIntelligenceSummary || null,
+      productRelationshipFactors: metrics.productRelationshipFactors || null,
+      productRelationshipScoringImpact: Array.isArray(metrics.productRelationshipScoringImpact)
+        ? metrics.productRelationshipScoringImpact
+        : [],
+      productRelationshipAiInsights: metrics.productRelationshipAiInsights || null,
+      productRetention: metrics.productRetention || null,
+      productRetentionSummary: metrics.productRetentionSummary || metrics.productRetention?.summary || null,
       productMomentumScore: metrics.productMomentumScore || metrics.productMomentum?.score || null,
       productMomentumTier: metrics.productMomentumTier || metrics.productMomentum?.tier || "",
       momentumDirection: metrics.momentumDirection || metrics.productMomentum?.direction || "",
@@ -3348,6 +4470,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       topRefundReasonDetails: Array.isArray(metrics.topRefundReasonDetails) ? metrics.topRefundReasonDetails : [],
       affectedVariants: Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [],
       affectedVariantDetails: Array.isArray(metrics.affectedVariantDetails) ? metrics.affectedVariantDetails : [],
+      variantInsights: Array.isArray(metrics.variantInsights) ? metrics.variantInsights : [],
       variantCount,
       skuCount,
       optionNames: Array.isArray(metrics.optionNames) ? metrics.optionNames : [],
@@ -3368,6 +4491,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       templateSuffix: metrics.templateSuffix || "",
       checkedSources: Array.isArray(diagnosisReport.checkedSources) ? diagnosisReport.checkedSources : [],
       aiModels: diagnosisReport.aiModels || null,
+      chartInterpretations: metrics.chartInterpretations || diagnosisReport.chartInterpretations || null,
       orderAccessDenied: Boolean(metrics.orderAccessDenied),
       descriptionLength: metrics.descriptionLength || 0,
       descriptionWordCount: metrics.descriptionWordCount || 0,
@@ -3385,7 +4509,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     },
     evidence: diagnosisEvidence || getSnapshotEvidence(snapshot, metrics),
     issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics, settings),
-    recommendedActions: hasFullDiagnosis ? (diagnosisRecommendations || getSnapshotRecommendedActions(snapshot, metrics)) : [],
+    recommendedActions: hasFullDiagnosis ? (diagnosisRecommendations || filterDisabledProductActions(getSnapshotRecommendedActions(snapshot, metrics))) : [],
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
   };
@@ -3410,10 +4534,33 @@ function formatProductRiskHistory(scoreHistory = []) {
         negativeReviewRate: toNullableNumber(metrics.negativeReviewRate),
         marginAtRisk: toNullableNumber(metrics.marginAtRisk),
         revenueAtRisk: toNullableNumber(metrics.revenueAtRisk),
+        financialExposure: toNullableNumber(metrics.financialExposure),
+        salesAmount: toNullableNumber(metrics.salesAmount),
+        refundAmount: toNullableNumber(metrics.refundAmount),
+        soldUnits: toNullableNumber(metrics.soldUnits),
+        returnUnits: toNullableNumber(metrics.returnUnits),
+        refundUnits: toNullableNumber(metrics.refundUnits),
+        reviewCount: toNullableNumber(metrics.reviewCount),
+        negativeReviewCount: toNullableNumber(metrics.negativeReviewCount),
+        avgRating: toNullableNumber(metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating),
+        customerSignalCount: toNullableNumber(metrics.customerSignalCount),
+        evidenceStrengthScore: toNullableNumber(metrics.evidenceStrengthScore),
+        retentionHealthScore: toNullableNumber(metrics.retentionHealthScore),
+        productMomentumScore: toNullableNumber(metrics.productMomentumScore),
+        returnPressureScore: toNullableNumber(metrics.returnPressureScore ?? metrics.returnRefundRelationship?.returnPressureScore),
+        refundLeakageScore: toNullableNumber(metrics.refundLeakageScore ?? metrics.returnRefundRelationship?.refundLeakageScore),
+        mainIssueIntensity: toNullableNumber(metrics.mainIssueIntensity ?? metrics.priorityScore),
         signalCount: toNullableNumber(metrics.signalsCount || metrics.signalCount || metrics.issueCount),
+        sourceCount: getHistorySourceCount(metrics.sourceCoverage),
       };
     })
     .filter(Boolean);
+}
+
+function getHistorySourceCount(sourceCoverage) {
+  if (Array.isArray(sourceCoverage)) return sourceCoverage.length;
+  if (sourceCoverage && typeof sourceCoverage === "object") return Object.keys(sourceCoverage).length;
+  return null;
 }
 
 function toNullableNumber(value) {
@@ -3437,6 +4584,7 @@ function formatStoredProductAction(action) {
   const payload = action.payload || {};
   return {
     id: action.id,
+    diagnosisId: action.diagnosisId || payload.sourceDiagnosisId || payload.diagnosisId || null,
     actionId: action.actionType,
     label: action.label,
     status: action.status,
@@ -3473,15 +4621,17 @@ function adjustReturnRatePredictionForActions(prediction = null, recommendations
     else totals.pending += 1;
     return totals;
   }, { pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
-  const mitigationPoints = clampNumber(counts.applied * 1.65 + counts.reviewed * 1.1, 0, 9);
+  const mitigationPoints = clampNumber(counts.applied * 3.25 + counts.reviewed * 2.15, 0, 15);
   const adjustmentPoints = -mitigationPoints;
+  const uncertaintyMultiplier = roundTo(1 + clampNumber(mitigationPoints / 50, 0, 0.3), 2);
   const baseForecastNext90ReturnRate = roundTo(averageNumbers(prediction.forecastPoints.map((point) => Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0))), 2);
   const forecastPoints = prediction.forecastPoints.map((point, index) => {
-    const horizonWeight = (index + 1) / prediction.forecastPoints.length;
+    const horizonWeight = getReturnPredictionActionHorizonWeight(index, prediction.forecastPoints.length);
     const basePredictedReturnRate = Number(point.basePredictedReturnRate ?? point.predictedReturnRate ?? 0);
     return {
       ...point,
       basePredictedReturnRate,
+      actionAdjustedReturnRateShift: roundTo(adjustmentPoints * horizonWeight, 2),
       predictedReturnRate: roundTo(clampNumber(basePredictedReturnRate + adjustmentPoints * horizonWeight, 0, 100), 2),
     };
   });
@@ -3500,11 +4650,17 @@ function adjustReturnRatePredictionForActions(prediction = null, recommendations
       handled: counts.applied + counts.reviewed + counts.dismissed,
       beneficialHandled: counts.applied + counts.reviewed,
       adjustmentPoints: roundTo(adjustmentPoints, 2),
+      uncertaintyMultiplier,
       baseForecastNext90ReturnRate,
       forecastNext90ReturnRate,
       direction: adjustmentPoints < 0 ? "improving" : adjustmentPoints > 0 ? "worsening" : "neutral",
     },
   };
+}
+
+function getReturnPredictionActionHorizonWeight(index = 0, total = 1) {
+  const horizonRatio = clampNumber((Number(index || 0) + 1) / Math.max(Number(total || 1), 1), 0, 1);
+  return clampNumber(0.34 + 0.66 * Math.pow(horizonRatio, 0.78), 0, 1);
 }
 
 function buildReturnPredictionActionDescriptors(recommendations = []) {
@@ -3707,7 +4863,7 @@ function getResolvedAction(snapshot) {
     effort: "Low",
     status: "Ready",
     applyImmediately: true,
-    payload: { productGid: snapshot.productGid, resolvedAt: new Date().toISOString() },
+    payload: { productGid: snapshot.productGid, handle: snapshot.handle, resolvedAt: new Date().toISOString() },
   };
 }
 
@@ -3719,7 +4875,7 @@ function getUnresolvedAction(snapshot) {
     effort: "Low",
     status: "Ready",
     applyImmediately: true,
-    payload: { productGid: snapshot.productGid, unresolvedAt: new Date().toISOString() },
+    payload: { productGid: snapshot.productGid, handle: snapshot.handle, unresolvedAt: new Date().toISOString() },
   };
 }
 
@@ -3794,9 +4950,12 @@ function getPdpCopyActionLabel(issueCategory) {
 function formatJob(job) {
   const productTitle = getJobProductTitle(job);
   const productHandle = getJobProductHandle(job);
+  const productImageUrl = getJobProductImageUrl(job);
+  const productImageAlt = getJobProductImageAlt(job, productTitle);
   const displayTitle = getJobDisplayTitle(job, productTitle);
   const displaySubtitle = getJobDisplaySubtitle(job, productTitle);
   const executionStartedAt = job.status === "Queued" ? null : job.startedAt;
+  const pointsConsumed = getJobPointCost(job);
 
   return {
     id: job.id,
@@ -3805,6 +4964,8 @@ function formatJob(job) {
     productTitle,
     productHandle,
     productHref: productHandle ? `/app/products/${productHandle}` : null,
+    imageUrl: productImageUrl,
+    imageAlt: productImageAlt,
     displayTitle,
     displaySubtitle,
     source: job.errorMessage || job.source,
@@ -3820,12 +4981,25 @@ function formatJob(job) {
     finishedAt: job.finishedAt,
     finishedAtIso: toIso(job.finishedAt),
     elapsedMs: job.status === "Queued" ? 0 : getElapsedMs(job.startedAt, job.finishedAt),
+    pointsConsumed,
+    creditsConsumed: pointsConsumed,
+    creditCost: pointsConsumed,
   };
 }
 
+function getJobPointCost(job) {
+  const payload = job.payload || {};
+  const explicit = payload.pointsConsumed ?? payload.creditsConsumed ?? payload.pointCost ?? payload.creditCost;
+  const explicitNumber = Number(explicit);
+  if (Number.isFinite(explicitNumber) && explicitNumber >= 0) return explicitNumber;
+  if (job.kind === FAST_PRODUCT_SCAN_KIND) return 1;
+  if (job.kind === PRODUCT_DIAGNOSIS_KIND) return 1;
+  return 0;
+}
+
 function getJobDisplayName(kind) {
-  if (kind === FAST_PRODUCT_SCAN_KIND) return "Fast product scan";
-  if (kind === PRODUCT_DIAGNOSIS_KIND) return "AI Product Diagnosis";
+  if (kind === FAST_PRODUCT_SCAN_KIND) return "Catalog Scan";
+  if (kind === PRODUCT_DIAGNOSIS_KIND) return "Product Diagnosis";
   if (kind === SHOPIFY_MOCK_DATASET_KIND) return "Shopify mock dataset";
   return kind;
 }
@@ -3840,6 +5014,35 @@ function getJobProductHandle(job) {
   return typeof job.payload?.handle === "string" && job.payload.handle.trim()
     ? job.payload.handle.trim()
     : null;
+}
+
+function getJobProductImageUrl(job) {
+  const payload = job.payload || {};
+  const candidates = [
+    payload.imageUrl,
+    payload.productImageUrl,
+    payload.featuredImageUrl,
+    typeof payload.image === "string" ? payload.image : payload.image?.url,
+    payload.featuredImage?.url,
+  ];
+  return candidates.map(normalizeJobPayloadString).find(Boolean) || null;
+}
+
+function getJobProductImageAlt(job, productTitle) {
+  const payload = job.payload || {};
+  const candidates = [
+    payload.imageAlt,
+    payload.productImageAlt,
+    payload.featuredImageAlt,
+    payload.image?.altText,
+    payload.featuredImage?.altText,
+    productTitle,
+  ];
+  return candidates.map(normalizeJobPayloadString).find(Boolean) || null;
+}
+
+function normalizeJobPayloadString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function getJobDisplayTitle(job, productTitle) {
@@ -3857,11 +5060,11 @@ function getJobDisplaySubtitle(job, productTitle) {
     return "Controlled Shopify test data";
   }
   if (job.kind !== PRODUCT_DIAGNOSIS_KIND || !productTitle) return job.errorMessage || job.source;
-  if (job.status === "Queued") return "Queued AI product diagnostics";
-  if (job.status === "Running") return "Running AI product diagnostics";
-  if (job.status === "Completed") return "AI product diagnostics completed";
-  if (job.status === "Failed") return "AI product diagnostics failed";
-  return "AI product diagnostics";
+  if (job.status === "Queued") return "Queued Product Diagnosis";
+  if (job.status === "Running") return "Running Product Diagnosis";
+  if (job.status === "Completed") return "Product Diagnosis completed";
+  if (job.status === "Failed") return "Product Diagnosis failed";
+  return "Product Diagnosis";
 }
 
 function formatJobLog(log) {
@@ -3875,6 +5078,200 @@ function formatJobLog(log) {
     createdAt: formatJobDate(log.createdAt),
     createdAtIso: toIso(log.createdAt),
   };
+}
+
+function formatBackgroundProcess(job, logs = []) {
+  const formatted = formatJob(job);
+  return {
+    ...formatted,
+    rawSource: job.source || "",
+    payloadItems: formatBackgroundProcessPayloadItems(job.payload),
+    logCount: logs.length,
+    logs,
+    latestLog: logs[0] || null,
+    statusKey: normalizeBackgroundProcessKey(job.status),
+    kindKey: normalizeBackgroundProcessKey(job.kind),
+  };
+}
+
+function ensureWorkersForJobs(shop, jobs = []) {
+  jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
+    if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
+    if (job.kind === SHOPIFY_MOCK_DATASET_KIND) ensureShopifyMockDatasetWorker(job);
+  });
+  if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
+    ensureProductDiagnosisQueueWorker(shop);
+  }
+}
+
+function groupJobLogsByJobId(logs = []) {
+  return logs.reduce((byJob, log) => {
+    if (!byJob.has(log.jobId)) byJob.set(log.jobId, []);
+    byJob.get(log.jobId).push(log);
+    return byJob;
+  }, new Map());
+}
+
+function buildBackgroundProcessStats(jobs = [], logs = [], overrides = {}) {
+  const statusCounts = overrides.statusCounts || jobs.reduce((counts, job) => {
+    const status = job.status || "Unknown";
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
+  const kindCounts = overrides.kindCounts || jobs.reduce((counts, job) => {
+    const kind = getJobDisplayName(job.kind);
+    counts[kind] = (counts[kind] || 0) + 1;
+    return counts;
+  }, {});
+  const total = Number(overrides.total ?? jobs.length) || 0;
+
+  return {
+    total,
+    active: (statusCounts.Running || 0) + (statusCounts.Queued || 0),
+    running: statusCounts.Running || 0,
+    queued: statusCounts.Queued || 0,
+    completed: statusCounts.Completed || 0,
+    failed: statusCounts.Failed || 0,
+    logs: logs.length,
+    statusCounts,
+    kindCounts,
+    latestUpdatedAtIso: toIso(jobs[0]?.updatedAt),
+  };
+}
+
+function normalizeBackgroundProcessPage(value) {
+  const parsed = Number.parseInt(String(value || "1"), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function clampBackgroundProcessPage(page, total) {
+  const totalPages = Math.max(1, Math.ceil((Number(total) || 0) / BACKGROUND_PROCESS_PAGE_SIZE));
+  return Math.min(Math.max(1, page), totalPages);
+}
+
+function buildBackgroundProcessPagination(page, total) {
+  const normalizedTotal = Math.max(0, Number(total) || 0);
+  const totalPages = Math.max(1, Math.ceil(normalizedTotal / BACKGROUND_PROCESS_PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const from = normalizedTotal ? (safePage - 1) * BACKGROUND_PROCESS_PAGE_SIZE + 1 : 0;
+  const to = normalizedTotal ? Math.min(normalizedTotal, safePage * BACKGROUND_PROCESS_PAGE_SIZE) : 0;
+
+  return {
+    page: safePage,
+    pageSize: BACKGROUND_PROCESS_PAGE_SIZE,
+    total: normalizedTotal,
+    totalPages,
+    from,
+    to,
+    hasPrevious: safePage > 1,
+    hasNext: safePage < totalPages,
+  };
+}
+
+function mapBackgroundProcessStatusCounts(groups = []) {
+  return groups.reduce((counts, group) => {
+    const status = group.status || "Unknown";
+    counts[status] = getBackgroundProcessGroupCount(group);
+    return counts;
+  }, {});
+}
+
+function mapBackgroundProcessKindCounts(groups = []) {
+  return groups.reduce((counts, group) => {
+    const kind = getJobDisplayName(group.kind);
+    counts[kind] = (counts[kind] || 0) + getBackgroundProcessGroupCount(group);
+    return counts;
+  }, {});
+}
+
+function getBackgroundProcessGroupCount(group) {
+  return Number(group?._count?._all ?? group?._count ?? 0) || 0;
+}
+
+function formatBackgroundProcessPayloadItems(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const items = [];
+  const seen = new Set();
+  [
+    ["productTitle", "Product"],
+    ["handle", "Handle"],
+    ["productId", "Requested product"],
+    ["productGid", "Product GID"],
+    ["riskScore", "Queued risk score"],
+    ["stageLabel", "Dataset stage"],
+    ["stage", "Stage key"],
+    ["expectedProducts", "Expected products"],
+    ["expectedCustomers", "Expected customers"],
+    ["expectedOrders", "Expected orders"],
+    ["summary.productCount", "Products"],
+    ["summary.customerCount", "Customers"],
+    ["summary.orderCount", "Orders"],
+    ["summary.returnCount", "Returns"],
+    ["summary.refundCount", "Refunds"],
+    ["summary.reviewCount", "Reviews"],
+    ["summary.csvReviewFilePath", "CSV review file"],
+    ["summary.manifestPath", "Manifest"],
+    ["manifestPath", "Manifest"],
+    ["queuedAt", "Queued at"],
+    ["generatedAt", "Generated at"],
+    ["summary.generatedAt", "Generated at"],
+  ].forEach(([path, label]) => {
+    addBackgroundPayloadItem(items, seen, payload, path, label);
+  });
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (items.length >= 16 || seen.has(key) || ["summary", "products", "customers"].includes(key)) return;
+    if (!isBackgroundPayloadPrimitive(value)) return;
+    addBackgroundPayloadValue(items, seen, key, formatPayloadLabel(key), value);
+  });
+
+  return items;
+}
+
+function addBackgroundPayloadItem(items, seen, payload, path, label) {
+  const value = getPayloadPathValue(payload, path);
+  if (value === undefined || value === null || value === "") return;
+  addBackgroundPayloadValue(items, seen, path, label, value);
+}
+
+function addBackgroundPayloadValue(items, seen, key, label, value) {
+  const displayValue = formatBackgroundPayloadValue(value);
+  if (!displayValue || seen.has(key) || seen.has(`${label}:${displayValue}`)) return;
+  seen.add(key);
+  seen.add(`${label}:${displayValue}`);
+  items.push({ label, value: displayValue });
+}
+
+function getPayloadPathValue(payload, path) {
+  return String(path).split(".").reduce((current, key) => current?.[key], payload);
+}
+
+function isBackgroundPayloadPrimitive(value) {
+  return value === null || ["string", "number", "boolean"].includes(typeof value)
+    || (Array.isArray(value) && value.every((item) => ["string", "number", "boolean"].includes(typeof item)));
+}
+
+function formatBackgroundPayloadValue(value) {
+  if (Array.isArray(value)) {
+    const visible = value.slice(0, 4).map((item) => String(item));
+    const suffix = value.length > visible.length ? ` +${value.length - visible.length} more` : "";
+    return `${visible.join(", ")}${suffix}`;
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return String(value);
+}
+
+function formatPayloadLabel(key) {
+  return String(key || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function normalizeBackgroundProcessKey(value) {
+  return String(value || "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "unknown";
 }
 
 function formatJobDate(value) {
@@ -4086,7 +5483,7 @@ function getPrimaryRecommendedActionLabel(snapshot, metrics) {
   const recommendations = Array.isArray(metrics.recommendations) ? metrics.recommendations : [];
   const firstRecommendation = recommendations.find((item) => item?.label || item?.title);
   if (firstRecommendation) return firstRecommendation.label || firstRecommendation.title;
-  return getSnapshotRecommendedActions(snapshot, metrics)[0]?.label || "Review product diagnosis";
+  return getSnapshotRecommendedActions(snapshot, metrics)[0]?.label || "Review Product Diagnosis";
 }
 
 function getProductContentEvidenceValue(metrics) {
@@ -4253,7 +5650,7 @@ function getPdpContentSignalDetail(metrics) {
 
   return pieces.length
     ? `${pieces.join(". ")}.`
-    : "PDP copy and description quality require a full product diagnosis before this bar has detail.";
+    : "PDP copy and description quality require a Product Diagnosis before this bar has detail.";
 }
 
 function getReviewSignalValue(metrics) {
@@ -4435,8 +5832,14 @@ export const __productPulseJobsTestHooks = {
   buildManualProductRiskSnapshotPayload,
   buildProductPulseFaqHtml,
   buildUpdatedProductDescriptionHtml,
+  buildUpdatedProductDescriptionHtmlFromChanges,
   formatSnapshotForDiagnosis,
+  formatBackgroundProcess,
+  buildBackgroundProcessStats,
+  filterProductSnapshots,
+  getProductTableFilterOptions,
   getSignalLifecycleBars,
+  mergeFaqItemsIntoExistingDescriptionHtml,
   normalizeFaqItemsForApply,
   getFaqApplyVariant,
 };

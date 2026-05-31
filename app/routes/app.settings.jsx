@@ -11,13 +11,16 @@ import {
   normalizeShopifyMockDatasetStage,
 } from "../lib/product-pulse-shopify-mock-dataset.server";
 import { startShopifyMockDataset } from "../lib/product-pulse-jobs.server";
+import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  const developmentMode = isProductPulseDevelopment();
   return {
     ...getAppViewData(),
     settings: await getProductPulseSettings(session.shop),
-    mockDataset: await getShopifyMockDatasetState(session.shop),
+    developmentMode,
+    mockDataset: developmentMode ? await getShopifyMockDatasetState(session.shop) : null,
   };
 };
 
@@ -30,6 +33,12 @@ export const action = async ({ request }) => {
   }
 
   if (String(formData.get("_action") || "") === "start-shopify-mock-dataset") {
+    if (!isProductPulseDevelopment()) {
+      return {
+        status: "validation_error",
+        message: "Mock dataset generation is available only in development mode.",
+      };
+    }
     return startShopifyMockDataset({
       shop: session.shop,
       admin,

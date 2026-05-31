@@ -28,6 +28,31 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(__productPulseDiagnosisTestHooks.getReturnLineItemNoteText(returnLineItem)).toBe("Scares me more than nothing. I want them to take him away.");
   });
 
+  it("groups generic other return reasons under the captured note", () => {
+    const reasons = __productPulseDiagnosisTestHooks.buildTopReturnReasonDetails([
+      {
+        reason: "OTHER",
+        reasonLabel: "Other reason",
+        reasonNote: "Too soft for balance poses; expected a firmer yoga surface.",
+        quantity: 4,
+      },
+    ]);
+
+    expect(reasons).toEqual([
+      expect.objectContaining({
+        label: "Other: Too soft for balance poses; expected a firmer yoga surface.",
+        category: "Other",
+        count: 4,
+        subReasons: [
+          expect.objectContaining({
+            label: "Too soft for balance poses; expected a firmer yoga surface.",
+            count: 4,
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it("matches returned line items by title when Shopify omits the product object", () => {
     const lineItem = {
       title: "THE NIGHT WATCH | REMBRANDT VAN RIJN",
@@ -74,6 +99,35 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(__productPulseDiagnosisTestHooks.lineItemMatchesProduct(lineItem, product, snapshot)).toBe(true);
   });
 
+  it("does not match different Shopify products only because titles overlap", () => {
+    const lineItem = {
+      title: "Transformers Generation Project Storm Autobot Optimus Prime",
+      sku: "TOY259",
+      product: {
+        id: "gid://shopify/Product/999",
+        handle: "transformers-project-storm-optimus-prime",
+      },
+      variant: {
+        id: "gid://shopify/ProductVariant/999",
+        sku: "TOY259",
+      },
+    };
+    const product = {
+      id: "gid://shopify/Product/123",
+      numericId: "123",
+      title: "Transformers Power of the Primes Voyager Terrorcon Hun-Gurrr",
+      handle: "transformers-power-of-the-primes-voyager-terrorcon-hun-gurrr",
+      variants: [{ id: "gid://shopify/ProductVariant/123", sku: "TOY251" }],
+    };
+    const snapshot = {
+      productGid: "gid://shopify/Product/123",
+      productTitle: product.title,
+      handle: product.handle,
+    };
+
+    expect(__productPulseDiagnosisTestHooks.lineItemMatchesProduct(lineItem, product, snapshot)).toBe(false);
+  });
+
   it("reads GraphQL connections returned as either nodes or edges", () => {
     expect(__productPulseDiagnosisTestHooks.getNodes({ edges: [{ node: { id: "1" } }, { node: null }] })).toEqual([{ id: "1" }]);
     expect(__productPulseDiagnosisTestHooks.getNodes({ nodes: [{ id: "2" }] })).toEqual([{ id: "2" }]);
@@ -88,6 +142,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(latestQuery).toContain("customerNote");
     expect(latestQuery).toContain("sortKey: UPDATED_AT");
     expect(latestQuery).toContain("orders(first: $ordersFirst");
+    expect(latestQuery).toContain("processedAt");
     expect(latestQuery).toContain("returns(first: $returnsFirst");
     expect(latestQuery).toContain("returnLineItems(first: $returnLineItemsFirst");
     expect(legacyQuery).not.toContain("returnReasonDefinition");
@@ -124,6 +179,82 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
                         title
                       }`);
     expect(queryModes).toEqual(["updated_at", "partially_refunded", "refunded"]);
+  });
+
+  it("does not request protected customer fields for sales extraction", () => {
+    const query = __productPulseDiagnosisTestHooks.buildDiagnosisSalesQuery();
+
+    expect(query).toContain("sortKey: PROCESSED_AT");
+    expect(query).toContain("reverse: true");
+    expect(query).toContain("customer");
+    expect(query).toMatch(/customer\s*{\s*id\s*}/);
+    expect(query).not.toMatch(/\b(email|phone|firstName|lastName|displayName|shippingAddress|billingAddress|address1|address2|city|province|country|zip)\b/i);
+    expect(query).toContain("featuredMedia");
+    expect(query).toContain("media(first: 1)");
+    expect(query).toContain("image");
+    expect(query).toContain("altText");
+  });
+
+  it("backfills missing sale lines from matched return and refund evidence", () => {
+    const product = {
+      id: "gid://shopify/Product/123",
+      title: "GEN CloudSoft Yoga Mat 12mm",
+      variants: [{ id: "gid://shopify/ProductVariant/456", sku: "GEN-MAT-CHAR" }],
+    };
+    const snapshot = {
+      productGid: product.id,
+      productTitle: product.title,
+      handle: "gen-soft-yoga-mat",
+    };
+    const operational = {
+      orderId: "gid://shopify/Order/1",
+      lineItemId: "gid://shopify/LineItem/1",
+      productId: product.id,
+      variantId: "gid://shopify/ProductVariant/456",
+      title: product.title,
+      sku: "GEN-MAT-CHAR",
+      quantity: 2,
+      orderDate: "2026-05-21T19:19:49.000Z",
+      orderProcessedAt: "2026-05-21T19:19:49.000Z",
+      orderCreatedAt: "2026-05-21T19:19:49.000Z",
+      selectedOptions: [{ name: "Color", value: "Charcoal" }],
+    };
+
+    const sales = __productPulseDiagnosisTestHooks.backfillMissingSalesFromOperationalEvents({
+      product,
+      snapshot,
+      sales: [],
+      returns: [{ ...operational, id: "return-1", amount: 0 }],
+      refunds: [{ ...operational, id: "refund-1", amount: 84 }],
+    });
+
+    expect(sales).toHaveLength(1);
+    expect(sales[0]).toMatchObject({
+      orderId: operational.orderId,
+      lineItemId: operational.lineItemId,
+      productId: product.id,
+      quantity: 2,
+      amount: 84,
+      createdAt: "2026-05-21T19:19:49.000Z",
+      source: "operational_event_derived_sale",
+      derivedFromOperationalEventCount: 2,
+    });
+
+    const deduped = __productPulseDiagnosisTestHooks.backfillMissingSalesFromOperationalEvents({
+      product,
+      snapshot,
+      sales,
+      returns: [{ ...operational, id: "return-1", amount: 0 }],
+      refunds: [{ ...operational, id: "refund-1", amount: 84 }],
+    });
+    expect(deduped).toHaveLength(1);
+
+    const filtered = __productPulseDiagnosisTestHooks.filterDiagnosisEventsForProduct([
+      { ...operational, id: "matching-refund" },
+      { ...operational, id: "other-transformer", productId: "gid://shopify/Product/999", variantId: "gid://shopify/ProductVariant/999", sku: "OTHER" },
+    ], product, snapshot);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].id).toBe("matching-refund");
   });
 
   it("can normalize order-level refunded line items when refundLineItems are missing", () => {
@@ -166,7 +297,26 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(text).toContain("arrived broken");
     expect(text).toContain("Damage");
-    expect(text).toContain("No restock");
+    expect(text).not.toContain("No restock");
+  });
+
+  it("suppresses low-information Shopify refund defaults when refund notes explain the issue", () => {
+    const text = __productPulseDiagnosisTestHooks.getRefundOperationalText({
+      note: "Goodwill refund after discovering the ring case is outside supported compatibility.",
+      restockType: "NO_RESTOCK",
+      adjustmentReasons: ["Refund Discrepancy"],
+    });
+
+    expect(text).toBe("Goodwill refund after discovering the ring case is outside supported compatibility.");
+    expect(__productPulseDiagnosisTestHooks.getRefundReasonText({
+      note: "Goodwill refund after discovering the ring case is outside supported compatibility.",
+      restockType: "NO_RESTOCK",
+      adjustmentReasons: ["Refund Discrepancy"],
+    })).toBe("");
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(text)).toBe("compatibility");
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(
+      "Customer used a pop-grip case, then learned that accessory sits outside the CaseFit compatibility boundary.",
+    )).toBe("compatibility");
   });
 
   it("can omit variant product data for the lowest-cost return query fallback", () => {
@@ -264,6 +414,55 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(terms).not.toContain("because");
   });
 
+  it("keeps mixed 3-star reviews neutral and stores review sentiment trend buckets", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
+      returns: [],
+      reviews: [
+        {
+          title: "Matched the page",
+          body: "The item was good and matched the description.",
+          rating: 5,
+          sourceType: "csv_review",
+          sourceLabel: "CSV reviews",
+          createdAt: "2026-01-10T12:00:00Z",
+        },
+        {
+          title: "Average overall",
+          body: "It is okay overall, mixed feelings, average experience.",
+          rating: 3,
+          sourceType: "csv_review",
+          sourceLabel: "CSV reviews",
+          createdAt: "2026-03-10T12:00:00Z",
+        },
+        {
+          title: "Not what I expected",
+          body: "The product was damaged and I had to return it.",
+          rating: 2,
+          sourceType: "csv_review",
+          sourceLabel: "CSV reviews",
+          createdAt: "2026-06-10T12:00:00Z",
+        },
+      ],
+    });
+
+    expect(insights.reviews.sentiment).toMatchObject({
+      total: 3,
+      positive: 1,
+      neutral: 1,
+      negative: 1,
+    });
+    expect(insights.reviews.bySource.csv.sentimentTrend).toEqual([
+      expect.objectContaining({ label: "Jan 2026", positive: 1, neutral: 0, negative: 0, total: 1 }),
+      expect.objectContaining({ label: "Mar 2026", positive: 0, neutral: 1, negative: 0, total: 1 }),
+      expect.objectContaining({ label: "Jun 2026", positive: 0, neutral: 0, negative: 1, total: 1 }),
+    ]);
+    expect(insights.reviews.bySource.csv.ratingTrend).toEqual([
+      expect.objectContaining({ label: "Jan 2026", averageRating: 5, reviewCount: 1 }),
+      expect.objectContaining({ label: "Mar 2026", averageRating: 3, reviewCount: 1 }),
+      expect.objectContaining({ label: "Jun 2026", averageRating: 2, reviewCount: 1 }),
+    ]);
+  });
+
   it("ignores generic Other return reasons when there is no customer note", () => {
     const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
       returns: [{
@@ -301,6 +500,27 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.riskLift).toBeGreaterThan(0);
     expect(insights.repeatedLanguage.map((item) => item.term)).not.toContain("refunded");
     expect(insights.examples[0].text).toContain("arrived broken");
+  });
+
+  it("deduplicates repeated refund note examples without changing refund signal counts", () => {
+    const insights = __productPulseDiagnosisTestHooks.buildRefundOperationalInsights({
+      soldUnits: 20,
+      refundUnits: 5,
+      refundRate: 25,
+      refundAmount: 250,
+      refunds: Array.from({ length: 5 }, (_, index) => ({
+        note: index < 4 ? "Warehouse refund memo repeated from Shopify" : "Separate refund memo from Shopify",
+        restockType: "NO_RESTOCK",
+        quantity: 1,
+        amount: 50,
+        createdAt: `2026-05-13T12:0${index}:00Z`,
+      })),
+    });
+
+    expect(insights.noteCount).toBe(5);
+    expect(insights.textSignalCount).toBe(5);
+    expect(insights.examples.filter((example) => example.noteText === "Warehouse refund memo repeated from Shopify")).toHaveLength(1);
+    expect(insights.examples.map((example) => example.noteText)).toContain("Separate refund memo from Shopify");
   });
 
   it("surfaces repeated refund reasons even when Shopify refund notes are empty", () => {
@@ -452,6 +672,113 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(history.find((point) => point.metrics.returnUnits === 0).riskScore).toBeLessThan(history.at(-1).riskScore);
   });
 
+  it("uses full-window relationship sales to calculate before and after purchase relationships", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const sourceProductId = "gid://shopify/Product/rel-source";
+    const beforeProductId = "gid://shopify/Product/rel-before";
+    const afterProductId = "gid://shopify/Product/rel-after";
+    const snapshot = {
+      shop: "relationship-test.myshopify.com",
+      productGid: sourceProductId,
+      productTitle: "REL Source Product",
+      handle: "rel-source-product",
+      riskScore: 0,
+      metrics: {},
+    };
+    const product = {
+      id: sourceProductId,
+      title: "REL Source Product",
+      handle: "rel-source-product",
+      description: "Relationship test source product.",
+      descriptionHtml: "<p>Relationship test source product.</p>",
+      variants: [{ id: "gid://shopify/ProductVariant/rel-source", title: "Default Title", sku: "REL-SOURCE", selectedOptions: [] }],
+      options: [],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+    const relationshipSales = [
+      { type: "sale", id: "before-sale", orderId: "before-order", lineItemId: "before-line", productId: beforeProductId, title: "REL Bought Before", handle: "rel-bought-before", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 35, orderDate: daysAgo(35), createdAt: daysAgo(35) },
+      { type: "sale", id: "source-sale", orderId: "source-order", lineItemId: "source-line", productId: sourceProductId, title: "REL Source Product", handle: "rel-source-product", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 50, orderDate: daysAgo(20), createdAt: daysAgo(20) },
+      { type: "sale", id: "after-sale", orderId: "after-order", lineItemId: "after-line", productId: afterProductId, title: "REL Bought After", handle: "rel-bought-after", customerKey: "customer-1", customerId: "customer-1", quantity: 1, amount: 42, orderDate: daysAgo(6), createdAt: daysAgo(6) },
+      { type: "sale", id: "before-sale-2", orderId: "before-order-2", lineItemId: "before-line-2", productId: beforeProductId, title: "REL Bought Before", handle: "rel-bought-before", customerKey: "customer-2", customerId: "customer-2", quantity: 1, amount: 35, orderDate: daysAgo(34), createdAt: daysAgo(34) },
+      { type: "sale", id: "source-sale-2", orderId: "source-order-2", lineItemId: "source-line-2", productId: sourceProductId, title: "REL Source Product", handle: "rel-source-product", customerKey: "customer-2", customerId: "customer-2", quantity: 1, amount: 50, orderDate: daysAgo(19), createdAt: daysAgo(19) },
+      { type: "sale", id: "after-sale-2", orderId: "after-order-2", lineItemId: "after-line-2", productId: afterProductId, title: "REL Bought After", handle: "rel-bought-after", customerKey: "customer-2", customerId: "customer-2", quantity: 1, amount: 42, orderDate: daysAgo(5), createdAt: daysAgo(5) },
+    ];
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: relationshipSales.filter((saleEvent) => saleEvent.productId === sourceProductId),
+        relationshipSales,
+        returns: [],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    const summary = deterministic.metrics.productRelationshipIntelligenceSummary;
+    expect(summary.top_bought_before.find((item) => item.related_product_id === beforeProductId)).toMatchObject({
+      related_product_title: "REL Bought Before",
+      related_product_handle: "rel-bought-before",
+      relationship_direction: "before",
+    });
+    expect(summary.top_bought_after.find((item) => item.related_product_id === afterProductId)).toMatchObject({
+      related_product_title: "REL Bought After",
+      related_product_handle: "rel-bought-after",
+      relationship_direction: "after",
+    });
+  });
+
+  it("builds ProductPulse candidate snapshots for discovered relationship products", () => {
+    const payloads = __productPulseDiagnosisTestHooks.buildProductRelationshipCandidateSnapshotPayloads({
+      shop: "relationship-test.myshopify.com",
+      sourceSnapshot: {
+        productGid: "gid://shopify/Product/source",
+        productTitle: "Source Product",
+      },
+      relationshipSummary: {
+        top_bought_together: [{
+          related_product_id: "gid://shopify/Product/related",
+          related_product_title: "Related Shopify Product",
+          related_product_handle: "related-shopify-product",
+          relationship_type: "same_order",
+          relationship_direction: "together",
+          time_window: "same_order",
+          attach_rate: 0.33,
+          lift: 2.4,
+          sample_size: 6,
+          confidence: 72,
+        }],
+      },
+    });
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toMatchObject({
+      shop: "relationship-test.myshopify.com",
+      productGid: "gid://shopify/Product/related",
+      productTitle: "Related Shopify Product",
+      handle: "related-shopify-product",
+      primaryIssue: "Relationship candidate",
+      sourceCoverage: ["Shopify orders", "Product relationship intelligence"],
+      metrics: {
+        relationshipCandidate: true,
+        productRelationshipCandidate: {
+          sourceProductGid: "gid://shopify/Product/source",
+          relationshipDirection: "together",
+          attachRate: 0.33,
+          lift: 2.4,
+          sampleSize: 6,
+          confidence: 72,
+        },
+      },
+    });
+  });
+
   it("keeps one isolated customer text as evidence instead of merchant-facing issues", () => {
     const insights = __productPulseDiagnosisTestHooks.buildCustomerTextInsights({
       returns: [{
@@ -519,6 +846,150 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(insights.otherReturnClassifications[0]).toMatchObject({ issueCode: "quality_defect", count: 1 });
     expect(insights.granularIssues).toEqual([]);
     expect(issues).toEqual([]);
+  });
+
+  it("persists sales, returns, refunds, and review evidence by variant", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/variant-insights",
+      productTitle: "GEN Dinner Set",
+      handle: "gen-dinner-set",
+      riskScore: 0,
+      metrics: {},
+    };
+    const product = {
+      id: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      description: "Dinner set available in Aurora Blue and Warm White.",
+      variants: [
+        { id: "gid://shopify/ProductVariant/blue", title: "Aurora Blue", sku: "GEN-BLUE", price: 118, selectedOptions: [{ name: "Color", value: "Aurora Blue" }] },
+        { id: "gid://shopify/ProductVariant/white", title: "Warm White", sku: "GEN-WHITE", price: 112, selectedOptions: [{ name: "Color", value: "Warm White" }] },
+      ],
+      options: [{ name: "Color" }],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: [
+          { id: "sale-blue", orderId: "order-blue", quantity: 5, amount: 590, createdAt: daysAgo(20), variantId: "gid://shopify/ProductVariant/blue", variantTitle: "Aurora Blue", sku: "GEN-BLUE", countryCode: "US", provinceCode: "TX", city: "Austin" },
+          { id: "sale-white", orderId: "order-white", quantity: 8, amount: 896, createdAt: daysAgo(18), variantId: "gid://shopify/ProductVariant/white", variantTitle: "Warm White", sku: "GEN-WHITE", countryCode: "CA", provinceCode: "ON", city: "Toronto" },
+        ],
+        returns: [
+          { id: "return-blue", quantity: 1, reason: "OTHER", reasonNote: "Aurora Blue color was not as pictured.", createdAt: daysAgo(10), variantId: "gid://shopify/ProductVariant/blue", variantTitle: "Aurora Blue", sku: "GEN-BLUE" },
+        ],
+        refunds: [
+          { id: "refund-blue", quantity: 2, amount: 118, reason: "Not as described", note: "Refund connected to Aurora Blue color mismatch.", createdAt: daysAgo(8), variantId: "gid://shopify/ProductVariant/blue", variantTitle: "Aurora Blue", sku: "GEN-BLUE" },
+        ],
+        orderAccessDenied: false,
+      },
+      judgeMeData: {
+        connected: true,
+        matchConfidence: 1,
+        reviews: [
+          { id: "review-blue", rating: 2, title: "Aurora Blue looks muted", body: "The Aurora Blue variant looks darker than expected.", createdAt: daysAgo(7) },
+          { id: "review-white", rating: 5, title: "Warm White is great", body: "Warm White matched the photos.", createdAt: daysAgo(6) },
+        ],
+      },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    const blue = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Aurora Blue");
+    const white = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Warm White");
+
+    expect(blue).toMatchObject({
+      sku: "GEN-BLUE",
+      sales: { units: 5, amount: 590 },
+      returns: { units: 1 },
+      refunds: { units: 2, amount: 118 },
+      reviews: { count: 1, negativeCount: 1 },
+      signalCount: 4,
+    });
+    expect(blue.timeline.reduce((sum, point) => sum + point.salesUnits, 0)).toBe(5);
+    expect(blue.timeline.reduce((sum, point) => sum + point.returnUnits, 0)).toBe(1);
+    expect(blue.timeline.reduce((sum, point) => sum + point.refundUnits, 0)).toBe(2);
+    expect(blue.timeline.reduce((sum, point) => sum + point.reviewCount, 0)).toBe(1);
+    expect(blue.timeline.reduce((sum, point) => sum + point.negativeReviewCount, 0)).toBe(1);
+    expect(blue.reviews.examples[0]?.text).toContain("Aurora Blue");
+    expect(white).toMatchObject({
+      sku: "GEN-WHITE",
+      sales: { units: 8, amount: 896 },
+      returns: { units: 0 },
+      refunds: { units: 0, amount: 0 },
+      reviews: { count: 1, negativeCount: 0 },
+      signalCount: 0,
+    });
+    expect(white.timeline.reduce((sum, point) => sum + point.salesUnits, 0)).toBe(8);
+    expect(white.timeline.reduce((sum, point) => sum + point.reviewCount, 0)).toBe(1);
+    expect(white.timeline.reduce((sum, point) => sum + point.positiveReviewCount, 0)).toBe(1);
+    expect(deterministic.metrics.affectedVariants).toContain("Aurora Blue");
+    expect(deterministic.metrics.orderGeography).toEqual([
+      expect.objectContaining({ label: "Canada", count: 1, share: 50 }),
+      expect.objectContaining({ label: "Texas, United States", count: 1, share: 50 }),
+    ]);
+  });
+
+  it("matches reviews to variant values without treating option names as variant evidence", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/variants",
+      productTitle: "GEN Buds",
+      handle: "gen-buds",
+      metrics: {},
+    };
+    const product = {
+      id: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      description: "Wireless earbuds with multiple color variants, charging case, Bluetooth pairing, silicone tips, and product care guidance for daily listening.",
+      descriptionHtml: "<p>Wireless earbuds with multiple color variants, charging case, Bluetooth pairing, silicone tips, and product care guidance for daily listening.</p>",
+      variants: [
+        { id: "gid://shopify/ProductVariant/black", title: "Black", sku: "GEN-BUD-BLK", selectedOptions: [{ name: "Color", value: "Black" }] },
+        { id: "gid://shopify/ProductVariant/rose", title: "Rose", sku: "GEN-BUD-ROS", selectedOptions: [{ name: "Color", value: "Rose" }] },
+        { id: "gid://shopify/ProductVariant/blue", title: "Blue", sku: "GEN-BUD-BLU", selectedOptions: [{ name: "Color", value: "Blue" }] },
+      ],
+      options: [{ name: "Color" }],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: [],
+        returns: [],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: {
+        connected: true,
+        matchConfidence: 1,
+        reviews: [
+          { id: "rose-negative", rating: 1, title: "Rose color mismatch", body: "Rose color does not match the product photos.", createdAt: daysAgo(3) },
+          { id: "rose-positive", rating: 5, title: "Rose is perfect", body: "Rose looks beautiful and matches what I expected.", createdAt: daysAgo(2) },
+          { id: "black-positive", rating: 5, title: "Black is great", body: "The Black color is perfect and sounds good.", createdAt: daysAgo(1) },
+        ],
+      },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    const black = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Black");
+    const rose = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Rose");
+    const blue = deterministic.metrics.variantInsights.find((item) => item.variantTitle === "Blue");
+
+    expect(black.reviews).toMatchObject({ count: 1, negativeCount: 0, positiveCount: 1 });
+    expect(rose.reviews).toMatchObject({ count: 2, negativeCount: 1, positiveCount: 1 });
+    expect(blue.reviews).toMatchObject({ count: 0, negativeCount: 0, positiveCount: 0 });
+    expect(rose.reviews.examples.map((example) => example.sentiment)).toEqual(expect.arrayContaining(["negative", "positive"]));
   });
 
   it("merges repeated evidence for the same issue into one merchant-facing issue", () => {
@@ -730,7 +1201,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
-  it("reuses cached customer text analysis and only analyzes new text on incremental deep diagnosis", () => {
+  it("reuses cached customer text analysis and only analyzes new text on incremental product diagnosis", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const product = {
       id: "gid://shopify/Product/123",
@@ -873,6 +1344,13 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
           ...first.metrics,
           latestDiagnosisId: "diagnosis-1",
           lastDetailedDiagnosisAt: daysAgo(3),
+          chartInterpretations: {
+            insightVersion: "product_chart_interpretations_v1",
+            status: "available",
+            interpretations: {
+              productRiskOverTime: { text: "Risk stayed stable across the stored evidence window." },
+            },
+          },
         },
       },
       deterministic: second,
@@ -1073,6 +1551,13 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
         riskScore: 62,
         confidence: 65,
         estimatedImpact: 120,
+        chartInterpretations: {
+          insightVersion: "product_chart_interpretations_v1",
+          status: "available",
+          interpretations: {
+            productRiskOverTime: { text: "Risk stayed stable across the stored evidence window." },
+          },
+        },
       },
     };
     const deterministic = {
@@ -1108,6 +1593,229 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(decision.shouldReuse).toBe(true);
     expect(decision.matchedBy).toBe("source_fingerprint");
+    expect(decision.recommendationReevaluation).toMatchObject({
+      required: false,
+      reason: "current_recommendations_remain_current",
+      sufficientToSkip: true,
+    });
+  });
+
+  it("refreshes date-derived deterministic metrics without replacing cached Product Diagnosis data", () => {
+    const snapshot = {
+      productGid: "gid://shopify/Product/123",
+      riskScore: 48,
+      impactScore: 2,
+      confidence: 70,
+      primaryIssue: "Product quality",
+      sourceCoverage: ["Shopify orders"],
+      metrics: {
+        latestDiagnosisId: "diagnosis-1",
+        lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+        productMomentumScore: 68,
+        productMomentumTier: "Warm",
+        momentumDirection: "Stable",
+        contentQualityRisk: 9,
+        contentAnalysis: {
+          issues: [{ code: "missing_fit_guidance", label: "Missing fit guidance" }],
+        },
+        diagnosisReport: {
+          mainFinding: { title: "Previous AI finding" },
+          chartInterpretations: { insightVersion: "product_chart_interpretations_v1" },
+        },
+        chartInterpretations: {
+          insightVersion: "product_chart_interpretations_v1",
+          interpretations: {
+            productMomentum: { text: "Previous momentum interpretation." },
+          },
+        },
+        incrementalDiagnosis: {
+          cache: {
+            sourceFingerprint: "fingerprint-1",
+            productContent: { signature: "content-1" },
+          },
+        },
+      },
+    };
+    const deterministic = {
+      riskScore: 51,
+      confidence: 72,
+      mainIssueLabel: "Product quality",
+      estimatedImpact: { estimatedImpact: 160, revenueAtRisk: 340, marginAtRisk: 90 },
+      sourceCoverage: ["Shopify orders"],
+      metrics: {
+        productMomentum: { score: 74, tier: "Hot", direction: "Accelerating" },
+        productMomentumScore: 74,
+        productMomentumTier: "Hot",
+        momentumDirection: "Accelerating",
+        monthlyOrderActivity: { summary: { totalOrders: 3 } },
+        estimatedImpact: 160,
+        revenueAtRisk: 340,
+        marginAtRisk: 90,
+        contentQualityRisk: 2,
+        incrementalDiagnosis: {
+          productContent: { reused: true },
+          customerText: { mode: "incremental", analyzedItems: 0 },
+          refunds: { mode: "incremental", analyzedItems: 0 },
+          cache: {
+            sourceFingerprint: "fingerprint-1",
+            sourceEvents: { sales: [] },
+          },
+        },
+      },
+    };
+
+    const data = __productPulseDiagnosisTestHooks.buildNoChangeDiagnosisRefreshData({
+      snapshot,
+      deterministic,
+      reuseDecision: { reason: "no_changes_since_previous_diagnosis", matchedBy: "source_fingerprint" },
+    });
+
+    expect(data.riskScore).toBe(48);
+    expect(data.confidence).toBe(72);
+    expect(data.impactScore).toBe(3);
+    expect(data.metrics.productMomentumScore).toBe(74);
+    expect(data.metrics.productMomentumTier).toBe("Hot");
+    expect(data.metrics.momentumDirection).toBe("Accelerating");
+    expect(data.metrics.contentQualityRisk).toBe(9);
+    expect(data.metrics.contentAnalysis.issues[0].code).toBe("missing_fit_guidance");
+    expect(data.metrics.latestDiagnosisId).toBe("diagnosis-1");
+    expect(data.metrics.lastDetailedDiagnosisAt).toBe("2026-05-10T12:00:00.000Z");
+    expect(data.metrics.diagnosisReport.mainFinding.title).toBe("Previous AI finding");
+    expect(data.metrics.chartInterpretations.insightVersion).toBe("product_chart_interpretations_v1");
+    expect(data.metrics.noChangeRefresh).toMatchObject({
+      creditsConsumed: 0,
+      aiCallsSkipped: true,
+      dateDerivedMetricsRefreshed: true,
+    });
+  });
+
+  it("reuses cached diagnosis when only date-window metrics changed and no source events were fetched", () => {
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        productGid: "gid://shopify/Product/123",
+        riskScore: 48,
+        confidence: 70,
+        metrics: {
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+          soldUnits: 8,
+          returnUnits: 2,
+          productMomentumScore: 68,
+          chartInterpretations: {
+            insightVersion: "product_chart_interpretations_v1",
+            interpretations: {
+              productMomentum: { text: "Momentum was warm on the previous run." },
+            },
+          },
+        },
+      },
+      deterministic: {
+        riskScore: 45,
+        confidence: 71,
+        estimatedImpact: { estimatedImpact: 100, revenueAtRisk: 220, marginAtRisk: 70 },
+        evidenceSnippets: [],
+        metrics: {
+          soldUnits: 8,
+          returnUnits: 1,
+          productMomentum: { score: 74, tier: "Hot", direction: "Accelerating" },
+          productMomentumScore: 74,
+          productMomentumTier: "Hot",
+          momentumDirection: "Accelerating",
+          incrementalDiagnosis: {
+            productContent: { reused: true },
+            customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 1 },
+            refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            sourceChanges: {
+              previousFingerprint: "previous-window-fingerprint",
+              currentFingerprint: "current-window-fingerprint",
+              unchanged: false,
+              sourceExtractionComplete: true,
+              sourceEventFetch: {
+                mode: "incremental_fetch",
+                fetchComplete: true,
+                rawFetchedCounts: {
+                  salesEvents: 0,
+                  refundEvents: 0,
+                  returnEvents: 0,
+                },
+              },
+            },
+            aiEvidenceSnippetCount: 0,
+          },
+        },
+      },
+    });
+
+    expect(decision.shouldReuse).toBe(true);
+    expect(decision.matchedBy).toBe("date_derived_metrics");
+    expect(decision.dateOnlyRefresh).toBe(true);
+    expect(decision.blockers).not.toContain("source_or_material_metrics_changed");
+    expect(decision.recommendationReevaluation).toMatchObject({
+      required: false,
+      sufficientToSkip: true,
+      sourceFingerprintChanged: true,
+    });
+  });
+
+  it("does not reuse cached diagnosis when stored chart interpretations are missing", () => {
+    const fingerprint = __productPulseDiagnosisTestHooks.buildDiagnosisSourceFingerprint({
+      productContentSignature: "product-signature-1",
+      sales: [{ id: "sale-1", quantity: 2, amount: 80, createdAt: "2026-05-01T12:00:00.000Z" }],
+      returns: [],
+      refunds: [],
+      judgeMeReviews: [],
+      csvReviews: [],
+      sourceCoverage: ["Shopify product", "Shopify orders"],
+      windowDays: 60,
+    });
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        productGid: "gid://shopify/Product/123",
+        riskScore: 62,
+        confidence: 65,
+        metrics: {
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: "2026-05-10T12:00:00.000Z",
+          soldUnits: 2,
+          riskScore: 62,
+          confidence: 65,
+        },
+      },
+      deterministic: {
+        riskScore: 62,
+        confidence: 65,
+        estimatedImpact: { estimatedImpact: 120, revenueAtRisk: 260, marginAtRisk: 120 },
+        evidenceSnippets: [],
+        metrics: {
+          soldUnits: 2,
+          riskScore: 62,
+          confidence: 65,
+          monthlyOrderActivity: {
+            months: [{ key: "2026-05", orders: 1, orderUnits: 2, revenue: 80 }],
+            summary: { totalOrders: 1, totalOrderUnits: 2, totalRevenue: 80 },
+          },
+          incrementalDiagnosis: {
+            productContent: { reused: true },
+            customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            sourceChanges: {
+              previousFingerprint: fingerprint,
+              currentFingerprint: fingerprint,
+              unchanged: true,
+            },
+            aiEvidenceSnippetCount: 0,
+          },
+        },
+      },
+    });
+
+    expect(decision.shouldReuse).toBe(false);
+    expect(decision.blockers).toContain("missing_chart_interpretations");
+    expect(decision.chartInterpretationReuse).toMatchObject({
+      required: true,
+      available: false,
+      textCount: 0,
+    });
   });
 
   it("does not reuse cached diagnosis when source fingerprints changed", () => {
@@ -1150,6 +1858,11 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(decision.shouldReuse).toBe(false);
     expect(decision.blockers).toContain("source_or_material_metrics_changed");
+    expect(decision.recommendationReevaluation).toMatchObject({
+      required: true,
+      reason: "changes_may_affect_recommendations",
+      sourceFingerprintChanged: true,
+    });
   });
 
   it("does not reuse cached diagnosis when incremental Shopify source extraction was incomplete", () => {
@@ -1249,6 +1962,41 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("uses Shopify order date for monthly activity when returns and refunds are captured later", () => {
+    const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 180,
+      sales: [],
+      returns: [
+        {
+          id: "return-1",
+          orderId: "order-jan",
+          orderDate: "2026-01-20T10:00:00.000Z",
+          createdAt: "2026-05-05T10:00:00.000Z",
+          quantity: 1,
+        },
+      ],
+      refunds: [
+        {
+          id: "refund-1",
+          orderId: "order-feb",
+          orderDate: "2026-02-15T10:00:00.000Z",
+          processedAt: "2026-05-06T10:00:00.000Z",
+          quantity: 1,
+          amount: 120,
+        },
+      ],
+    });
+
+    const january = activity.months.find((month) => month.key === "2026-01");
+    const february = activity.months.find((month) => month.key === "2026-02");
+    const may = activity.months.find((month) => month.key === "2026-05");
+
+    expect(january).toMatchObject({ orders: 1, returnedOrders: 1, returnedUnits: 1 });
+    expect(february).toMatchObject({ orders: 1, refundedOrders: 1, refundedUnits: 1, refundAmount: 120 });
+    expect(may).toMatchObject({ orders: 0, returnedOrders: 0, refundedOrders: 0 });
+  });
+
   it("counts return-only Shopify events as order activity for rate denominators", () => {
     const activity = __productPulseDiagnosisTestHooks.buildMonthlyOrderActivity({
       now: "2026-05-16T12:00:00.000Z",
@@ -1305,6 +2053,29 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(prediction.forecastPoints).toHaveLength(13);
     expect(prediction.forecastPoints[0]).toMatchObject({ kind: "forecast" });
     expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
+  });
+
+  it("uses Shopify order date for return-rate prediction cohorts when return capture is later", () => {
+    const prediction = __productPulseDiagnosisTestHooks.buildReturnRatePrediction({
+      now: "2026-05-16T12:00:00.000Z",
+      windowDays: 90,
+      sales: [],
+      returns: [
+        {
+          id: "return-1",
+          orderId: "order-mar",
+          orderDate: "2026-03-03T10:00:00.000Z",
+          createdAt: "2026-05-06T10:00:00.000Z",
+          quantity: 1,
+        },
+      ],
+    });
+
+    const marchWeek = prediction.observedPoints.find((point) => point.key === "2026-03-02");
+    const mayWeek = prediction.observedPoints.find((point) => point.key === "2026-05-04");
+
+    expect(marchWeek).toMatchObject({ orders: 1, returnedOrders: 1, returnedUnits: 1 });
+    expect(mayWeek).toMatchObject({ orders: 0, returnedOrders: 0 });
   });
 
   it("keeps the return-rate forecast stable when recent return behavior is flat", () => {
@@ -1387,6 +2158,63 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(prediction.forecastPoints.every((point) => point.predictedReturnRate >= 0 && point.predictedReturnRate <= 100)).toBe(true);
   });
 
+  it("keeps product-detail chart data in the compact deterministic AI input", () => {
+    const aiInput = __productPulseDiagnosisTestHooks.buildAiDeterministicInput({
+      riskScore: 84,
+      confidence: 90,
+      mainIssue: "product_quality",
+      mainIssueLabel: "Product quality",
+      metrics: {
+        soldUnits: 12,
+        returnUnits: 7,
+        returnRate: 58.33,
+        refundUnits: 3,
+        refundRate: 25,
+        refundAmount: 116,
+        reviewCount: 0,
+        negativeReviewCount: 0,
+        signalCount: 10,
+        monthlyOrderActivity: {
+          months: [
+            { key: "2026-04", label: "Apr 2026", orders: 4, orderUnits: 4, returnedUnits: 2, refundedUnits: 1, revenue: 120, refundAmount: 48 },
+            { key: "2026-05", label: "May 2026", orders: 7, orderUnits: 8, returnedUnits: 5, refundedUnits: 2, revenue: 246, refundAmount: 68 },
+          ],
+          summary: { totalOrders: 11, totalOrderUnits: 12, totalReturnedUnits: 7, totalRefundedUnits: 3, totalRevenue: 366, totalRefundAmount: 116, returnRate: 58.33, refundRate: 25 },
+        },
+        returnRatePrediction: {
+          observedPoints: [{ key: "2026-W19", label: "W19", orders: 5, orderUnits: 6, returnedUnits: 4, smoothedReturnRate: 48 }],
+          forecastPoints: [{ key: "2026-W20", label: "W20", predictedReturnRate: 42, basePredictedReturnRate: 45 }],
+          summary: { totalOrderUnits: 12, totalReturnedUnits: 7, totalReturnRate: 58.33, forecastNext90ReturnRate: 41.86, confidence: "Low" },
+        },
+        productRetention: {
+          summary: { totalCustomersAnalyzed: 7, totalOrdersAnalyzed: 14, retentionHealthScore: 93, repeatPurchaseRate90d: 1, sameProductRepurchaseRate90d: 0.857143, hasEnoughData: true },
+          retentionHealthTrend: [{ date: "2026-05-01", retentionHealthScore: 93, repeatPurchaseRate90d: 1 }],
+        },
+        productMomentum: {
+          score: 77,
+          tier: "Active",
+          direction: "rising",
+          confidence: 82,
+          inputs: { unitsLast7Days: 2, unitsLast30Days: 8, unitsPrevious30Days: 4, revenueLast30Days: 246, weeklyUnitsLast4Weeks: [1, 1, 2, 4] },
+          components: { currentVelocityScore: 74, growthScore: 80, catalogShareScore: 70, trendConsistencyScore: 68, recencyScore: 95 },
+          display: { trendLabel: "Sales activity rising" },
+        },
+        reconstructedRiskHistory: [
+          { label: "Apr 2026", riskScore: 71, confidence: 88, returnRate: 35, refundRate: 10 },
+          { label: "May 2026", riskScore: 84, confidence: 90, returnRate: 58.33, refundRate: 25 },
+        ],
+      },
+    });
+
+    expect(aiInput.metrics.monthlyOrderActivity).toMatchObject({ available: true });
+    expect(aiInput.metrics.monthlyOrderActivity.months).toHaveLength(2);
+    expect(aiInput.metrics.returnRatePrediction).toMatchObject({ available: true });
+    expect(aiInput.metrics.returnRatePrediction.forecastPoints).toHaveLength(1);
+    expect(aiInput.metrics.productRetention).toMatchObject({ available: true, retentionHealthScore: 93 });
+    expect(aiInput.metrics.productMomentum).toMatchObject({ available: true, score: 77 });
+    expect(aiInput.metrics.riskHistory).toHaveLength(2);
+  });
+
   it("matches CSV reviews by Shopify numeric ID or product handle", () => {
     const snapshot = {
       productGid: "gid://shopify/Product/98765",
@@ -1445,6 +2273,26 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(analysis.hasDescription).toBe(true);
     expect(analysis.descriptionWordCount).toBeGreaterThan(20);
     expect(analysis.issues.map((issue) => issue.code)).not.toContain("missing_description");
+  });
+
+  it("caps content quality for thin descriptions even when AI scoring is optimistic", () => {
+    const analysis = __productPulseDiagnosisTestHooks.buildContentAnalysis({
+      metrics: {
+        contentIssues: [],
+        contentAdvisories: [],
+        contentQualityScore: 100,
+        contentQualityRisk: 0,
+        descriptionWordCount: 26,
+      },
+    }, {
+      content_quality_score: 84,
+      content_summary: "The description is coherent but compact.",
+      content_issues: [],
+    });
+
+    expect(analysis.score).toBeLessThanOrEqual(72);
+    expect(analysis.riskLift).toBeGreaterThanOrEqual(5);
+    expect(analysis.advisories.map((advisory) => advisory.code)).toContain("thin_description");
   });
 
   it("only recommends a full description rewrite for missing, short or clearly broken descriptions", () => {
@@ -1544,10 +2392,21 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       returnUnits: 0,
       refundUnits: 0,
     });
+    const contentOnly = __productPulseDiagnosisTestHooks.analyzeFaqOpportunity({
+      mainIssue: "product_content",
+      issueSignalCounts: { product_content: 1 },
+      contentAnalysis: { issues: [{ code: "short_description", label: "Short description" }] },
+      textInsights: { emotions: [], repeatedLanguage: [] },
+      reviewCount: 8,
+      negativeReviewCount: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
 
     expect(supported.shouldRecommend).toBe(true);
     expect(supported.topics).toContain("Compatibility");
     expect(isolated.shouldRecommend).toBe(false);
+    expect(contentOnly.shouldRecommend).toBe(false);
   });
 
   it("builds FAQ recommendations with application options and AI-generated items", () => {
@@ -1616,9 +2475,519 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       "description-section",
       "description-collapsible",
       "description-modal",
-      "metafield-json",
+      "metafield-html",
     ]);
+    expect(faq.payload.metafield).toMatchObject({
+      namespace: "productpulse",
+      key: "faq_html",
+      type: "multi_line_text_field",
+    });
     expect(faq.payload.whyThisAction).toBe("Returns and negative reviews repeat fit uncertainty, so an FAQ gives shoppers a direct answer before checkout.");
+  });
+
+  it("keeps the product template switch action disabled even when template signals qualify", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 78,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Customers repeatedly ask for setup steps, specifications and product expectations." },
+      ],
+      issueSignalCounts: { product_content: 5 },
+      product: {
+        title: "GEN Guided Setup Kit",
+        description: "Short setup kit description.",
+        templateSuffix: "",
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 9,
+        returnUnits: 2,
+        refundUnits: 1,
+        negativeReviewCount: 3,
+        contentIssueCount: 2,
+        specsBlockRecommended: true,
+        templateNeedsReview: true,
+        faqNeed: {
+          shouldRecommend: true,
+          score: 7,
+          signals: 5,
+          topics: ["Setup expectations"],
+          reasons: ["Setup and specs questions repeat across customer signals."],
+          sourceTypes: ["Issue signals"],
+        },
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short description", severity: "medium", evidence: "The product page has little setup guidance." },
+            { code: "missing_specifications", label: "Missing specifications", severity: "medium", evidence: "Specs are not listed clearly." },
+          ],
+          advisories: [{ code: "template_may_need_special_layout", label: "Template could support richer guidance", severity: "low" }],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "how to set it up", count: 3, dominantSentiment: "negative" }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/template-test",
+        productTitle: "GEN Guided Setup Kit",
+      },
+      deterministic,
+      mainIssue: "product_content",
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Clarify setup steps, specs and expected product behavior before checkout.",
+            faq_items: [{
+              question: "What should I know before setup?",
+              answer: "Review setup steps and specifications before purchase.",
+            }],
+          },
+        },
+      },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("create-product-faq");
+    expect(ids).toContain("add-specs-details-block");
+    expect(ids).not.toContain("switch-product-template");
+  });
+
+  it("does not recommend a FAQ when current product content already covers the AI question", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 4 },
+      product: {
+        title: "Core Linen Trouser",
+        description: [
+          "A breathable linen trouser for warm weather.",
+          "FAQ",
+          "How does this trouser fit?",
+          "It may feel closer around the waist; check measurements before purchase.",
+        ].join("\n"),
+      },
+      metrics: {
+        faqNeed: {
+          shouldRecommend: true,
+          score: 6,
+          signals: 4,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit and sizing signals repeat enough to answer before purchase."],
+          sourceTypes: ["Issue signals"],
+        },
+        topReturnReasons: ["Too small"],
+        affectedVariants: [],
+        returnUnits: 2,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        contentIssueCount: 0,
+        signalCount: 4,
+        customerSignalCount: 4,
+        textInsights: {},
+        contentAnalysis: { issues: [] },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Core Linen Trouser",
+      },
+      deterministic,
+      mainIssue: "fit_sizing",
+      ai: {
+        report: {
+          recommendation_copy: {
+            faq_items: [{
+              question: "How does this trouser fit?",
+              answer: "It may feel closer around the waist; check measurements before purchase.",
+              reason: "Fit signals repeated.",
+            }],
+          },
+        },
+      },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+  });
+
+  it("keeps only missing FAQ items when an existing FAQ covers part of the recommendation", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 5 },
+      product: {
+        title: "Core Linen Trouser",
+        description: [
+          "A breathable linen trouser for warm weather.",
+          "Frequently asked questions",
+          "How does this trouser fit?",
+          "It has a relaxed leg and may feel closer around the waist.",
+        ].join("\n"),
+      },
+      metrics: {
+        faqNeed: {
+          shouldRecommend: true,
+          score: 7,
+          signals: 5,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit and sizing signals repeat enough to answer before purchase."],
+          sourceTypes: ["Issue signals"],
+        },
+        topReturnReasons: ["Too small"],
+        affectedVariants: [],
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        contentIssueCount: 0,
+        signalCount: 5,
+        customerSignalCount: 5,
+        textInsights: {},
+        contentAnalysis: { issues: [] },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        productTitle: "Core Linen Trouser",
+      },
+      deterministic,
+      mainIssue: "fit_sizing",
+      ai: {
+        report: {
+          recommendation_copy: {
+            faq_items: [
+              {
+                question: "How does this trouser fit?",
+                answer: "It has a relaxed leg and may feel closer around the waist.",
+                reason: "Fit signals repeated.",
+              },
+              {
+                question: "Should shoppers check measurements before buying?",
+                answer: "Yes. Review the waist and inseam measurements before checkout if you are between sizes.",
+                reason: "Returns mention fit uncertainty.",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const faq = recommendations.find((item) => item.id === "create-product-faq");
+    expect(faq).toBeTruthy();
+    expect(faq.label).toBe("Add missing fit FAQ");
+    expect(faq.payload.existingFaqDetected).toBe(true);
+    expect(faq.payload.faqItems.map((item) => item.question)).toEqual([
+      "Should shoppers check measurements before buying?",
+    ]);
+    expect(faq.payload.skippedExistingFaqItems[0]).toMatchObject({
+      question: "How does this trouser fit?",
+    });
+  });
+
+  it("does not recommend shopper-facing description copy when the current description already covers it", () => {
+    const coveredCopy = "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts.";
+    const deterministic = {
+      mainIssue: "quality_defect",
+      issueSignalCounts: { quality_defect: 5 },
+      product: {
+        title: "GEN CloudSoft Yoga Mat 12mm",
+        description: coveredCopy,
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 5,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        topReturnReasons: ["Too soft"],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/yoga",
+        productTitle: "GEN CloudSoft Yoga Mat 12mm",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: coveredCopy } } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("draft-quality-note");
+  });
+
+  it("reduces partially covered description copy to only the missing sentence", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      issueSignalCounts: { quality_defect: 5 },
+      product: {
+        title: "GEN CloudSoft Yoga Mat 12mm",
+        description: "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts.",
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 5,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        topReturnReasons: ["Too soft"],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/yoga",
+        productTitle: "GEN CloudSoft Yoga Mat 12mm",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts. It is not designed for fast balance transitions.",
+          },
+        },
+      },
+    });
+
+    const descriptionAction = recommendations.find((item) => item.id === "draft-quality-note");
+    expect(descriptionAction).toBeTruthy();
+    expect(descriptionAction.payload.draftText).toBe("It is not designed for fast balance transitions.");
+    expect(descriptionAction.payload.contentCoverage).toMatchObject({
+      currentCoverage: "partial",
+      extractedMissingOnly: true,
+    });
+  });
+
+  it("keeps only genuinely new fit details when the PDP already has fit and washing FAQs", () => {
+    const existingDescription = [
+      "PRODUCT NOTE",
+      "Note: This shirt features a tailored, slim-cut design. If you prefer a truly relaxed fit or are between sizes, we recommend sizing up. Please follow care instructions carefully to maintain the garment's shape.",
+      "Lightweight linen shirt",
+      "Relaxed warm-weather shirt made from breathable linen blend.",
+      "Care: machine wash cold, hang dry.",
+      "How does this shirt fit?",
+      "This shirt has a tailored, slim-cut fit. It is designed to sit closer through the chest, shoulders, and sleeves than a loose relaxed-fit shirt. If you prefer a roomier feel or are between sizes, choose one size up and review the size chart before ordering.",
+      "Should I size up?",
+      "If you are between sizes, prefer a looser warm-weather fit, or want extra room through the upper body, sizing up is the safer choice. Checking the selected size against the garment measurements is especially important for this style.",
+      "Does the fit change after washing?",
+      "Some customers have reported a tighter feel after washing, so it is important to follow the care instructions closely. Wash cold and hang dry, and consider this when choosing between sizes if you prefer a less fitted result.",
+      "Are all color and size options expected to fit the same way?",
+      "Fit feedback has not been identical across all options, so we recommend checking the selected variant carefully before purchase. If you are deciding between variants and want the safest fit choice, compare the size chart and choose the option that gives you enough room through the chest and shoulders.",
+    ].join("\n\n");
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 9 },
+      product: {
+        title: "GEN Linen Breeze Shirt",
+        description: existingDescription,
+      },
+      metrics: {
+        customerSignalCount: 9,
+        signalCount: 12,
+        returnUnits: 4,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        topReturnReasons: ["Too small"],
+        affectedVariants: ["White / Medium"],
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit feedback repeats across returns and reviews."],
+        },
+        contentIssueCount: 3,
+        contentAnalysis: {
+          issues: [
+            { code: "missing_specifications", label: "Missing material composition details", severity: "medium", evidence: "Description says breathable linen blend but does not specify the actual fiber composition." },
+            { code: "missing_customer_guidance", label: "Missing size chart/measurement guidance", severity: "medium", evidence: "Copy advises reviewing the size chart but does not provide measurement points." },
+            { code: "missing_specifications", label: "Missing expectation on included items", severity: "low", evidence: "Included items are not specified." },
+          ],
+        },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/shirt",
+        productTitle: "GEN Linen Breeze Shirt",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: [
+              "Fit note (please add near the size/fit section):",
+              "Important: White (especially Medium) has the strongest runs small/tight feedback. If you’re between sizes or prefer extra room in the upper body, choose the next size up and compare your favorite shirt’s chest/shoulder fit to the size chart before ordering.",
+              "After washing: some customers report the fit feels tighter after washing (even with cold wash). For the most comfortable, less-fitted result, follow the care instructions and consider sizing up if you’re sensitive to a snug feel.",
+            ].join("\n"),
+            faq_items: [{
+              question: "Does the fit vary by color?",
+              answer: "Fit feedback isn’t identical across all options. The strongest “runs small/tight” feedback is for White (especially Medium). If you’re choosing White, double-check the size chart and consider sizing up for a roomier feel.",
+              reason: "Variant fit feedback is concentrated in White Medium.",
+            }],
+          },
+        },
+      },
+    });
+
+    const fitNote = recommendations.find((item) => item.id === "draft-fit-note");
+    expect(fitNote).toBeTruthy();
+    expect(fitNote.payload.draftText).toContain("White");
+    expect(fitNote.payload.draftText).toContain("Medium");
+    expect(fitNote.payload.draftText).not.toMatch(/After washing/i);
+    expect(fitNote.payload.draftText).not.toMatch(/between sizes/i);
+
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+    const guidance = recommendations.find((item) => item.id === "add-product-description-guidance");
+    expect(guidance?.payload.draftText || "").not.toMatch(/add a short shopper-facing note/i);
+  });
+
+  it("uses AI content coverage validation to skip semantically covered FAQ proposals", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 8 },
+      product: {
+        title: "GEN Linen Breeze Shirt",
+        description: [
+          "How does this shirt fit?",
+          "This shirt has a tailored, slim-cut fit through the chest, shoulders, and sleeves. If you prefer a roomier feel or are between sizes, choose one size up and review the size chart before ordering.",
+          "Are all color and size options expected to fit the same way?",
+          "Fit feedback has not been identical across all options, so we recommend checking the selected variant carefully before purchase.",
+        ].join("\n"),
+      },
+      metrics: {
+        customerSignalCount: 8,
+        signalCount: 8,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        topReturnReasons: ["Too small"],
+        affectedVariants: [],
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Fit and sizing"],
+          reasons: ["Fit and sizing signals repeat enough to answer before purchase."],
+        },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/shirt",
+        productTitle: "GEN Linen Breeze Shirt",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        contentCoverageValidation: {
+          coverage: [
+            {
+              id: "faq_item_1",
+              status: "already_covered",
+              confidence: "high",
+              recommended_application: "skip",
+              matched_existing_text: "How does this shirt fit?",
+            },
+            {
+              id: "faq_item_2",
+              status: "already_covered",
+              confidence: "medium",
+              recommended_application: "skip",
+              matched_existing_text: "Are all color and size options expected to fit the same way?",
+            },
+          ],
+        },
+        report: {
+          recommendation_copy: {
+            faq_items: [
+              {
+                question: "How does this product fit?",
+                answer: "This shirt has a tailored, slim cut through the chest, shoulders, and sleeves. If you want a more relaxed fit, size up.",
+                reason: "Fit feedback repeats.",
+              },
+              {
+                question: "Do White and Navy fit the same way?",
+                answer: "Fit feedback is not identical across variants, so check the selected variant before purchase.",
+                reason: "Variant fit feedback repeats.",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+  });
+
+  it("uses AI content coverage validation to reduce description notes to the missing delta", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 8 },
+      product: {
+        title: "GEN Linen Breeze Shirt",
+        description: "This shirt has a tailored, slim-cut fit. If you are between sizes, size up.",
+      },
+      metrics: {
+        customerSignalCount: 8,
+        signalCount: 8,
+        returnUnits: 3,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        topReturnReasons: ["Too small"],
+        affectedVariants: ["White / Medium"],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        textInsights: {},
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/shirt",
+        productTitle: "GEN Linen Breeze Shirt",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        contentCoverageValidation: {
+          coverage: [{
+            id: "pdp_copy",
+            status: "partially_covered",
+            confidence: "high",
+            recommended_application: "description_note",
+            remaining_text: "White Medium has the strongest tight-fit feedback in the shoulders and chest.",
+          }],
+        },
+        report: {
+          recommendation_copy: {
+            pdp_copy: "If you are between sizes, size up. White Medium has the strongest tight-fit feedback in the shoulders and chest.",
+          },
+        },
+      },
+    });
+
+    const fitNote = recommendations.find((item) => item.id === "draft-fit-note");
+    expect(fitNote).toBeTruthy();
+    expect(fitNote.payload.draftText).toBe("White Medium has the strongest tight-fit feedback in the shoulders and chest.");
   });
 
   it("does not create duplicate description actions from the same cause and copy", () => {
@@ -1932,6 +3301,70 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
   });
 
+  it("treats low-risk rising mock products with minor PDP gaps as watchlist candidates", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 21,
+      confidence: 68,
+      issueSignalCounts: { quality_defect: 2, product_content: 4 },
+      product: {
+        title: "GEN Atlas Pro Mechanical Keyboard",
+        description: "Premium mechanical keyboard. Aluminum case, hot-swappable switches, RGB backlight and detachable USB-C cable. Choose tactile or linear switch feel before checkout.",
+        media: [],
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Tactile", sku: "GEN-KBD-TAC" },
+          { id: "gid://shopify/ProductVariant/2", title: "Linear", sku: "GEN-KBD-LIN" },
+        ],
+      },
+      metrics: {
+        productMomentumScore: 76,
+        customerSignalCount: 2,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        signalCount: 6,
+        mediaCount: 0,
+        contentIssueCount: 4,
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Switch guidance"],
+          reasons: ["Repeated review language points to a possible expectation gap."],
+        },
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short product description", severity: "medium", evidence: "The description has 21 words." },
+            { code: "missing_specifications", label: "Missing product specifications", severity: "medium", evidence: "No layout, dimensions or compatibility details are provided." },
+            { code: "missing_customer_guidance", label: "Missing customer guidance", severity: "medium", evidence: "Switch feel is not explained." },
+          ],
+          advisories: [{ code: "missing_media_context", label: "Missing media context", severity: "low" }],
+        },
+        textInsights: {
+          sentiment: { positive: 42, neutral: 0, negative: 2, total: 44, negativeRatio: 0.045 },
+          repeatedLanguage: [
+            { term: "excellent", count: 42, dominantSentiment: "positive", sentiments: { positive: 42, neutral: 0, negative: 0 }, sources: ["csv_review"] },
+            { term: "not what i expected", count: 2, dominantSentiment: "negative", sentiments: { positive: 0, neutral: 0, negative: 2 }, sources: ["csv_review"] },
+          ],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/5",
+        productTitle: "GEN Atlas Pro Mechanical Keyboard",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations[0]?.id).toBe("add-to-watchlist");
+    expect(recommendations.map((item) => item.id)).not.toContain("draft-quality-note");
+    expect(recommendations.map((item) => item.id)).not.toContain("rewrite-product-description");
+    expect(recommendations.map((item) => item.id)).not.toContain("create-product-faq");
+    expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
+  });
+
   it("matches issue rows to issue-relevant actions instead of positional SEO actions", () => {
     const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
       deterministic: {
@@ -1961,6 +3394,28 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
 
     expect(issues[0]?.action).toBe("Update product description");
+  });
+
+  it("keeps generated SEO title and meta description within clean character limits", () => {
+    const seoTitle = __productPulseDiagnosisTestHooks.buildSuggestedSeoTitle({
+      product: { vendor: "HydroFlow" },
+      snapshot: { productTitle: "HydroFlow insulated water bottle with leak proof travel lid and stainless steel thermal body for long commutes" },
+      aiTitle: "HydroFlow insulated water bottle with leak proof travel lid and stainless steel thermal body for long commutes...",
+    });
+    const metaDescription = __productPulseDiagnosisTestHooks.buildSuggestedMetaDescription({
+      product: {
+        title: "HydroFlow Insulated Water Bottle",
+        description: "HydroFlow Insulated Water Bottle keeps drinks cold for long commutes, gym bags, and daily travel with a leak proof lid, stainless steel body, and clear care guidance for shoppers who compare bottle size, lid fit, and thermal performance before buying.",
+      },
+      mainIssue: "setup_expectation",
+      aiDescription: "HydroFlow Insulated Water Bottle keeps drinks cold for long commutes, gym bags, and daily travel with a leak proof lid, stainless steel body, and clear care guidance...",
+    });
+
+    expect(seoTitle.length).toBeLessThanOrEqual(70);
+    expect(seoTitle).not.toMatch(/(?:\.\.\.|…)$/);
+    expect(metaDescription.length).toBeLessThanOrEqual(160);
+    expect(metaDescription).not.toMatch(/(?:\.\.\.|…)$/);
+    expect(metaDescription).toMatch(/[.!?]$/);
   });
 
   it("keeps subjective softness feedback out of QA and variant actions without concentration", () => {
@@ -2024,6 +3479,1197 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.map((item) => item.id)).not.toContain("recommend-qa-review");
     expect(recommendations.map((item) => item.id)).not.toContain("correct-variant-options");
     expect(recommendations.map((item) => item.id)).toContain("add-specs-details-block");
+  });
+
+  it("uses AI action guidance to keep subjective expectation issues out of QA even when text mentions defect", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 74,
+      confidence: 99,
+      evidenceSnippets: [
+        { text: "The cushion is thick but unstable for transitions. This is a personal preference issue, not necessarily a defect." },
+        { text: "Too soft for balance poses; expected a firmer yoga surface." },
+      ],
+      issueSignalCounts: { quality_defect: 9, product_content: 4 },
+      product: {
+        title: "GEN CloudSoft Yoga Mat 12mm",
+        description: "This mat is intentionally soft and cushion-forward. It is best for stretching, pilates and floor workouts.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Sage", sku: "GEN-MAT-SAGE" },
+          { id: "gid://shopify/ProductVariant/2", title: "Charcoal", sku: "GEN-MAT-CHAR" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 16,
+        signalCount: 48,
+        returnUnits: 4,
+        refundUnits: 0,
+        returnRate: 50,
+        negativeReviewCount: 12,
+        mediaCount: 0,
+        specsBlockRecommended: true,
+        templateNeedsReview: true,
+        semanticClassification: {
+          actionGuidance: {
+            issueNature: "subjective_expectation",
+            subjectivityLevel: "high",
+            operationalQualityConfidence: "low",
+            shopperExpectationConfidence: "high",
+            shouldEscalateQa: false,
+            primaryActionFamily: "description_update",
+            recommendedActionFamilies: ["description_update", "faq", "specs_block", "media_context"],
+            blockedActionFamilies: ["qa_review", "inventory_hold", "status_change"],
+          },
+        },
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Firmness expectations"],
+          reasons: ["AI classified the repeated softness complaints as an expectation mismatch."],
+        },
+        contentIssueCount: 3,
+        contentAnalysis: {
+          issues: [
+            { code: "missing_customer_guidance", label: "Missing stability guidance", severity: "high", evidence: "The page should explain best-for and not-for use cases." },
+            { code: "missing_specifications", label: "Missing mat specifications", severity: "medium", evidence: "Dimensions, materials and grip are absent." },
+          ],
+          advisories: [{ code: "template_may_need_special_layout", label: "Template could support richer guidance", severity: "low" }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "too soft", count: 4, dominantSentiment: "negative" },
+            { term: "balance", count: 6, dominantSentiment: "mixed" },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 4, customer_count: 3 },
+          confidence: { score: 89, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/wall-print",
+              relatedProductTitle: "GEN Night Watch Dramatic Wall Print",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "90d_after",
+              lift: 4.8,
+              confidence: 67,
+              sampleSize: 3,
+              relationshipStrength: "very_strong",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/yoga",
+        productTitle: "GEN CloudSoft Yoga Mat 12mm",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Clarify that this mat is cushion-forward and not the best choice for fast balance transitions." } } },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("draft-quality-note");
+    expect(ids).toContain("create-product-faq");
+    expect(ids).toContain("add-specs-details-block");
+    expect(ids).not.toContain("recommend-qa-review");
+    expect(ids).not.toContain("limit-variant-inventory");
+    expect(ids).not.toContain("set-product-draft");
+    expect(ids).not.toContain("create-post-purchase-cross-sell");
+    expect(ids).not.toContain("move-to-review-collection");
+    expect(ids).not.toContain("switch-product-template");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("apply-risk-tags");
+    expect(ids).not.toContain("add-workflow-tags");
+  });
+
+  it("lets AI action guidance escalate QA for semantic operational quality issues", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 66,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Multiple customers say the surface separates after normal use." },
+        { text: "Support notes say the same failure repeats after replacement." },
+      ],
+      issueSignalCounts: { quality_defect: 5 },
+      product: {
+        title: "GEN Layered Fitness Mat",
+        description: "Layered mat for daily workouts.",
+        variants: [{ id: "gid://shopify/ProductVariant/1", title: "Standard", sku: "GEN-MAT-STD" }],
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 7,
+        returnUnits: 3,
+        refundUnits: 0,
+        returnRate: 30,
+        negativeReviewCount: 2,
+        semanticClassification: {
+          actionGuidance: {
+            issueNature: "operational_quality",
+            subjectivityLevel: "low",
+            operationalQualityConfidence: "high",
+            shopperExpectationConfidence: "low",
+            shouldEscalateQa: true,
+            qaReason: "AI classified the repeated separation after normal use as an operational product-quality issue.",
+            primaryActionFamily: "qa_review",
+            recommendedActionFamilies: ["qa_review", "description_update"],
+            blockedActionFamilies: [],
+          },
+        },
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{ code: "short_description", label: "Short product description", severity: "medium", evidence: "Limited product detail." }],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "surface separates", count: 3, dominantSentiment: "negative" }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/semantic-qa",
+        productTitle: "GEN Layered Fitness Mat",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Clarify normal-use limits and care while the product is reviewed." } } },
+    });
+    const qa = recommendations.find((item) => item.id === "recommend-qa-review");
+
+    expect(qa).toBeTruthy();
+    expect(qa.payload.trigger).toBe("AI classified the repeated separation after normal use as an operational product-quality issue.");
+  });
+
+  it("keeps merchandising and workflow metadata out of high-risk AI QA diagnoses", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 100,
+      confidence: 99,
+      evidenceSnippets: [
+        { text: "The desk loses air during normal typing and the laptop starts sliding." },
+        { text: "Returned because the tall kit deflates after a few hours and feels unsafe for a laptop." },
+      ],
+      issueSignalCounts: { quality_defect: 14, product_content: 4, safety_concern: 3 },
+      product: {
+        title: "GEN LiftAir Inflatable Standing Desk",
+        description: "Inflatable desk riser for travel work setups.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/tall", title: "Tall Kit", sku: "GEN-LIFTAIR-TALL" },
+          { id: "gid://shopify/ProductVariant/starter", title: "Starter", sku: "GEN-LIFTAIR-STARTER" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 16,
+        signalCount: 52,
+        returnUnits: 8,
+        returnRate: 50,
+        refundUnits: 5,
+        refundRate: 31.25,
+        refundAmount: 412,
+        negativeReviewCount: 27,
+        reviewCount: 50,
+        negativeReviewRate: 54,
+        topReturnReasons: ["Air leak/deflation", "Laptop sliding"],
+        affectedVariants: ["Tall Kit"],
+        variantCount: 2,
+        mediaCount: 1,
+        mediaWithoutAltCount: 0,
+        refundInsights: {
+          shouldSurface: true,
+          highPressure: true,
+          topReasons: [{ label: "Air leak/deflation", count: 5 }],
+        },
+        semanticClassification: {
+          actionGuidance: {
+            issueNature: "operational_quality",
+            subjectivityLevel: "low",
+            operationalQualityConfidence: "high",
+            shopperExpectationConfidence: "medium",
+            shouldEscalateQa: true,
+            qaReason: "Repeated return, refund and review text describes air leaks, deflation and instability during normal use.",
+            primaryActionFamily: "qa_review",
+            recommendedActionFamilies: ["qa_review", "description_update", "faq"],
+            blockedActionFamilies: ["inventory_hold", "status_change"],
+          },
+        },
+        faqNeed: {
+          shouldRecommend: true,
+          topics: ["Inflation and stability"],
+          reasons: ["Customers repeatedly mention deflation and laptop stability."],
+        },
+        contentIssueCount: 2,
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short product description", severity: "medium", evidence: "The PDP does not explain stability limits." },
+            { code: "missing_specifications", label: "Missing load and height specs", severity: "medium", evidence: "Weight limit and height ranges are absent." },
+          ],
+          advisories: [],
+        },
+        textInsights: {
+          sentiment: { negative: 14, negativeRatio: 0.72 },
+          repeatedLanguage: [
+            { term: "deflates", count: 7, dominantSentiment: "negative" },
+            { term: "unsafe for a laptop", count: 3, dominantSentiment: "negative" },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 8, customer_count: 6 },
+          confidence: { score: 88, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            bundleOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/laptop-stand",
+              relatedProductTitle: "GEN Cable Dock Organizer",
+              relationshipType: "same_order",
+              lift: 3.2,
+              confidence: 76,
+              sampleSize: 4,
+              relationshipStrength: "strong",
+            },
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/wall-print",
+              relatedProductTitle: "GEN Night Watch Dramatic Wall Print",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "90d_after",
+              lift: 4.1,
+              confidence: 72,
+              sampleSize: 4,
+              relationshipStrength: "strong",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/travel-desk",
+              relatedProductTitle: "GEN Portable Work Tray",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "90d_before",
+              lift: 3.8,
+              confidence: 70,
+              sampleSize: 4,
+              relationshipStrength: "strong",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/liftair",
+        productTitle: "GEN LiftAir Inflatable Standing Desk",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Warn shoppers about load limits and inflation checks while QA reviews the leak pattern." } } },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("recommend-qa-review");
+    expect(ids).toContain("create-product-faq");
+    expect(ids).not.toContain("test-product-bundle");
+    expect(ids).not.toContain("create-post-purchase-cross-sell");
+    expect(ids).not.toContain("position-as-upgrade-path");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("add-workflow-tags");
+  });
+
+  it("keeps secondary merchandising actions out of high-risk remediation even without AI action guidance", () => {
+    const deterministic = {
+      mainIssue: "shipping_delivery",
+      riskScore: 100,
+      confidence: 92,
+      evidenceSnippets: [
+        { text: "Tall Kit slowly lost air during a call and the laptop started sliding toward the edge." },
+        { text: "Refund issued after the air chamber leak made the desk unsafe for a laptop." },
+      ],
+      issueSignalCounts: { shipping_delivery: 24, refund_impact: 5, safety_concern: 2 },
+      product: {
+        title: "GEN LiftAir Inflatable Standing Desk",
+        description: "Inflatable desk riser for travel work setups.",
+        variants: [{ id: "gid://shopify/ProductVariant/tall", title: "Tall Kit", sku: "GEN-LIFTAIR-TALL" }],
+      },
+      metrics: {
+        customerSignalCount: 40,
+        signalCount: 52,
+        returnUnits: 8,
+        returnRate: 50,
+        refundUnits: 5,
+        refundRate: 31.25,
+        negativeReviewCount: 27,
+        reviewCount: 50,
+        topReturnReasons: [
+          "Item Not As Described",
+          "Other: Air chamber would not hold pressure and the surface tilted toward the keyboard.",
+        ],
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{ code: "short_description", label: "Short product description", severity: "medium", evidence: "The PDP does not explain stability limits." }],
+          advisories: [],
+        },
+        refundInsights: {
+          shouldSurface: true,
+          highPressure: true,
+          dominantIssueCode: "quality_defect",
+          topReasons: [{ label: "Refund discrepancy", count: 5 }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "lost air", count: 6, dominantSentiment: "negative" },
+            { term: "laptop sliding", count: 4, dominantSentiment: "negative" },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 8, customer_count: 6 },
+          confidence: { score: 88, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/wall-print",
+              relatedProductTitle: "GEN Night Watch Dramatic Wall Print",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "30d_after",
+              lift: 2.9,
+              confidence: 70,
+              sampleSize: 3,
+              relationshipStrength: "very_strong",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/mug",
+              relatedProductTitle: "GEN TrailSeal Travel Mug",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "30d_before",
+              lift: 3.6,
+              confidence: 67,
+              sampleSize: 3,
+              relationshipStrength: "very_strong",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/liftair-no-ai-guidance",
+        productTitle: "GEN LiftAir Inflatable Standing Desk",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { pdp_copy: "Clarify pressure retention checks and load limits while QA reviews the leak reports." } } },
+    });
+    const ids = recommendations.map((item) => item.id);
+
+    expect(ids).toContain("recommend-qa-review");
+    expect(ids).not.toContain("create-post-purchase-cross-sell");
+    expect(ids).not.toContain("position-as-upgrade-path");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("add-workflow-tags");
+  });
+
+  it("uses reliable purchase context to recommend variant clarity for multi-variant return patterns", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      riskScore: 68,
+      confidence: 82,
+      evidenceSnippets: [{ text: "Customers bought two sizes and returned the one that did not fit." }],
+      issueSignalCounts: { fit_sizing: 5 },
+      product: {
+        title: "Core Linen Trouser",
+        description: "Linen trouser.",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "S", sku: "LIN-S" },
+          { id: "gid://shopify/ProductVariant/2", title: "M", sku: "LIN-M" },
+          { id: "gid://shopify/ProductVariant/3", title: "L", sku: "LIN-L" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 6,
+        signalCount: 8,
+        returnUnits: 5,
+        refundUnits: 0,
+        returnRate: 16,
+        negativeReviewCount: 1,
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        variantCount: 3,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        productPurchaseContextSummary: {
+          total_orders_containing_product: 24,
+          total_units_sold: 58,
+          multi_variant_order_count: 6,
+          multi_variant_order_rate: 0.25,
+          purchase_context_confidence: 84,
+        },
+        productPurchaseContextFactors: {
+          recommendedActionSignals: {
+            variantClarity: true,
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/variant-context",
+        productTitle: "Core Linen Trouser",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const variantAction = recommendations.find((item) => item.id === "correct-variant-options");
+    expect(variantAction).toBeTruthy();
+    expect(variantAction.payload.trigger).toContain("Multi-variant purchases");
+  });
+
+  it("stores the AI basket context interpretation on the purchase context summary", () => {
+    const summary = {
+      total_orders_containing_product: 18,
+      solo_product_order_count: 12,
+      multi_product_order_count: 6,
+    };
+    const enriched = __productPulseDiagnosisTestHooks.withAiPurchaseContextInterpretation(summary, {
+      report: {
+        basket_context_interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      },
+    });
+
+    expect(enriched).toMatchObject({
+      ...summary,
+      interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      backend_interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      ai_interpretation: "Basket behavior is mostly standalone, but the final report and companion-item evidence suggest reading downstream friction with some order-context caution.",
+      interpretation_source: "deep_diagnosis_final_report",
+    });
+    expect(summary.interpretation).toBeUndefined();
+  });
+
+  it("creates relationship recommendations only from sufficiently confident actionable patterns", () => {
+    const deterministic = {
+      mainIssue: "product_quality",
+      riskScore: 62,
+      confidence: 78,
+      evidenceSnippets: [],
+      issueSignalCounts: { product_quality: 4 },
+      product: {
+        title: "Core Product",
+        description: "Core product.",
+        variants: [],
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 8,
+        returnUnits: 3,
+        refundUnits: 2,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        topReturnReasons: [],
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 18 },
+          confidence: { score: 82, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            bundleOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/care-kit",
+              relatedProductTitle: "Care Kit",
+              relationshipType: "same_order",
+              direction: "together",
+              timeWindow: "same_order",
+              lift: 2.4,
+              confidence: 82,
+              sampleSize: 5,
+              relationshipStrength: "strong",
+            },
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/refill-pack",
+              relatedProductTitle: "Refill Pack",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "30d_after",
+              lift: 1.8,
+              confidence: 76,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+            compatibilityWarningRelationship: {
+              relatedProductId: "gid://shopify/Product/accessory",
+              relatedProductTitle: "Accessory Pack",
+              relationshipType: "same_order",
+              direction: "together",
+              timeWindow: "same_order",
+              lift: 2.1,
+              confidence: 80,
+              sampleSize: 6,
+              deltaReturnRate: 12,
+              deltaRefundRate: 5,
+              relationshipStrength: "strong",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/starter",
+              relatedProductTitle: "Starter Kit",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "30d_before",
+              lift: 1.6,
+              confidence: 74,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/relationship",
+        productTitle: "Core Product",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).toEqual(expect.arrayContaining([
+      "review-product-pairing-expectations",
+      "test-product-bundle",
+      "create-post-purchase-cross-sell",
+      "position-as-upgrade-path",
+    ]));
+    expect(recommendations.find((item) => item.id === "review-product-pairing-expectations").payload).toMatchObject({
+      relatedProductTitle: "Accessory Pack",
+      recommendationKind: "compatibility_warning",
+      readOnly: true,
+    });
+    expect(recommendations.find((item) => item.id === "create-post-purchase-cross-sell").payload.relatedProductTitle).toBe("Refill Pack");
+
+    const lowConfidence = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/relationship",
+        productTitle: "Core Product",
+      },
+      deterministic: {
+        ...deterministic,
+        metrics: {
+          ...deterministic.metrics,
+          productRelationshipIntelligenceSummary: {
+            data_basis: { order_count: 18 },
+            confidence: { score: 40, label: "Low" },
+          },
+        },
+      },
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(lowConfidence.map((item) => item.id)).not.toContain("test-product-bundle");
+    expect(lowConfidence.map((item) => item.id)).not.toContain("create-post-purchase-cross-sell");
+    expect(lowConfidence.map((item) => item.id)).not.toContain("review-product-pairing-expectations");
+  });
+
+  it("creates conservative retention recommendations from strong cohort signals", () => {
+    const baseDeterministic = {
+      mainIssue: "product_quality",
+      riskScore: 38,
+      confidence: 82,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "Retention Product",
+        description: "Retention product.",
+        variants: [],
+      },
+      metrics: {
+        customerSignalCount: 0,
+        signalCount: 0,
+        returnUnits: 0,
+        refundUnits: 0,
+        returnRate: 0,
+        refundRate: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        topReturnReasons: [],
+        productRetention: {
+          summary: {
+            hasEnoughData: true,
+            totalCustomersAnalyzed: 72,
+            totalProductOrdersAnalyzed: 96,
+            retentionHealthScore: 78,
+            repeatPurchaseRate90d: 0.31,
+            sameProductRepurchaseRate90d: 0.22,
+            crossSellRetentionRate90d: 0.1,
+            productLtv90Cents: 9200,
+            medianDaysToSecondPurchase: 34,
+          },
+        },
+      },
+    };
+
+    const repurchaseRecommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/retention",
+        productTitle: "Retention Product",
+      },
+      deterministic: baseDeterministic,
+      mainIssue: baseDeterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const repurchase = repurchaseRecommendations.find((item) => item.id === "create-repurchase-campaign");
+    expect(repurchase).toBeTruthy();
+    expect(repurchase.payload).toMatchObject({
+      source: "product_retention",
+      recommendationKind: "repurchase_campaign",
+      retentionMetrics: {
+        totalProductCohortCustomers: 72,
+        sameProductRepurchaseRate90d: 0.22,
+      },
+      campaignPlan: {
+        audience: expect.stringContaining("Customers who bought this product"),
+      },
+    });
+    expect(repurchaseRecommendations.map((item) => item.id)).not.toContain("review-retention-drop");
+
+    const lowSampleRecommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/retention",
+        productTitle: "Retention Product",
+      },
+      deterministic: {
+        ...baseDeterministic,
+        metrics: {
+          ...baseDeterministic.metrics,
+          productRetention: {
+            summary: {
+              ...baseDeterministic.metrics.productRetention.summary,
+              totalCustomersAnalyzed: 4,
+              totalProductOrdersAnalyzed: 4,
+              hasEnoughData: false,
+            },
+          },
+        },
+      },
+      mainIssue: baseDeterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    expect(lowSampleRecommendations.map((item) => item.id)).not.toContain("create-repurchase-campaign");
+  });
+
+  it("creates retention cross-sell or drop review actions only when the signal is specific", () => {
+    const deterministic = {
+      mainIssue: "product_quality",
+      riskScore: 42,
+      confidence: 80,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "Lifecycle Product",
+        description: "Lifecycle product.",
+        variants: [],
+      },
+      metrics: {
+        customerSignalCount: 0,
+        signalCount: 0,
+        returnUnits: 0,
+        refundUnits: 0,
+        returnRate: 0,
+        refundRate: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        topReturnReasons: [],
+        productRetention: {
+          summary: {
+            hasEnoughData: true,
+            totalCustomersAnalyzed: 80,
+            totalProductOrdersAnalyzed: 105,
+            retentionHealthScore: 74,
+            repeatPurchaseRate90d: 0.29,
+            sameProductRepurchaseRate90d: 0.08,
+            crossSellRetentionRate90d: 0.32,
+            productLtv90Cents: 11800,
+            medianDaysToSecondPurchase: 28,
+          },
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 24 },
+          confidence: { score: 84, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/refill",
+              relatedProductTitle: "Refill Kit",
+              relationshipType: "next_purchase",
+              direction: "after",
+              lift: 2.2,
+              confidence: 84,
+              sampleSize: 7,
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/lifecycle",
+        productTitle: "Lifecycle Product",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    expect(recommendations.map((item) => item.id)).toContain("create-retention-cross-sell-campaign");
+    expect(recommendations.map((item) => item.id)).not.toContain("create-post-purchase-cross-sell");
+    expect(recommendations.find((item) => item.id === "create-retention-cross-sell-campaign")?.payload.relatedProductTitle).toBe("Refill Kit");
+
+    const dropRecommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/lifecycle",
+        productTitle: "Lifecycle Product",
+      },
+      deterministic: {
+        ...deterministic,
+        metrics: {
+          ...deterministic.metrics,
+          productRelationshipFactors: { recommendedActionSignals: {} },
+          productRetention: {
+            summary: {
+              hasEnoughData: true,
+              totalCustomersAnalyzed: 64,
+              totalProductOrdersAnalyzed: 84,
+              retentionHealthScore: 38,
+              repeatPurchaseRate90d: 0.04,
+              sameProductRepurchaseRate90d: 0.01,
+              crossSellRetentionRate90d: 0.02,
+              productLtv90Cents: 5100,
+              ltv90DeltaCents: -900,
+            },
+          },
+        },
+      },
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    expect(dropRecommendations.map((item) => item.id)).toContain("review-retention-drop");
+    expect(dropRecommendations.map((item) => item.id)).not.toContain("create-retention-cross-sell-campaign");
+  });
+
+  it("keeps relationship expectation fixes ahead of catalog hygiene and stop-sale actions", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 100,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Not as described: bought-together bundle context made the source product look like a different kit." },
+        { text: "The source page did not explain what belonged together in the companion-product order." },
+      ],
+      issueSignalCounts: { quality_defect: 8, product_content: 6 },
+      product: {
+        title: "GEN RELTEST Source Product",
+        description: "RELTEST source product used to test bought-together relationships.",
+        status: "ACTIVE",
+        templateSuffix: "",
+        media: [{ id: "gid://shopify/MediaImage/source", alt: "" }],
+        variants: [
+          { id: "gid://shopify/ProductVariant/std", title: "Standard", sku: "GEN-RELTEST-SRC-STD" },
+          { id: "gid://shopify/ProductVariant/ext", title: "Extended", sku: "GEN-RELTEST-SRC-EXT" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 19,
+        signalCount: 25,
+        returnUnits: 3,
+        refundUnits: 2,
+        returnRate: 15.79,
+        refundRate: 10.53,
+        negativeReviewCount: 12,
+        reviewCount: 12,
+        avgRating: 3.7,
+        contentIssueCount: 6,
+        specsBlockRecommended: true,
+        templateNeedsReview: true,
+        mediaCount: 1,
+        mediaWithoutAltCount: 1,
+        topReturnReasons: ["Item Not As Described"],
+        affectedVariants: ["Standard", "Extended"],
+        refundInsights: { shouldSurface: true, highPressure: false },
+        faqNeed: {
+          shouldRecommend: true,
+          score: 8,
+          signals: 6,
+          topics: ["Bundle expectations"],
+          reasons: ["Bundle and bought-together expectations repeat across returns and reviews."],
+        },
+        contentAnalysis: {
+          issues: [
+            { code: "short_description", label: "Short product description", severity: "high", evidence: "The description is testing copy, not shopper guidance." },
+            { code: "missing_customer_guidance", label: "Missing shopper guidance for bundle/bought-together expectations", severity: "high", evidence: "The page does not explain what belongs together." },
+            { code: "missing_specifications", label: "Missing specifications", severity: "high", evidence: "Pack differences are not explained." },
+          ],
+          advisories: [{ code: "missing_media_alt_text", label: "Media alt text could be improved", severity: "low" }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "bundle", count: 8 },
+            { term: "bought together", count: 6 },
+            { term: "unclear", count: 5 },
+          ],
+        },
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 14 },
+          confidence: { score: 89.5, label: "High" },
+        },
+        productRelationshipFactors: {
+          recommendedActionSignals: {
+            compatibilityWarningRelationship: {
+              relatedProductId: "gid://shopify/Product/together",
+              relatedProductTitle: "GEN RELTEST Bought Together Product",
+              relationshipType: "same_order",
+              direction: "together",
+              timeWindow: "same_order",
+              lift: 6.86,
+              confidence: 69,
+              sampleSize: 6,
+              deltaReturnRate: 37.5,
+              deltaRefundRate: 25,
+              relationshipStrength: "very_strong",
+            },
+            crossSellOpportunityRelationship: {
+              relatedProductId: "gid://shopify/Product/after",
+              relatedProductTitle: "GEN RELTEST Bought After Product",
+              relationshipType: "next_purchase",
+              direction: "after",
+              timeWindow: "30d_after",
+              lift: 1.7,
+              confidence: 70,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+            journeyInsightRelationship: {
+              relatedProductId: "gid://shopify/Product/before",
+              relatedProductTitle: "GEN RELTEST Bought Before Product",
+              relationshipType: "previous_purchase",
+              direction: "before",
+              timeWindow: "30d_before",
+              lift: 1.7,
+              confidence: 70,
+              sampleSize: 4,
+              relationshipStrength: "moderate",
+            },
+          },
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/reltest-source",
+        productTitle: "GEN RELTEST Source Product",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Clarify bought-together expectations and Pack differences before checkout.",
+            faq_items: [{
+              question: "What should I expect when buying this with the companion product?",
+              answer: "Check what belongs to the source product, what belongs to the companion item, and which Pack was selected before purchase.",
+            }],
+          },
+        },
+      },
+    });
+    const ids = recommendations.map((item) => item.id);
+    const byId = new Map(recommendations.map((item) => [item.id, item]));
+
+    expect(ids).toEqual(expect.arrayContaining([
+      "draft-quality-note",
+      "review-product-pairing-expectations",
+      "create-post-purchase-cross-sell",
+      "position-as-upgrade-path",
+    ]));
+    expect(ids).not.toContain("set-product-draft");
+    expect(ids).not.toContain("improve-product-media");
+    expect(ids).not.toContain("switch-product-template");
+    expect(ids).not.toContain("add-structured-metafields");
+    expect(ids).not.toContain("move-to-review-collection");
+    expect(ids).not.toContain("add-workflow-tags");
+    expect(byId.get("review-product-pairing-expectations")?.payload).toMatchObject({
+      actionTier: 1,
+      priorityGroup: "Customer-facing fix",
+      relatedProductTitle: "GEN RELTEST Bought Together Product",
+      deltaReturnRate: 37.5,
+      deltaRefundRate: 25,
+    });
+    expect(byId.get("create-post-purchase-cross-sell")?.payload).toMatchObject({
+      actionTier: 3,
+      impactLevel: "Optional",
+      priorityGroup: "Merchandising insight",
+    });
+    expect(byId.get("position-as-upgrade-path")?.payload).toMatchObject({
+      actionTier: 3,
+      impactLevel: "Optional",
+      priorityGroup: "Merchandising insight",
+    });
+  });
+
+  it("recommends adding an uncollected product to an existing related-product collection", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 28,
+      confidence: 76,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "GEN Gallery Wall Print",
+        description: "Decorative wall print.",
+        collections: [],
+        collectionRecords: [],
+        variants: [],
+      },
+      metrics: {
+        signalCount: 0,
+        customerSignalCount: 0,
+        contentIssueCount: 0,
+        topReturnReasons: [],
+        affectedVariants: [],
+        productMomentumScore: 0,
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 11 },
+          confidence: { score: 82, label: "High" },
+        },
+        relationshipCollectionSuggestions: [{
+          collectionId: "gid://shopify/Collection/987",
+          collectionName: "Wall Art",
+          collectionHandle: "wall-art",
+          score: 91,
+          relatedProducts: [{
+            productGid: "gid://shopify/Product/related-print",
+            title: "GEN Related Print",
+            relationshipType: "same_order",
+            relationshipDirection: "together",
+            sampleSize: 5,
+            confidence: 78,
+            lift: 3.2,
+          }],
+          evidence: ["GEN Related Print is bought together, 3.2x lift across 5 matched orders and belongs to Wall Art."],
+        }],
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/source-print",
+        productTitle: "GEN Gallery Wall Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+    const collectionAction = recommendations.find((item) => item.id === "add-to-related-product-collection");
+
+    expect(collectionAction).toMatchObject({
+      label: "Add to Wall Art",
+      type: "Collection merchandising",
+      payload: {
+        collectionId: "gid://shopify/Collection/987",
+        collectionName: "Wall Art",
+        collectionHandle: "wall-art",
+        recommendationKind: "collection_placement",
+        actionTier: 2,
+        priorityGroup: "Merchandising insight",
+      },
+    });
+  });
+
+  it("does not recommend related-product collection placement when the product already belongs to a collection", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 28,
+      confidence: 76,
+      evidenceSnippets: [],
+      issueSignalCounts: {},
+      product: {
+        title: "GEN Gallery Wall Print",
+        description: "Decorative wall print.",
+        collections: ["Existing Collection"],
+        collectionRecords: [{ id: "gid://shopify/Collection/current", title: "Existing Collection", handle: "existing-collection" }],
+        variants: [],
+      },
+      metrics: {
+        signalCount: 0,
+        customerSignalCount: 0,
+        contentIssueCount: 0,
+        topReturnReasons: [],
+        affectedVariants: [],
+        productMomentumScore: 0,
+        productRelationshipIntelligenceSummary: {
+          data_basis: { order_count: 11 },
+          confidence: { score: 82, label: "High" },
+        },
+        relationshipCollectionSuggestions: [{
+          collectionId: "gid://shopify/Collection/987",
+          collectionName: "Wall Art",
+          collectionHandle: "wall-art",
+          score: 91,
+          relatedProducts: [{ productGid: "gid://shopify/Product/related-print", title: "GEN Related Print" }],
+          evidence: ["GEN Related Print belongs to Wall Art."],
+        }],
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/source-print",
+        productTitle: "GEN Gallery Wall Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("add-to-related-product-collection");
+  });
+
+  it("builds specs details blocks as technical placeholders instead of catalog metadata", () => {
+    const deterministic = {
+      mainIssue: "quality_defect",
+      riskScore: 68,
+      confidence: 88,
+      evidenceSnippets: [
+        { text: "Cream unit brewed before the alarm and left condensation rings on the nightstand." },
+        { text: "Graphite worked after a firmware reset, but the timer drifted again later." },
+      ],
+      issueSignalCounts: { quality_defect: 8 },
+      product: {
+        title: "GEN WhisperBrew Coffee Alarm Clock",
+        description: "Schedules a single-cup brew near wake time with quiet alarm tones and a removable water tank.",
+        vendor: "ProductPulse Lab",
+        productType: "Small Appliance",
+        options: [{ name: "Color", values: ["Cream", "Graphite"] }],
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Cream", sku: "GEN-BREW-CREAM" },
+          { id: "gid://shopify/ProductVariant/2", title: "Graphite", sku: "GEN-BREW-GRAPH" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 12,
+        signalCount: 20,
+        returnUnits: 7,
+        refundUnits: 4,
+        negativeReviewCount: 10,
+        specsBlockRecommended: true,
+        contentIssueCount: 2,
+        topReturnReasons: ["Other"],
+        contentAnalysis: {
+          issues: [
+            { code: "missing_specifications", label: "Missing product specifications", severity: "medium", evidence: "No voltage, capacity, timing, or surface guidance is provided." },
+            { code: "missing_customer_guidance", label: "Missing shopper guidance", severity: "medium", evidence: "Condensation and timer behavior need pre-purchase guidance." },
+          ],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "condensation", count: 4 }, { term: "timer drift", count: 3 }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/3",
+        productTitle: "GEN WhisperBrew Coffee Alarm Clock",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const specs = recommendations.find((item) => item.id === "add-specs-details-block");
+    expect(specs?.payload.draftText).toContain("Power input");
+    expect(specs?.payload.draftText).toContain("Brew capacity");
+    expect(specs?.payload.draftText).toContain("Timer and alarm behavior");
+    expect(specs?.payload.draftText).toContain("Water and condensation guidance");
+    expect(specs?.payload.draftText).toContain("[confirm");
+    expect(specs?.payload.draftText).not.toContain("Product type:");
+    expect(specs?.payload.draftText).not.toContain("Brand/vendor:");
+    expect(specs?.payload.draftText).not.toContain("Available options:");
+    expect(specs?.payload.draftText).not.toContain("Variants/SKUs:");
+  });
+
+  it("uses AI-generated specs details block when it is product-specific", () => {
+    const deterministic = {
+      mainIssue: "compatibility",
+      riskScore: 58,
+      confidence: 80,
+      issueSignalCounts: { compatibility: 5 },
+      product: {
+        title: "GEN SmartHerb Planter Kit",
+        description: "Includes planter base, LED grow light and seed pods.",
+        productType: "Home Garden",
+      },
+      metrics: {
+        customerSignalCount: 5,
+        signalCount: 10,
+        returnUnits: 3,
+        refundUnits: 1,
+        negativeReviewCount: 3,
+        specsBlockRecommended: true,
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{ code: "missing_specifications", label: "Missing compatibility details", severity: "medium", evidence: "Wi-Fi and app requirements are not clear." }],
+          advisories: [],
+        },
+        textInsights: {},
+      },
+    };
+    const aiBlock = [
+      "Technical details to confirm before buying:",
+      "- Wi-Fi compatibility: [confirm 2.4 GHz requirement]",
+      "- App language: [confirm supported languages]",
+      "- Power input: [confirm plug type and voltage]",
+    ].join("\n");
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/4",
+        productTitle: "GEN SmartHerb Planter Kit",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { specs_details_block: aiBlock } } },
+    });
+
+    expect(recommendations.find((item) => item.id === "add-specs-details-block")?.payload.draftText).toBe(aiBlock);
   });
 
   it("prioritizes QA review for refund-driven damage and does not recommend pricing without value evidence", () => {
@@ -2177,7 +4823,879 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(recommendations.every((item) => item.payload.recipe === true)).toBe(true);
   });
 
-  it("calculates Product Momentum from recent sales velocity, growth and catalog baseline", () => {
+  it("does not propose a vendor classification change when the vendor already exists", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 62,
+      confidence: 71,
+      product: {
+        title: "Example Art Print",
+        description: "Decorative wall art print for home display.",
+        vendor: "damian",
+        productType: "",
+        tags: ["art"],
+        collections: ["Wall Art"],
+      },
+      issueSignalCounts: { product_content: 1 },
+      metrics: {
+        classificationNeedsReview: true,
+        catalogProductTypes: ["Art print", "Game console", "Puzzle"],
+        productMomentumScore: 84,
+        customerSignalCount: 0,
+        signalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentIssues: [],
+        contentAnalysis: { issues: [], advisories: [] },
+        faqNeed: { shouldRecommend: false },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/classification-vendor",
+        productTitle: "Example Art Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const classification = recommendations.find((item) => item.id === "update-product-classification");
+    expect(classification).toBeTruthy();
+    expect(classification.payload).toMatchObject({
+      currentVendor: "damian",
+      currentProductType: "",
+      draftVendor: "",
+      draftProductType: "Art print",
+      classificationSource: "store_existing_product_type",
+    });
+  });
+
+  it("proposes a Shopify taxonomy category when the product has no category and a category suggestion is available", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 62,
+      confidence: 71,
+      product: {
+        title: "Example Art Print",
+        description: "Decorative wall art print for home display.",
+        vendor: "damian",
+        productType: "Art print",
+        category: null,
+        tags: ["art"],
+        collections: ["Wall Art"],
+      },
+      issueSignalCounts: { product_content: 1 },
+      metrics: {
+        classificationNeedsReview: true,
+        catalogProductTypes: ["Art print", "Game console", "Puzzle"],
+        taxonomyCategorySuggestions: [{
+          id: "gid://shopify/TaxonomyCategory/aa-1",
+          name: "Posters, Prints & Visual Artwork",
+          fullName: "Arts & Entertainment > Artwork > Posters, Prints & Visual Artwork",
+          isLeaf: true,
+          level: 3,
+          source: "shopify_taxonomy_search",
+        }],
+        productMomentumScore: 84,
+        customerSignalCount: 0,
+        signalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentIssues: [],
+        contentAnalysis: { issues: [], advisories: [] },
+        faqNeed: { shouldRecommend: false },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/classification-category",
+        productTitle: "Example Art Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const classification = recommendations.find((item) => item.id === "update-product-classification");
+    expect(classification).toBeTruthy();
+    expect(classification.payload).toMatchObject({
+      currentVendor: "damian",
+      currentProductType: "Art print",
+      draftVendor: "",
+      draftProductType: "",
+      draftCategoryId: "gid://shopify/TaxonomyCategory/aa-1",
+      draftCategoryFullName: "Arts & Entertainment > Artwork > Posters, Prints & Visual Artwork",
+      categorySource: "shopify_taxonomy_search",
+    });
+    expect(classification.payload.shopifyField).toContain("Product.category");
+  });
+
+  it("skips product classification recommendations when no real field change is available", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      riskScore: 62,
+      confidence: 71,
+      product: {
+        title: "Example Art Print",
+        description: "Decorative wall art print for home display.",
+        vendor: "damian",
+        productType: "Art print",
+        tags: ["art"],
+        collections: ["Wall Art"],
+      },
+      issueSignalCounts: { product_content: 1 },
+      metrics: {
+        classificationNeedsReview: true,
+        catalogProductTypes: ["Art print", "Game console", "Puzzle"],
+        productMomentumScore: 84,
+        customerSignalCount: 0,
+        signalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        contentIssueCount: 0,
+        contentIssues: [],
+        contentAnalysis: { issues: [], advisories: [] },
+        faqNeed: { shouldRecommend: false },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/classification-noop",
+        productTitle: "Example Art Print",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("treats covered setup guidance as description coverage and uses targeted description edits for remaining gaps", () => {
+    const currentDescription = [
+      "GEN LumaSpan Modular Desk Rail Light mounts under a shelf or monitor riser with adhesive pads or optional clamp feet.",
+      "Use adhesive only on smooth sealed surfaces, not oiled, porous, dusty, textured, or warm undersides; let the adhesive cure before routing the cable.",
+      "The USB-C cable exits on the right side by default, and the rail can be flipped only if the control button and cable route still remain reachable.",
+      "A USB-C cable is included in the box, but a wall adapter or wall brick is not included.",
+      "For webcam or camera use, test shutter settings first because some cameras can show flicker or banding. Glossy desks, glass, and monitors can reflect glare.",
+      "Choose the short or long length based on your desk width and preferred light spread.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "missing_specs", label: "Missing lighting specification values", severity: "medium", evidence: "The copy says color temperatures and brightness levels exist, but does not list color-temperature values, lumens, CRI, or beam angle." },
+      { code: "missing_dimensions", label: "Missing rail dimensions", severity: "medium", evidence: "The description does not give rail width, height, diffuser dimensions, or coverage by length." },
+      { code: "missing_care", label: "Missing cleaning guidance", severity: "medium", evidence: "The description does not explain how to clean the diffuser or what cleaners to avoid." },
+    ];
+    const deterministic = {
+      mainIssue: "setup_expectation",
+      riskScore: 86,
+      issueSignalCounts: { setup_expectation: 5, quality_defect: 2 },
+      evidenceSnippets: [
+        { text: "The page technically explains adhesive surfaces and the no-adapter box contents, but I missed the checklist before checkout." },
+      ],
+      product: {
+        title: "GEN LumaSpan Modular Desk Rail Light",
+        description: currentDescription,
+        descriptionHtml: `<p>${currentDescription}</p>`,
+        status: "ACTIVE",
+        vendor: "GEN",
+        productType: "Desk Lighting",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        customerSignalCount: 8,
+        signalCount: 11,
+        contentIssueCount: contentIssues.length,
+        contentIssues,
+        contentAnalysis: { issues: contentIssues, advisories: [] },
+        faqNeed: {
+          shouldRecommend: true,
+          score: 8,
+          topics: ["Setup guidance"],
+          reasons: ["Setup questions repeat across returns and reviews."],
+        },
+        returnUnits: 3,
+        refundUnits: 2,
+        negativeReviewCount: 4,
+        reviewCount: 13,
+        topReturnReasons: ["Setup checklist missed"],
+        topReturnReasonDetails: [{ label: "Setup checklist missed", count: 3 }],
+        affectedVariants: [],
+        affectedVariantDetails: [],
+        variants: [],
+        refundInsights: { shouldSurface: false },
+        textInsights: {
+          sentiment: { total: 8, negative: 6, negativeRatio: 0.75 },
+          repeatedLanguage: [{ term: "setup checklist missed", count: 4 }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/8786190729304",
+        productTitle: "GEN LumaSpan Modular Desk Rail Light",
+      },
+      deterministic,
+      mainIssue: "setup_expectation",
+      ai: {
+        report: {
+          recommendation_copy: {
+            pdp_copy: "Before checkout, confirm the mounting surface is sealed, the USB-C cable route works on the right side or flipped setup, no wall adapter is included, and webcam use may show camera banding.",
+            faq_items: [{
+              question: "What setup details should shoppers confirm before buying GEN LumaSpan Modular Desk Rail Light?",
+              answer: "Confirm the mounting surface, cable route, included USB-C cable, missing wall adapter, and camera flicker limits before checkout.",
+              reason: "Setup uncertainty repeated.",
+            }],
+          },
+        },
+      },
+    });
+
+    const byId = new Map(recommendations.map((item) => [item.id, item]));
+    expect(byId.has("draft-quality-note")).toBe(false);
+    expect(byId.has("improve-setup-guidance")).toBe(false);
+    expect(byId.has("add-product-description-guidance")).toBe(false);
+    expect(byId.has("create-product-faq")).toBe(false);
+
+    const descriptionUpdate = byId.get("correct-product-description");
+    expect(descriptionUpdate).toBeTruthy();
+    expect(descriptionUpdate.label).toBe("Update product description details");
+    expect(descriptionUpdate.payload).toMatchObject({
+      changeStrategy: "targeted-enhancement",
+      operation: "replace",
+      preserveHtml: true,
+    });
+    expect(descriptionUpdate.payload.descriptionReplacements.length).toBeGreaterThan(0);
+    expect(descriptionUpdate.payload.draftText).toContain("color-temperature values");
+    expect(descriptionUpdate.payload.draftText).toContain("rail width and height");
+  });
+
+  it("classifies setup expectation language separately from product quality", () => {
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(
+      "The page technically explains the flip option, but I missed the control-button tradeoff until install; not broken, just an expectation mismatch.",
+    )).toBe("setup_expectation");
+    expect(__productPulseDiagnosisTestHooks.classifyIssueText(
+      "Auto shutoff looked defective because I boiled below the MIN line; support pointed to the minimum-fill setup rule.",
+    )).toBe("setup_expectation");
+  });
+
+  it("keeps targeted description edits product-specific for appliance setup gaps", () => {
+    const currentDescription = [
+      "GEN VoltNest is a compact electric kettle with a folding silicone body, stainless heated base, and locking travel lid.",
+      "This model is 120 V only for North American outlets.",
+      "Fill above the MIN line before boiling and keep the steam vent facing into open space.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "missing_specifications", label: "Missing capacity and wattage", severity: "high", evidence: "The description explains minimum-fill behavior but does not state capacity, wattage, cord length, or counter clearance." },
+      { code: "missing_care", label: "Missing descaling guidance", severity: "medium", evidence: "The description does not explain how to descale mineral buildup or clean the silicone body, lid, and steam vent." },
+    ];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/voltnest",
+        productTitle: "GEN VoltNest Foldaway Steam Kettle",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        confidence: 82,
+        issueSignalCounts: { setup_expectation: 5 },
+        evidenceSnippets: [
+          { text: "Auto shutoff looked defective because the buyer boiled below the MIN line; support pointed to setup guidance." },
+        ],
+        product: {
+          title: "GEN VoltNest Foldaway Steam Kettle",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Kitchen Appliances",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 7,
+          contentIssueCount: contentIssues.length,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          topReturnReasons: ["Minimum-fill setup missed"],
+          topReturnReasonDetails: [{ label: "Minimum-fill setup missed", count: 3 }],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: {
+            sentiment: { total: 5, negative: 4, negativeRatio: 0.8 },
+            repeatedLanguage: [{ term: "MIN line setup missed", count: 3 }],
+          },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const descriptionUpdate = recommendations.find((item) => item.id === "correct-product-description");
+    expect(descriptionUpdate).toBeTruthy();
+    expect(descriptionUpdate.payload.changeStrategy).toBe("targeted-enhancement");
+    expect(descriptionUpdate.payload.draftText).toContain("kettle capacity");
+    expect(descriptionUpdate.payload.draftText).toContain("MIN fill line");
+    expect(descriptionUpdate.payload.draftText).toContain("descale");
+    expect(descriptionUpdate.payload.draftText).not.toContain("rail and diffuser");
+    expect(recommendations.map((item) => item.id)).not.toContain("set-product-draft");
+  });
+
+  it("does not reuse kettle care language for photo panel power/spec gaps", () => {
+    const currentDescription = [
+      "GEN PrismHue is a low-profile wall or shelf panel that holds one 5 x 7 in print behind a magnetic clear face.",
+      "The box includes the panel, magnetic face, USB-C cable, adhesive wall tabs, and a tabletop foot.",
+      "Printed photos and art cards are not included.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "missing_specifications", label: "Missing panel and power specifications", severity: "high", evidence: "The description does not state panel dimensions, card thickness, USB power adapter needs, voltage/wattage, or surface compatibility for adhesive tabs." },
+    ];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/prismhue",
+        productTitle: "GEN PrismHue Magnetic Photo Light Panel",
+      },
+      deterministic: {
+        mainIssue: "product_content",
+        riskScore: 82,
+        confidence: 78,
+        issueSignalCounts: { product_content: 4 },
+        evidenceSnippets: [
+          { text: "The light panel needs clearer media/spec context before purchase." },
+        ],
+        product: {
+          title: "GEN PrismHue Magnetic Photo Light Panel",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Home Decor",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssueCount: contentIssues.length,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 2,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          topReturnReasons: ["Missing panel and power specifications"],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "product_content",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const serialized = JSON.stringify(recommendations);
+    expect(serialized).not.toContain("powered base");
+    expect(serialized).not.toContain("descale");
+    expect(serialized).not.toContain("silicone body");
+    expect(serialized).not.toContain("rail and diffuser");
+    expect(serialized).not.toContain("garment measurements");
+    expect(serialized).not.toContain("cold wash");
+  });
+
+  it("does not treat apparel steam-care wording as kettle context", () => {
+    const currentDescription = [
+      "GEN DriftWeave is a packable overshirt with finished garment checkpoints.",
+      "Use the body-size chart first, then compare shoulder, chest, sleeve, and upper-arm measurements.",
+      "Machine wash cold, close the snaps, hang dry, and steam lightly if the pocket fold leaves a crease.",
+    ].join(" ");
+    const contentIssues = [
+      { code: "incoherent_copy", label: "Variant coverage does not match Size option list", severity: "high", evidence: "Options list S, M, L, XL, but some color/size combinations are unavailable." },
+    ];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/driftweave",
+        productTitle: "GEN DriftWeave Packable Overshirt",
+      },
+      deterministic: {
+        mainIssue: "fit_sizing",
+        riskScore: 88,
+        confidence: 82,
+        issueSignalCounts: { fit_sizing: 6 },
+        evidenceSnippets: [
+          { text: "Upper-arm and sweatshirt layering decisions repeat in returns and reviews." },
+        ],
+        product: {
+          title: "GEN DriftWeave Packable Overshirt",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Apparel",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 6,
+          signalCount: 8,
+          contentIssueCount: contentIssues.length,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 4,
+          reviewCount: 9,
+          topReturnReasons: ["Too Small"],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: {
+            sentiment: { total: 6, negative: 5, negativeRatio: 0.83 },
+            repeatedLanguage: [{ term: "upper arm", count: 3, issueCode: "fit_sizing" }],
+          },
+        },
+      },
+      mainIssue: "fit_sizing",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const serialized = JSON.stringify(recommendations);
+    expect(serialized).not.toContain("capacity, wattage");
+    expect(serialized).not.toContain("cord length");
+    expect(serialized).not.toContain("safety markings");
+    expect(serialized).toContain("color and size combinations");
+  });
+
+  it("prefers fit sizing over product quality when apparel evidence is dominated by fit language", () => {
+    const issue = __productPulseDiagnosisTestHooks.getEvidencePreferredMainIssue({
+      mainIssue: "quality_defect",
+      riskScore: 92,
+      issueSignalCounts: { quality_defect: 2 },
+      product: {
+        title: "GEN DriftWeave Packable Overshirt",
+        productType: "Apparel",
+        tags: ["overshirt", "fit-sizing"],
+      },
+      metrics: {
+        refundInsights: {
+          issueCounts: [{ label: "fit_sizing", count: 3 }],
+          examples: [{ text: "Customer says the upper arm felt tight after warm drying.", issueCode: "fit_sizing" }],
+        },
+        textInsights: {
+          repeatedLanguage: [
+            { term: "shoulder", count: 7, issueCode: "fit_sizing" },
+            { term: "upper arm", count: 4, issueCode: "fit_sizing" },
+          ],
+        },
+        topReturnReasonDetails: [{
+          label: "Too Small",
+          subReasons: [{ label: "Body fits, shoulder is tolerable, upper arm is the blocker." }],
+        }],
+      },
+    }, "quality_defect");
+
+    expect(issue).toBe("fit_sizing");
+  });
+
+  it("does not propose unrelated taxonomy categories without product-specific token overlap", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/driftweave",
+        productTitle: "GEN DriftWeave Packable Overshirt",
+      },
+      deterministic: {
+        mainIssue: "fit_sizing",
+        riskScore: 84,
+        issueSignalCounts: { fit_sizing: 5 },
+        product: {
+          title: "GEN DriftWeave Packable Overshirt",
+          description: "Packable overshirt for travel layers.",
+          descriptionHtml: "<p>Packable overshirt for travel layers.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Apparel",
+          category: null,
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/ap-1",
+            name: "Pet Shoes",
+            fullName: "Animals & Pet Supplies > Pet Supplies > Pet Apparel > Pet Shoes",
+            level: 4,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Apparel"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 0,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "fit_sizing",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("does not treat generic kitchen taxonomy overlap as a product-specific kettle category", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/voltnest",
+        productTitle: "GEN VoltNest Foldaway Steam Kettle",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        issueSignalCounts: { setup_expectation: 5 },
+        product: {
+          title: "GEN VoltNest Foldaway Steam Kettle",
+          description: "Compact electric kettle for small kitchens with a MIN fill line and steam vent.",
+          descriptionHtml: "<p>Compact electric kettle for small kitchens with a MIN fill line and steam vent.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Kitchen Appliances",
+          category: null,
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/hg-11-8-41-5-2",
+            name: "Kitchen Utensil Racks",
+            fullName: "Home & Garden > Kitchen & Dining > Kitchen Tools & Utensils > Kitchen Organizers > Kitchen Utensil Holders & Racks > Kitchen Utensil Racks",
+            level: 6,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Kitchen Appliances"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("does not classify a kettle as furniture from incidental cabinet wording", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/voltnest",
+        productTitle: "GEN VoltNest Foldaway Steam Kettle",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        issueSignalCounts: { setup_expectation: 5 },
+        product: {
+          title: "GEN VoltNest Foldaway Steam Kettle",
+          description: "Compact electric kettle for small kitchens. Keep the steam vent clear of upper cabinets.",
+          descriptionHtml: "<p>Compact electric kettle for small kitchens. Keep the steam vent clear of upper cabinets.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Kitchen Appliances",
+          category: null,
+          tags: ["travel-kettle", "kitchen-appliance", "steam-safety"],
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/fr-4-3-9",
+            name: "Kitchen Hutches",
+            fullName: "Furniture > Cabinets & Storage > China Cabinets & Hutches > Kitchen Hutches",
+            level: 4,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Kitchen Appliances"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("does not classify a photo light panel as posters from description-only print wording", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/prismhue",
+        productTitle: "GEN PrismHue Magnetic Photo Light Panel",
+      },
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 88,
+        issueSignalCounts: { setup_expectation: 5 },
+        product: {
+          title: "GEN PrismHue Magnetic Photo Light Panel",
+          description: "Magnetic panel for displaying your own 5x7 prints. Printed photos are not included.",
+          descriptionHtml: "<p>Magnetic panel for displaying your own 5x7 prints. Printed photos are not included.</p>",
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Home Decor",
+          category: null,
+          tags: ["photo-panel", "magnetic-frame", "mounting-surface"],
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 5,
+          signalCount: 6,
+          contentIssues: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          taxonomyCategorySuggestions: [{
+            id: "gid://shopify/TaxonomyCategory/hg-3-4-2-1",
+            name: "Posters",
+            fullName: "Home & Garden > Decor > Artwork > Posters, Prints, & Visual Artwork > Posters",
+            level: 5,
+            isLeaf: true,
+            source: "shopify_taxonomy_search",
+          }],
+          catalogProductTypes: ["Home Decor"],
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 3,
+          refundUnits: 2,
+          negativeReviewCount: 3,
+          reviewCount: 8,
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 5, negative: 4, negativeRatio: 0.8 } },
+        },
+      },
+      mainIssue: "setup_expectation",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    expect(recommendations.map((item) => item.id)).not.toContain("update-product-classification");
+  });
+
+  it("keeps CSV review cache keys stable when row numbers change", () => {
+    const baseReview = {
+      sourceType: "csv_review",
+      productId: "judge-me-product-123",
+      sourceProductId: "source-product-abc",
+      handle: "gen-voltnest-foldaway-steam-kettle",
+      rating: 2,
+      title: "Graphite needs a MIN line closeup",
+      body: "The fill mark still disappears in my kitchenette light.",
+      createdAt: "2026-05-29T20:30:00.000Z",
+      reviewerName: "Mock Reviewer Volt",
+    };
+
+    const firstKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({ ...baseReview, sourceRow: 40 });
+    const secondKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({ ...baseReview, sourceRow: 56 });
+    const sameDayDifferentTimeKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({
+      ...baseReview,
+      sourceRow: 57,
+      createdAt: "2026-05-29T22:30:00.000Z",
+    });
+    const differentKey = __productPulseDiagnosisTestHooks.getReviewTextCacheKey({ ...baseReview, body: "A different review body.", sourceRow: 56 });
+
+    expect(firstKey).toBe(secondKey);
+    expect(sameDayDifferentTimeKey).toBe(firstKey);
+    expect(differentKey).not.toBe(firstKey);
+  });
+
+  it("does not use apparel measurement guidance for photo panel description gaps", () => {
+    const guidance = __productPulseDiagnosisTestHooks.buildCustomerFacingDescriptionAddendum({
+      title: "GEN PrismHue Magnetic Photo Light Panel",
+      contentIssues: [
+        {
+          label: "Missing setup and fit dimensions",
+          evidence: "Customers need mounting surface fit, visible print area, and room-light context before purchase.",
+          code: "missing_specs",
+        },
+      ],
+    });
+
+    expect(guidance).toContain("panel outer dimensions");
+    expect(guidance).toContain("mounting surface compatibility");
+    expect(guidance).not.toContain("garment measurements");
+    expect(guidance).not.toContain("selected size");
+  });
+
+  it("prefers photo panel description enhancements over incidental rail language", () => {
+    const sentences = __productPulseDiagnosisTestHooks.buildTargetedDescriptionEnhancementSentences({
+      product: {
+        title: "GEN PrismHue Magnetic Photo Light Panel",
+        productType: "Home Decor",
+      },
+      currentDescription: "Backlit magnetic panel for 5 x 7 prints with adhesive wall tabs and a tabletop foot.",
+      contentIssues: [
+        {
+          label: "Missing dimensions and diffuser context",
+          evidence: "Customers need panel dimensions, visible print area, and surface compatibility; avoid rail-style guidance.",
+        },
+      ],
+    });
+
+    const joined = sentences.join(" ");
+    expect(joined).toContain("panel outer dimensions");
+    expect(joined).toContain("visible 5 x 7 print area");
+    expect(joined).not.toContain("rail width");
+    expect(joined).not.toContain("diffuser dimensions");
+  });
+
+  it("keeps repeated setup language out of product-quality issue buckets", () => {
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic: {
+        mainIssue: "setup_expectation",
+        riskScore: 84,
+        confidence: 86,
+        issueSignalCounts: { setup_expectation: 5 },
+        metrics: {
+          signalCount: 5,
+          contentAnalysis: { issues: [] },
+          textInsights: { sentiment: { negative: 0, total: 0, negativeRatio: 0 } },
+        },
+      },
+      ai: {
+        classification: {
+          clusters: [],
+          repeated_language: [{
+            term: "cable",
+            count: 5,
+            severity: "medium",
+            issue_category: "quality_defect",
+            explanation: "Customers describe a cable routing mismatch after setup and say the listing made the side exit easy to miss.",
+            source_types: ["returns", "reviews"],
+            dominantSentiment: "negative",
+            sentiments: { negative: 5 },
+          }],
+        },
+      },
+      mainIssue: "setup_expectation",
+      recommendations: [],
+    });
+
+    expect(issues.some((issue) => issue.issueCode === "setup_expectation")).toBe(true);
+    expect(issues.some((issue) => issue.issueCode === "quality_defect")).toBe(false);
+  });
+
+  it("does not generate apparel measurement guidance for non-apparel dimension gaps", () => {
+    const currentDescription = "GEN Arc Desk Lamp is a compact adjustable task lamp for work tables, reading corners, and shelving. It includes a weighted base, tilting head, warm and cool light modes, touch controls, and a braided USB-C cable for desk routing.";
+    const contentIssues = [{
+      code: "missing_dimensions",
+      label: "Missing product measurements",
+      severity: "medium",
+      evidence: "The description does not list width, height, depth, or footprint measurements for shoppers comparing desk space.",
+    }];
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/2",
+        productTitle: "GEN Arc Desk Lamp",
+      },
+      deterministic: {
+        mainIssue: "product_content",
+        riskScore: 72,
+        issueSignalCounts: { product_content: 1 },
+        product: {
+          title: "GEN Arc Desk Lamp",
+          description: currentDescription,
+          descriptionHtml: `<p>${currentDescription}</p>`,
+          status: "ACTIVE",
+          vendor: "GEN",
+          productType: "Desk Lighting",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          customerSignalCount: 2,
+          signalCount: 3,
+          contentIssueCount: 1,
+          contentIssues,
+          contentAnalysis: { issues: contentIssues, advisories: [] },
+          faqNeed: { shouldRecommend: false },
+          returnUnits: 2,
+          refundUnits: 0,
+          negativeReviewCount: 0,
+          reviewCount: 2,
+          topReturnReasons: [],
+          affectedVariants: [],
+          affectedVariantDetails: [],
+          variants: [],
+          refundInsights: { shouldSurface: false },
+          textInsights: { sentiment: { total: 2, negative: 1, negativeRatio: 0.5 } },
+        },
+      },
+      mainIssue: "product_content",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const serialized = JSON.stringify(recommendations);
+    expect(serialized).not.toContain("garment measurements");
+    expect(serialized).toContain("product dimensions");
+  });
+
+  it("calculates Sales Momentum from recent sales velocity, growth and catalog baseline", () => {
     const now = new Date("2026-05-16T12:00:00.000Z");
     const sales = [
       { orderId: "ord-1", createdAt: "2026-05-15T10:00:00.000Z", quantity: 8, amount: 800 },
@@ -2210,6 +5728,9 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(momentum.inputs.unitsLast30Days).toBe(26);
     expect(momentum.inputs.ordersLast30Days).toBe(4);
     expect(momentum.inputs.weeklyUnitsLast4Weeks).toHaveLength(4);
+    expect(momentum.inputs.weeklyUnitsLast8Weeks).toHaveLength(8);
+    expect(momentum.inputs.weeklyRevenueLast8Weeks).toHaveLength(8);
+    expect(momentum.inputs.weeklyUnitsLast8Weeks.slice(-4)).toEqual(momentum.inputs.weeklyUnitsLast4Weeks);
     expect(momentum.display.catalogPositionLabel).toMatch(/Top|baseline/);
     expect(momentum.confidence).toBeGreaterThan(50);
   });

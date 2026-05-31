@@ -4,6 +4,7 @@ import { ProductsScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 import { getCsvReviewSourceStatusForShop } from "../lib/product-pulse-csv.server";
 import {
+  addShopifyProductCandidateForShop,
   getProductsQueueForShop,
   recordProductDetailActionForShop,
   deleteProductAnalysisForShop,
@@ -18,23 +19,20 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   const url = new URL(request.url);
   const settings = await getProductPulseSettings(session.shop);
+  const mainFilters = parseProductTableFilters(url.searchParams);
+  const candidateFilters = parseProductTableFilters(url.searchParams, "candidate");
+  const resolvedFilters = parseProductTableFilters(url.searchParams, "resolved");
   const filters = {
-    query: url.searchParams.get("q") || "",
-    analysis: url.searchParams.get("analysis") || "all",
-    risk: url.searchParams.get("risk") || "all",
-    status: url.searchParams.get("status") || "all",
-    issue: url.searchParams.get("issue") || "all",
-    source: url.searchParams.get("source") || "all",
-    vendor: url.searchParams.get("vendor") || "all",
-    collection: url.searchParams.get("collection") || "all",
-    page: url.searchParams.get("page") || "1",
-    rows: url.searchParams.get("rows") || "25",
-    sort: url.searchParams.get("sort") || "",
-    direction: url.searchParams.get("direction") || "desc",
+    ...mainFilters,
+    candidates: candidateFilters,
+    resolved: resolvedFilters,
+    activeTab: normalizeProductsTab(url.searchParams.get("tab")),
   };
 
-  const [productTable, quickScanCsvReviews] = await Promise.all([
-    getProductsQueueForShop(session.shop, admin, filters, { settings }),
+  const [productTable, candidateProductTable, resolvedProductTable, quickScanCsvReviews] = await Promise.all([
+    getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings }),
+    getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings }),
+    getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings }),
     getCsvReviewSourceStatusForShop(session.shop),
   ]);
 
@@ -42,6 +40,8 @@ export const loader = async ({ request }) => {
     data: {
       ...getAppViewData(filters),
       productTable,
+      candidateProductTable,
+      resolvedProductTable,
       quickScanCsvReviews,
       persistProductJobs: true,
     },
@@ -65,18 +65,22 @@ export const action = async ({ request }) => {
     return searchShopifyProductsForDiagnosis(session.shop, admin, String(formData.get("query") || ""));
   }
 
+  if (formData.get("_action") === "add-shopify-product-candidate") {
+    return addShopifyProductCandidateForShop(session.shop, admin, String(formData.get("productId") || ""));
+  }
+
   if (formData.get("_action") === "mark-resolved") {
     const productId = String(formData.get("productId") || "");
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before resolving a product." };
+    return { status: "validation_error", message: "Run Catalog Scan before resolving a product." };
   }
 
   if (formData.get("_action") === "mark-unresolved") {
     const productId = String(formData.get("productId") || "");
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-unresolved");
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before restoring a product." };
+    return { status: "validation_error", message: "Run Catalog Scan before restoring a product." };
   }
 
   if (formData.get("_action") === "add-to-watchlist") {
@@ -118,4 +122,30 @@ function parseSelectedWatchlistProducts(value) {
   } catch {
     return [];
   }
+}
+
+function parseProductTableFilters(searchParams, prefix = "") {
+  const get = (name, fallback = "") => {
+    if (!prefix) return searchParams.get(name) || fallback;
+    const key = `${prefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+    return searchParams.get(key) || fallback;
+  };
+
+  return {
+    query: get("q", ""),
+    risk: get("risk", "all"),
+    status: get("status", "all"),
+    issue: get("issue", "all"),
+    vendor: get("vendor", "all"),
+    collection: get("collection", "all"),
+    page: get("page", "1"),
+    rows: get("rows", "25"),
+    sort: get("sort", ""),
+    direction: get("direction", "desc"),
+  };
+}
+
+function normalizeProductsTab(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["full", "candidates", "resolved"].includes(normalized) ? normalized : "";
 }

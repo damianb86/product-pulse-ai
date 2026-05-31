@@ -9,8 +9,8 @@ Given no optional source is connected, when the merchant opens Connect sources, 
 ## AC-003 Coverage Score
 Given multiple sources are connected, when source weights are evaluated, then the score is deterministic and matches the connected-source contribution.
 
-## AC-004 Catalog Signal Scan
-Given the merchant has product data access, when they click Run Catalog Signal Scan, then a scan job is created or displayed and Dashboard reflects scan status.
+## AC-004 Catalog Scan
+Given the merchant has product data access, when they click Run Catalog Scan, then a scan job is created or displayed and Dashboard reflects scan status.
 
 ## AC-005 Running Jobs
 Given jobs are running or completed, when the merchant opens Running jobs, then each job shows status, progress, source, last update and any recoverable error.
@@ -22,13 +22,13 @@ Given products have risk snapshots, when Dashboard loads, then the highest prior
 Given the merchant searches or filters Products, when the filter is applied, then only matching products remain visible and the empty state appears if no products match.
 
 ## AC-008 Diagnosis Credits
-Given the merchant has at least one credit, when they start AI Product Diagnosis, then one credit is reserved/consumed for the selected product.
+Given the merchant has at least one diagnosis credit, when they start Product Diagnosis, then one diagnosis credit is reserved/consumed for the selected product.
 
-## AC-009 Insufficient Credits
-Given the merchant has zero credits, when they start AI Product Diagnosis, then the app blocks the action and shows a validation message without creating a diagnosis.
+## AC-009 Insufficient Diagnosis Credits
+Given the merchant has zero diagnosis credits, when they start Product Diagnosis, then the app blocks the action and shows a validation message without creating a diagnosis.
 
 ## AC-010 Diagnosis Evidence
-Given a diagnosis exists, when the product diagnosis screen loads, then it shows likely cause, evidence by source, risk score, confidence, impact and issues.
+Given a diagnosis exists, when the Product Diagnosis screen loads, then it shows likely cause, evidence by source, risk score, confidence, impact and issues.
 
 ## AC-011 Apply Draft Action
 Given a diagnosis recommends a product action, when the merchant applies it, then a draft action record is created and a success state is shown.

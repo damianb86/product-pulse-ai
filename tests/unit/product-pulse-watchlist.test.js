@@ -1,7 +1,92 @@
 import { describe, expect, it } from "vitest";
-import { __productPulseWatchlistTestHooks } from "../../app/lib/product-pulse-watchlist.server";
+import {
+  WATCHLIST_MAX_PRODUCTS,
+  __productPulseWatchlistTestHooks,
+  enforceWatchlistPlanLimitForShop,
+  getDefaultWatchAlertRecipientsForShop,
+  getWatchlistLimitContext,
+  getWatchlistProductLimitForPlan,
+  isProductPulseBetaActive,
+} from "../../app/lib/product-pulse-watchlist.server";
 
 describe("ProductPulse watchlist helpers", () => {
+  it("allows up to ninety-nine watched products per shop", () => {
+    expect(WATCHLIST_MAX_PRODUCTS).toBe(99);
+  });
+
+  it("resolves watchlist capacity from plan and beta state", () => {
+    expect(getWatchlistProductLimitForPlan("free", { betaActive: true })).toBe(5);
+    expect(getWatchlistProductLimitForPlan("free", { betaActive: false })).toBe(1);
+    expect(getWatchlistProductLimitForPlan("starter", { betaActive: true })).toBe(10);
+    expect(getWatchlistProductLimitForPlan("starter", { betaActive: false })).toBe(5);
+    expect(getWatchlistProductLimitForPlan("growth", { betaActive: true })).toBe(25);
+    expect(getWatchlistProductLimitForPlan("pro", { betaActive: true })).toBe(50);
+    expect(getWatchlistProductLimitForPlan("premium", { betaActive: true })).toBe(99);
+  });
+
+  it("treats beta as active by default and allows env override", () => {
+    expect(isProductPulseBetaActive({})).toBe(true);
+    expect(isProductPulseBetaActive({ PRODUCT_PULSE_BETA_ACTIVE: "false" })).toBe(false);
+    expect(getWatchlistLimitContext({ env: { PRODUCT_PULSE_PLAN_KEY: "starter", PRODUCT_PULSE_BETA_ACTIVE: "0" } })).toMatchObject({
+      planKey: "starter",
+      planName: "Starter",
+      betaActive: false,
+      maxProducts: 5,
+    });
+  });
+
+  it("uses the shop session email as the default Watchlist alert recipient", async () => {
+    const db = {
+      session: {
+        findMany: async () => [
+          { email: "member@example.com", accountOwner: false, isOnline: true },
+          { email: "owner@example.com", accountOwner: true, isOnline: false },
+        ],
+      },
+    };
+
+    await expect(getDefaultWatchAlertRecipientsForShop("test-shop.myshopify.com", { db })).resolves.toEqual(["owner@example.com"]);
+  });
+
+  it("removes products beyond the active plan limit and keeps the oldest items", async () => {
+    const db = createWatchlistLimitTestDb([
+      buildWatchlistLimitItem(1),
+      buildWatchlistLimitItem(2),
+      buildWatchlistLimitItem(3),
+      buildWatchlistLimitItem(4),
+      buildWatchlistLimitItem(5),
+      buildWatchlistLimitItem(6),
+    ]);
+
+    const result = await enforceWatchlistPlanLimitForShop("test-shop.myshopify.com", {
+      db,
+      planKey: "free",
+      betaActive: true,
+      recordActivity: false,
+    });
+
+    expect(result).toMatchObject({
+      planKey: "free",
+      betaActive: true,
+      maxProducts: 5,
+      removedCount: 1,
+    });
+    expect(result.items.map((item) => item.productGid)).toEqual([
+      "gid://shopify/Product/1",
+      "gid://shopify/Product/2",
+      "gid://shopify/Product/3",
+      "gid://shopify/Product/4",
+      "gid://shopify/Product/5",
+    ]);
+    expect(db.state.items.map((item) => item.productGid)).toEqual([
+      "gid://shopify/Product/1",
+      "gid://shopify/Product/2",
+      "gid://shopify/Product/3",
+      "gid://shopify/Product/4",
+      "gid://shopify/Product/5",
+    ]);
+  });
+
   it("labels watchlist row risk with configured ProductPulse thresholds", () => {
     const row = __productPulseWatchlistTestHooks.formatWatchlistRow(
       {
@@ -32,6 +117,26 @@ describe("ProductPulse watchlist helpers", () => {
     expect(row.riskScore).toBe(63);
     expect(row.riskLabel).toBe("Low");
     expect(row.riskTone).toBe("success");
+    expect(row.latestChange).toBe("Stored signal");
+    expect(row.latestChangeDetail).toBe("");
+  });
+
+  it("uses product-specific row detail before the first Watchlist scan", () => {
+    const row = __productPulseWatchlistTestHooks.formatWatchlistRow(
+      {
+        id: "watch-2",
+        productGid: "gid://shopify/Product/2",
+        productTitle: "Awaiting product",
+        handle: "awaiting-product",
+        status: "Watching",
+        addedAt: new Date("2026-05-01T12:00:00.000Z"),
+        updatedAt: new Date("2026-05-02T12:00:00.000Z"),
+      },
+      null,
+    );
+
+    expect(row.latestChange).toBe("Awaiting first scan");
+    expect(row.latestChangeDetail).toBe("Added May 1 · Watching");
   });
 
   it("labels watchlist trend average with configured ProductPulse thresholds", () => {
@@ -72,7 +177,7 @@ describe("ProductPulse watchlist helpers", () => {
         impactScore: 11,
         confidence: 72,
         primaryIssue: "Product quality",
-        metrics: { returnRate: 0.12, negativeReviewCount: 3 },
+        metrics: { returnRate: 0.12, refundAmount: 218, negativeReviewCount: 3 },
       },
       createdAt: new Date("2026-05-17T10:00:00.000Z"),
     });
@@ -80,9 +185,19 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.status).toBe("baseline");
     expect(report.changeCount).toBe(0);
     expect(report.current.riskScore).toBe(63);
+    expect(report.current.refundAmount).toBe(218);
     expect(report.headline).toBe("No previous Watchlist data");
     expect(report.sections).toHaveLength(0);
     expect(report.sourceInsights).toHaveLength(0);
+  });
+
+  it("uses a dedicated Watchlist baseline activity event for initial snapshots", () => {
+    const event = __productPulseWatchlistTestHooks.getWatchScanActivityEventSpec("watchlist-baseline");
+
+    expect(event).toEqual({
+      eventType: "watch_baseline_captured",
+      title: "Watchlist baseline captured",
+    });
   });
 
   it("reports only meaningful watchlist changes against the previous run", () => {
@@ -204,6 +319,216 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.sourceInsights.find((insight) => insight.id === "review-evidence").bullets.join(" ")).toContain("Representative review");
   });
 
+  it("does not overcount stale zero-amount derived sales as new watchlist orders", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-29T21:00:00.000Z",
+      riskScore: 70,
+      orderCount: 7,
+      soldUnits: 7,
+      salesAmount: 343,
+      evidenceDetails: {
+        orders: {
+          totalOrders: 7,
+          totalUnits: 7,
+          totalRevenue: 343,
+          items: [
+            { key: "sale:old-1", orderId: "order-old-1", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-20T10:00:00.000Z" },
+          ],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 75,
+        metrics: {
+          orderCount: 11,
+          soldUnits: 11,
+          salesAmount: 539,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [
+                  { key: "sale:old-1", id: "old-1", orderId: "order-old-1", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-20T10:00:00.000Z" },
+                  { key: "sale:derived-sale:old-zero", id: "derived-sale:old-zero", orderId: "order-old-zero", sku: "SKU-A", quantity: 1, amount: 0, createdAt: "2026-05-02T10:00:00.000Z" },
+                  { key: "sale:new-1", id: "new-1", orderId: "order-new-1", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-28T10:00:00.000Z" },
+                  { key: "sale:new-2", id: "new-2", orderId: "order-new-2", sku: "SKU-B", quantity: 1, amount: 49, createdAt: "2026-05-28T11:00:00.000Z" },
+                  { key: "sale:new-3", id: "new-3", orderId: "order-new-3", sku: "SKU-B", quantity: 1, amount: 49, createdAt: "2026-05-28T12:00:00.000Z" },
+                  { key: "sale:new-4", id: "new-4", orderId: "order-new-4", sku: "SKU-A", quantity: 1, amount: 49, createdAt: "2026-05-28T13:00:00.000Z" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-29T22:00:00.000Z"),
+    });
+
+    const sourceChange = report.sourceChanges.find((change) => change.id === "new-orders");
+
+    expect(sourceChange.value).toBe("4 orders");
+    expect(sourceChange.delta).toBe("+4 units");
+    expect(sourceChange.items.map((item) => item.key)).not.toContain("sale:derived-sale:old-zero");
+  });
+
+  it("does not count rewritten CSV review rows as new watchlist reviews", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-29T21:00:00.000Z",
+      riskScore: 70,
+      reviewCount: 2,
+      negativeReviewCount: 1,
+      evidenceDetails: {
+        reviews: {
+          total: 2,
+          negative: 1,
+          items: [
+            {
+              key: "csv_review:csv-review-40",
+              source: "csv_review",
+              text: "MIN line needs a closeup - The fill mark disappears in dim light.",
+              sentiment: "negative",
+              rating: 2,
+              issueCode: "setup_expectation",
+              createdAt: "2026-05-29T20:30:00.000Z",
+            },
+            {
+              key: "csv_review:csv-review-41",
+              source: "csv_review",
+              text: "Works when the constraints fit - Normal outlet and clear steam path.",
+              sentiment: "positive",
+              rating: 5,
+              issueCode: "setup_expectation",
+              createdAt: "2026-05-29T20:31:00.000Z",
+            },
+          ],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 75,
+        metrics: {
+          reviewCount: 3,
+          negativeReviewCount: 2,
+          incrementalDiagnosis: {
+            cache: {
+              customerText: {
+                reviewItems: [
+                  {
+                    key: "csv_review:csv-review-55",
+                    source: "csv_review",
+                    text: "MIN line needs a closeup - The fill mark disappears in dim light.",
+                    analysisText: "MIN line needs a closeup - The fill mark disappears in dim light.",
+                    sentiment: "negative",
+                    rating: 2,
+                    issueCode: "setup_expectation",
+                    createdAt: "2026-05-29T20:30:00.000Z",
+                  },
+                  {
+                    key: "csv_review:csv-review-56",
+                    source: "csv_review",
+                    text: "Works when the constraints fit - Normal outlet and clear steam path.",
+                    analysisText: "Works when the constraints fit - Normal outlet and clear steam path.",
+                    sentiment: "positive",
+                    rating: 5,
+                    issueCode: "setup_expectation",
+                    createdAt: "2026-05-29T20:31:00.000Z",
+                  },
+                  {
+                    key: "csv_review:csv-review-57",
+                    source: "csv_review",
+                    text: "Graphite still needs visual proof - The same MIN line problem remains.",
+                    analysisText: "Graphite still needs visual proof - The same MIN line problem remains.",
+                    sentiment: "negative",
+                    rating: 2,
+                    issueCode: "setup_expectation",
+                    createdAt: "2026-05-29T21:30:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-29T22:00:00.000Z"),
+    });
+
+    const sourceChange = report.sourceChanges.find((change) => change.id === "new-reviews");
+
+    expect(sourceChange.value).toBe("1 review");
+    expect(sourceChange.items.map((item) => item.key)).toEqual(["csv_review:csv-review-57"]);
+  });
+
+  it("does not surface low-information Shopify refund defaults as reason language", () => {
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary: {
+        capturedAt: "2026-05-17T10:00:00.000Z",
+        riskScore: 70,
+        refundUnits: 0,
+        evidenceDetails: {
+          refunds: {
+            totalUnits: 0,
+            sourceItems: [],
+            items: [],
+          },
+        },
+      },
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 75,
+        metrics: {
+          refundUnits: 1,
+          refundAmount: 39,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                refunds: [{
+                  key: "refund-source-new",
+                  quantity: 1,
+                  amount: 39,
+                  reason: "Refund Discrepancy",
+                  reasonText: "Refund Discrepancy",
+                  restockType: "NO_RESTOCK",
+                  createdAt: "2026-05-17T11:00:00.000Z",
+                }],
+              },
+              refunds: {
+                items: [{
+                  key: "refund-new",
+                  text: "Customer used a pop-grip case, then learned the accessory sits outside the CaseFit compatibility boundary.",
+                  issueCode: "fit_sizing",
+                  sentiment: "negative",
+                  quantity: 1,
+                  amount: 39,
+                  reasonText: "Refund Discrepancy",
+                  restockType: "NO_RESTOCK",
+                  createdAt: "2026-05-17T11:00:00.000Z",
+                }],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-17T12:00:00.000Z"),
+    });
+
+    const refundChange = report.sourceChanges.find((change) => change.id === "new-refunds");
+    const refundInsight = report.sourceInsights.find((insight) => insight.id === "refund-evidence");
+
+    expect(refundChange.detail).toContain("Compatibility");
+    expect(refundChange.detail).not.toContain("Fit Sizing");
+    expect(refundChange.detail).not.toContain("Refund Discrepancy");
+    expect(refundChange.detail).not.toContain("NO RESTOCK");
+    expect(refundInsight.bullets.join(" ")).toContain("Compatibility");
+    expect(refundInsight.bullets.join(" ")).not.toContain("Fit Sizing");
+    expect(refundInsight.bullets.join(" ")).not.toContain("Refund Discrepancy");
+  });
+
   it("does not treat historical reviews as new when the previous report lacks item-level review cache", () => {
     const previousSummary = {
       capturedAt: "2026-05-17T21:54:39.527Z",
@@ -308,6 +633,291 @@ describe("ProductPulse watchlist helpers", () => {
     expect(reviewInsight?.summary).toContain("1 new review text signal");
   });
 
+  it("reports concrete new orders before calculated product-state changes", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-19T02:00:00.000Z",
+      riskScore: 56,
+      riskLabel: "Medium",
+      confidence: 79,
+      impactScore: 12,
+      primaryIssue: "Color expectations",
+      orderCount: 1,
+      soldUnits: 2,
+      salesAmount: 80,
+      evidenceDetails: {
+        orders: {
+          totalOrders: 1,
+          totalUnits: 2,
+          totalRevenue: 80,
+          items: [{
+            key: "sale:old-order",
+            orderId: "old-order",
+            quantity: 2,
+            amount: 80,
+            variant: "Blue",
+            createdAt: "2026-05-18T02:00:00.000Z",
+          }],
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 56,
+        impactScore: 12,
+        confidence: 79,
+        primaryIssue: "Color expectations",
+        metrics: {
+          soldUnits: 6,
+          salesAmount: 320,
+          monthlyOrderActivity: {
+            summary: {
+              totalOrders: 2,
+              totalOrderUnits: 6,
+              totalRevenue: 320,
+            },
+          },
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [
+                  {
+                    cacheKey: "sale:old-order",
+                    orderId: "old-order",
+                    quantity: 2,
+                    amount: 80,
+                    variantTitle: "Blue",
+                    createdAt: "2026-05-18T02:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:new-order:rose",
+                    orderId: "new-order",
+                    quantity: 3,
+                    amount: 180,
+                    variantTitle: "Rose",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:new-order:black",
+                    orderId: "new-order",
+                    quantity: 1,
+                    amount: 60,
+                    variantTitle: "Black",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-19T04:00:00.000Z"),
+    });
+
+    expect(report.status).toBe("changed");
+    expect(report.sourceChangeCount).toBe(1);
+    expect(report.sourceChanges[0].id).toBe("new-orders");
+    expect(report.sourceChanges[0].value).toBe("1 order");
+    expect(report.sourceChanges[0].delta).toBe("+4 units");
+    expect(report.sourceInsights[0].id).toBe("order-evidence");
+    expect(report.sourceInsights[0].metric).toBe("1 new order");
+    expect(report.changes).toEqual([]);
+    expect(report.headline).toContain("New orders");
+  });
+
+  it("deduplicates multi-variant order lines in Watchlist order changes", () => {
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary: {
+        capturedAt: "2026-05-19T02:00:00.000Z",
+        riskScore: 40,
+        riskLabel: "Low",
+        confidence: 80,
+        primaryIssue: "No primary issue",
+        orderCount: 0,
+        soldUnits: 0,
+        salesAmount: 0,
+        evidenceDetails: { orders: { totalOrders: 0, totalUnits: 0, totalRevenue: 0, items: [] } },
+      },
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 40,
+        confidence: 80,
+        primaryIssue: "No primary issue",
+        metrics: {
+          soldUnits: 2,
+          salesAmount: 120,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [
+                  {
+                    cacheKey: "sale:multi-variant-order:black",
+                    orderId: "multi-variant-order",
+                    quantity: 1,
+                    amount: 60,
+                    variantTitle: "Black",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:multi-variant-order:white",
+                    orderId: "multi-variant-order",
+                    quantity: 1,
+                    amount: 60,
+                    variantTitle: "White",
+                    createdAt: "2026-05-19T03:00:00.000Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-19T04:00:00.000Z"),
+    });
+
+    expect(report.current.orderCount).toBe(1);
+    expect(report.current.evidenceDetails.orders.totalOrders).toBe(1);
+    expect(report.sourceChanges[0]).toMatchObject({
+      id: "new-orders",
+      value: "1 order",
+      delta: "+2 units",
+    });
+    expect(report.sourceInsights[0]).toMatchObject({
+      id: "order-evidence",
+      metric: "1 new order",
+    });
+  });
+
+  it("keeps historical returns, refunds, reviews and cache-missing content out of concrete Watchlist changes", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-23T13:16:25.154Z",
+      riskScore: 100,
+      riskLabel: "High",
+      confidence: 99,
+      primaryIssue: "Voice unlock reliability",
+      orderCount: 14,
+      soldUnits: 14,
+      salesAmount: 816,
+      returnUnits: 7,
+      refundUnits: 4,
+      returnRatePercent: 50,
+      refundRatePercent: 28.6,
+      reviewCount: 52,
+      negativeReviewCount: 25,
+      evidenceDetails: {
+        orders: {
+          totalOrders: 14,
+          totalUnits: 14,
+          totalRevenue: 816,
+          items: [{
+            key: "sale:old-safe-order",
+            orderId: "old-safe-order",
+            quantity: 1,
+            amount: 96,
+            variant: "Matte Black",
+            createdAt: "2026-05-20T02:00:00.000Z",
+          }],
+        },
+        returns: {
+          totalUnits: 7,
+          rate: 50,
+          items: [{ key: "return-old", text: "Voice opened for TV phrase.", sentiment: "negative", createdAt: "2026-05-20T02:00:00.000Z" }],
+        },
+        refunds: {
+          totalUnits: 4,
+          rate: 28.6,
+          items: [{ key: "refund-old", text: "Goodwill no restock.", sentiment: "neutral", createdAt: "2026-05-20T02:00:00.000Z" }],
+        },
+        reviews: {
+          total: 52,
+          negative: 25,
+          items: [{ key: "review-old", text: "Voice lock feels inconsistent.", sentiment: "negative", rating: 2, createdAt: "2026-05-20T02:00:00.000Z" }],
+        },
+        content: {
+          changed: true,
+          reason: "product_content_cache_missing",
+          signature: "safe-signature",
+        },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/safe",
+        productTitle: "GEN EchoLock Voice Safe",
+        riskScore: 100,
+        confidence: 99,
+        primaryIssue: "Voice unlock reliability",
+        metrics: {
+          soldUnits: 18,
+          salesAmount: 1200,
+          returnUnits: 7,
+          refundUnits: 4,
+          returnRate: 38.9,
+          refundRate: 22.2,
+          reviewCount: 52,
+          negativeReviewCount: 25,
+          incrementalDiagnosis: {
+            productContent: {
+              changed: true,
+              reason: "product_content_cache_missing",
+              signature: "safe-signature",
+            },
+            cache: {
+              sourceEvents: {
+                sales: [
+                  {
+                    cacheKey: "sale:old-safe-order",
+                    orderId: "old-safe-order",
+                    quantity: 1,
+                    amount: 96,
+                    variantTitle: "Matte Black",
+                    createdAt: "2026-05-20T02:00:00.000Z",
+                  },
+                  {
+                    cacheKey: "sale:new-safe-order",
+                    orderId: "new-safe-order",
+                    quantity: 4,
+                    amount: 384,
+                    variantTitle: "Matte Black",
+                    createdAt: "2026-05-24T03:43:48.000Z",
+                  },
+                ],
+              },
+              customerText: {
+                returnItems: [{ key: "return-old", text: "Voice opened for TV phrase.", sentiment: "negative", createdAt: "2026-05-20T02:00:00.000Z" }],
+                reviewItems: [{ key: "review-old", text: "Voice lock feels inconsistent.", sentiment: "negative", rating: 2, createdAt: "2026-05-20T02:00:00.000Z" }],
+              },
+              refunds: {
+                items: [{ key: "refund-old", text: "Goodwill no restock.", sentiment: "neutral", createdAt: "2026-05-20T02:00:00.000Z" }],
+              },
+            },
+          },
+          monthlyOrderActivity: {
+            summary: {
+              totalOrders: 15,
+              totalOrderUnits: 18,
+              totalRevenue: 1200,
+              returnRate: 38.9,
+              refundRate: 22.2,
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-24T03:45:39.597Z"),
+    });
+
+    expect(report.sourceChanges.map((change) => change.id)).toEqual(["new-orders"]);
+    expect(report.sourceInsights.some((insight) => insight.id === "product-content")).toBe(false);
+    expect(report.changes.map((change) => change.id)).toEqual(expect.arrayContaining(["return-rate", "refund-rate"]));
+    expect(report.narrative).toContain("New orders");
+    expect(report.narrative).toContain("Matte Black");
+    expect(report.narrative).not.toMatch(/new return|new refund|new review|product content/i);
+  });
+
   it("uses stored evidence keys instead of review dates when comparing two item-level reports", () => {
     const previousSummary = {
       capturedAt: "2026-05-19T02:00:00.000Z",
@@ -362,6 +972,142 @@ describe("ProductPulse watchlist helpers", () => {
     const reviewInsight = report.sourceInsights.find((insight) => insight.id === "review-evidence");
     expect(reviewInsight?.metric).toBe("1 new review");
     expect(reviewInsight?.bullets.join(" ")).toContain("New review sentiment: 1 negative, 0 neutral, 0 positive");
+  });
+
+  it("does not convert historical source backfill into new Watchlist source changes when the previous baseline had no source items", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-20T10:00:00.000Z",
+      riskScore: 64,
+      confidence: 70,
+      primaryIssue: "Setup expectations",
+      orderCount: 0,
+      soldUnits: 0,
+      salesAmount: 0,
+      returnUnits: 0,
+      refundUnits: 0,
+      reviewCount: 0,
+      negativeReviewCount: 0,
+      signalCount: 0,
+      evidenceDetails: {
+        orders: { items: [] },
+        returns: { sourceItems: [], items: [] },
+        refunds: { sourceItems: [], items: [] },
+        reviews: { items: [] },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/8786190729304",
+        riskScore: 86,
+        confidence: 88,
+        primaryIssue: "Setup expectations",
+        metrics: {
+          orderCount: 8,
+          soldUnits: 11,
+          salesAmount: 612,
+          returnUnits: 3,
+          refundUnits: 3,
+          refundAmount: 186,
+          reviewCount: 13,
+          negativeReviewCount: 7,
+          signalCount: 16,
+          incrementalDiagnosis: {
+            cache: {
+              sourceFingerprint: "full-source-cache-v1",
+              sourceEvents: {
+                sales: [
+                  { id: "sale-1", orderId: "order-1", quantity: 2, amount: 118, createdAt: "2026-05-18T09:00:00.000Z" },
+                  { id: "sale-2", orderId: "order-2", quantity: 1, amount: 59, createdAt: "2026-05-19T09:00:00.000Z" },
+                ],
+                returns: [
+                  { id: "return-1", returnId: "return-1", orderId: "order-1", quantity: 1, reason: "Setup mismatch", createdAt: "2026-05-19T12:00:00.000Z" },
+                ],
+                refunds: [
+                  { id: "refund-1", refundId: "refund-1", orderId: "order-1", quantity: 1, amount: 59, reason: "Setup mismatch", createdAt: "2026-05-19T12:30:00.000Z" },
+                ],
+              },
+              customerText: {
+                reviewItems: [
+                  { key: "review-1", text: "Camera banding warning was there, but I missed it.", sentiment: "negative", rating: 2, createdAt: "2026-05-19T15:00:00.000Z" },
+                ],
+              },
+              refunds: {
+                items: [
+                  { key: "refund-note-1", text: "Refund was for a missed setup condition.", sentiment: "negative", quantity: 1, amount: 59, createdAt: "2026-05-19T12:30:00.000Z" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-21T10:00:00.000Z"),
+    });
+
+    expect(report.status).toBe("changed");
+    expect(report.sourceChangeCount).toBe(0);
+    expect(report.sourceChanges).toEqual([]);
+    expect(report.sourceInsights).toEqual([]);
+    expect(report.changes.some((change) => change.id === "risk-score")).toBe(true);
+  });
+
+  it("keeps reused no-change runs focused on calculated movement instead of aggregate source deltas", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-20T10:00:00.000Z",
+      riskScore: 54,
+      confidence: 70,
+      primaryIssue: "Product quality",
+      reviewCount: 5,
+      negativeReviewCount: 2,
+      productMomentumScore: 42,
+      productMomentumTier: "Warm",
+      evidenceDetails: {
+        reviews: {
+          total: 5,
+          negative: 2,
+          averageRating: 3,
+          items: [{ key: "review-old", text: "Older complaint", rating: 2, createdAt: "2026-05-10T10:00:00.000Z" }],
+        },
+      },
+      sourceFingerprint: "previous-window",
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      noChangesReused: true,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 54,
+        confidence: 71,
+        primaryIssue: "Product quality",
+        metrics: {
+          reviewCount: 5,
+          negativeReviewCount: 2,
+          avgRating: 4,
+          productMomentum: { score: 69, tier: "Hot", direction: "Accelerating" },
+          productMomentumScore: 69,
+          productMomentumTier: "Hot",
+          momentumDirection: "Accelerating",
+          incrementalDiagnosis: {
+            cache: {
+              sourceFingerprint: "current-window",
+              customerText: {
+                reviewItems: [{ key: "review-old", text: "Older complaint", rating: 2, createdAt: "2026-05-10T10:00:00.000Z" }],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-05-21T10:00:00.000Z"),
+    });
+
+    expect(report.status).toBe("changed");
+    expect(report.sourceChangeCount).toBe(0);
+    expect(report.sourceChanges).toEqual([]);
+    expect(report.changes.some((change) => change.id === "momentum-score")).toBe(true);
+    expect(report.narrative).toContain("had no concrete new orders");
+    expect(report.narrative).toContain("Secondary calculated context");
   });
 
   it("does not report tiny financial-exposure drift as a meaningful Watchlist change", () => {
@@ -452,3 +1198,42 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.changes).toEqual([]);
   });
 });
+
+function buildWatchlistLimitItem(index) {
+  return {
+    id: `watch-${index}`,
+    shop: "test-shop.myshopify.com",
+    productGid: `gid://shopify/Product/${index}`,
+    productTitle: `Watched product ${index}`,
+    handle: `watched-product-${index}`,
+    status: "Watching",
+    addedAt: new Date(Date.UTC(2026, 4, index)),
+  };
+}
+
+function createWatchlistLimitTestDb(items = []) {
+  const state = {
+    items: items.slice(),
+  };
+  return {
+    state,
+    productWatchlistItem: {
+      async findMany(query = {}) {
+        const where = query.where || {};
+        return state.items
+          .filter((item) => !where.shop || item.shop === where.shop)
+          .sort((a, b) => {
+            const byAddedAt = new Date(a.addedAt).getTime() - new Date(b.addedAt).getTime();
+            if (byAddedAt) return byAddedAt;
+            return String(a.id).localeCompare(String(b.id));
+          });
+      },
+      async deleteMany(query = {}) {
+        const ids = new Set(query.where?.id?.in || []);
+        const before = state.items.length;
+        state.items = state.items.filter((item) => !ids.has(item.id));
+        return { count: before - state.items.length };
+      },
+    },
+  };
+}

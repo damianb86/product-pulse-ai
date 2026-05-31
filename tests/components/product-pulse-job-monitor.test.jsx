@@ -1,17 +1,49 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProductPulseJobMonitor } from "../../app/components/ProductPulseJobMonitor";
 
-function renderMonitor(initialMonitor) {
+function renderMonitor(initialMonitor, options = {}) {
+  const getMonitor = typeof initialMonitor === "function" ? initialMonitor : () => initialMonitor;
   const router = createMemoryRouter([
     {
       path: "/",
-      element: <ProductPulseJobMonitor initialMonitor={initialMonitor} developmentMode />,
+      element: <ProductPulseJobMonitor initialMonitor={getMonitor()} developmentMode />,
     },
     {
       path: "/app/job-status",
-      loader: () => ({ jobMonitor: initialMonitor }),
+      loader: () => ({ jobMonitor: getMonitor() }),
+      action: async ({ request }) => {
+        const formData = await request.formData();
+        options.onCancelJob?.(String(formData.get("jobId") || ""));
+        return { status: "success", message: "Background job cancelled." };
+      },
+    },
+    {
+      path: "/app/product-search",
+      loader: ({ request }) => {
+        const query = new URL(request.url).searchParams.get("q") || "";
+        options.onProductSearch?.(query);
+        return {
+          status: "success",
+          query,
+          products: query.toLowerCase().includes("linen")
+            ? [
+              {
+                id: "gid://shopify/Product/1",
+                title: "Core Linen Trouser",
+                handle: "core-linen-trouser",
+                href: "/app/products/core-linen-trouser",
+                riskScore: 84,
+                primaryIssue: "Fit complaints",
+                detail: "ProductPulse Lab / Apparel",
+                imageUrl: "https://cdn.example.com/core-linen-trouser.jpg",
+                imageAlt: "Core Linen Trouser product photo",
+              },
+            ]
+            : [],
+        };
+      },
     },
   ], { initialEntries: ["/"] });
 
@@ -19,11 +51,248 @@ function renderMonitor(initialMonitor) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   window.localStorage.clear();
 });
 
 describe("ProductPulseJobMonitor", () => {
-  it("shows recent failed jobs as user-visible alerts", () => {
+  it("opens the background processes popover when the wizard requests it", async () => {
+    renderMonitor({ activeJobs: [], recentJobs: [], logs: [] });
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard-open-background-processes"));
+    });
+
+    expect(await screen.findByRole("dialog", { name: /background processes/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /background processes/i })).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector("[data-pp-background-process-popover]")).toBeInTheDocument();
+  });
+
+  it("keeps a global top bar visible and searches stored products from a dropdown", async () => {
+    const productSearchQueries = [];
+    renderMonitor(
+      {
+        activeJobs: [],
+        recentJobs: [],
+        logs: [],
+        pointBalance: { available: 95, label: "95.0" },
+        pointSummary: {
+          balance: { available: 95, label: "95.0" },
+          plan: {
+            name: "Free plan",
+            renewalLabel: "Does not renew",
+            allowance: 100,
+            allowanceLabel: "100",
+          },
+          usage: {
+            used: 5,
+            total: 100,
+            usedLabel: "5",
+            totalLabel: "100",
+            percent: 5,
+            percentLabel: "5% used",
+            progressPercent: 5,
+          },
+          activity: [
+            {
+              id: "deep-diagnosis-1",
+              icon: "wand",
+              title: "Product Diagnosis",
+              detail: "GEN Aura Ceramic Dinner Set",
+              amount: -1,
+              amountLabel: "-1 diagnosis credit",
+              timeLabel: "2m ago",
+            },
+            {
+              id: "quick-scan-1",
+              icon: "search",
+              title: "Catalog Scan",
+              detail: "60-day scan window",
+              amount: -1,
+              amountLabel: "-1 diagnosis credit",
+              timeLabel: "28m ago",
+            },
+            {
+              id: "initial-balance",
+              icon: "product",
+              title: "Free plan diagnosis credits",
+              detail: "Initial balance",
+              amount: 100,
+              amountLabel: "+100 diagnosis credits",
+              timeLabel: "1h ago",
+            },
+          ],
+        },
+      },
+      { onProductSearch: (query) => productSearchQueries.push(query) },
+    );
+
+    const creditsButton = screen.getByRole("button", { name: "95.0 Diagnosis Credits available" });
+    expect(creditsButton).toBeVisible();
+
+    fireEvent.click(creditsButton);
+    const creditsDialog = screen.getByRole("dialog", { name: "Diagnosis credit details" });
+    expect(within(creditsDialog).getByText("Total remaining")).toBeVisible();
+    expect(within(creditsDialog).getByText("95")).toBeVisible();
+    expect(within(creditsDialog).getByText("Diagnosis Credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("Current plan")).toBeVisible();
+    expect(within(creditsDialog).getByText("Free plan")).toBeVisible();
+    expect(within(creditsDialog).getByText("Does not renew")).toBeVisible();
+    expect(within(creditsDialog).getByText("Usage this period")).toBeVisible();
+    expect(creditsDialog).toHaveTextContent("5 / 100 diagnosis credits used");
+    expect(within(creditsDialog).getByText("5% used")).toBeVisible();
+    expect(within(creditsDialog).getByText("Recent diagnosis credit activity")).toBeVisible();
+    expect(within(creditsDialog).getByText("Product Diagnosis")).toBeVisible();
+    expect(within(creditsDialog).getByText("GEN Aura Ceramic Dinner Set")).toBeVisible();
+    expect(within(creditsDialog).getAllByText("-1 diagnosis credit")).toHaveLength(2);
+    expect(within(creditsDialog).getByText("2m ago")).toBeVisible();
+    expect(within(creditsDialog).getByText("Catalog Scan")).toBeVisible();
+    expect(within(creditsDialog).getByText("60-day scan window")).toBeVisible();
+    expect(within(creditsDialog).getByText("28m ago")).toBeVisible();
+    expect(within(creditsDialog).getByText("Free plan diagnosis credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("Initial balance")).toBeVisible();
+    expect(within(creditsDialog).getByText("+100 diagnosis credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("1h ago")).toBeVisible();
+    expect(within(creditsDialog).getByRole("link", { name: "Review diagnosis credits" })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(within(creditsDialog).getByRole("link", { name: /View diagnosis credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
+
+    fireEvent.click(screen.getByRole("button", { name: /search products/i }));
+    fireEvent.change(screen.getByPlaceholderText("Product title, handle, issue..."), {
+      target: { value: "linen" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Core Linen Trouser")).toBeVisible();
+    });
+    expect(screen.getByAltText("Core Linen Trouser product photo")).toHaveAttribute("src", "https://cdn.example.com/core-linen-trouser.jpg");
+    expect(screen.getByText((content) => content.includes("/core-linen-trouser") && content.includes("ProductPulse Lab / Apparel"))).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open Core Linen Trouser" })).toHaveAttribute("href", "/app/products/core-linen-trouser");
+
+    await new Promise((resolve) => window.setTimeout(resolve, 400));
+    expect(productSearchQueries).toEqual(["linen"]);
+  });
+
+  it("shows active and past jobs from the top bar with product navigation", () => {
+    const initialMonitor = {
+      activeJobs: [
+        {
+          id: "job-active",
+          kind: "product-diagnosis",
+          name: "Product Diagnosis",
+          displayTitle: "Core Linen Trouser",
+          displaySubtitle: "Running Product Diagnosis",
+          status: "Running",
+          progress: 14,
+          productHref: "/app/products/core-linen-trouser",
+          startedAtIso: new Date(Date.now() - 5000).toISOString(),
+          updatedAtIso: new Date().toISOString(),
+        },
+      ],
+      recentJobs: [
+        {
+          id: "job-active",
+          kind: "product-diagnosis",
+          name: "Product Diagnosis",
+          displayTitle: "Core Linen Trouser",
+          displaySubtitle: "Running Product Diagnosis",
+          status: "Running",
+          progress: 14,
+          productHref: "/app/products/core-linen-trouser",
+          startedAtIso: new Date(Date.now() - 5000).toISOString(),
+          updatedAtIso: new Date().toISOString(),
+        },
+        {
+          id: "job-completed",
+          kind: "product-diagnosis",
+          name: "Completed scan",
+          displayTitle: "Trail Run Vest",
+          displaySubtitle: "Product Diagnosis completed",
+          status: "Completed",
+          productHref: "/app/products/trail-run-vest",
+          startedAtIso: new Date(Date.now() - 15000).toISOString(),
+          updatedAtIso: new Date().toISOString(),
+          finishedAtIso: new Date().toISOString(),
+        },
+      ],
+      logs: [],
+    };
+
+    renderMonitor(initialMonitor);
+
+    const jobsButton = screen.getByRole("button", { name: /background processes/i });
+    expect(jobsButton).toHaveTextContent("1");
+
+    fireEvent.click(jobsButton);
+
+    expect(screen.getByRole("dialog", { name: /background processes/i })).toBeVisible();
+    expect(screen.getByText("Current")).toBeVisible();
+    expect(screen.getByText("History")).toBeVisible();
+    expect(screen.getByText("Core Linen Trouser")).toBeVisible();
+    expect(screen.getByText("Trail Run Vest")).toBeVisible();
+    expect(screen.getByText(/Started /)).toBeVisible();
+    expect(screen.getByText(/Completed /)).toBeVisible();
+    expect(screen.getAllByText("1.0 diagnosis credit").length).toBeGreaterThan(0);
+    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobElapsed")).not.toBeInTheDocument();
+    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1\.0 diagnosis credit.*s/);
+    expect(screen.getByRole("link", { name: /View all background processes/i })).toHaveAttribute("href", "/app/background-processes");
+    expect(document.querySelector(".ppGlobalTopbarJobProgress")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");
+  });
+
+  it("confirms before cancelling an active job from the top bar popover", async () => {
+    const cancelledJobs = [];
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderMonitor(
+      {
+        activeJobs: [
+          {
+            id: "job-running-cancel",
+            kind: "product-diagnosis",
+            name: "Running scan",
+            displayTitle: "Core Linen Trouser",
+            status: "Running",
+            productHref: "/app/products/core-linen-trouser",
+            startedAtIso: new Date(Date.now() - 5000).toISOString(),
+            updatedAtIso: new Date().toISOString(),
+          },
+        ],
+        recentJobs: [],
+        logs: [],
+      },
+      { onCancelJob: (jobId) => cancelledJobs.push(jobId) },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel Core Linen Trouser" }));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Cancel Core Linen Trouser?"));
+    await waitFor(() => expect(cancelledJobs).toEqual(["job-running-cancel"]));
+  });
+
+  it("does not cap the top bar history below the loaded recent jobs", () => {
+    const recentJobs = Array.from({ length: 25 }, (_, index) => ({
+      id: `job-${index + 1}`,
+      kind: "product-diagnosis",
+      name: "Completed scan",
+      displayTitle: `Background Process ${index + 1}`,
+      displaySubtitle: "Product Diagnosis completed",
+      status: "Completed",
+      productHref: `/app/products/background-process-${index + 1}`,
+      startedAtIso: new Date(Date.now() - (index + 2) * 1000).toISOString(),
+      updatedAtIso: new Date(Date.now() - (index + 1) * 1000).toISOString(),
+      finishedAtIso: new Date(Date.now() - (index + 1) * 1000).toISOString(),
+    }));
+
+    renderMonitor({ activeJobs: [], recentJobs, logs: [] });
+
+    fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+
+    expect(screen.getByText("Background Process 25")).toBeVisible();
+    expect(document.querySelectorAll(".ppGlobalTopbarJobSection.isHistory .ppGlobalTopbarJobItem")).toHaveLength(25);
+  });
+
+  it("does not replay already failed jobs as user-visible alerts on page load", () => {
     const initialMonitor = {
       activeJobs: [],
       recentJobs: [
@@ -32,7 +301,7 @@ describe("ProductPulseJobMonitor", () => {
           name: "Product diagnosis",
           displayTitle: "Linen Shirt",
           status: "Failed",
-          source: "AI product diagnostics",
+          source: "Product Diagnosis",
           errorMessage: "Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.",
           startedAtIso: new Date(Date.now() - 20000).toISOString(),
           updatedAtIso: new Date(Date.now() - 1000).toISOString(),
@@ -44,13 +313,61 @@ describe("ProductPulseJobMonitor", () => {
 
     renderMonitor(initialMonitor);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Linen Shirt finished with an error");
-    expect(screen.getByText("The background job could not be completed. Please try again later.")).toBeVisible();
-    expect(screen.getByText("Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.")).toBeVisible();
-
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss failed job message" }));
-
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the Product Diagnosis completion toast after a running diagnosis finishes", async () => {
+    const wizardEvents = [];
+    const handleWizardEvent = (event) => wizardEvents.push(event.detail);
+    window.addEventListener("productpulse:wizard", handleWizardEvent);
+    const runningJob = {
+      id: "job-finished-toast",
+      kind: "product-diagnosis",
+      name: "Product Diagnosis",
+      displayTitle: "GEN QuietDesk Mini Fan",
+      status: "Running",
+      productHref: "/app/products/gen-quietdesk-mini-fan",
+      productImageUrl: "https://cdn.example.com/gen-quietdesk-mini-fan.jpg",
+      productImageAlt: "GEN QuietDesk Mini Fan product photo",
+      startedAtIso: new Date(Date.now() - 5000).toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    let monitor = {
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    };
+
+    try {
+      renderMonitor(() => monitor);
+      expect(screen.queryByText("Product Diagnosis finished")).not.toBeInTheDocument();
+
+      monitor = {
+        activeJobs: [],
+        recentJobs: [
+          {
+            ...runningJob,
+            status: "Completed",
+            finishedAtIso: new Date().toISOString(),
+          },
+        ],
+        logs: [],
+      };
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: runningJob } }));
+      });
+
+      const notice = await screen.findByRole("status");
+      expect(notice).toHaveTextContent("Product Diagnosis finished");
+      expect(notice).toHaveTextContent("GEN QuietDesk Mini Fan is ready to review.");
+      expect(notice).toHaveAttribute("data-pp-job-completion-notice", "product-diagnosis");
+      expect(screen.getByAltText("GEN QuietDesk Mini Fan product photo")).toHaveAttribute("src", "https://cdn.example.com/gen-quietdesk-mini-fan.jpg");
+      expect(screen.getByRole("link", { name: /Open product/ })).toHaveAttribute("href", "/app/products/gen-quietdesk-mini-fan");
+      await waitFor(() => expect(wizardEvents.some((event) => event?.type === "deep-scan-completed")).toBe(true));
+    } finally {
+      window.removeEventListener("productpulse:wizard", handleWizardEvent);
+    }
   });
 
   it("always starts minimized in development mode and filters logs by recent job", () => {
@@ -59,7 +376,7 @@ describe("ProductPulseJobMonitor", () => {
       activeJobs: [
         {
           id: "job-active",
-          name: "QuickScan",
+          name: "Catalog Scan",
           status: "Running",
           source: "Reading Shopify catalog",
           startedAtIso: new Date(Date.now() - 5000).toISOString(),
@@ -69,7 +386,7 @@ describe("ProductPulseJobMonitor", () => {
       recentJobs: [
         {
           id: "job-active",
-          name: "QuickScan",
+          name: "Catalog Scan",
           status: "Running",
           source: "Reading Shopify catalog",
           startedAtIso: new Date(Date.now() - 5000).toISOString(),
@@ -79,7 +396,7 @@ describe("ProductPulseJobMonitor", () => {
           id: "job-completed",
           name: "Completed scan",
           status: "Completed",
-          source: "QuickScan completed",
+          source: "Catalog Scan completed",
           startedAtIso: new Date(Date.now() - 15000).toISOString(),
           updatedAtIso: new Date().toISOString(),
           finishedAtIso: new Date().toISOString(),

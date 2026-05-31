@@ -49,6 +49,6 @@ describe("ProductPulse Connect view data", () => {
     expect(connectView.coverage).toBe(0);
     expect(csvSource.status).toBe("Disabled");
     expect(csvSource.active).toBe(false);
-    expect(csvSource.detail).toBe("CSV import disabled; ignored by scans and diagnostics.");
+    expect(csvSource.detail).toBe("CSV import disabled; ignored by Catalog Scan and Product Diagnosis.");
   });
 });

@@ -26,7 +26,7 @@ describe("ProductPulse validation", () => {
     expect(parsed.errors[0]).toMatchObject({ type: "userError", message: "Product does not exist." });
   });
 
-  it("validates AI diagnosis output shape", () => {
+  it("validates Product Diagnosis output shape", () => {
     expect(validateDiagnosisOutput(aiValidDiagnosis)).toMatchObject({ valid: true });
     expect(validateDiagnosisOutput(aiInvalidDiagnosis).valid).toBe(false);
     expect(validateDiagnosisOutput(aiEmptyDiagnosis).valid).toBe(false);

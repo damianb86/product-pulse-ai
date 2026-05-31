@@ -1,37 +1,62 @@
 import prisma from "../db.server";
 import { createAiUsageTracker, normalizeAiUsageCall } from "./product-pulse-ai-usage.server";
+import { recordAiUsageEvent } from "../ai/observability/usageEvents.server";
 import { isProductPulseDevelopment } from "./product-pulse-dev.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
 
 const GEMINI_PROVIDER = "gemini";
 const OPENAI_PROVIDER = "openai";
+const PRODUCT_PULSE_AI_LEVEL_ENV = "PRODUCT_PULSE_AI_LEVEL";
+const PRODUCT_PULSE_AI_LEVELS = {
+  DEVELOPMENT_GEMINI: 1,
+  DEVELOPMENT_OPENAI_BASIC: 2,
+  PRODUCTION_TIERED_OPENAI: 3,
+};
 const GEMINI_PRIMARY_RETRY_MS = 24 * 60 * 60 * 1000;
 const GEMINI_MODEL_RETRY_DELAY_MS = 750;
 
 const AI_TASKS = {
   signal_classification: {
-    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
-    fallbackModel: "gpt-5.4-mini",
+    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-nano",
     maxOutputTokens: 3200,
     temperature: 0.1,
   },
   emergent_sentiment: {
-    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
-    fallbackModel: "gpt-5.4-mini",
+    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-nano",
     maxOutputTokens: 2200,
     temperature: 0.15,
   },
   content_gap: {
-    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
+    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL", "OPENAI_PREMIUM_MODEL"],
     fallbackModel: "gpt-5.4-mini",
     maxOutputTokens: 1600,
     temperature: 0.1,
   },
+  content_coverage_validation: {
+    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-nano",
+    maxOutputTokens: 1800,
+    temperature: 0,
+  },
   action_rationale: {
-    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL", "OPENAI_BASIC_MODEL"],
-    fallbackModel: "gpt-5.4-mini",
+    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-nano",
     maxOutputTokens: 1800,
     temperature: 0.2,
+  },
+  relationship_insights: {
+    modelEnv: ["AI_RELATIONSHIP_INSIGHTS_MODEL", "OPENAI_BASIC_MODEL", "AI_CHAT_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-nano",
+    maxOutputTokens: 1100,
+    temperature: 0.15,
+  },
+  chart_interpretations: {
+    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-mini",
+    maxOutputTokens: 1500,
+    temperature: 0.15,
   },
   final_report: {
     modelEnv: ["OPENAI_PREMIUM_MODEL", "OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL"],
@@ -95,6 +120,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     granular_findings: [],
     repeated_language: [],
     sentiment_summary: {},
+    action_guidance: {},
     main_issue: input?.deterministic?.mainIssue || "product_quality",
     issue_summary: "AI classification was unavailable; deterministic issue signals were used.",
     source_agreement: "unknown",
@@ -140,7 +166,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       shop,
       jobId,
       event: "product_diagnosis.content_gap_reused",
-      message: "Reused previous product content-gap analysis because Shopify product content has not changed since the last deep diagnosis.",
+      message: "Reused previous product content-gap analysis because Shopify product content has not changed since the last product diagnosis.",
       data: {
         provider: "cache",
         task: "content_gap",
@@ -176,9 +202,38 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     main_finding_title: input?.deterministic?.mainIssueLabel || "Product issue needs review",
     main_finding_detail: input?.deterministic?.evidenceSummary || "ProductPulse found deterministic signals that should be reviewed.",
     evidence_summary: input?.deterministic?.evidenceSummary || "",
+    basket_context_interpretation: "",
     evidence_synthesis_sections: [],
     recommendation_copy: {},
   });
+
+  let contentCoverageValidationResponse = null;
+  let contentCoverageValidation = { coverage: [], summary: "No product-content coverage validation was run." };
+  const contentCoveragePrompt = buildContentCoverageValidationPrompt(input, report, contentGaps);
+  if (contentCoveragePrompt) {
+    try {
+      contentCoverageValidationResponse = await generateAiText({
+        shop,
+        jobId,
+        task: "content_coverage_validation",
+        prompt: contentCoveragePrompt,
+        usageTracker,
+      });
+      contentCoverageValidation = parseAiJson(contentCoverageValidationResponse.text, {
+        coverage: [],
+        summary: "Product-content coverage validation was unavailable.",
+      });
+    } catch (error) {
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.content_coverage_validation_failed",
+        message: "AI product-content coverage validation failed; deterministic duplicate checks will be used.",
+        data: { error: serializeError(error) },
+      }).catch(() => {});
+    }
+  }
 
   const actionRationaleResponse = await generateAiText({
     shop,
@@ -190,6 +245,70 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
   const actionRationales = parseAiJson(actionRationaleResponse.text, {
     action_rationales: [],
   });
+  const compactChartInput = buildCompactProductChartInterpretationInput(input);
+  let chartInterpretationsResponse = null;
+  let chartInterpretations = normalizeProductChartInterpretations(null, compactChartInput);
+  if (compactChartInput.available) {
+    try {
+      chartInterpretationsResponse = await generateAiText({
+        shop,
+        jobId,
+        task: "chart_interpretations",
+        prompt: buildProductChartInterpretationsPrompt(compactChartInput),
+        usageTracker,
+      });
+      chartInterpretations = normalizeProductChartInterpretations(
+        parseAiJson(chartInterpretationsResponse.text, { chart_interpretations: {} }),
+        compactChartInput,
+        pickAiModelSummary(chartInterpretationsResponse),
+      );
+    } catch (error) {
+      chartInterpretations = normalizeProductChartInterpretations({
+        status: "ai_unavailable",
+        chart_interpretations: {},
+      }, compactChartInput);
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.chart_interpretations_failed",
+        message: "AI chart interpretations were skipped after the intermediate chart interpretation model failed.",
+        data: { error: serializeError(error) },
+      }).catch(() => {});
+    }
+  }
+  const compactRelationshipInput = buildCompactProductRelationshipAiInput(input);
+  let relationshipInsightsResponse = null;
+  let relationshipInsights = normalizeProductRelationshipAiInsights(null, compactRelationshipInput);
+  if (compactRelationshipInput.available) {
+    try {
+      relationshipInsightsResponse = await generateAiText({
+        shop,
+        jobId,
+        task: "relationship_insights",
+        prompt: buildProductRelationshipInsightsPrompt(compactRelationshipInput),
+        usageTracker,
+      });
+      relationshipInsights = normalizeProductRelationshipAiInsights(
+        parseAiJson(relationshipInsightsResponse.text, { insights: [] }),
+        compactRelationshipInput,
+        pickAiModelSummary(relationshipInsightsResponse),
+      );
+    } catch (error) {
+      relationshipInsights = normalizeProductRelationshipAiInsights({
+        status: "ai_unavailable",
+        insights: [],
+      }, compactRelationshipInput);
+      await recordJobLog({
+        shop,
+        jobId,
+        level: "warn",
+        event: "product_diagnosis.relationship_insights_failed",
+        message: "Product relationship AI insights were skipped after the relationship insight model failed.",
+        data: { error: serializeError(error) },
+      }).catch(() => {});
+    }
+  }
   const aiUsage = await usageTracker.logSummary({
     event: "product_diagnosis.ai_token_usage",
     data: {
@@ -206,19 +325,28 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       classification: pickAiModelSummary(classificationResponse),
       emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
       contentGap: pickAiModelSummary(gapResponse),
+      contentCoverageValidation: contentCoverageValidationResponse ? pickAiModelSummary(contentCoverageValidationResponse) : null,
       actionRationale: pickAiModelSummary(actionRationaleResponse),
+      chartInterpretations: chartInterpretationsResponse ? pickAiModelSummary(chartInterpretationsResponse) : null,
+      relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
       finalReport: pickAiModelSummary(reportResponse),
     },
     classification,
     emergentSentiments,
     contentGaps,
+    contentCoverageValidation,
     actionRationales,
+    chartInterpretations,
+    relationshipInsights,
     report,
     raw: {
       classification: classificationResponse.text,
       emergentSentiments: emergentSentimentResponse.text,
       contentGaps: gapResponse.text,
+      contentCoverageValidation: contentCoverageValidationResponse?.text || "",
       actionRationales: actionRationaleResponse.text,
+      chartInterpretations: chartInterpretationsResponse?.text || "",
+      relationshipInsights: relationshipInsightsResponse?.text || "",
       report: reportResponse.text,
     },
   };
@@ -249,32 +377,104 @@ export async function generateWatchChangeReportNarrative({ shop, jobId, productT
 }
 
 function buildWatchChangeReportNarrativePrompt({ productTitle, report }) {
-  const payload = {
-    productTitle,
-    status: report?.status,
-    headline: report?.headline,
-    summary: report?.summary,
-    changedFields: report?.changeCount,
-    current: report?.current,
-    previous: report?.previous,
-    sourceInsights: report?.sourceInsights || [],
-    changes: (report?.changes || []).slice(0, 16).map((change) => ({
-      label: change.label,
-      from: change.from,
-      to: change.to,
-      delta: change.delta,
-      detail: change.detail,
-    })),
-  };
+  const payload = buildWatchChangeReportNarrativePayload({ productTitle, report });
   return [
     "You are writing a Watchlist change report for a Shopify merchant.",
-    "Explain what changed since the previous Watchlist run using the concrete evidence provided.",
-    "Mention new returns, refunds, reviews, reasons, sentiment, repeated language, or content changes only when present in the data.",
-    "Do not invent facts. Do not say the report is generated by AI. Do not add recommendations unless they are directly implied by the evidence.",
+    "Write primarily about concreteSourceChanges. These are the only events that happened since the previous Watchlist run.",
+    "Never describe historical aggregate totals or healthContext values as new activity.",
+    "Only say there were new returns, refunds, reviews, rating movement, reason text, sentiment, repeated language, or product-content changes when that source appears in concreteSourceChanges.",
+    "If a source appears in notNewSourceTypes, do not use phrases like new return activity, new refund activity, new reviews, latest review, or new product content for that source.",
+    "Treat secondaryCalculatedContext as secondary context only. It can explain how the product looks healthier or riskier now, but it is not new source activity.",
+    "Start with the concrete changes. If only orders changed, the first sentence must only describe the new order activity.",
+    "Do not invent facts. Do not say the report is generated by AI. Do not add recommendations unless they are directly implied by new concrete source activity.",
     "Return one concise but detailed paragraph in English, 70-130 words. No markdown, no bullets, no JSON.",
     "",
     JSON.stringify(payload, null, 2),
   ].join("\n");
+}
+
+function buildWatchChangeReportNarrativePayload({ productTitle, report }) {
+  const concreteSourceChanges = (report?.sourceChanges || []).map(sanitizeWatchSourceChangeForNarrative);
+  const concreteSourceTypes = Array.from(new Set(concreteSourceChanges.map((change) => change.source).filter(Boolean)));
+  const sourceTypes = ["orders", "returns", "refunds", "reviews", "content"];
+  const notNewSourceTypes = sourceTypes.filter((source) => !concreteSourceTypes.includes(source));
+  const secondaryCalculatedContext = (report?.changes || []).slice(0, 10).map((change) => ({
+    label: change.label,
+    from: change.from,
+    to: change.to,
+    delta: change.delta,
+    detail: change.detail,
+  }));
+  const secondaryInsights = (report?.sourceInsights || [])
+    .filter((insight) => !concreteSourceTypes.some((source) => String(insight.id || "").includes(source.replace(/s$/, ""))))
+    .slice(0, 4)
+    .map((insight) => ({
+      title: insight.title,
+      metric: insight.metric,
+      summary: insight.summary,
+    }));
+
+  return {
+    productTitle,
+    status: report?.status,
+    headline: report?.headline,
+    summary: report?.summary,
+    previousRunAt: report?.previousRunAt || report?.previous?.capturedAt || null,
+    currentRunAt: report?.currentRunAt || report?.current?.capturedAt || null,
+    concreteSourceChanges,
+    concreteSourceTypes,
+    notNewSourceTypes,
+    secondaryCalculatedContext,
+    secondaryInsights,
+    healthContext: buildWatchNarrativeHealthContext(report),
+    interpretationRules: {
+      concreteSourceChangesAreNew: true,
+      secondaryCalculatedContextIsNotNewActivity: true,
+      notNewSourceTypesMustNotBeCalledNew: true,
+    },
+  };
+}
+
+function sanitizeWatchSourceChangeForNarrative(change = {}) {
+  return {
+    id: change.id || "",
+    source: change.source || "",
+    label: change.label || "",
+    value: change.value || "",
+    delta: change.delta || "",
+    detail: change.detail || "",
+    items: (Array.isArray(change.items) ? change.items : []).slice(0, 3).map((item) => ({
+      createdAt: item.createdAt || "",
+      variant: item.variant || item.variantTitle || "",
+      sku: item.sku || "",
+      quantity: item.quantity || null,
+      amount: item.amount || null,
+      rating: item.rating || null,
+      sentiment: item.sentiment || "",
+      text: item.text || item.noteText || item.reasonText || "",
+    })),
+  };
+}
+
+function buildWatchNarrativeHealthContext(report = {}) {
+  const pick = (summary = {}) => ({
+    riskScore: summary?.riskScore ?? null,
+    riskLabel: summary?.riskLabel || "",
+    returnRatePercent: summary?.returnRatePercent ?? null,
+    refundRatePercent: summary?.refundRatePercent ?? null,
+    returnUnits: summary?.returnUnits ?? null,
+    refundUnits: summary?.refundUnits ?? null,
+    reviewCount: summary?.reviewCount ?? null,
+    negativeReviewCount: summary?.negativeReviewCount ?? null,
+    revenueAtRisk: summary?.revenueAtRisk ?? null,
+    marginAtRisk: summary?.marginAtRisk ?? null,
+    productMomentumScore: summary?.productMomentumScore ?? null,
+    productMomentumTier: summary?.productMomentumTier || "",
+  });
+  return {
+    previous: pick(report?.previous),
+    current: pick(report?.current),
+  };
 }
 
 function cleanAiParagraph(value) {
@@ -301,10 +501,14 @@ function buildSignalClassificationPrompt(input) {
     "Shopify refund notes are usually written by the merchant or support team, not the customer. Use shopify_refund_note evidence as operational context: classify product issue patterns and repeated refund reasons, but do not treat staff wording as customer sentiment.",
     "Reserve safety_concern for physical danger, injury, hazard, toxicity, choking, fire, or clearly unsafe use. If the customer says the product is scary, creepy, unsettling, ugly, not their style, or they simply dislike it without objective danger, use subjective_negative_reaction.",
     "Subjective negative reactions start low severity and low confidence. Escalate them only when they repeat across independent texts or represent a meaningful share of available customer text.",
+    "Separate subjective expectation mismatch from operational quality. If shoppers say the product is too soft, too firm, too dark, too scary, not their style, or a preference mismatch, treat that as expectation/content guidance unless evidence shows damage, malfunction, safety, manufacturing failure, durability failure, or supplier/QA defect.",
+    "Understand negation and contrast. Phrases like \"not necessarily a defect\", \"not damaged\", \"not broken\", or \"personal preference\" must not be counted as operational defect evidence by themselves.",
+    "Use action_guidance to summarize what action families are appropriate. Prefer shopper-facing description/FAQ/spec/media actions for subjective expectation mismatches. Reserve qa_review, inventory_hold, and status_change for objective defects, safety, durability, malfunction, damage, or high refund pressure.",
     "A single customer text is evidence, not a confirmed merchant-facing issue. Do not create clusters or granular_findings from one isolated word, phrase, return note, or review unless another independent text or another source supports the same issue.",
     "Consolidate overlapping findings. If one text mentions the same concept once, do not output it as a cluster, a granular finding, and repeated_language. signals must count independent customer texts, not repeated words inside the same text.",
     "For repeated_language, never output stop words, helper verbs, connector words, or generic ecommerce/API context such as and, be, been, took, take, item, product, reason, return, review, refund, order, other, selected, customer note, or other reason. Only output shopper-meaningful product terms or phrases.",
     "Use the predefined sentiment taxonomy first. If a customer reaction clearly does not fit the taxonomy, keep sentiment as negative/neutral/positive and add suggested_emotion as a concise snake_case candidate.",
+    "Use neutral sentiment when the evidence is factual, mixed, low-intensity, uncertain, or a 3-star review without a clear product complaint or clear praise. Do not force every customer text into positive or negative.",
     "Return valid JSON only. No markdown.",
     "Predefined sentiment taxonomy:",
     sentimentTaxonomy,
@@ -366,6 +570,18 @@ function buildSignalClassificationPrompt(input) {
         reviews: "short review sentiment summary",
         summary: "one merchant-facing sentence",
       },
+      action_guidance: {
+        issue_nature: "operational_quality|subjective_expectation|content_gap|relationship_expectation|source_integrity|commercial_opportunity|monitor_only|unclear",
+        subjectivity_level: "low|medium|high",
+        operational_quality_confidence: "low|medium|high",
+        shopper_expectation_confidence: "low|medium|high",
+        should_escalate_qa: false,
+        qa_reason: "short reason; empty when QA is not supported",
+        primary_action_family: "description_update|faq|specs_block|media_context|qa_review|variant_review|source_integrity|workflow_only|monitor",
+        recommended_action_families: ["description_update", "faq"],
+        blocked_action_families: ["qa_review", "inventory_hold", "status_change"],
+        rationale: "one sentence explaining the action interpretation",
+      },
       main_issue: "fit_sizing",
       main_issue_label: "Sizing and fit",
       issue_summary: "one concise paragraph",
@@ -375,7 +591,7 @@ function buildSignalClassificationPrompt(input) {
     product,
     "Incremental diagnosis context:",
     incremental,
-    "If this is an incremental diagnosis, evidence snippets contain only newly changed evidence since the previous deep diagnosis. Use deterministic aggregate metrics for full-window totals, and do not invent old snippets that are not supplied.",
+    "If this is an incremental diagnosis, evidence snippets contain only newly changed evidence since the previous product diagnosis. Use deterministic aggregate metrics for full-window totals, and do not invent old snippets that are not supplied.",
     "Deterministic metrics, already calculated by the system:",
     metrics,
     "Evidence snippets:",
@@ -443,7 +659,11 @@ function buildContentGapPrompt(input, classification) {
     "Review the title, description, tags, product type, vendor, collections, options, variants and issue clusters together.",
     "Identify missing content, unclear copy, contradictions, title/description mismatch, tag/collection mismatch, incoherent metadata, missing specifications, and shopper guidance gaps.",
     "A missing or extremely short description is a product-content issue. A title/description mismatch is only an issue when they clearly describe different products or categories.",
+    "Score content quality by shopper decision completeness, not just whether the copy is coherent. Short descriptions can be accurate but should not receive a near-perfect score if they omit specs, use cases, limits, included items, sizing, materials, compatibility, care or expectation guidance.",
+    "As a calibration guide: descriptions below 35 words are usually thin and should rarely score above 70; descriptions below 50 words should rarely score above 80 unless the product is genuinely simple and all purchase-critical details are present.",
     "Do not treat product type, tags, or collections missing from the description as a primary product problem. Treat them as low-priority copy improvement suggestions unless they create a real contradiction.",
+    "Before marking a content gap, compare the gap against the existing plain description and description_html_excerpt. If the product already covers the buyer question, FAQ, usage limit, fit note, compatibility note, material/care guidance, or expectation setting, do not report it as missing.",
+    "If existing copy partially covers a gap, report only the missing delta. Do not ask for a new FAQ or full description rewrite when a small addition to the current copy is enough.",
     "A subjective mismatch must be explicitly grounded in the supplied fields.",
     "Return valid JSON only. Do not calculate financial metrics, rates, customer-signal counts, confidence, or risk score.",
     "Schema:",
@@ -498,36 +718,57 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Only provide a full product_description rewrite when the current description is missing, very short, incoherent, contradictory, or clearly about the wrong product. If the current description is good and only needs a specific clarification, leave product_description empty or provide a short add-on note instead of a full rewrite.",
     "If the issue is a specific contradiction such as description text mentioning a color or variant that is not available, do not rewrite the whole description. Keep product_description empty unless your proposed text actually corrects that contradiction.",
     "Never return product_description as a copy of the current description. If you cannot improve it materially, return an empty string.",
+    "Before writing pdp_copy, product_description, specs_details_block, or FAQ content, compare your proposal against Product.description and Product.descriptionHtml. Do not restate content that is already covered, including existing FAQ questions and answers.",
+    "If the current product page partially covers the issue, write only the missing sentence, bullet, or FAQ item. The app will apply that delta to the existing product content and highlight only the added text.",
+    "For FAQ items, do not generate questions that are already present or already answered by the product description. If an existing FAQ is present, generate only new missing questions and match the existing concise question/answer style.",
     "When recommendation candidates include a FAQ, generate 2 to 4 concrete customer-facing FAQ items. Each FAQ must answer a repeated buyer uncertainty, content gap, compatibility concern, fit/size concern, return/review pattern, or product expectation issue. Do not invent precise specs; if a fact is not known, word the answer as guidance to check the selected variant, size, materials, compatibility, or product detail.",
+    "When recommendation candidates include add-specs-details-block, generate recommendation_copy.specs_details_block. This must be a useful technical/customer-facing checklist for the product type and the specific issue evidence, not a recap of vendor, product type, option names, or SKUs.",
+    "For specs_details_block, infer the kinds of details a shopper would expect from the product title, description, product type, variants, returns, refunds, and customer language. Use concise bullet lines with titles such as voltage, capacity, dimensions, temperature range, timer behavior, water/condensation guidance, compatibility, materials, care, safety limits, included items, or variant-specific notes when relevant.",
+    "Do not present unknown exact measurements as facts in specs_details_block. It is acceptable to include merchant placeholders such as [confirm voltage], [confirm capacity], [confirm temperature range], [confirm dimensions], or [confirm compatibility] so the shop owner can fill the real value before applying.",
     "When pdp_copy and product_description both apply, make product_description compatible with that shopper-facing note so merchants can either add the note or apply the fuller rewrite.",
     "If emergent customer sentiments are present, mention them only when they are grounded in the evidence and useful to the merchant.",
     "If product content is missing, incoherent, too short, contradictory, or clearly about the wrong product, include that in the finding or recommendations when relevant.",
     "When you quote exact customer wording, return-note text, refund-note text, review text, product-description text, title text, tag text, collection text, SKU/variant names, or any other source excerpt, wrap the exact excerpt in double quotation marks. Do not present exact source text without quotation marks.",
-    "For evidence_synthesis_sections, write qualitative interpretation for the UI tabs. Do not restate concrete counts, rates, scores, amounts, or dates unless a specific number is essential to understand the issue; those values are already visible in the product panels.",
-    "Each evidence_synthesis_sections item should guide the merchant on how to read that tab: what the evidence relationship suggests, what to compare next, and how cautiously to interpret the data. Use only the supplied evidence and avoid inventing new facts.",
-    "When review evidence comes from multiple providers, create separate evidence_synthesis_sections entries for each review provider. Set source_title and source_key for provider-specific review sections, and do not reuse the same body across CSV, Judge.me, ChatMe, or any other external review provider.",
+    "For evidence_synthesis_sections, write three intermediate qualitative synthesis sections for the AI Evidence Synthesis tab, not one entry per UI tab. Do not restate concrete counts, rates, scores, amounts, or dates unless a specific number is essential to understand the issue; those values are already visible in the product panels.",
+    "The three overview evidence_synthesis_sections must be: customer_language for overall customer/product language, product_orders_retention for product setup, variants, Shopify orders, retention and LTV, and post_purchase for refunds, returns and negative reviews. Each body should generalize that evidence group into one merchant-facing reading: what the relationship suggests, what to compare next, and how cautiously to interpret the data. Use only the supplied evidence and avoid inventing new facts.",
+    "For retention and LTV, use deterministic.metrics.productRetention only. Its retention rates use rateScale fraction_0_to_1, so 0.24 means 24%. Mention retention briefly only when productRetention.shouldMention is true because it shows a clear retention risk, repeat-purchase strength, cross-sell opportunity, same-product repurchase pattern, or meaningful LTV movement. If retention is unavailable, low-sample, or not material to the product risk/opportunity, do not force it into the main finding or recommendations.",
+    "Also write basket_context_interpretation for the Basket context card only when deterministic.metrics.productPurchaseContextSummary includes purchase-context data. This text is generated only during product diagnosis and will be stored; the frontend will not synthesize it at render time.",
+    "For basket_context_interpretation, use mostly qualitative interpretation with as few numeric values as possible. Do not recap the visible bar percentages or counts. Explain what the basket, unit, variant, co-purchase, return/refund, review, content and final-report context imply together.",
+    "Keep basket_context_interpretation consistent with the main_finding_detail and evidence_summary you return in this same JSON, so it reads as an interpretation of the product diagnosis rather than a standalone metric explanation.",
+    "If purchase context is unavailable or too thin to interpret, return an empty string for basket_context_interpretation.",
+    "When review evidence comes from multiple providers, you may also create separate evidence_synthesis_sections entries for each review provider so provider tabs can show scoped interpretation. Set source_title and source_key for provider-specific review sections, and do not reuse the same body across CSV, Judge.me, or any other external review provider.",
     "Only write a provider-specific section from that provider's own review evidence. Do not mix CSV review text into Judge.me sections, do not mix Judge.me review text into CSV sections, and do not use the aggregate Customer Language section as a substitute for a provider tab.",
     "Do not put low-priority metadata coverage suggestions, such as product type/tags/collections not being repeated in the description, in the main finding unless they create a real buyer-facing contradiction.",
     "For subjective negative reactions, avoid overstating risk from a single customer. Explain it as a monitor/review signal unless repeated evidence supports action.",
     "Respect deterministic.signalRelevance. If it says reviewSignals level is weak, do not lead the main finding with review language. If customerEvidence level is isolated, treat that signal as evidence to monitor, not as a confirmed issue. If it is emerging, describe it as early evidence with limited confidence. Give priority to returns, refunds, repeated customer language, product content issues, and multi-source agreement.",
-    "Write main_finding_detail as 1 to 3 merchant-facing paragraphs separated by two newline characters. Use one paragraph when evidence is thin; use two or three when separate evidence groups deserve their own explanation.",
-    "Do not let reviews consume the whole main finding when product description, title, tags, collections, returns, refunds, variants, or customer-language evidence also exists. Cover every relevant discovery group in descending evidence strength, and skip only areas with no evidence.",
+    "Write main_finding_detail as exactly five merchant-facing text blocks separated by two newline characters.",
+    "Block 1 must be one concise descriptive overview paragraph that summarizes the full diagnosis: the most important finding, the strongest supporting evidence, the relevant calculated context, and the practical merchant implication. Compress what used to be multiple overview paragraphs into this single paragraph.",
+    "Blocks 2 through 5 must each answer one key question, using these exact English question headings followed by the answer in the same block: What is wrong? Why do we believe that? What should we do now? How much does it matter?",
+    "For the four question blocks, keep the heading and answer together in the same paragraph, for example: What is wrong? The product is...",
+    "Do not add extra questions, bullets, markdown headings, numbering, or more than five blocks.",
+    "Do not let reviews consume the whole main finding when product description, title, tags, collections, returns, refunds, variants, or customer-language evidence also exists. Cover every relevant discovery group in descending evidence support, and skip only areas with no evidence.",
     "Return valid JSON only. No markdown.",
     "Schema:",
     JSON.stringify({
       main_finding_title: "Sizing and fit expectations are not being met",
-      main_finding_detail: "1-3 paragraphs separated by \\n\\n, grounded in evidence and covering each relevant discovery area",
+      main_finding_detail: "One overview paragraph.\\n\\nWhat is wrong? Direct answer grounded in the strongest issue pattern.\\n\\nWhy do we believe that? Direct answer grounded in source agreement and evidence support.\\n\\nWhat should we do now? Direct answer with the next practical merchant action.\\n\\nHow much does it matter? Direct answer explaining impact, risk, confidence, and urgency without overusing visible numbers.",
       evidence_summary: "1-2 sentence source agreement summary",
+      basket_context_interpretation: "Concise qualitative Basket context interpretation that uses the final report, overview context, purchase context, and other product signals together while avoiding unnecessary numbers.",
       evidence_synthesis_sections: [
-        {
-          section_key: "cross_source",
-          title: "Cross-source reading",
-          body: "Qualitative interpretation of how the tabs should be read together, with minimal concrete numbers.",
-        },
         {
           section_key: "customer_language",
           title: "Customer language",
-          body: "Qualitative interpretation of customer language evidence for the Customer Language and Reviews tabs.",
+          body: "One qualitative overview of the customer/product language across reviews, return notes, refund notes, and other supplied text evidence.",
+        },
+        {
+          section_key: "product_orders_retention",
+          title: "Product, orders and retention",
+          body: "One qualitative overview of product setup, variants, order behavior, retention, LTV, and whether the evidence reads as SKU-specific or product-wide.",
+        },
+        {
+          section_key: "post_purchase",
+          title: "Returns, refunds and negative reviews",
+          body: "One qualitative overview of post-purchase quality pressure from returns, refunds, negative reviews, support language, and quality-related friction.",
         },
         {
           section_key: "customer_language",
@@ -543,26 +784,6 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
           title: "Customer language",
           body: "Qualitative interpretation specific to Judge.me review evidence only.",
         },
-        {
-          section_key: "post_purchase",
-          title: "Refund and return evidence",
-          body: "Qualitative interpretation of returns and refunds as post-purchase evidence.",
-        },
-        {
-          section_key: "pdp_catalog",
-          title: "PDP and catalog context",
-          body: "Qualitative interpretation of product content, metadata, media, and catalog setup.",
-        },
-        {
-          section_key: "variant_scope",
-          title: "Variant scope",
-          body: "Qualitative interpretation of whether variant-level evidence suggests a SKU-specific or product-wide action.",
-        },
-        {
-          section_key: "operational_interpretation",
-          title: "Operational interpretation",
-          body: "Qualitative guidance for reading risk, confidence, impact, and action priority together.",
-        },
       ],
       issue_names: [{ code: "fit_sizing.runs_small", label: "Runs small" }],
       recommendation_copy: {
@@ -570,6 +791,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
         product_description: "rewritten product description draft when product content has issues",
         product_title: "clearer Shopify product title when the current title is generic or misleading",
         media_guidance: "short merchant instruction for missing/unclear product imagery or alt text",
+        specs_details_block: "Technical details to confirm before buying:\n- Capacity: [confirm capacity]\n- Compatibility: [confirm compatibility]\n- Care: [confirm care instructions]",
         qa_note: "short internal QA/vendor review note when physical quality, safety, durability, refund or return evidence supports it",
         faq_question: "How does this product fit?",
         faq_answer: "merchant-ready FAQ answer",
@@ -596,6 +818,110 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Recommendation candidates chosen by rules:",
     JSON.stringify(input?.recommendationCandidates || [], null, 2),
   ].join("\n\n");
+}
+
+function buildContentCoverageValidationPrompt(input, report, contentGaps) {
+  const product = input?.product || {};
+  const candidates = buildContentCoverageValidationCandidates(report);
+  if (!candidates.length) return "";
+
+  return [
+    "You are validating whether proposed Shopify product-page copy is already covered by the current product page.",
+    "This is a duplicate-prevention step. Do not judge metrics, risk, impact, tone, or priority.",
+    "Read the current product description and existing FAQ content semantically. Wording does not need to match exactly.",
+    "For every candidate, decide whether its buyer-facing information is already present, partially present, or not present.",
+    "Mark FAQ candidates as already_covered when the same buyer question is already answered by the description or an existing FAQ, even if the question uses different words.",
+    "If a general FAQ is already answered and only one narrow detail is new, prefer remaining_text for the narrow detail and recommended_application description_note, not another duplicate FAQ.",
+    "Treat higher-priority proposed notes as context too: if pdp_copy or another proposed note already carries the only new detail, FAQ candidates repeating that detail should be already_covered or partially_covered with no remaining FAQ answer.",
+    "If a candidate is partially covered, return only the missing merchant-ready buyer-facing text in remaining_text. Do not return instructions like add a note, create a FAQ, this note is based on, or description says.",
+    "Use confidence high only when the current content clearly covers or clearly lacks the candidate. Use medium for close semantic paraphrases. Use low if uncertain.",
+    "Return valid JSON only. No markdown.",
+    "Schema:",
+    JSON.stringify({
+      coverage: [{
+        id: "faq_item_1",
+        status: "already_covered|partially_covered|not_covered|unclear",
+        confidence: "low|medium|high",
+        recommended_application: "skip|description_note|faq|description_addendum|keep_original",
+        matched_existing_text: "short quote or paraphrase from current product content",
+        remaining_text: "only the missing buyer-facing text, empty if fully covered",
+        remaining_question: "FAQ question only when a new FAQ is still needed",
+        remaining_answer: "FAQ answer only when a new FAQ is still needed",
+        reason: "brief explanation",
+      }],
+      summary: "brief validation summary",
+    }, null, 2),
+    "Current product content:",
+    JSON.stringify({
+      title: product.title,
+      handle: product.handle,
+      description: String(product.description || "").slice(0, 7000),
+      description_html_excerpt: product.descriptionHtml ? String(product.descriptionHtml).slice(0, 7000) : "",
+      options: product.options || [],
+      variants: (product.variants || []).slice(0, 50),
+    }, null, 2),
+    "PDP content-gap analysis:",
+    JSON.stringify({
+      present: contentGaps?.present || [],
+      missing: contentGaps?.missing || [],
+      content_issues: contentGaps?.content_issues || [],
+      issue_specific_gaps: contentGaps?.issue_specific_gaps || [],
+    }, null, 2),
+    "Proposed copy candidates to validate:",
+    JSON.stringify(candidates, null, 2),
+  ].join("\n\n");
+}
+
+function buildContentCoverageValidationCandidates(report = {}) {
+  const copy = report?.recommendation_copy || {};
+  const candidates = [];
+  const add = (candidate) => {
+    const text = [candidate.text, candidate.question, candidate.answer].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    if (!candidate.id || !text) return;
+    candidates.push(candidate);
+  };
+
+  add({
+    id: "pdp_copy",
+    kind: "description_note",
+    priority: 1,
+    text: String(copy.pdp_copy || "").trim(),
+  });
+  add({
+    id: "product_description",
+    kind: "product_description",
+    priority: 2,
+    text: String(copy.product_description || "").trim(),
+  });
+  add({
+    id: "specs_details_block",
+    kind: "description_addendum",
+    priority: 3,
+    text: String(copy.specs_details_block || copy.specs_block || "").trim(),
+  });
+
+  (Array.isArray(copy.faq_items) ? copy.faq_items : []).slice(0, 8).forEach((item, index) => {
+    add({
+      id: `faq_item_${index + 1}`,
+      kind: "faq",
+      priority: 4,
+      question: String(item?.question || "").trim(),
+      answer: String(item?.answer || "").trim(),
+      reason: String(item?.reason || "").trim(),
+    });
+  });
+
+  if (copy.faq_question || copy.faq_answer) {
+    add({
+      id: "legacy_faq",
+      kind: "faq",
+      priority: 4,
+      question: String(copy.faq_question || "").trim(),
+      answer: String(copy.faq_answer || "").trim(),
+    });
+  }
+
+  return candidates.slice(0, 14);
 }
 
 function buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report) {
@@ -632,6 +958,570 @@ function buildActionRationalePrompt(input, classification, contentGaps, emergent
   ].join("\n\n");
 }
 
+const PRODUCT_CHART_INTERPRETATION_DEFINITIONS = [
+  { responseKey: "monthly_order_activity", outputKey: "monthlyOrderActivity", label: "Monthly Order Activity" },
+  { responseKey: "return_rate_prediction", outputKey: "returnRatePrediction", label: "Return Rate Prediction" },
+  { responseKey: "product_retention_metrics", outputKey: "productRetentionMetrics", label: "Product Retention Metrics" },
+  { responseKey: "product_risk_over_time", outputKey: "productRiskOverTime", label: "Product Risk Over Time" },
+  { responseKey: "product_momentum", outputKey: "productMomentum", label: "Sales Momentum" },
+];
+
+export function buildCompactProductChartInterpretationInput(input = {}) {
+  const metrics = input?.deterministic?.metrics || {};
+  const product = input?.product || {};
+  const charts = {
+    monthly_order_activity: compactMonthlyOrderActivityForAi(metrics.monthlyOrderActivity),
+    return_rate_prediction: compactReturnRatePredictionForAi(metrics.returnRatePrediction),
+    product_retention_metrics: compactProductRetentionForAi(metrics.productRetention),
+    product_risk_over_time: compactProductRiskHistoryForAi(metrics, input?.deterministic),
+    product_momentum: compactProductMomentumForAi(metrics.productMomentum),
+  };
+
+  return {
+    available: Object.values(charts).some((chart) => chart.available),
+    product: {
+      title: cleanRelationshipText(product.title || product.productTitle || "Shopify product", 160),
+      handle: cleanRelationshipText(product.handle || "", 120),
+    },
+    instruction: "Interpret the actual business story in each chart, not generic metric definitions.",
+    charts,
+  };
+}
+
+function buildProductChartInterpretationsPrompt(compactInput) {
+  return [
+    "You are ProductPulse AI writing short business interpretations for Shopify product-detail charts.",
+    "The merchant already sees the chart labels. Do not explain what each metric generally means.",
+    "Instead, interpret what the supplied values, dates, direction, volatility, forecast and gaps say about this specific product as a business signal.",
+    "Write for a store owner or operator: what can they conclude, what tension is visible, and what deserves attention.",
+    "Use only supplied data. Do not invent facts, causes, exact values, dates, trends, products, customers, or recommendations not supported by the data.",
+    "Keep each chart answer to one short paragraph, ideally 35 to 75 words and never more than 90 words.",
+    "If a chart has unavailable or too-thin data, return an empty string for that chart.",
+    "Return valid JSON only. No markdown.",
+    "Schema:",
+    JSON.stringify({
+      chart_interpretations: {
+        monthly_order_activity: "One concise business interpretation paragraph, or empty string.",
+        return_rate_prediction: "One concise business interpretation paragraph, or empty string.",
+        product_retention_metrics: "One concise business interpretation paragraph, or empty string.",
+        product_risk_over_time: "One concise business interpretation paragraph, or empty string.",
+        product_momentum: "One concise business interpretation paragraph, or empty string.",
+      },
+    }, null, 2),
+    "Compact chart data:",
+    JSON.stringify(compactInput, null, 2),
+  ].join("\n\n");
+}
+
+export function normalizeProductChartInterpretations(raw = null, compactInput = {}, modelSummary = null) {
+  const rawMap = raw?.chart_interpretations || raw?.chartInterpretations || raw?.interpretations || raw || {};
+  const charts = compactInput?.charts || {};
+  const interpretations = {};
+
+  PRODUCT_CHART_INTERPRETATION_DEFINITIONS.forEach((definition) => {
+    const chartInput = charts[definition.responseKey] || charts[definition.outputKey] || {};
+    const rawValue = rawMap[definition.responseKey] || rawMap[definition.outputKey] || "";
+    const text = sanitizeChartInterpretationText(typeof rawValue === "string" ? rawValue : rawValue?.text || rawValue?.summary || rawValue?.interpretation || "");
+    interpretations[definition.outputKey] = {
+      chartId: definition.outputKey,
+      label: definition.label,
+      available: Boolean(chartInput.available),
+      text: chartInput.available ? text : "",
+    };
+  });
+
+  const hasText = Object.values(interpretations).some((item) => item.text);
+  return {
+    available: Boolean(compactInput.available),
+    status: raw?.status || (compactInput.available ? (hasText ? "available" : "no_ai_interpretation") : "not_available"),
+    insightVersion: "product_chart_interpretations_v1",
+    generatedAt: hasText ? new Date().toISOString() : null,
+    model: modelSummary?.model || null,
+    interpretations,
+    deterministicInputs: {
+      availableChartCount: Object.values(charts).filter((chart) => chart.available).length,
+    },
+  };
+}
+
+function compactMonthlyOrderActivityForAi(activity = null) {
+  const months = (Array.isArray(activity?.months) ? activity.months : [])
+    .slice(-14)
+    .map((month) => ({
+      key: cleanRelationshipText(month.key || month.label || "", 32),
+      label: cleanRelationshipText(month.label || month.key || "", 40),
+      startAt: month.startAt || null,
+      orders: toAiNumber(month.orders),
+      orderUnits: toAiNumber(month.orderUnits),
+      returnedOrders: toAiNumber(month.returnedOrders),
+      returnedUnits: toAiNumber(month.returnedUnits),
+      refundedOrders: toAiNumber(month.refundedOrders),
+      refundedUnits: toAiNumber(month.refundedUnits),
+      revenue: toAiNumber(month.revenue),
+      refundAmount: toAiNumber(month.refundAmount),
+      returnRate: toAiNumber(month.returnRate),
+      refundRate: toAiNumber(month.refundRate),
+      resolvedReturnUnits: toAiOptionalNumber(month.resolvedReturnUnits ?? month.returnResolvedUnits ?? month.resolvedReturns),
+      unresolvedReturnUnits: toAiOptionalNumber(month.unresolvedReturnUnits ?? month.openReturnUnits ?? month.pendingReturnUnits ?? month.unresolvedReturns),
+    }));
+  const unresolvedSeries = buildAiUnresolvedReturnSeries(months);
+  const summary = activity?.summary || {};
+  const hasActivity = months.some((month) => month.orders || month.orderUnits || month.returnedUnits || month.refundedUnits || month.revenue || month.refundAmount);
+
+  return {
+    available: hasActivity,
+    source: cleanRelationshipText(activity?.source || "", 80),
+    windowDays: toAiNumber(activity?.windowDays),
+    generatedAt: activity?.generatedAt || null,
+    summary: {
+      totalOrders: toAiNumber(summary.totalOrders),
+      totalOrderUnits: toAiNumber(summary.totalOrderUnits),
+      totalRevenue: toAiNumber(summary.totalRevenue),
+      totalReturnedUnits: toAiNumber(summary.totalReturnedUnits),
+      totalRefundedUnits: toAiNumber(summary.totalRefundedUnits),
+      totalRefundAmount: toAiNumber(summary.totalRefundAmount),
+      returnRate: toAiNumber(summary.returnRate),
+      refundRate: toAiNumber(summary.refundRate),
+    },
+    months,
+    unresolvedReturnBalance: unresolvedSeries,
+  };
+}
+
+function compactReturnRatePredictionForAi(prediction = null) {
+  const observedPoints = (Array.isArray(prediction?.observedPoints) ? prediction.observedPoints : [])
+    .slice(-16)
+    .map((point) => ({
+      key: cleanRelationshipText(point.key || point.label || "", 32),
+      label: cleanRelationshipText(point.label || point.key || "", 40),
+      startAt: point.startAt || null,
+      orders: toAiNumber(point.orders),
+      orderUnits: toAiNumber(point.orderUnits),
+      returnedOrders: toAiNumber(point.returnedOrders),
+      returnedUnits: toAiNumber(point.returnedUnits),
+      rawReturnRate: toAiOptionalNumber(point.rawReturnRate),
+      smoothedReturnRate: toAiNumber(point.smoothedReturnRate ?? point.rawReturnRate),
+    }));
+  const forecastPoints = (Array.isArray(prediction?.forecastPoints) ? prediction.forecastPoints : [])
+    .slice(0, 14)
+    .map((point) => ({
+      key: cleanRelationshipText(point.key || point.label || "", 32),
+      label: cleanRelationshipText(point.label || point.key || "", 40),
+      startAt: point.startAt || null,
+      predictedReturnRate: toAiNumber(point.predictedReturnRate),
+      basePredictedReturnRate: toAiOptionalNumber(point.basePredictedReturnRate),
+      baselineReturnRate: toAiOptionalNumber(point.baselineReturnRate),
+      seasonalReturnRate: toAiOptionalNumber(point.seasonalReturnRate),
+    }));
+  const summary = prediction?.summary || {};
+  const actionAdjustment = prediction?.actionAdjustment || {};
+  const hasPrediction = observedPoints.some((point) => point.orders || point.orderUnits || point.returnedUnits || point.smoothedReturnRate)
+    || forecastPoints.some((point) => point.predictedReturnRate);
+
+  return {
+    available: hasPrediction,
+    source: cleanRelationshipText(prediction?.source || "", 80),
+    granularity: cleanRelationshipText(prediction?.granularity || "weekly", 32),
+    windowDays: toAiNumber(prediction?.windowDays),
+    generatedAt: prediction?.generatedAt || null,
+    summary: {
+      totalOrderUnits: toAiNumber(summary.totalOrderUnits),
+      totalReturnedUnits: toAiNumber(summary.totalReturnedUnits),
+      totalReturnRate: toAiNumber(summary.totalReturnRate),
+      last30DayReturnRate: toAiNumber(summary.last30DayReturnRate),
+      last60DayReturnRate: toAiNumber(summary.last60DayReturnRate),
+      forecastNext90ReturnRate: toAiNumber(summary.forecastNext90ReturnRate),
+      confidence: cleanRelationshipText(summary.confidence || "", 40),
+    },
+    actionAdjustment: {
+      adjustmentPoints: toAiOptionalNumber(actionAdjustment.adjustmentPoints),
+      uncertaintyLift: toAiOptionalNumber(actionAdjustment.uncertaintyLift),
+      applied: toAiNumber(actionAdjustment.applied),
+      reviewed: toAiNumber(actionAdjustment.reviewed),
+      dismissed: toAiNumber(actionAdjustment.dismissed),
+      pending: toAiNumber(actionAdjustment.pending),
+      total: toAiNumber(actionAdjustment.total),
+    },
+    observedPoints,
+    forecastPoints,
+  };
+}
+
+function compactProductRetentionForAi(retention = null) {
+  const summary = retention?.summary || (retention ? {
+    totalCustomersAnalyzed: retention.totalCustomersAnalyzed ?? retention.totalProductCohortCustomers,
+    totalOrdersAnalyzed: retention.totalOrdersAnalyzed ?? retention.totalProductOrdersAnalyzed,
+    repeatPurchaseRate90d: retention.repeatPurchaseRate90d,
+    repeatPurchaseRate180d: retention.repeatPurchaseRate180d,
+    sameProductRepurchaseRate90d: retention.sameProductRepurchaseRate90d,
+    crossSellRetentionRate90d: retention.crossSellRetentionRate90d,
+    returningRevenueShare: retention.returningRevenueShare,
+    medianDaysToSecondPurchase: retention.medianDaysToSecondPurchase,
+    productLtv90Cents: retention.productLtv90Cents,
+    productLtv180Cents: retention.productLtv180Cents,
+    retentionHealthScore: retention.retentionHealthScore,
+    hasEnoughData: retention.hasEnoughData,
+    earliestOrderDate: retention.earliestOrderDate,
+    latestOrderDate: retention.latestOrderDate,
+  } : {});
+  const retentionTrendSource = Array.isArray(retention?.retentionHealthTrend)
+    ? retention.retentionHealthTrend
+    : Array.isArray(retention?.trend)
+      ? retention.trend
+      : [];
+  const healthTrend = retentionTrendSource
+    .slice(-12)
+    .map((point) => ({
+      date: cleanRelationshipText(point.date || point.asOfDate || point.cohortDate || "", 32),
+      retentionHealthScore: toAiOptionalNumber(point.retentionHealthScore),
+      repeatPurchaseRate90d: toAiOptionalNumber(point.repeatPurchaseRate90d),
+      productLtv90Cents: toAiOptionalNumber(point.productLtv90Cents),
+    }));
+  const ltvCurve = (Array.isArray(retention?.ltvCurve) ? retention.ltvCurve : [])
+    .slice(0, 12)
+    .map((point) => ({
+      ageDay: toAiNumber(point.ageDay),
+      cumulativeLtvCents: toAiNumber(point.cumulativeLtvCents),
+      sameProductLtvCents: toAiNumber(point.sameProductLtvCents),
+      otherProductLtvCents: toAiNumber(point.otherProductLtvCents),
+    }));
+  const hasRetention = Boolean(retention?.available)
+    || (Object.keys(summary).length > 0
+      && (toAiNumber(summary.totalCustomersAnalyzed) > 0 || toAiOptionalNumber(summary.retentionHealthScore) !== null || healthTrend.length > 0 || ltvCurve.length > 0));
+
+  return {
+    available: hasRetention,
+    run: retention?.run || null,
+    summary: {
+      totalCustomersAnalyzed: toAiNumber(summary.totalCustomersAnalyzed),
+      totalOrdersAnalyzed: toAiNumber(summary.totalOrdersAnalyzed),
+      repeatPurchaseRate90d: toAiOptionalNumber(summary.repeatPurchaseRate90d),
+      repeatPurchaseRate180d: toAiOptionalNumber(summary.repeatPurchaseRate180d),
+      sameProductRepurchaseRate90d: toAiOptionalNumber(summary.sameProductRepurchaseRate90d),
+      crossSellRetentionRate90d: toAiOptionalNumber(summary.crossSellRetentionRate90d),
+      returningRevenueShare: toAiOptionalNumber(summary.returningRevenueShare),
+      medianDaysToSecondPurchase: toAiOptionalNumber(summary.medianDaysToSecondPurchase),
+      productLtv90Cents: toAiOptionalNumber(summary.productLtv90Cents),
+      productLtv180Cents: toAiOptionalNumber(summary.productLtv180Cents),
+      retentionHealthScore: toAiOptionalNumber(summary.retentionHealthScore),
+      hasEnoughData: Boolean(summary.hasEnoughData),
+      earliestOrderDate: summary.earliestOrderDate || null,
+      latestOrderDate: summary.latestOrderDate || null,
+    },
+    retentionHealthTrend: healthTrend,
+    ltvCurve,
+  };
+}
+
+function compactProductRiskHistoryForAi(metrics = {}, deterministic = {}) {
+  const history = Array.isArray(metrics.reconstructedRiskHistory)
+    ? metrics.reconstructedRiskHistory
+    : Array.isArray(metrics.riskHistory)
+      ? metrics.riskHistory
+      : [];
+  const points = history.slice(-16).map((point, index) => ({
+    label: cleanRelationshipText(point.label || point.recordedAt || point.calculatedAt || `Point ${index + 1}`, 48),
+    recordedAt: point.recordedAt || point.calculatedAt || point.completedAt || null,
+    riskScore: toAiNumber(point.riskScore),
+    confidence: toAiOptionalNumber(point.confidence),
+    returnRate: toAiOptionalNumber(point.returnRate),
+    refundRate: toAiOptionalNumber(point.refundRate),
+    returnUnits: toAiOptionalNumber(point.returnUnits),
+    refundUnits: toAiOptionalNumber(point.refundUnits),
+    negativeReviewCount: toAiOptionalNumber(point.negativeReviewCount),
+    reviewCount: toAiOptionalNumber(point.reviewCount),
+    avgRating: toAiOptionalNumber(point.avgRating ?? point.averageRating),
+    refundAmount: toAiOptionalNumber(point.refundAmount),
+    productMomentumScore: toAiOptionalNumber(point.productMomentumScore),
+  }));
+  const currentRiskScore = toAiOptionalNumber(deterministic?.riskScore ?? metrics.riskScore ?? metrics.riskComponents?.riskScore);
+  const hasRisk = points.length > 0 || currentRiskScore !== null;
+
+  return {
+    available: hasRisk,
+    current: {
+      riskScore: currentRiskScore,
+      confidence: toAiOptionalNumber(deterministic?.confidence ?? metrics.confidence),
+      riskLabel: cleanRelationshipText(deterministic?.riskLabel || metrics.riskLabel || "", 40),
+      riskTrend: cleanRelationshipText(typeof metrics.riskTrend === "string" ? metrics.riskTrend : metrics.riskTrendLabel || "", 80),
+    },
+    points,
+  };
+}
+
+function compactProductMomentumForAi(momentum = null) {
+  const components = momentum?.components || {};
+  const inputs = momentum?.inputs || {};
+  const display = momentum?.display || {};
+  const weeklyUnits = Array.isArray(inputs.weeklyUnitsLast4Weeks)
+    ? inputs.weeklyUnitsLast4Weeks.slice(-4).map(toAiNumber)
+    : [];
+  const hasMomentum = momentum && (
+    toAiOptionalNumber(momentum.score) !== null
+    || weeklyUnits.some((value) => value > 0)
+    || toAiNumber(inputs.unitsLast30Days) > 0
+    || toAiNumber(inputs.revenueLast30Days) > 0
+  );
+
+  return {
+    available: Boolean(hasMomentum),
+    score: toAiOptionalNumber(momentum?.score),
+    tier: cleanRelationshipText(momentum?.tier || "", 40),
+    direction: cleanRelationshipText(momentum?.direction || "", 40),
+    confidence: toAiOptionalNumber(momentum?.confidence),
+    confidenceLabel: cleanRelationshipText(momentum?.confidenceLabel || "", 40),
+    display: {
+      trendLabel: cleanRelationshipText(display.trendLabel || "", 140),
+      growthLabel: cleanRelationshipText(display.growthLabel || "", 80),
+      growthPercent: toAiOptionalNumber(display.growthPercent),
+      catalogPositionLabel: cleanRelationshipText(display.catalogPositionLabel || "", 120),
+    },
+    components: {
+      currentVelocityScore: toAiOptionalNumber(components.currentVelocityScore),
+      growthScore: toAiOptionalNumber(components.growthScore),
+      catalogShareScore: toAiOptionalNumber(components.catalogShareScore),
+      trendConsistencyScore: toAiOptionalNumber(components.trendConsistencyScore),
+      recencyScore: toAiOptionalNumber(components.recencyScore),
+    },
+    inputs: {
+      unitsLast7Days: toAiNumber(inputs.unitsLast7Days),
+      unitsLast30Days: toAiNumber(inputs.unitsLast30Days),
+      unitsPrevious30Days: toAiNumber(inputs.unitsPrevious30Days),
+      revenueLast30Days: toAiNumber(inputs.revenueLast30Days),
+      weeklyUnitsLast4Weeks: weeklyUnits,
+      lastSaleAt: inputs.lastSaleAt || null,
+    },
+  };
+}
+
+function buildAiUnresolvedReturnSeries(months = []) {
+  let runningUnresolved = 0;
+  return months.map((month) => {
+    const opened = Math.max(0, toAiNumber(month.returnedUnits || month.returnedOrders));
+    const explicitResolved = toAiOptionalNumber(month.resolvedReturnUnits);
+    const explicitUnresolved = toAiOptionalNumber(month.unresolvedReturnUnits);
+    const resolved = explicitResolved === null
+      ? Math.min(Math.max(0, toAiNumber(month.refundedUnits || month.refundedOrders)), runningUnresolved + opened)
+      : Math.max(0, explicitResolved);
+    const value = explicitUnresolved === null
+      ? Math.max(0, runningUnresolved + opened - resolved)
+      : Math.max(0, explicitUnresolved);
+    runningUnresolved = value;
+    return {
+      key: month.key,
+      label: month.label,
+      openedReturns: opened,
+      resolvedReturns: resolved,
+      unresolvedReturnBalance: value,
+    };
+  });
+}
+
+function sanitizeChartInterpretationText(value = "") {
+  return cleanAiParagraph(value)
+    .replace(/\b(?:causes?|caused|causing|causally|because it causes)\b/gi, "is associated with")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 620);
+}
+
+function toAiNumber(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  return roundAiNumber(numeric, 2);
+}
+
+function toAiOptionalNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return roundAiNumber(numeric, 2);
+}
+
+export function buildCompactProductRelationshipAiInput(input = {}) {
+  const metrics = input?.deterministic?.metrics || {};
+  const factors = metrics.productRelationshipFactors || {};
+  const aiInput = factors.aiInsightInput || {};
+  const summary = metrics.productRelationshipIntelligenceSummary || {};
+  const relationships = uniqueRelationshipsForAi([
+    ...(aiInput.topRelationships || []),
+    ...(aiInput.riskRelationships || []),
+    ...(aiInput.crossSellOpportunities || []),
+    ...(summary.strongest_relationships || []),
+    ...(summary.relationships_with_return_risk_impact || []),
+    ...(summary.relationships_with_cross_sell_opportunity || []),
+  ].map(sanitizeRelationshipForAi).filter(Boolean));
+  const confidence = aiInput.confidence || summary.confidence || {};
+  const product = input?.product || {};
+
+  return {
+    available: relationships.length > 0,
+    product: {
+      title: cleanRelationshipText(product.title || product.productTitle || "Shopify product", 160),
+      handle: cleanRelationshipText(product.handle || "", 120),
+    },
+    confidence: {
+      score: normalizeAiPercent(confidence.score),
+      label: cleanRelationshipText(confidence.label || "", 40),
+    },
+    warnings: arrayOfSafeStrings(aiInput.warnings || summary.warnings).slice(0, 6),
+    deterministicExplanations: arrayOfSafeStrings(metrics.productRelationshipScoringImpact).slice(0, 5),
+    relationships,
+  };
+}
+
+function buildProductRelationshipInsightsPrompt(compactInput) {
+  return [
+    "You are ProductPulse AI writing compact product relationship insights for a Shopify merchant.",
+    "The system already calculated every number. Use only the supplied relationships and source_relationship_id values.",
+    "Do not invent relationships, product names, percentages, counts, time windows, lifts, or confidence. Do not mention customers individually. Do not expose PII.",
+    "Do not claim causality. Use words like association, pattern, relationship, context, or opportunity.",
+    "Do not recommend direct Shopify mutations or say changes were applied. Recommendations must be review-oriented.",
+    "If confidence or sample size is low, include a caveat.",
+    "Return valid JSON only. No markdown.",
+    "Schema:",
+    JSON.stringify({
+      insights: [{
+        source_relationship_id: "relatedProductId:direction:timeWindow",
+        type: "bundle_opportunity|cross_sell_opportunity|compatibility_context|journey_context|confidence_caveat",
+        summary: "One concise merchant-facing sentence.",
+        recommendation: "One concise review-oriented next step, or empty string.",
+        caveat: "Low-confidence caveat when relevant, or empty string.",
+      }],
+    }, null, 2),
+    "Sanitized deterministic relationship input:",
+    JSON.stringify(compactInput, null, 2),
+  ].join("\n\n");
+}
+
+export function normalizeProductRelationshipAiInsights(raw = null, compactInput = {}, modelSummary = null) {
+  const relationships = Array.isArray(compactInput.relationships) ? compactInput.relationships : [];
+  const sourceById = new Map(relationships.map((item) => [item.sourceRelationshipId, item]));
+  const rawInsights = Array.isArray(raw?.insights)
+    ? raw.insights
+    : Array.isArray(raw?.relationship_insights)
+      ? raw.relationship_insights
+      : [];
+  const insights = rawInsights
+    .map((item, index) => {
+      const sourceRelationshipId = cleanRelationshipText(item?.source_relationship_id || item?.sourceRelationshipId || "", 180);
+      const source = sourceById.get(sourceRelationshipId);
+      if (!source) return null;
+      const confidence = normalizeAiPercent(source.confidence);
+      const sampleSize = Number(source.sampleSize || 0);
+      const caveat = sanitizeRelationshipInsightText(item?.caveat || "");
+      const lowConfidenceCaveat = confidence > 0 && (confidence < 55 || sampleSize < 3)
+        ? "Low confidence: this relationship has limited sample size."
+        : "";
+      return {
+        id: `relationship-insight-${index + 1}`,
+        type: cleanRelationshipText(item?.type || "relationship_context", 80),
+        sourceRelationshipId,
+        relatedProductTitle: source.relatedProductTitle,
+        summary: sanitizeRelationshipInsightText(item?.summary || item?.insight || ""),
+        recommendation: sanitizeRelationshipInsightText(item?.recommendation || ""),
+        caveat: caveat || lowConfidenceCaveat,
+        metrics: {
+          relationshipType: source.relationshipType,
+          direction: source.direction,
+          timeWindow: source.timeWindow,
+          lift: source.lift,
+          confidence,
+          sampleSize,
+          relationshipStrength: source.relationshipStrength,
+          trend: source.trend,
+          deltaReturnRate: source.deltaReturnRate,
+          deltaRefundRate: source.deltaRefundRate,
+        },
+      };
+    })
+    .filter((item) => item && item.summary)
+    .slice(0, 5);
+
+  return {
+    available: Boolean(compactInput.available),
+    status: compactInput.available ? (raw?.status || (insights.length ? "available" : "no_ai_insights")) : "not_available",
+    insightVersion: "product_relationship_ai_insight_v1",
+    generatedAt: insights.length ? new Date().toISOString() : null,
+    model: modelSummary?.model || null,
+    insights,
+    deterministicInputs: {
+      relationshipCount: relationships.length,
+      confidenceScore: compactInput.confidence?.score || 0,
+      warnings: compactInput.warnings || [],
+    },
+  };
+}
+
+function sanitizeRelationshipForAi(item = {}) {
+  const relatedProductId = cleanRelationshipText(item.relatedProductId || item.related_product_id || "", 180);
+  const direction = cleanRelationshipText(item.direction || item.relationshipDirection || item.relationship_direction || "", 40);
+  const timeWindow = cleanRelationshipText(item.timeWindow || item.time_window || "", 40);
+  if (!relatedProductId || !direction) return null;
+  return {
+    sourceRelationshipId: `${relatedProductId}:${direction}:${timeWindow || "none"}`,
+    relatedProductId,
+    relatedProductTitle: cleanRelationshipText(item.relatedProductTitle || item.related_product_title || "Unknown product", 160),
+    relationshipType: cleanRelationshipText(item.relationshipType || item.relationship_type || "", 60),
+    direction,
+    timeWindow,
+    relationshipRate: normalizeAiPercent(item.relationshipRate ?? item.relationship_rate),
+    attachRate: normalizeAiPercent(item.attachRate ?? item.attach_rate),
+    lift: item.lift === null || item.lift === undefined ? null : roundAiNumber(item.lift, 2),
+    relationshipStrength: cleanRelationshipText(item.relationshipStrength || item.relationship_strength || "", 40),
+    confidence: normalizeAiPercent(item.confidence),
+    confidenceLabel: cleanRelationshipText(item.confidenceLabel || item.confidence_label || "", 40),
+    sampleSize: Number(item.sampleSize || item.sample_size || 0),
+    trend: cleanRelationshipText(item.trend || "", 40),
+    deltaReturnRate: normalizeAiPercent(item.deltaReturnRate ?? item.delta_return_rate),
+    deltaRefundRate: normalizeAiPercent(item.deltaRefundRate ?? item.delta_refund_rate),
+  };
+}
+
+function uniqueRelationshipsForAi(items = []) {
+  const byId = new Map();
+  items.forEach((item) => {
+    if (!item?.sourceRelationshipId || byId.has(item.sourceRelationshipId)) return;
+    byId.set(item.sourceRelationshipId, item);
+  });
+  return Array.from(byId.values()).slice(0, 12);
+}
+
+function sanitizeRelationshipInsightText(value = "") {
+  return cleanAiParagraph(value)
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted]")
+    .replace(/\b(?:causes?|caused|causing|causally|because it causes)\b/gi, "is associated with")
+    .replace(/\b(?:apply|execute|write|mutate|publish|change)\s+(?:it\s+)?(?:directly\s+)?(?:in|to)\s+Shopify\b/gi, "review in the merchandising workflow")
+    .replace(/\b\d+(?:\.\d+)?\s*(?:%|x|orders?|customers?|units?|days?|weeks?|months?|refunds?|returns?)(?=\b|\s|\.|,|;|:|$)/gi, "")
+    .replace(/\b\d+(?:\.\d+)?\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 420);
+}
+
+function cleanRelationshipText(value = "", limit = 180) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function arrayOfSafeStrings(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => cleanRelationshipText(item, 220))
+    .filter(Boolean);
+}
+
+function normalizeAiPercent(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return roundAiNumber(numeric <= 1 ? numeric * 100 : numeric, 1);
+}
+
+function roundAiNumber(value, digits = 1) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return 0;
+  const factor = 10 ** digits;
+  return Math.round(numeric * factor) / factor;
+}
+
 function buildProductDiagnosisPrompt(product) {
   const metrics = product.metrics || {};
   const sources = Array.isArray(product.sourceCoverage) ? product.sourceCoverage.join(", ") : "Shopify products";
@@ -654,8 +1544,8 @@ function buildProductDiagnosisPrompt(product) {
 }
 
 async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }) {
-  const productionAiEnabled = isProductionAiEnabled();
-  const provider = productionAiEnabled ? OPENAI_PROVIDER : GEMINI_PROVIDER;
+  const aiRouting = getProductPulseAiRouting();
+  const provider = aiRouting.provider;
   const taskConfig = AI_TASKS[task] || AI_TASKS.final_report;
 
   await recordJobLog({
@@ -667,28 +1557,84 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
       provider,
       task,
       developmentMode: isProductPulseDevelopment(),
-      productionAiEnabled,
-      configuredBy: process.env.PRODUCT_PULSE_USE_PRODUCTION_AI == null ? "environment_mode" : "PRODUCT_PULSE_USE_PRODUCTION_AI",
+      aiLevel: aiRouting.level,
+      aiLevelLabel: aiRouting.label,
+      modelMode: aiRouting.modelMode,
+      configuredBy: aiRouting.configuredBy,
     },
   });
 
-  return provider === GEMINI_PROVIDER
+  const response = provider === GEMINI_PROVIDER
     ? generateWithGemini({ shop, jobId, task, taskConfig, prompt, usageTracker })
     : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, usageTracker });
+  const resolvedResponse = await response;
+
+  if (!usageTracker) {
+    await recordAiUsageEvent({
+      shop,
+      jobId,
+      source: getUsageEventSourceForTask(task),
+      operation: task,
+      provider: resolvedResponse.provider,
+      model: resolvedResponse.model,
+      task,
+      requestContext: resolvedResponse.usage?.requestContext || "primary",
+      usage: resolvedResponse.usage,
+    });
+  }
+
+  return resolvedResponse;
 }
 
-function isProductionAiEnabled() {
-  const configured = parseBooleanEnv(process.env.PRODUCT_PULSE_USE_PRODUCTION_AI);
-  if (configured !== null) return configured;
-  return !isProductPulseDevelopment();
+function getUsageEventSourceForTask(task) {
+  if (task === "watch_change_report") return "watchlist";
+  if (task === "test_text") return "ai_test";
+  return "product_diagnosis";
 }
 
-function parseBooleanEnv(value) {
+function getProductPulseAiRouting() {
+  const level = getProductPulseAiLevel();
+  if (level === PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_GEMINI) {
+    return {
+      level,
+      label: "development_gemini",
+      modelMode: "gemini_with_openai_basic_fallback",
+      provider: GEMINI_PROVIDER,
+      configuredBy: process.env[PRODUCT_PULSE_AI_LEVEL_ENV] == null ? "environment_mode" : PRODUCT_PULSE_AI_LEVEL_ENV,
+    };
+  }
+  if (level === PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_OPENAI_BASIC) {
+    return {
+      level,
+      label: "development_openai_basic",
+      modelMode: "openai_basic_only",
+      provider: OPENAI_PROVIDER,
+      configuredBy: process.env[PRODUCT_PULSE_AI_LEVEL_ENV] == null ? "environment_mode" : PRODUCT_PULSE_AI_LEVEL_ENV,
+    };
+  }
+  return {
+    level: PRODUCT_PULSE_AI_LEVELS.PRODUCTION_TIERED_OPENAI,
+    label: "production_tiered_openai",
+    modelMode: "openai_tiered",
+    provider: OPENAI_PROVIDER,
+    configuredBy: process.env[PRODUCT_PULSE_AI_LEVEL_ENV] == null ? "environment_mode" : PRODUCT_PULSE_AI_LEVEL_ENV,
+  };
+}
+
+function getProductPulseAiLevel() {
+  const configured = parseIntegerEnv(process.env[PRODUCT_PULSE_AI_LEVEL_ENV]);
+  if (Object.values(PRODUCT_PULSE_AI_LEVELS).includes(configured)) return configured;
+  return isProductPulseDevelopment()
+    ? PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_GEMINI
+    : PRODUCT_PULSE_AI_LEVELS.PRODUCTION_TIERED_OPENAI;
+}
+
+function parseIntegerEnv(value) {
   if (value == null || String(value).trim() === "") return null;
-  const normalized = String(value).trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
-  return null;
+  const raw = String(value).trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, modelOverride = null, requestContext = "primary", usageTracker = null }) {
@@ -756,6 +1702,9 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, model
 }
 
 function resolveOpenAIModel(taskConfig) {
+  if (getProductPulseAiLevel() === PRODUCT_PULSE_AI_LEVELS.DEVELOPMENT_OPENAI_BASIC) {
+    return resolveOpenAIBasicModel();
+  }
   for (const envName of taskConfig.modelEnv || []) {
     const value = String(process.env[envName] || "").trim();
     if (value) return value;
@@ -763,8 +1712,12 @@ function resolveOpenAIModel(taskConfig) {
   return taskConfig.fallbackModel;
 }
 
-function resolveOpenAINanoModel() {
+function resolveOpenAIBasicModel() {
   return String(process.env.OPENAI_BASIC_MODEL || "").trim() || "gpt-5.4-nano";
+}
+
+function resolveOpenAINanoModel() {
+  return resolveOpenAIBasicModel();
 }
 
 function extractOpenAIText(response) {
@@ -1221,23 +2174,23 @@ function buildGeminiFailureLogMessage({ model, nextModel, retryReason, openAiFal
 function buildGeminiPoolExhaustedError(retryReason, error) {
   const detail = formatProviderErrorDetail(error);
   if (retryReason === "high_demand") {
-    return new Error(`AI diagnosis could not be completed because every configured Gemini model is currently under high demand. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because every configured Gemini model is currently under high demand. Gemini detail: ${detail}`);
   }
   if (retryReason === "quota") {
-    return new Error(`AI diagnosis could not be completed because every configured Gemini model hit quota or rate limits. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because every configured Gemini model hit quota or rate limits. Gemini detail: ${detail}`);
   }
   if (retryReason === "model_unavailable") {
-    return new Error(`AI diagnosis could not be completed because no configured Gemini model is currently available. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because no configured Gemini model is currently available. Gemini detail: ${detail}`);
   }
   if (retryReason === "transient") {
-    return new Error(`AI diagnosis could not be completed because every configured Gemini model hit a temporary provider or network error. Gemini detail: ${detail}`);
+    return new Error(`Product Diagnosis could not be completed because every configured Gemini model hit a temporary provider or network error. Gemini detail: ${detail}`);
   }
-  return error || new Error("AI diagnosis could not be completed with Gemini. Please try again later.");
+  return error || new Error("Product Diagnosis could not be completed with Gemini. Please try again later.");
 }
 
 function buildOpenAINanoFallbackError({ retryReason, geminiError, openAiError }) {
   return new Error([
-    `AI diagnosis failed after all Gemini models hit ${getGeminiRetryReasonLabel(retryReason)} and OpenAI nano fallback also failed.`,
+    `Product Diagnosis failed after all Gemini models hit ${getGeminiRetryReasonLabel(retryReason)} and OpenAI nano fallback also failed.`,
     `Gemini: ${formatProviderErrorDetail(geminiError)}.`,
     `OpenAI nano: ${formatProviderErrorDetail(openAiError)}.`,
     "Please try again later.",
@@ -1316,3 +2269,8 @@ function pickAiModelSummary(response) {
 function uniqueTruthy(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
+
+export const __productPulseAiTestHooks = {
+  buildWatchChangeReportNarrativePayload,
+  buildWatchChangeReportNarrativePrompt,
+};

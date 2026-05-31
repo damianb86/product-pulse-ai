@@ -10,8 +10,7 @@
 | Dashboard | Component, E2E preview, a11y | Dev store review | Uses fixture snapshots |
 | Products filtering | Component | Large catalog later | Search/filter deterministic |
 | Product diagnosis | Unit, component, integration, E2E preview | Real AI provider later | AI output mocked/validated |
-| Credits | Unit, integration | Billing later | Shopify billing future |
+| Diagnosis Credits | Unit, integration | Billing later | Shopify billing future |
 | Analytics | Component, a11y | Chart review | CSS visual blocks are accessible |
 | GraphQL errors | Unit | Live API failure later | Normalization helper |
 | CI | GitHub Actions | Review failed artifacts | E2E gated by repository variable |
-

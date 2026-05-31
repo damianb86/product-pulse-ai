@@ -171,6 +171,16 @@
   min-width: 0;
 }
 
+.heroImage {
+  display: block;
+  width: 100%;
+  max-width: 760px;
+  height: auto;
+  justify-self: center;
+  border-radius: 24px;
+  filter: drop-shadow(0 20px 34px rgba(var(--pp-shadow-rgb), 0.12));
+}
+
 .signalGraphic {
   display: block;
   width: 100%;
@@ -204,13 +214,13 @@
 }
 
 .graphicSubtext {
-  fill: #cbd5e1;
+  fill: var(--pp-slate-300);
   font-size: 16px;
   font-weight: 650;
 }
 
 .graphicFootnote {
-  fill: #cbd5e1;
+  fill: var(--pp-slate-300);
   font-size: 13px;
   font-weight: 600;
 }
@@ -460,7 +470,7 @@
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
     linear-gradient(180deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(135deg, var(--pp-midnight-ink), #1e293b);
+    var(--pp-dark-neutral-gradient);
   background-size: 26px 26px, 26px 26px, auto;
 }
 

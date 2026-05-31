@@ -9,6 +9,9 @@ import {
 } from "./product-pulse-scoring";
 import { REQUIRED_SHOPIFY_SCOPES } from "./product-pulse-scopes";
 import { validateProductAction } from "./product-pulse-validation";
+import { filterDisabledProductActions } from "./product-pulse-disabled-actions";
+
+const ANALYTICS_DAY_MS = 86_400_000;
 
 export const sourceGroups = [
   {
@@ -64,13 +67,22 @@ export const sourceGroups = [
         missing: "Connect Judge.me to improve evidence quality.",
       },
       {
-        key: "chatmeReviews",
-        name: "ChatMe reviews",
+        key: "looxReviews",
+        name: "Loox reviews",
         connected: false,
         required: false,
-        weight: 10,
-        contribution: "Short-form review snippets and buyer sentiment.",
-        missing: "Connect ChatMe when available.",
+        weight: 0,
+        contribution: "Photo, video and visual review UGC.",
+        missing: "Coming soon.",
+      },
+      {
+        key: "stampedReviews",
+        name: "Stamped reviews",
+        connected: false,
+        required: false,
+        weight: 0,
+        contribution: "Product review themes and loyalty context.",
+        missing: "Coming soon.",
       },
       {
         key: "csvReviews",
@@ -144,7 +156,7 @@ const rawProducts = [
     },
     analysisDepth: "full",
     analysisLabel: "Full diagnosis",
-    analysisDetail: "Deep AI product diagnosis completed from Shopify signals and connected review data.",
+    analysisDetail: "Product Diagnosis completed from Shopify signals and connected review data.",
     sourceCoverage: ["Returns", "Refunds", "Judge.me", "CSV"],
     lastAnalysis: "2026-05-10",
     primaryIssue: "Fit runs small around waist and inseam",
@@ -214,7 +226,7 @@ const rawProducts = [
     },
     analysisDepth: "full",
     analysisLabel: "Full diagnosis",
-    analysisDetail: "Deep AI product diagnosis completed from Shopify signals and connected review data.",
+    analysisDetail: "Product Diagnosis completed from Shopify signals and connected review data.",
     sourceCoverage: ["Returns", "Refunds", "Judge.me"],
     lastAnalysis: "2026-05-09",
     primaryIssue: "Zipper failures after first use",
@@ -270,7 +282,7 @@ const rawProducts = [
       lastDetailedDiagnosisAt: null,
     },
     analysisDepth: "quickscan",
-    analysisLabel: "QuickScan only",
+    analysisLabel: "Catalog Scan only",
     analysisDetail: "Only the fast Shopify scan has run for this product.",
     sourceCoverage: ["Reviews", "CSV", "Products"],
     lastAnalysis: "2026-05-07",
@@ -328,7 +340,7 @@ const rawProducts = [
       lastDetailedDiagnosisAt: null,
     },
     analysisDepth: "quickscan",
-    analysisLabel: "QuickScan only",
+    analysisLabel: "Catalog Scan only",
     analysisDetail: "Only the fast Shopify scan has run for this product.",
     sourceCoverage: ["Products", "Reviews"],
     lastAnalysis: "Not analyzed",
@@ -417,7 +429,7 @@ export function buildDashboardViewData(productItems = products, options = {}) {
         tone: pendingActions.length ? "purple" : "green",
       },
       {
-        label: "Margin at risk",
+        label: "Estimated Margin Exposure",
         value: formatDashboardMoney(totalMarginAtRisk),
         detail: `${formatDashboardMoney(totalRevenueAtRisk)} revenue at risk`,
         icon: "cash-dollar",
@@ -529,7 +541,7 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
       {
         tone: hasFullDiagnosis ? "success" : "info",
         icon: hasFullDiagnosis ? "wand" : "search",
-        label: hasFullDiagnosis ? "Full diagnosis" : "QuickScan only",
+        label: hasFullDiagnosis ? "Full diagnosis" : "Catalog Scan only",
       },
       {
         tone: "warning",
@@ -556,29 +568,29 @@ function getDashboardStartProduct(productList, { pendingActions = [] } = {}) {
 
 function getDashboardStartActionTitle({ product, action, actionMode }) {
   if (actionMode === "pending-action") return action?.label || "Review recommended fix";
-  if (actionMode === "next-diagnosis") return "Run full product diagnosis";
+  if (actionMode === "next-diagnosis") return "Run Product Diagnosis";
   if (actionMode === "recheck") return "Re-check product";
-  return product ? "Analyze more products" : "Run QuickScan";
+  return product ? "Analyze more products" : "Run Catalog Scan";
 }
 
 function getDashboardStartEyebrow(actionMode) {
   if (actionMode === "pending-action") return "Recommended fix waiting for review";
-  if (actionMode === "next-diagnosis") return "Highest-priority QuickScan candidate";
+  if (actionMode === "next-diagnosis") return "Highest-priority Catalog Scan candidate";
   if (actionMode === "recheck") return "Previously changed product";
   return "No urgent product action";
 }
 
 function getDashboardStartCtaLabel(actionMode) {
   if (actionMode === "pending-action") return "Review recommended fix";
-  if (actionMode === "next-diagnosis") return "Run full diagnosis";
+  if (actionMode === "next-diagnosis") return "Run Product Diagnosis";
   if (actionMode === "recheck") return "Re-check product";
   return "Analyze more products";
 }
 
 function getDashboardStartCtaHint(actionMode) {
-  if (actionMode === "pending-action") return "Open the product diagnosis and review the recommended action.";
-  if (actionMode === "next-diagnosis") return "Queue a full AI diagnosis for the highest-priority QuickScan product.";
-  if (actionMode === "recheck") return "Run diagnostics again after applied changes or resolution.";
+  if (actionMode === "pending-action") return "Open the Product Diagnosis and review the recommended action.";
+  if (actionMode === "next-diagnosis") return "Queue a Product Diagnosis for the highest-priority Catalog Scan product.";
+  if (actionMode === "recheck") return "Run Product Diagnosis again after applied changes or resolution.";
   return "Open Products to find or scan the next product.";
 }
 
@@ -594,7 +606,7 @@ function buildDashboardWhyMetrics({ product, returnRate, refundRate, negativeRev
   }
   if (negativeReviews > 0) rows.push({ label: "negative reviews", value: formatDashboardNumber(negativeReviews), tone: "critical" });
   if (refundRate > 0) rows.push({ label: "refund rate", value: formatDashboardRate(refundRate), tone: refundRate >= 10 ? "critical" : "warning" });
-  rows.push({ label: "margin at risk", value: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")), tone: getDashboardMetric(product, "marginAtRisk") > 0 ? "info" : "neutral" });
+  rows.push({ label: "estimated margin exposure", value: formatDashboardMoney(getDashboardMetric(product, "marginAtRisk")), tone: getDashboardMetric(product, "marginAtRisk") > 0 ? "info" : "neutral" });
   if (Number(metrics.signalCount || metrics.issueCount || 0) > 0) rows.push({ label: "stored signals", value: formatDashboardNumber(metrics.signalCount || metrics.issueCount), tone: "neutral" });
   return rows.slice(0, 4);
 }
@@ -637,7 +649,7 @@ function buildDashboardPriorityReason(product, { hasFullDiagnosis, priorityScore
   const metrics = product.metrics || {};
   const reasons = [
     `${getRiskLabel(Number(product.riskScore || 0)).toLowerCase()} risk`,
-    `${formatDashboardMoney(getDashboardMetric(product, "marginAtRisk"))} margin at risk`,
+    `${formatDashboardMoney(getDashboardMetric(product, "marginAtRisk"))} estimated margin exposure`,
     `${formatDashboardNumber(metrics.signalCount || metrics.issueCount || 0)} signal${Number(metrics.signalCount || metrics.issueCount || 0) === 1 ? "" : "s"}`,
   ];
   if (Number(metrics.recentSignalUnits || 0) > 0) {
@@ -671,22 +683,22 @@ function buildDashboardStartSummary({ product, mainIssue, returnRate, refundRate
   }
   if (!pieces.length) {
     return hasFullDiagnosis
-      ? `${product.title} already has a full diagnosis and remains the highest-priority product to review.`
-      : `${product.title} is the highest-priority product without a full diagnosis. ProductPulse has scan data ready for review.`;
+      ? `${product.title} already has a Product Diagnosis and remains the highest-priority product to review.`
+      : `${product.title} is the highest-priority product without a Product Diagnosis. ProductPulse has scan data ready for review.`;
   }
   return hasFullDiagnosis
-    ? `${product.title} already has a full diagnosis and still ranks highest because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`
-    : `${product.title} is the highest-priority product without a full diagnosis because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`;
+    ? `${product.title} already has a Product Diagnosis and still ranks highest because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`
+    : `${product.title} is the highest-priority product without a Product Diagnosis because ${pieces.join(", ")} point to ${mainIssue.toLowerCase()}.`;
 }
 
 function buildDashboardActionRows(productList) {
   const maxMarginRisk = Math.max(...productList.map((product) => getDashboardMetric(product, "marginAtRisk")), 0);
   return productList.flatMap((product) => {
-    const actions = Array.isArray(product.recommendedActions) ? product.recommendedActions : [];
-    const history = Array.isArray(product.actionHistory) ? product.actionHistory : [];
+    const actions = filterDisabledProductActions(product.recommendedActions);
+    const history = filterDisabledProductActions(product.actionHistory);
     const rows = actions.map((action) => {
       const actionId = action.id || action.label || "";
-      const record = getDashboardActionHistoryRecord(action, history);
+      const record = getDashboardActionHistoryRecord(action, history, product);
       const status = normalizeDashboardActionStatus(record?.status || action.status);
       const actionTier = getDashboardActionTier(action);
       const priorityScore = getDashboardActionPriorityScore(product, action, { maxMarginRisk });
@@ -716,10 +728,10 @@ function buildDashboardActionRows(productList) {
     const rowFamilies = new Set(rows.map((row) => row.family).filter((family) => family && family !== "other"));
     const historicalRows = history
       .filter((record) => !isSystemProductActionRecord(record))
-      .filter((record) => !rowIds.has(record.actionId || record.id))
+      .filter((record) => !rowIds.has(record.actionId || record.id) || !isDashboardActionRecordCurrentForProduct(record, product))
       .filter((record) => {
         const family = getDashboardActionFamily(record);
-        return !family || family === "other" || !rowFamilies.has(family);
+        return !family || family === "other" || !rowFamilies.has(family) || !isDashboardActionRecordCurrentForProduct(record, product);
       })
       .map((record) => {
         const status = normalizeDashboardActionStatus(record.status);
@@ -765,20 +777,26 @@ function isSystemProductActionRecord(record = {}) {
   return ["mark-resolved", "mark-unresolved", "ignore-issue", "unignore-issue", "run-ai-diagnosis"].includes(actionId);
 }
 
-function getDashboardActionHistoryRecord(action = {}, history = []) {
+function getDashboardActionHistoryRecord(action = {}, history = [], product = {}) {
   const currentRecords = (Array.isArray(history) ? history : [])
     .filter((record) => !isSystemProductActionRecord(record))
+    .filter((record) => isDashboardActionRecordCurrentForProduct(record, product))
     .sort((first, second) => new Date(second.appliedAt || second.createdAt || 0).getTime() - new Date(first.appliedAt || first.createdAt || 0).getTime());
-  const actionId = normalizeDashboardActionToken(action.id || action.actionId || action.actionType);
-  const actionLabel = normalizeDashboardActionLabel(action.label || action.title);
+  const actionIdentityTokens = getDashboardActionIdentityTokens(action);
   const exactRecord = currentRecords.find((record) => {
-    const recordId = normalizeDashboardActionToken(record.actionId || record.actionType || record.id);
-    const recordLabel = normalizeDashboardActionLabel(record.label);
-    return (actionId && recordId === actionId) || (actionLabel && recordLabel === actionLabel);
+    const recordIdentityTokens = getDashboardActionRecordIdentityTokens(record);
+    return intersectsDashboardActionTokens(actionIdentityTokens, recordIdentityTokens);
   });
   if (exactRecord) return exactRecord;
-
   const family = getDashboardActionFamily(action);
+
+  if (!actionIdentityTokens.size) {
+    const actionLabel = normalizeDashboardActionLabel(action.label || action.title);
+    const labelRecord = currentRecords.find((record) => actionLabel && normalizeDashboardActionLabel(record.label) === actionLabel);
+    if (labelRecord) return labelRecord;
+  }
+
+  if (actionIdentityTokens.size && !shouldUseDashboardActionFamilyFallback(family)) return null;
   if (!family || family === "other") return null;
   if (!shouldUseDashboardActionFamilyFallback(family)) return null;
 
@@ -788,8 +806,76 @@ function getDashboardActionHistoryRecord(action = {}, history = []) {
   )) || null;
 }
 
+function isDashboardActionRecordCurrentForProduct(record = {}, product = {}) {
+  const currentDiagnosisId = getDashboardProductCurrentDiagnosisId(product);
+  const recordDiagnosisId = getDashboardActionRecordDiagnosisId(record);
+  if (!currentDiagnosisId || !recordDiagnosisId) return true;
+  return currentDiagnosisId === recordDiagnosisId;
+}
+
+function getDashboardProductCurrentDiagnosisId(product = {}) {
+  return String(product.latestDiagnosisId || product.metrics?.latestDiagnosisId || "").trim();
+}
+
+function getDashboardActionRecordDiagnosisId(record = {}) {
+  const payload = record.payload || {};
+  return String(record.diagnosisId || payload.sourceDiagnosisId || payload.diagnosisId || "").trim();
+}
+
+function getDashboardActionIdentityTokens(action = {}) {
+  const payload = action.payload || {};
+  return new Set([
+    action.id,
+    action.actionId,
+    action.actionType,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...getDashboardPreciseActionAliases(action.actionAliases),
+    ...getDashboardPreciseActionAliases(payload.actionAliases),
+  ].map(normalizeDashboardActionToken).filter(Boolean));
+}
+
+function getDashboardActionRecordIdentityTokens(record = {}) {
+  const payload = record.payload || {};
+  return new Set([
+    record.actionId,
+    record.actionType,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...getDashboardPreciseActionAliases(record.actionAliases),
+    ...getDashboardPreciseActionAliases(payload.actionAliases),
+  ].map(normalizeDashboardActionToken).filter(Boolean));
+}
+
+function intersectsDashboardActionTokens(firstTokens, secondTokens) {
+  if (!(firstTokens instanceof Set) || !(secondTokens instanceof Set) || !firstTokens.size || !secondTokens.size) return false;
+  for (const token of firstTokens) {
+    if (secondTokens.has(token)) return true;
+  }
+  return false;
+}
+
 function shouldUseDashboardActionFamilyFallback(family = "") {
   return ["product-copy", "evidence-review"].includes(family);
+}
+
+const BROAD_DASHBOARD_ACTION_ALIASES = new Set([
+  "product-description-changes",
+  "review-product-evidence",
+  "product-evidence",
+  "product-faq",
+  "create-product-faq",
+  "title-metadata",
+  "product-metadata",
+  "variant-options",
+  "workflow-tag",
+  "media-alt-text",
+  "commercial-control",
+]);
+
+function getDashboardPreciseActionAliases(aliases = []) {
+  return (Array.isArray(aliases) ? aliases : [])
+    .filter((alias) => !BROAD_DASHBOARD_ACTION_ALIASES.has(normalizeDashboardActionToken(alias)));
 }
 
 function normalizeDashboardActionToken(value) {
@@ -1084,7 +1170,7 @@ function buildDashboardActionQueue(pendingActions) {
       label: "No pending actions",
       value: 0,
       valueLabel: "0",
-      detail: "Run product diagnosis to generate actionable fixes.",
+      detail: "Run Product Diagnosis to generate actionable fixes.",
       href: "/app/products",
       icon: "check",
       tone: "green",
@@ -1129,9 +1215,9 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
   if (totalProducts > 0) connectedLabels.add("Product data");
 
   const sources = [
-    { label: "Products", source: "Product data", icon: "product", connectedDetail: "Shopify product data is available by default and is used for title, description, tags, variants and catalog metadata.", missingDetail: "ProductPulse has not stored product data yet. Run QuickScan to begin catalog coverage." },
+    { label: "Products", source: "Product data", icon: "product", connectedDetail: "Shopify product data is available by default and is used for title, description, tags, variants and catalog metadata.", missingDetail: "ProductPulse has not stored product data yet. Run Catalog Scan to begin catalog coverage." },
     { label: "Reviews", source: "Reviews", icon: "star", connectedDetail: "Review evidence was found through connected review sources or CSV imports and can improve issue confidence.", missingDetail: "No review evidence has been found yet. Connect Judge.me or upload a reviews CSV to improve coverage." },
-    { label: "Returns", source: "Returns", icon: "return", connectedDetail: "Return evidence was found in stored diagnostics and can explain post-purchase friction.", missingDetail: "No return evidence has been found yet. Order access may be missing or no returns were found in the available window." },
+    { label: "Returns", source: "Returns", icon: "return", connectedDetail: "Return evidence was found in stored Product Diagnosis results and can explain post-purchase friction.", missingDetail: "No return evidence has been found yet. Order access may be missing or no returns were found in the available window." },
     { label: "Refunds", source: "Refunds", icon: "cash-dollar", connectedDetail: "Refund evidence was found and can contribute to financial pressure and operational risk.", missingDetail: "No refund evidence has been found yet. Refund access may be missing or no refunds were found in the available window." },
   ].map((source) => ({
     ...source,
@@ -1163,38 +1249,38 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
     tone: statusTone,
     icon: statusTone === "green" ? "check" : statusTone === "orange" ? "alert-triangle" : "x",
     detail: `${formatDashboardNumber(totalProducts)} / ${formatDashboardNumber(catalogTotal)} Shopify catalog products are currently inside ProductPulse.`,
-    coverageLine: `${formatDashboardNumber(fullDiagnoses.length)} full diagnostics · ${formatDashboardNumber(quickScanOnly.length)} QuickScan only in ProductPulse`,
+    coverageLine: `${formatDashboardNumber(fullDiagnoses.length)} Product Diagnosis · ${formatDashboardNumber(quickScanOnly.length)} Catalog Scan only in ProductPulse`,
     catalogCoverage: {
       label: "Total catalog",
       percent: catalogStoredPercent,
       percentLabel: formatDashboardRate(catalogStoredPercent),
       tone: catalogTone,
       ariaLabel: `${formatDashboardRate(catalogStoredPercent)} of Shopify catalog products are currently analyzed in ProductPulse`,
-      detail: `${formatDashboardNumber(totalProducts)} of ${formatDashboardNumber(catalogTotal)} Shopify catalog products are in ProductPulse because QuickScan found evidence above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+).`,
+      detail: `${formatDashboardNumber(totalProducts)} of ${formatDashboardNumber(catalogTotal)} Shopify catalog products are in ProductPulse because Catalog Scan found evidence above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+).`,
       subline: `${formatDashboardNumber(missingCatalogStored)} catalog products are below threshold or not stored here.`,
       infoTitle: "What total catalog means",
-      infoDetail: `This compares the full Shopify catalog with the products stored in ProductPulse. A product enters ProductPulse when QuickScan detects evidence at or above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+). Products below that threshold do not appear in this dashboard and are not included in these analytics.`,
-      infoFootnote: "To analyze a product that is not listed, open Products, use Find Shopify product, search the live Shopify catalog, and run a full diagnosis.",
+      infoDetail: `This compares the full Shopify catalog with the products stored in ProductPulse. A product enters ProductPulse when Catalog Scan detects evidence at or above the minimum risk threshold (${formatDashboardNumber(minimumRiskScore)}+). Products below that threshold do not appear in this dashboard and are not included in these analytics.`,
+      infoFootnote: "To analyze a product that is not listed, open Products, use Find Shopify product, search the live Shopify catalog, and run a Product Diagnosis.",
     },
     productPulseCoverage: {
       label: "Products in ProductPulse",
       percent: storedFullPercent,
       percentLabel: `${formatDashboardRate(storedFullPercent)} full`,
-      secondaryLabel: `${formatDashboardNumber(quickScanOnly.length)} QuickScan only · ${formatDashboardRate(quickScanStoredPercent)}`,
+      secondaryLabel: `${formatDashboardNumber(quickScanOnly.length)} Catalog Scan only · ${formatDashboardRate(quickScanStoredPercent)}`,
       tone: storedAnalysisTone,
-      ariaLabel: `${formatDashboardRate(storedFullPercent)} of ProductPulse products have full diagnostics`,
-      detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(totalProducts)} ProductPulse products have full diagnostics. ${formatDashboardNumber(quickScanOnly.length)} remain QuickScan only.`,
-      subline: "QuickScan-only products have lightweight deterministic evidence and still need full diagnostics for final recommendations.",
-      infoTitle: "Full diagnostics vs QuickScan",
-      infoDetail: "This only measures products that are already inside ProductPulse. Full diagnostics combine Shopify product data, orders, returns/refunds, connected reviews and AI-generated recommendations. QuickScan-only products are candidates found by the lightweight scan but have not received the deep diagnosis yet.",
-      infoFootnote: "Run a full diagnosis from Products or from the product detail page to promote a QuickScan-only product.",
+      ariaLabel: `${formatDashboardRate(storedFullPercent)} of ProductPulse products have Product Diagnosis`,
+      detail: `${formatDashboardNumber(fullDiagnoses.length)} of ${formatDashboardNumber(totalProducts)} ProductPulse products have Product Diagnosis. ${formatDashboardNumber(quickScanOnly.length)} remain Catalog Scan only.`,
+      subline: "Catalog Scan-only products have lightweight deterministic evidence and still need Product Diagnosis for final recommendations.",
+      infoTitle: "Product Diagnosis vs Catalog Scan",
+      infoDetail: "This only measures products that are already inside ProductPulse. Product Diagnosis combines Shopify product data, orders, returns/refunds, connected reviews and recommendations. Catalog Scan-only products are candidates found by Catalog Scan but have not received Product Diagnosis yet.",
+      infoFootnote: "Run a Product Diagnosis from Products or from the product detail page to promote a Catalog Scan-only product.",
     },
     recommendation: {
       tone: catalogTone,
       icon: catalogTone === "green" ? "check" : "alert-circle",
       text: catalogTone === "green"
-        ? "Full-diagnosis coverage is healthy. Keep running targeted diagnostics when new products or evidence appear."
-        : "Products below the QuickScan threshold may not appear in the table, but they can still carry hidden risk. ProductPulse recommends running full diagnostics on important products even when QuickScan did not flag them.",
+        ? "Product Diagnosis coverage is healthy. Keep running targeted Product Diagnosis when new products or evidence appear."
+        : "Products below the Catalog Scan threshold may not appear in the table, but they can still carry hidden risk. ProductPulse recommends running Product Diagnosis on important products even when Catalog Scan did not flag them.",
     },
     sources,
   };
@@ -1228,7 +1314,7 @@ function formatDashboardReturnRateSummary(returnRate, metrics = {}) {
 function buildDashboardSuggestedFixes(productList) {
   const fixes = [];
   productList.forEach((product) => {
-    const actions = Array.isArray(product.recommendedActions) ? product.recommendedActions : [];
+    const actions = filterDisabledProductActions(product.recommendedActions);
     actions.forEach((action) => {
       fixes.push({
         icon: getDashboardActionIcon(action),
@@ -1243,7 +1329,7 @@ function buildDashboardSuggestedFixes(productList) {
   if (fixes.length) return fixes.slice(0, 4);
   return [{
     icon: "wand",
-    label: productList.length ? "Run product diagnosis to unlock recommended actions" : "Run QuickScan to find products needing attention",
+    label: productList.length ? "Run Product Diagnosis to unlock recommended actions" : "Run Catalog Scan to find products needing attention",
     impact: productList.length ? "Needs diagnosis" : "No scan yet",
     tone: "info",
     href: productList.length ? "/app/products" : "/app/products",
@@ -1362,6 +1448,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
   const collectionMargin = buildAnalyticsCollectionMargin(productList);
   const riskBubbles = buildAnalyticsRiskBubbles(productList);
   const analysisCoverage = buildAnalyticsAnalysisCoverage({ totalProducts, fullDiagnoses, quickScanOnly });
+  const deepDiagnosisCharts = buildAnalyticsDeepDiagnosisCharts(fullDiagnoses, { windowDays });
 
   return {
     generatedAt: options.generatedAt || new Date().toISOString(),
@@ -1371,7 +1458,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
     lastUpdatedLabel: getAnalyticsLastUpdatedLabel(productList),
     kpis: [
       {
-        label: "Margin at risk",
+        label: "Estimated Margin Exposure",
         value: formatDashboardMoney(totals.marginAtRisk),
         detail: `${formatDashboardMoney(totals.revenueAtRisk)} revenue at risk`,
         icon: "cash-dollar",
@@ -1394,7 +1481,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       {
         label: "Catalog coverage",
         value: formatDashboardNumber(fullDiagnoses.length),
-        detail: `${formatAnalyticsPercent(totalProducts ? (fullDiagnoses.length / totalProducts) * 100 : 0)} full diagnoses / ${formatDashboardNumber(totalProducts)} stored products`,
+        detail: `${formatAnalyticsPercent(totalProducts ? (fullDiagnoses.length / totalProducts) * 100 : 0)} product diagnoses / ${formatDashboardNumber(totalProducts)} stored products`,
         icon: "product",
         tone: "purple",
       },
@@ -1420,6 +1507,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       total: sourceContribution.total,
       totalLabel: formatDashboardNumber(sourceContribution.total),
     },
+    deepDiagnosisCharts,
     riskBubbles,
     collectionMargin: {
       rows: collectionMargin,
@@ -1430,6 +1518,7 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       max: getAnalyticsMax(analysisCoverage),
     },
     impactTrend: buildAnalyticsImpactTrend(productList, { windowDays, totalMarginAtRisk: totals.marginAtRisk }),
+    actionImpactTrend: buildAnalyticsActionImpactTrend(actionRows, productList, { windowDays }),
     issueImpact: {
       rows: buildAnalyticsIssueImpact(productList),
     },
@@ -1454,8 +1543,8 @@ export function buildAnalyticsViewData(productItems = products, options = {}) {
       totalProducts,
     }),
     businessImpact: {
-      title: `Estimated business impact (next ${windowDays} days)`,
-      subtitle: "Projected from the stored QuickScan and full diagnosis metrics.",
+      title: `Estimated Margin Exposure (next ${windowDays} days)`,
+      subtitle: "Projected from the stored Catalog Scan and Product Diagnosis metrics.",
       metrics: buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList, options }),
       calculation: buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productList, actionRows }),
     },
@@ -1506,10 +1595,10 @@ function getAnalyticsTotals(productList, options = {}) {
     base.reviewedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length;
     base.dismissedActions = actions.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length;
   } else {
-    base.openActions = productList.reduce((total, product) => total + (Array.isArray(product.recommendedActions) ? product.recommendedActions.length : 0), 0);
-    base.appliedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length : 0), 0);
-    base.reviewedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length : 0), 0);
-    base.dismissedActions = productList.reduce((total, product) => total + (Array.isArray(product.actionHistory) ? product.actionHistory.filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length : 0), 0);
+    base.openActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.recommendedActions).length, 0);
+    base.appliedActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.actionHistory).filter((action) => normalizeDashboardActionStatus(action.status) === "applied").length, 0);
+    base.reviewedActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.actionHistory).filter((action) => normalizeDashboardActionStatus(action.status) === "reviewed").length, 0);
+    base.dismissedActions = productList.reduce((total, product) => total + filterDisabledProductActions(product.actionHistory).filter((action) => normalizeDashboardActionStatus(action.status) === "dismissed").length, 0);
   }
 
   return base;
@@ -1552,29 +1641,87 @@ function buildAnalyticsRiskSignalSeries(productList) {
   }));
 }
 
-function buildAnalyticsIssueDistribution(productList) {
+function buildAnalyticsIssueDistribution(productList, { limit = 6 } = {}) {
   const grouped = new Map();
   productList.forEach((product) => {
-    const metrics = product.metrics || {};
-    const addIssue = (issue, signals = 1) => {
-      const label = getDashboardIssueLabel(issue);
+    getAnalyticsIssueContributions(product).forEach((contribution) => {
+      const label = getDashboardIssueLabel(contribution.issue);
       const current = grouped.get(label) || { label, value: 0 };
-      current.value += Math.max(1, Number(signals || 1));
+      current.value += Math.max(1, Number(contribution.signals || 1));
       grouped.set(label, current);
-    };
-
-    if (Array.isArray(product.issues) && product.issues.length) {
-      product.issues.forEach((issue) => addIssue(issue.issueCode || issue.issue, issue.signals));
-    } else if (product.primaryIssue) {
-      addIssue(product.primaryIssue, metrics.signalCount || metrics.issueCount || 1);
-    }
-
-    if (Array.isArray(metrics.contentIssues)) {
-      metrics.contentIssues.forEach((issue) => addIssue(issue.issueCode || issue.label || "Product content", 1));
-    }
+    });
   });
 
-  return withAnalyticsColors(normalizeDashboardRows(Array.from(grouped.values()), 6, "No issues detected"));
+  return withAnalyticsColors(normalizeDashboardRows(Array.from(grouped.values()), limit, "No issues detected"));
+}
+
+function getAnalyticsIssueContributions(product = {}) {
+  const metrics = product.metrics || {};
+  const historyIssues = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((point) => {
+      const issue = point?.primaryIssue;
+      if (!issue || isAnalyticsNoIssueLabel(issue)) return null;
+      return {
+        issue,
+        signals: firstAnalyticsNumber(point.signalCount, point.mainIssueIntensity, point.returnUnits, point.refundUnits, 1),
+        confidence: firstAnalyticsNumber(point.confidence, product.confidence, metrics.confidence, 0),
+        marginAtRisk: firstAnalyticsNumber(point.marginAtRisk, null),
+        source: "history",
+      };
+    })
+    .filter(Boolean);
+
+  const currentIssues = [];
+  if (Array.isArray(product.issues) && product.issues.length) {
+    product.issues.forEach((issue) => {
+      currentIssues.push({
+        issue: issue.issueCode || issue.issue || issue.label,
+        signals: issue.signals,
+        confidence: firstAnalyticsNumber(product.confidence, metrics.confidence, 0),
+        marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+        source: "current",
+      });
+    });
+  } else if (product.primaryIssue && !isAnalyticsNoIssueLabel(product.primaryIssue)) {
+    currentIssues.push({
+      issue: product.primaryIssue,
+      signals: metrics.signalCount || metrics.issueCount || 1,
+      confidence: firstAnalyticsNumber(product.confidence, metrics.confidence, 0),
+      marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+      source: "current",
+    });
+  }
+
+  if (Array.isArray(metrics.contentIssues)) {
+    metrics.contentIssues.forEach((issue) => {
+      currentIssues.push({
+        issue: issue.issueCode || issue.label || "Product content",
+        signals: issue.signals || 1,
+        confidence: firstAnalyticsNumber(product.confidence, metrics.confidence, 0),
+        marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+        source: "content",
+      });
+    });
+  }
+
+  return historyIssues.length ? [...historyIssues, ...currentIssues.filter((issue) => issue.source === "content")] : currentIssues;
+}
+
+function isAnalyticsNoIssueLabel(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return !normalized
+    || normalized === "no primary issue"
+    || normalized === "no issue"
+    || normalized === "none"
+    || normalized === "unknown";
+}
+
+function firstAnalyticsNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
 }
 
 function buildAnalyticsSourceContribution(productList) {
@@ -1615,6 +1762,258 @@ function buildAnalyticsSourceContribution(productList) {
       displayValue: `${formatDashboardNumber(row.count)} signal${Number(row.count) === 1 ? "" : "s"}`,
     })),
   };
+}
+
+function buildAnalyticsDeepDiagnosisCharts(productList = [], { windowDays = 90 } = {}) {
+  const deepProducts = (Array.isArray(productList) ? productList : [])
+    .filter(hasDashboardFullDiagnosis);
+  return {
+    productCount: deepProducts.length,
+    productCountLabel: `${formatDashboardNumber(deepProducts.length)} Product Diagnosis product${deepProducts.length === 1 ? "" : "s"}`,
+    riskMarginTrend: buildAnalyticsRiskMarginTrend(deepProducts, { windowDays }),
+    issueDistribution: buildAnalyticsIssueDistributionByType(deepProducts),
+    sourceCoverageMix: buildAnalyticsSourceCoverageMix(deepProducts),
+  };
+}
+
+function buildAnalyticsRiskMarginTrend(productList = [], { windowDays = 90 } = {}) {
+  const products = (Array.isArray(productList) ? productList : []).filter(Boolean);
+  const histories = products
+    .map((product) => ({
+      product,
+      history: getAnalyticsProductExposureHistory(product),
+    }))
+    .filter((row) => row.history.length);
+  const timestamps = [...new Set(histories.flatMap((row) => row.history.map((point) => point.time)))]
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+
+  if (products.length && timestamps.length >= 2) {
+    const labels = timestamps.map(formatAnalyticsDateLabel);
+    const marginValues = timestamps.map((time) => histories.reduce((sum, row) => (
+      sum + getAnalyticsExposureValueAtTime(row.history, time, "marginAtRisk")
+    ), 0));
+    const revenueValues = timestamps.map((time) => histories.reduce((sum, row) => (
+      sum + getAnalyticsExposureValueAtTime(row.history, time, "revenueAtRisk")
+    ), 0));
+    return buildAnalyticsRiskMarginTrendPayload({
+      labels,
+      marginValues,
+      revenueValues,
+      pointDetails: timestamps.map((time) => {
+        const directSnapshots = histories.filter((row) => row.history.some((point) => point.time === time)).length;
+        return {
+          label: formatAnalyticsDateLabel(time),
+          time,
+          sourceLabel: "Saved score-history exposure",
+          basisLabel: directSnapshots
+            ? `${formatDashboardNumber(directSnapshots)} product snapshot${directSnapshots === 1 ? "" : "s"} recorded on this date.`
+            : "Carried forward the latest saved exposure values available by this date.",
+          productCountLabel: `${formatDashboardNumber(products.length)} Product Diagnosis product${products.length === 1 ? "" : "s"}`,
+        };
+      }),
+      detail: "Built from saved score-history exposure values across Product Diagnosis products.",
+    });
+  }
+
+  const length = Math.max(...products.map((product) => getAnalyticsProductTrendValues(product).length), 7);
+  const normalized = products.map((product) => ({
+    product,
+    values: resizeAnalyticsTrend(getAnalyticsProductTrendValues(product), length, Number(product.riskScore || 0)),
+    marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+    revenueAtRisk: getDashboardMetric(product, "revenueAtRisk"),
+  }));
+  const marginValues = Array.from({ length }, (_, index) => normalized.reduce((sum, row) => {
+    const trendValue = Number(row.values[index] || 0);
+    return sum + row.marginAtRisk * clampAnalyticsValue(trendValue / 100, 0.08, 1);
+  }, 0));
+  const revenueValues = Array.from({ length }, (_, index) => normalized.reduce((sum, row) => {
+    const trendValue = Number(row.values[index] || 0);
+    return sum + row.revenueAtRisk * clampAnalyticsValue(trendValue / 100, 0.08, 1);
+  }, 0));
+
+  const fallbackLabels = getAnalyticsTrendWindowLabels(length, windowDays);
+  const fallbackTimes = getAnalyticsTrendWindowTimes(length, windowDays, getAnalyticsRiskMarginReferenceTime(products));
+  return buildAnalyticsRiskMarginTrendPayload({
+    labels: fallbackLabels,
+    marginValues,
+    revenueValues,
+    pointDetails: fallbackLabels.map((label, index) => ({
+      label,
+      time: fallbackTimes[index],
+      sourceLabel: "Reconstructed saved risk trend",
+      basisLabel: "Estimated from stored risk trend values when full exposure history is not available.",
+      productCountLabel: `${formatDashboardNumber(products.length)} Product Diagnosis product${products.length === 1 ? "" : "s"}`,
+    })),
+    detail: "Reconstructed from saved risk trends when full exposure history is not available.",
+  });
+}
+
+function buildAnalyticsRiskMarginTrendPayload({ labels = [], marginValues = [], revenueValues = [], pointDetails = [], detail = "" }) {
+  const marginCurrent = marginValues[marginValues.length - 1] || 0;
+  const revenueCurrent = revenueValues[revenueValues.length - 1] || 0;
+  return {
+    labels,
+    detail,
+    pointDetails: labels.map((label, index) => ({
+      label,
+      sourceLabel: detail || "Analytics exposure series",
+      basisLabel: "Aggregated from stored ProductPulse analytics data.",
+      ...(pointDetails[index] || {}),
+    })),
+    hasData: marginValues.some((value) => Number(value || 0) > 0) || revenueValues.some((value) => Number(value || 0) > 0),
+    series: [
+      {
+        key: "marginAtRisk",
+        label: "Estimated Margin Exposure (USD)",
+        color: "green",
+        axis: "left",
+        values: marginValues,
+        displayValue: formatDashboardMoney(marginCurrent),
+      },
+      {
+        key: "revenueAtRisk",
+        label: "Revenue at risk (USD)",
+        color: "purple",
+        axis: "right",
+        values: revenueValues,
+        displayValue: formatDashboardMoney(revenueCurrent),
+      },
+    ],
+  };
+}
+
+function getAnalyticsProductExposureHistory(product = {}) {
+  const metrics = product.metrics || {};
+  const currentTime = new Date(product.analysisCompletedAt || product.lastAnalysis || metrics.lastSignalAt || Date.now()).getTime();
+  const currentRisk = Number(product.riskScore || 0);
+  const currentMargin = getDashboardMetric(product, "marginAtRisk");
+  const currentRevenue = getDashboardMetric(product, "revenueAtRisk");
+  const rows = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((point) => {
+      const time = new Date(point.recordedAt || 0).getTime();
+      if (!Number.isFinite(time) || time <= 0) return null;
+      const risk = Number(point.riskScore ?? currentRisk);
+      const riskWeight = clampAnalyticsValue(risk / 100, 0.08, 1);
+      return {
+        time,
+        marginAtRisk: point.marginAtRisk != null && Number.isFinite(Number(point.marginAtRisk)) ? Number(point.marginAtRisk) : currentMargin * riskWeight,
+        revenueAtRisk: point.revenueAtRisk != null && Number.isFinite(Number(point.revenueAtRisk)) ? Number(point.revenueAtRisk) : currentRevenue * riskWeight,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+
+  if (Number.isFinite(currentTime) && currentTime > 0) {
+    const hasCurrentTime = rows.some((point) => Math.abs(point.time - currentTime) < 60 * 1000);
+    if (!hasCurrentTime) {
+      rows.push({ time: currentTime, marginAtRisk: currentMargin, revenueAtRisk: currentRevenue });
+      rows.sort((left, right) => left.time - right.time);
+    }
+  }
+
+  return rows;
+}
+
+function getAnalyticsRiskMarginReferenceTime(products = []) {
+  const timestamps = (Array.isArray(products) ? products : [])
+    .map((product) => new Date(product?.analysisCompletedAt || product?.lastAnalysis || product?.metrics?.lastSignalAt || 0).getTime())
+    .filter(Number.isFinite)
+    .filter((time) => time > 0);
+  return timestamps.length ? Math.max(...timestamps) : Date.now();
+}
+
+function getAnalyticsTrendWindowTimes(length, windowDays = 90, endTime = Date.now()) {
+  const count = Math.max(Number(length || 0), 1);
+  const safeEnd = Number.isFinite(Number(endTime)) ? Number(endTime) : Date.now();
+  if (count === 1) return [safeEnd];
+  const safeWindow = Math.max(1, Number(windowDays || 90)) * ANALYTICS_DAY_MS;
+  const start = safeEnd - safeWindow;
+  const step = safeWindow / Math.max(count - 1, 1);
+  return Array.from({ length: count }, (_, index) => Math.round(start + step * index));
+}
+
+function getAnalyticsExposureValueAtTime(history = [], time = 0, key = "") {
+  const eligible = history.filter((point) => Number(point.time || 0) <= time && Number.isFinite(Number(point[key])));
+  if (eligible.length) return Number(eligible[eligible.length - 1][key] || 0);
+  const first = history.find((point) => Number.isFinite(Number(point[key])));
+  return Number(first?.[key] || 0);
+}
+
+function buildAnalyticsIssueDistributionByType(productList = []) {
+  const rows = buildAnalyticsIssueDistribution(productList, { limit: 8 });
+  const filteredRows = rows.filter((row) => row.label !== "No issues detected");
+  const total = filteredRows.reduce((sum, row) => sum + Number(row.value || 0), 0);
+  return {
+    total,
+    totalLabel: formatDashboardNumber(total),
+    rows: filteredRows.map((row) => ({
+      ...row,
+      count: Number(row.value || 0),
+      countLabel: formatDashboardNumber(row.value || 0),
+      percent: total ? Math.round((Number(row.value || 0) / total) * 100) : 0,
+      percentLabel: total ? `${Math.round((Number(row.value || 0) / total) * 100)}%` : "0%",
+    })),
+  };
+}
+
+function buildAnalyticsSourceCoverageMix(productList = []) {
+  const counts = new Map();
+  const increment = (label, value) => {
+    const amount = Math.max(0, Number(value || 0));
+    if (!amount) return;
+    counts.set(label, (counts.get(label) || 0) + amount);
+  };
+
+  productList.forEach((product) => {
+    const metrics = product.metrics || {};
+    const reviewCount = Number(metrics.reviewCount || 0);
+    const csvReviewCount = Number(metrics.csvReviewCount || 0);
+    const judgeMeReviewCount = Number(metrics.judgeMeReviewCount || Math.max(reviewCount - csvReviewCount, 0));
+    increment("Returns", metrics.returnUnits);
+    increment("Reviews", judgeMeReviewCount || metrics.negativeReviewCount);
+    increment("Refunds", metrics.refundUnits);
+    increment("CSV Reviews", csvReviewCount);
+    increment("Orders", metrics.monthlyOrderActivity?.summary?.totalOrders || metrics.soldOrders || metrics.soldUnits);
+    increment("Product content", metrics.contentIssueCount || (Array.isArray(metrics.contentIssues) ? metrics.contentIssues.length : 0));
+  });
+
+  if (!counts.size) {
+    productList.forEach((product) => {
+      (Array.isArray(product.sourceCoverage) ? product.sourceCoverage : []).forEach((source) => {
+        increment(normalizeAnalyticsSourceMixLabel(source), 1);
+      });
+    });
+  }
+
+  const rows = Array.from(counts.entries())
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 6);
+  const total = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+
+  return {
+    total,
+    totalLabel: formatDashboardNumber(total),
+    rows: rows.map((row) => ({
+      ...row,
+      value: row.count,
+      countLabel: formatDashboardNumber(row.count),
+      percent: total ? Math.round((Number(row.count || 0) / total) * 100) : 0,
+      percentLabel: total ? `${Math.round((Number(row.count || 0) / total) * 100)}%` : "0%",
+    })),
+  };
+}
+
+function normalizeAnalyticsSourceMixLabel(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("csv")) return "CSV Reviews";
+  if (normalized.includes("return")) return "Returns";
+  if (normalized.includes("refund")) return "Refunds";
+  if (normalized.includes("order")) return "Orders";
+  if (normalized.includes("review") || normalized.includes("judge")) return "Reviews";
+  if (normalized.includes("content") || normalized.includes("product") || normalized.includes("shopify")) return "Product content";
+  return "Other";
 }
 
 function buildAnalyticsCollectionMargin(productList) {
@@ -1658,7 +2057,7 @@ function buildAnalyticsRiskBubbles(productList) {
       signalCount: Number(metrics.signalCount || metrics.issueCount || 0),
       returnRate: clampDashboardRate(metrics.returnRate),
       refundRate: clampDashboardRate(metrics.refundRate),
-      analysisLabel: hasDashboardFullDiagnosis(product) ? "Full diagnosis" : "QuickScan only",
+      analysisLabel: hasDashboardFullDiagnosis(product) ? "Full diagnosis" : "Catalog Scan only",
       quadrant: getAnalyticsRiskQuadrant(riskScore, impact, maxImpact),
       x: clampAnalyticsValue(riskScore, 3, 97),
       y: maxImpact ? clampAnalyticsValue(8 + (impact / maxImpact) * 82, 8, 92) : 12,
@@ -1682,43 +2081,61 @@ function buildAnalyticsAnalysisCoverage({ totalProducts, fullDiagnoses, quickSca
 }
 
 function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAtRisk = 0 } = {}) {
-  const trends = productList.map((product) => ({
+  const products = (Array.isArray(productList) ? productList : []).filter(Boolean);
+  const rows = products.map((product) => ({
     product,
-    values: getAnalyticsProductTrendValues(product),
-    marginAtRisk: getDashboardMetric(product, "marginAtRisk"),
+    history: getAnalyticsProductRiskScoreHistory(product),
   }));
-  const length = Math.max(...trends.map((row) => row.values.length), 7);
-  const normalized = trends.map((row) => ({
-    ...row,
-    values: resizeAnalyticsTrend(row.values, length, Number(row.product.riskScore || 0)),
-  }));
-  const marginValues = Array.from({ length }, (_, index) => normalized.reduce((sum, row) => {
-    const trendValue = Number(row.values[index] || 0);
-    return sum + row.marginAtRisk * clampAnalyticsValue(trendValue / 100, 0.08, 1);
+  const timeline = getAnalyticsImpactTrendTimeline(rows, { windowDays });
+  const marginValues = timeline.map((time) => rows.reduce((sum, row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    if (!state) return sum;
+    return sum + Number(state.marginAtRisk || 0);
   }, 0));
-  const attentionValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) >= 55).length);
-  const highValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) >= 75).length);
-  const mediumValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) >= 55 && Number(row.values[index] || 0) < 75).length);
-  const lowValues = Array.from({ length }, (_, index) => normalized.filter((row) => Number(row.values[index] || 0) < 55).length);
+  const attentionValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    return state && Number(state.riskScore || 0) >= 55;
+  }).length);
+  const highValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    return state && Number(state.riskScore || 0) >= 75;
+  }).length);
+  const mediumValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    const riskScore = Number(state?.riskScore || 0);
+    return state && riskScore >= 55 && riskScore < 75;
+  }).length);
+  const lowValues = timeline.map((time) => rows.filter((row) => {
+    const state = getAnalyticsProductRiskStateAtTime(row.history, time);
+    return state && Number(state.riskScore || 0) < 55;
+  }).length);
+  const labels = timeline.map(formatAnalyticsDateLabel);
+  const scoreHistoryProducts = rows.filter((row) => row.history.some((point) => point.source === "scoreHistory")).length;
+  const usesSavedScoreHistory = scoreHistoryProducts > 0;
 
   const series = [
     {
       label: "Trend-weighted margin",
       color: "purple",
+      axis: "money",
       values: marginValues,
       displayValue: formatDashboardMoney(marginValues[marginValues.length - 1] || 0),
-      detail: `Reconstructed timeline: current product margin exposure is weighted by each product's stored risk trend. The top KPI remains the current total margin at risk.`,
+      detail: usesSavedScoreHistory
+        ? `Uses saved score-history dates for ${formatDashboardNumber(scoreHistoryProducts)} product${scoreHistoryProducts === 1 ? "" : "s"}; products without a dated score are not counted before their first stored point.`
+        : "Reconstructed timeline: current product margin exposure is weighted by each product's stored risk trend. The top KPI remains the current total estimated margin exposure.",
     },
     {
       label: "Products needing attention",
       color: "blue",
+      axis: "count",
       values: attentionValues,
       displayValue: formatDashboardNumber(attentionValues[attentionValues.length - 1] || 0),
-      detail: "Products whose stored trend currently lands in medium or high risk.",
+      detail: "Products whose saved or reconstructed risk score lands in medium or high risk at that date.",
     },
     {
       label: "High risk",
       color: "red",
+      axis: "count",
       values: highValues,
       displayValue: formatDashboardNumber(highValues[highValues.length - 1] || 0),
       detail: "Products at or above 75 product risk.",
@@ -1726,6 +2143,7 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAt
     {
       label: "Medium risk",
       color: "orange",
+      axis: "count",
       values: mediumValues,
       displayValue: formatDashboardNumber(mediumValues[mediumValues.length - 1] || 0),
       detail: "Products from 55 to 74 product risk.",
@@ -1733,21 +2151,123 @@ function buildAnalyticsImpactTrend(productList, { windowDays = 90, totalMarginAt
     {
       label: "Low risk",
       color: "green",
+      axis: "count",
       values: lowValues,
       displayValue: formatDashboardNumber(lowValues[lowValues.length - 1] || 0),
-      detail: "Products below 55 product risk.",
+      detail: "Products below 55 product risk among products with a score available by that date.",
     },
   ];
 
   return {
     series,
-    labels: getAnalyticsTrendWindowLabels(length, windowDays),
+    labels,
     summary: {
       currentTotalLabel: formatDashboardMoney(totalMarginAtRisk),
       trendWeightedLabel: formatDashboardMoney(marginValues[marginValues.length - 1] || 0),
-      detail: "Top KPI = current total exposure. Trend line = reconstructed exposure shape over time.",
+      countAxisMax: Math.max(products.length, ...attentionValues, ...highValues, ...mediumValues, ...lowValues, 1),
+      detail: usesSavedScoreHistory
+        ? "Top KPI = current total exposure. Timeline uses saved score-history dates when available; count lines use the products axis."
+        : "Top KPI = current total exposure. Trend line = reconstructed exposure shape over time.",
     },
   };
+}
+
+function getAnalyticsProductRiskScoreHistory(product = {}) {
+  const metrics = product.metrics || {};
+  const currentTime = new Date(product.analysisCompletedAt || product.lastAnalysis || metrics.lastSignalAt || Date.now()).getTime();
+  const currentRisk = Number(product.riskScore || 0);
+  const currentMargin = getDashboardMetric(product, "marginAtRisk");
+  const rows = (Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [])
+    .map((point) => {
+      const time = new Date(point.recordedAt || 0).getTime();
+      if (!Number.isFinite(time) || time <= 0) return null;
+      const riskScore = Number(point.riskScore ?? currentRisk);
+      if (!Number.isFinite(riskScore)) return null;
+      const riskWeight = clampAnalyticsValue(riskScore / 100, 0.08, 1);
+      const marginAtRisk = point.marginAtRisk != null && Number.isFinite(Number(point.marginAtRisk))
+        ? Number(point.marginAtRisk)
+        : currentMargin * riskWeight;
+      return {
+        time,
+        riskScore,
+        marginAtRisk,
+        source: "scoreHistory",
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.time - right.time);
+
+  if (rows.length) {
+    if (Number.isFinite(currentTime) && currentTime > 0) {
+      const hasCurrentTime = rows.some((point) => Math.abs(point.time - currentTime) < 60 * 1000);
+      if (!hasCurrentTime) {
+        rows.push({
+          time: currentTime,
+          riskScore: currentRisk,
+          marginAtRisk: currentMargin,
+          source: "currentSnapshot",
+        });
+        rows.sort((left, right) => left.time - right.time);
+      }
+    }
+    return rows;
+  }
+
+  const trend = getAnalyticsProductTrendValues(product);
+  if (trend.length) {
+    const times = getAnalyticsTrendWindowTimes(trend.length, metrics.windowDays || 90, Number.isFinite(currentTime) ? currentTime : Date.now());
+    return trend.map((riskScore, index) => ({
+      time: times[index],
+      riskScore: Number(riskScore || 0),
+      marginAtRisk: currentMargin * clampAnalyticsValue(Number(riskScore || 0) / 100, 0.08, 1),
+      source: "riskTrend",
+    }));
+  }
+
+  if (Number.isFinite(currentTime) && currentTime > 0) {
+    return [{
+      time: currentTime,
+      riskScore: currentRisk,
+      marginAtRisk: currentMargin,
+      source: "currentSnapshot",
+    }];
+  }
+
+  return [];
+}
+
+function getAnalyticsImpactTrendTimeline(rows = [], { windowDays = 90 } = {}) {
+  const timestamps = (Array.isArray(rows) ? rows : [])
+    .flatMap((row) => (Array.isArray(row.history) ? row.history.map((point) => point.time) : []))
+    .filter(Number.isFinite)
+    .filter((time) => time > 0);
+  const referenceTime = timestamps.length
+    ? Math.max(...timestamps)
+    : getAnalyticsRiskMarginReferenceTime((Array.isArray(rows) ? rows : []).map((row) => row.product));
+  const safeWindowDays = Math.max(1, Math.round(Number(windowDays || 90)));
+  const startTime = referenceTime - safeWindowDays * ANALYTICS_DAY_MS;
+  const pointCount = getAnalyticsImpactTrendPointCount(safeWindowDays);
+  return buildAnalyticsTimeSeriesPoints(startTime, referenceTime, pointCount);
+}
+
+function getAnalyticsImpactTrendPointCount(windowDays = 90) {
+  const safeWindowDays = Math.max(1, Math.round(Number(windowDays || 90)));
+  if (safeWindowDays >= 330) return 13;
+  if (safeWindowDays >= 180) return 10;
+  if (safeWindowDays >= 90) return 10;
+  if (safeWindowDays >= 45) return 9;
+  if (safeWindowDays >= 14) return 8;
+  return Math.max(2, Math.min(8, safeWindowDays + 1));
+}
+
+function getAnalyticsProductRiskStateAtTime(history = [], time = 0) {
+  if (!Array.isArray(history) || !history.length || !Number.isFinite(Number(time))) return null;
+  let state = null;
+  for (const point of history) {
+    if (Number(point.time || 0) > time) break;
+    state = point;
+  }
+  return state;
 }
 
 function getAnalyticsProductTrendValues(product) {
@@ -1777,11 +2297,11 @@ function buildAnalyticsIssueImpact(productList) {
   const grouped = new Map();
   productList.forEach((product) => {
     const metrics = product.metrics || {};
-    const productLabels = new Set();
-    const addIssue = (issue, signals = 1) => {
-      const label = getDashboardIssueLabel(issue);
+    const contributions = getAnalyticsIssueContributions(product);
+    const productLabels = new Set(contributions.map((contribution) => getDashboardIssueLabel(contribution.issue)).filter(Boolean));
+    contributions.forEach((contribution) => {
+      const label = getDashboardIssueLabel(contribution.issue);
       if (!label) return;
-      productLabels.add(label);
       const current = grouped.get(label) || {
         label,
         products: new Set(),
@@ -1791,21 +2311,11 @@ function buildAnalyticsIssueImpact(productList) {
         confidenceSamples: 0,
       };
       current.products.add(product.id || product.handle || product.title);
-      current.signalCount += Math.max(1, Number(signals || 1));
-      current.confidenceTotal += Number(product.confidence || metrics.confidence || 0);
+      current.signalCount += Math.max(1, Number(contribution.signals || 1));
+      current.confidenceTotal += Number(contribution.confidence ?? product.confidence ?? metrics.confidence ?? 0);
       current.confidenceSamples += 1;
       grouped.set(label, current);
-    };
-
-    if (Array.isArray(product.issues) && product.issues.length) {
-      product.issues.forEach((issue) => addIssue(issue.issueCode || issue.issue || issue.label, issue.signals));
-    } else if (product.primaryIssue) {
-      addIssue(product.primaryIssue, metrics.signalCount || metrics.issueCount || 1);
-    }
-
-    if (Array.isArray(metrics.contentIssues)) {
-      metrics.contentIssues.forEach((issue) => addIssue(issue.issueCode || issue.label || "Product content", issue.signals || 1));
-    }
+    });
 
     const labels = productLabels.size ? [...productLabels] : ["Product quality"];
     const weightedMargin = getDashboardMetric(product, "marginAtRisk") / Math.max(labels.length, 1);
@@ -1950,7 +2460,7 @@ function buildAnalyticsActionPerformance(actionRows = []) {
   }, { suggested: 0, pending: 0, applied: 0, reviewed: 0, dismissed: 0 });
 
   const rows = [
-    { label: "Suggested", value: counts.suggested, icon: "wand", tone: "purple", detail: "Actions generated from product diagnosis." },
+    { label: "Suggested", value: counts.suggested, icon: "wand", tone: "purple", detail: "Actions generated from Product Diagnosis." },
     { label: "Pending", value: counts.pending, icon: "clock", tone: "orange", detail: "Waiting for merchant review or approval." },
     { label: "Applied", value: counts.applied, icon: "check", tone: "green", detail: "Actions already applied to products or workflows." },
     { label: "Reviewed", value: counts.reviewed, icon: "view", tone: "blue", detail: "Manual follow-ups verified without applying a Shopify change." },
@@ -1962,6 +2472,134 @@ function buildAnalyticsActionPerformance(actionRows = []) {
     rows: rows.map((row) => ({ ...row, valueLabel: formatDashboardNumber(row.value) })),
     effectiveness: buildAnalyticsFixEffectiveness(actionRows),
   };
+}
+
+function buildAnalyticsActionImpactTrend(actionRows = [], productList = [], { windowDays = 90 } = {}) {
+  const appliedRows = (Array.isArray(actionRows) ? actionRows : [])
+    .filter((action) => action.status === "applied")
+    .map((action) => ({
+      ...action,
+      time: new Date(action.appliedAt || action.createdAt || 0).getTime(),
+    }))
+    .filter((action) => Number.isFinite(action.time) && action.time > 0);
+  const rowsByProduct = new Map();
+  appliedRows.forEach((row) => {
+    const product = row.product;
+    if (!product) return;
+    const key = product.id || product.productGid || product.handle || product.title;
+    const current = rowsByProduct.get(key) || { product, rows: [] };
+    current.rows.push(row);
+    rowsByProduct.set(key, current);
+  });
+  const effects = Array.from(rowsByProduct.values())
+    .map(({ product, rows }) => getAnalyticsProductFixEffect(product, rows))
+    .filter(Boolean);
+  const productTimestamps = (Array.isArray(productList) ? productList : [])
+    .flatMap((product) => [
+      product.analysisCompletedAt,
+      product.lastAnalysis,
+      product.metrics?.lastSignalAt,
+      ...(Array.isArray(product.metrics?.riskHistory) ? product.metrics.riskHistory.map((point) => point.recordedAt) : []),
+    ])
+    .map((value) => new Date(value || 0).getTime())
+    .filter((time) => Number.isFinite(time) && time > 0);
+  const timestamps = [
+    ...appliedRows.map((row) => row.time),
+    ...effects.map((effect) => effect.actionTime),
+    ...productTimestamps,
+  ].filter((time) => Number.isFinite(time) && time > 0);
+  const pointCount = Math.min(30, Math.max(7, Math.round(Number(windowDays || 90))));
+  const latestTime = timestamps.length ? Math.max(...timestamps) : Date.now();
+  const earliestAllowed = latestTime - (Math.max(1, Number(windowDays || 90)) - 1) * 24 * 60 * 60 * 1000;
+  const earliestTime = timestamps.length ? Math.max(Math.min(...timestamps), earliestAllowed) : earliestAllowed;
+  const timeline = buildAnalyticsTimeSeriesPoints(earliestTime, latestTime, pointCount);
+  const actionsAppliedValues = timeline.map((time) => appliedRows.filter((row) => row.time <= time).length);
+  const reducedRiskValues = timeline.map((time) => effects.reduce((sum, effect) => {
+    if (Number(effect.actionTime || 0) > time) return sum;
+    const before = toFiniteAnalyticsNumber(effect.before?.marginAtRisk);
+    const after = toFiniteAnalyticsNumber(effect.after?.marginAtRisk);
+    if (before === null || after === null) return sum;
+    return sum + Math.max(0, before - after);
+  }, 0));
+  const reducedReturnsValues = timeline.map((time) => {
+    const rows = effects
+      .filter((effect) => Number(effect.actionTime || 0) <= time)
+      .map((effect) => {
+        const before = toFiniteAnalyticsNumber(effect.before?.returnRate);
+        const after = toFiniteAnalyticsNumber(effect.after?.returnRate);
+        if (before === null || after === null) return null;
+        return Math.max(0, before - after);
+      })
+      .filter((value) => value !== null);
+    return rows.length ? rows.reduce((sum, value) => sum + value, 0) / rows.length : 0;
+  });
+  const latestActions = actionsAppliedValues[actionsAppliedValues.length - 1] || 0;
+  const latestReducedRisk = reducedRiskValues[reducedRiskValues.length - 1] || 0;
+  const latestReducedReturns = reducedReturnsValues[reducedReturnsValues.length - 1] || 0;
+
+  return {
+    hasData: appliedRows.length > 0 || effects.length > 0,
+    labels: timeline.map(formatAnalyticsDateLabel),
+    pointDetails: timeline.map((time) => {
+      const appliedByPoint = appliedRows.filter((row) => Number(row.time || 0) <= time).length;
+      const measuredByPoint = effects.filter((effect) => Number(effect.actionTime || 0) <= time).length;
+      return {
+        label: formatAnalyticsDateLabel(time),
+        sourceLabel: "Applied recommendation history",
+        basisLabel: measuredByPoint
+          ? `${formatDashboardNumber(measuredByPoint)} product${measuredByPoint === 1 ? "" : "s"} compared against saved pre-action baselines.`
+          : `${formatDashboardNumber(appliedByPoint)} applied action${appliedByPoint === 1 ? "" : "s"} recorded by this date; before/after impact is still pending.`,
+      };
+    }),
+    summary: {
+      actionsApplied: latestActions,
+      actionsAppliedLabel: formatDashboardNumber(latestActions),
+      reducedRisk: latestReducedRisk,
+      reducedRiskLabel: formatDashboardMoney(latestReducedRisk),
+      reducedReturns: latestReducedReturns,
+      reducedReturnsLabel: formatDashboardRate(latestReducedReturns),
+      detail: effects.length
+        ? `${formatDashboardNumber(effects.length)} product${effects.length === 1 ? "" : "s"} compared against a saved pre-action baseline.`
+        : "Action timing is available, but before/after risk history is still needed to measure impact.",
+    },
+    series: [
+      {
+        key: "actionsApplied",
+        label: "Actions applied",
+        color: "purple",
+        axis: "count",
+        values: actionsAppliedValues,
+        displayValue: formatDashboardNumber(latestActions),
+      },
+      {
+        key: "reducedRiskUsd",
+        label: "Reduced risk (USD)",
+        color: "green",
+        axis: "money",
+        values: reducedRiskValues,
+        displayValue: formatDashboardMoney(latestReducedRisk),
+      },
+      {
+        key: "reducedReturns",
+        label: "Reduced returns",
+        color: "blue",
+        axis: "percent",
+        values: reducedReturnsValues,
+        displayValue: formatDashboardRate(latestReducedReturns),
+      },
+    ],
+  };
+}
+
+function buildAnalyticsTimeSeriesPoints(startTime, endTime, pointCount) {
+  const count = Math.max(1, Math.round(Number(pointCount || 1)));
+  const safeEnd = Number.isFinite(endTime) ? endTime : Date.now();
+  const safeStart = Number.isFinite(startTime) && startTime < safeEnd
+    ? startTime
+    : safeEnd - (count - 1) * 24 * 60 * 60 * 1000;
+  if (count === 1) return [safeEnd];
+  const step = (safeEnd - safeStart) / Math.max(count - 1, 1);
+  return Array.from({ length: count }, (_, index) => Math.round(safeStart + index * step));
 }
 
 function buildAnalyticsFixEffectiveness(actionRows = []) {
@@ -2016,7 +2654,7 @@ function buildAnalyticsFixEffectiveness(actionRows = []) {
       },
     }),
     summarizeAnalyticsFixEffect(effects, {
-      label: "Margin at risk reduced",
+      label: "Estimated Margin Exposure reduced",
       key: "marginAtRisk",
       formatter: formatDashboardMoneyChange,
       detail: (summary) => `${formatDashboardMoney(summary.before)} before vs. ${formatDashboardMoney(summary.after)} current margin exposure.`,
@@ -2149,7 +2787,7 @@ function buildAnalyticsCatalogCoverage(productList, { totalProducts, fullDiagnos
     productsWithReturns,
     rows: [
       { label: "Full diagnoses", value: full, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(full), tone: "purple" },
-      { label: "QuickScan only", value: quick, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(quick), tone: "blue" },
+      { label: "Catalog Scan only", value: quick, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(quick), tone: "blue" },
       { label: "Not analyzed", value: notAnalyzed, total: Math.max(analyzed + notAnalyzed, 1), valueLabel: formatDashboardNumber(notAnalyzed), tone: "slate" },
       { label: "No review signals yet", value: productsWithoutReviews, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(productsWithoutReviews), tone: productsWithoutReviews ? "slate" : "green" },
       { label: "Products with return signals", value: productsWithReturns, total: Math.max(analyzed, 1), valueLabel: formatDashboardNumber(productsWithReturns), tone: productsWithReturns ? "orange" : "slate" },
@@ -2251,7 +2889,7 @@ function buildAnalyticsTopProductsAtRisk(productList, actionRows = []) {
           ? "Pending action"
           : hasDashboardFullDiagnosis(product)
             ? "Full diagnosis"
-            : "QuickScan only";
+            : "Catalog Scan only";
       return {
         id: product.id || product.handle || product.slug || product.title,
         title: product.title || product.productTitle || "Product",
@@ -2266,7 +2904,7 @@ function buildAnalyticsTopProductsAtRisk(productList, actionRows = []) {
         mainIssue: getDashboardIssueLabel(product.primaryIssue || product.metrics?.mainIssue || "Product quality"),
         confidence: Number(product.confidence || product.metrics?.confidence || 0),
         confidenceLabel: formatAnalyticsPercent(product.confidence || product.metrics?.confidence || 0),
-        recommendedAction: pendingAction?.label || appliedAction?.label || (hasDashboardFullDiagnosis(product) ? "Review diagnosis" : "Run full diagnosis"),
+        recommendedAction: pendingAction?.label || appliedAction?.label || (hasDashboardFullDiagnosis(product) ? "Review diagnosis" : "Run Product Diagnosis"),
         status,
         statusTone: status === "Resolved" ? "green" : status === "Pending action" ? "orange" : hasDashboardFullDiagnosis(product) ? "purple" : "blue",
         priorityScore: getDashboardPriorityScore(product, { maxMarginRisk }),
@@ -2283,7 +2921,7 @@ function buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts })
   if (!scannedTotal) {
     return [
       { label: "Full diagnosis", value: 0, percent: 0, pct: 0, displayValue: "0%" },
-      { label: "QuickScan only", value: 0, percent: 0, pct: 0, displayValue: "0%" },
+      { label: "Catalog Scan only", value: 0, percent: 0, pct: 0, displayValue: "0%" },
     ];
   }
   return [
@@ -2296,7 +2934,7 @@ function buildAnalysisDepthRows({ fullDiagnoses, quickScanOnly, totalProducts })
       color: "purple",
     },
     {
-      label: "QuickScan only",
+      label: "Catalog Scan only",
       value: quick,
       percent: Math.round((quick / scannedTotal) * 100),
       pct: Math.round((quick / scannedTotal) * 100),
@@ -2319,7 +2957,7 @@ function buildAnalyticsTopInsights({ productList, issueDistribution, highRiskPro
     const highRiskImpact = highRiskProducts.reduce((sum, product) => sum + getDashboardMetric(product, "marginAtRisk"), 0);
     insights.push({
       icon: "alert-circle",
-      text: `${formatDashboardNumber(highRiskProducts.length)} high-risk product${highRiskProducts.length === 1 ? "" : "s"} represent ${formatDashboardMoney(highRiskImpact)} of estimated margin at risk.`,
+      text: `${formatDashboardNumber(highRiskProducts.length)} high-risk product${highRiskProducts.length === 1 ? "" : "s"} represent ${formatDashboardMoney(highRiskImpact)} of estimated margin exposure.`,
     });
   }
   const topSource = sourceContribution.rows[0];
@@ -2332,11 +2970,11 @@ function buildAnalyticsTopInsights({ productList, issueDistribution, highRiskPro
   const fullCoverage = totalProducts ? Math.round((fullDiagnoses.length / totalProducts) * 100) : 0;
   insights.push({
     icon: fullCoverage >= 50 ? "shield-check-mark" : "wand",
-    text: `${formatAnalyticsPercent(fullCoverage)} of stored products have a full diagnosis; remaining QuickScan products still need deep analysis before final recommendations.`,
+    text: `${formatAnalyticsPercent(fullCoverage)} of stored products have a Product Diagnosis; remaining Catalog Scan products still need Product Diagnosis before final recommendations.`,
   });
 
   if (!productList.length) {
-    return [{ icon: "info", text: "Run QuickScan to populate Analytics with product risk, impact and source contribution data." }];
+    return [{ icon: "info", text: "Run Catalog Scan to populate Analytics with product risk, impact and source contribution data." }];
   }
   return insights.slice(0, 4);
 }
@@ -2354,14 +2992,14 @@ function buildAnalyticsBusinessImpactMetrics({ totals, windowDays, productList }
       value: formatDashboardMoney(totals.revenueAtRisk),
       icon: "cash-dollar",
       tone: totals.revenueAtRisk > 0 ? "purple" : "blue",
-      detail: "Refund value plus projected revenue pressure from stored signals.",
+      detail: "Projected revenue exposure from returns, refunds, reviews and basket context.",
     },
     {
-      label: "Margin at risk",
+      label: "Estimated Margin Exposure",
       value: formatDashboardMoney(totals.marginAtRisk),
       icon: "chart-line",
       tone: totals.marginAtRisk > 0 ? "green" : "blue",
-      detail: "Estimated margin exposure from products currently needing attention.",
+      detail: "Estimated margin and operating-cost exposure from products needing attention.",
     },
     {
       label: "Potential returns",
@@ -2388,21 +3026,47 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
     const projectedReturnUnits = Number(metrics.returnUnits || 0) * (windowDays / Math.max(productWindow, 1));
     const revenueAtRisk = getDashboardMetric(product, "revenueAtRisk");
     const marginAtRisk = getDashboardMetric(product, "marginAtRisk");
-    const refundAmount = Number(metrics.refundAmount || impact.refunds || impact.refundValueAtRisk || 0);
-    const projectedLostRevenue = Number(impact.projectedLostRevenue || 0);
-    const reviewConversionRevenueDrag = Number(impact.reviewConversionRevenueDrag || 0);
-    const projectedLostMargin = Number(impact.projectedLostMargin || impact.projectedReturnLoss || 0);
-    const refundMarginLoss = Number(impact.refundMarginLoss || (refundAmount * Number(impact.marginRate || metrics.marginRate || 0.45)) || 0);
-    const operationalExposure = Number(impact.returnProcessingCost || impact.reviewConversionMarginDrag || 0);
+    const avgUnitRevenue = firstFiniteBusinessImpactNumber(
+      impact.avgUnitRevenue,
+      metrics.avgUnitRevenue,
+      Number(metrics.soldUnits || 0) > 0 ? Number(metrics.salesAmount || 0) / Number(metrics.soldUnits || 1) : 0,
+    );
+    const confirmedRefundAmount = firstFiniteBusinessImpactNumber(impact.refunds, impact.relationshipExposure?.confirmedRefundAmount, metrics.refundAmount);
+    const relationshipAdjustedRefundAmount = firstFiniteBusinessImpactNumber(impact.refundValueAtRisk, impact.relationshipExposure?.relationshipAdjustedRefundAmount, confirmedRefundAmount);
+    const projectedLostRevenue = firstFiniteBusinessImpactNumber(impact.projectedLostRevenue);
+    const returnRevenueExposure = firstFiniteBusinessImpactNumber(impact.returnRevenueExposure, Number(metrics.returnUnits || 0) * avgUnitRevenue);
+    const reviewConversionRevenueDrag = firstFiniteBusinessImpactNumber(impact.reviewConversionRevenueDrag);
+    const purchaseContextRevenueExposure = firstFiniteBusinessImpactNumber(impact.purchaseContextExposure?.bulkRevenueExposure);
+    const projectedLostMargin = firstFiniteBusinessImpactNumber(impact.projectedLostMargin, impact.projectedReturnLoss);
+    const refundMarginLoss = firstFiniteBusinessImpactNumber(impact.refundMarginLoss, confirmedRefundAmount * firstFiniteBusinessImpactNumber(impact.marginRate, metrics.marginRate, 0.45));
+    const returnProcessingCost = firstFiniteBusinessImpactNumber(impact.returnProcessingCost);
+    const reviewConversionMarginDrag = firstFiniteBusinessImpactNumber(impact.reviewConversionMarginDrag, impact.reviewConversionDrag);
+    const purchaseContextMarginExposure = firstFiniteBusinessImpactNumber(impact.purchaseContextExposure?.bulkQuantityExposure);
+    const revenueComponentTotal = projectedLostRevenue
+      + returnRevenueExposure
+      + reviewConversionRevenueDrag
+      + relationshipAdjustedRefundAmount
+      + purchaseContextRevenueExposure;
+    const marginComponentTotal = projectedLostMargin
+      + refundMarginLoss
+      + returnProcessingCost
+      + reviewConversionMarginDrag
+      + purchaseContextMarginExposure;
 
     summary.projectedReturnUnits += projectedReturnUnits;
-    summary.observedRefundValue += refundAmount;
+    summary.confirmedRefundAmount += confirmedRefundAmount;
+    summary.relationshipAdjustedRefundAmount += relationshipAdjustedRefundAmount;
     summary.projectedReturnExposure += projectedLostRevenue;
+    summary.returnRevenueExposure += returnRevenueExposure;
     summary.reviewConversionDrag += reviewConversionRevenueDrag;
+    summary.purchaseContextRevenueExposure += purchaseContextRevenueExposure;
     summary.projectedReturnMarginLoss += projectedLostMargin;
     summary.refundMarginLoss += refundMarginLoss;
-    summary.estimatedOperationalExposure += operationalExposure;
-    summary.productRiskExposure += Math.max(0, marginAtRisk - projectedLostMargin - refundMarginLoss - operationalExposure);
+    summary.returnProcessingCost += returnProcessingCost;
+    summary.reviewConversionMarginDrag += reviewConversionMarginDrag;
+    summary.purchaseContextMarginExposure += purchaseContextMarginExposure;
+    summary.storedRevenueExposure += Math.max(0, revenueAtRisk - revenueComponentTotal);
+    summary.storedMarginExposure += Math.max(0, marginAtRisk - marginComponentTotal);
     const trendValues = Array.isArray(metrics.riskTrend) && metrics.riskTrend.length
       ? metrics.riskTrend
       : Array.isArray(metrics.signalTrend) && metrics.signalTrend.length
@@ -2418,20 +3082,26 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
       confidence: Number(product.confidence || metrics.confidence || 0),
       revenueAtRisk,
       marginAtRisk,
-      refundAmount,
+      refundAmount: confirmedRefundAmount,
       returnUnits: Number(metrics.returnUnits || 0),
       sourceCoverage: Array.isArray(product.sourceCoverage) ? product.sourceCoverage.length : 0,
       calculatedAt: product.lastAnalysis || metrics.lastSignalAt || product.analysisCompletedAt || "",
     });
     return summary;
   }, {
-    observedRefundValue: 0,
+    confirmedRefundAmount: 0,
+    relationshipAdjustedRefundAmount: 0,
     projectedReturnExposure: 0,
+    returnRevenueExposure: 0,
     reviewConversionDrag: 0,
+    purchaseContextRevenueExposure: 0,
     projectedReturnMarginLoss: 0,
     refundMarginLoss: 0,
-    estimatedOperationalExposure: 0,
-    productRiskExposure: 0,
+    returnProcessingCost: 0,
+    reviewConversionMarginDrag: 0,
+    purchaseContextMarginExposure: 0,
+    storedRevenueExposure: 0,
+    storedMarginExposure: 0,
     projectedReturnUnits: 0,
     productsWithTrend: 0,
     productsWithMargin: 0,
@@ -2464,11 +3134,11 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
   ));
 
   return {
-    windowLabel: `Last ${windowDays} days`,
+    windowLabel: `Next ${windowDays} days`,
     formulas: [
-      { label: "Revenue at risk", expression: "observed refund value + projected return exposure + review conversion drag" },
-      { label: "Margin at risk", expression: "projected return margin loss + refund margin loss + estimated operational exposure" },
-      { label: "Potential returns", expression: "projected units exposed x estimated return probability" },
+      { label: "Revenue at risk", expression: "max(projected lost revenue + return revenue exposure + review conversion revenue drag + relationship-adjusted refund exposure + basket/bulk revenue exposure, stored revenueAtRisk)" },
+      { label: "Estimated Margin Exposure", expression: "max(projected lost margin + refund margin loss + return processing cost + review conversion margin drag + basket/bulk margin exposure, stored marginAtRisk)" },
+      { label: "Potential returns", expression: "return units x analytics projection window / product source window" },
       { label: "Recommended actions", expression: "open actions + applied actions + reviewed actions + dismissed actions" },
     ],
     currentBreakdown: [
@@ -2477,20 +3147,25 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
         value: totals.revenueAtRisk,
         valueLabel: formatDashboardMoney(totals.revenueAtRisk),
         components: [
-          { label: "Observed refund value", value: impactTotals.observedRefundValue, valueLabel: formatDashboardMoney(impactTotals.observedRefundValue) },
-          { label: "Projected return exposure", value: impactTotals.projectedReturnExposure, valueLabel: formatDashboardMoney(impactTotals.projectedReturnExposure) },
-          { label: "Review conversion drag", value: impactTotals.reviewConversionDrag, valueLabel: formatDashboardMoney(impactTotals.reviewConversionDrag) },
+          { label: "Projected lost revenue", value: impactTotals.projectedReturnExposure, valueLabel: formatDashboardMoney(impactTotals.projectedReturnExposure) },
+          { label: "Return revenue exposure", value: impactTotals.returnRevenueExposure, valueLabel: formatDashboardMoney(impactTotals.returnRevenueExposure) },
+          { label: "Review conversion revenue drag", value: impactTotals.reviewConversionDrag, valueLabel: formatDashboardMoney(impactTotals.reviewConversionDrag) },
+          { label: "Relationship-adjusted refund exposure", value: impactTotals.relationshipAdjustedRefundAmount, valueLabel: formatDashboardMoney(impactTotals.relationshipAdjustedRefundAmount) },
+          { label: "Basket/bulk revenue exposure", value: impactTotals.purchaseContextRevenueExposure, valueLabel: formatDashboardMoney(impactTotals.purchaseContextRevenueExposure) },
+          { label: "Stored/fallback revenue exposure", value: impactTotals.storedRevenueExposure, valueLabel: formatDashboardMoney(impactTotals.storedRevenueExposure) },
         ],
       },
       {
-        label: "Margin at risk",
+        label: "Estimated Margin Exposure",
         value: totals.marginAtRisk,
         valueLabel: formatDashboardMoney(totals.marginAtRisk),
         components: [
           { label: "Projected return margin loss", value: impactTotals.projectedReturnMarginLoss, valueLabel: formatDashboardMoney(impactTotals.projectedReturnMarginLoss) },
           { label: "Refund margin loss", value: impactTotals.refundMarginLoss, valueLabel: formatDashboardMoney(impactTotals.refundMarginLoss) },
-          { label: "Product risk exposure", value: impactTotals.productRiskExposure, valueLabel: formatDashboardMoney(impactTotals.productRiskExposure) },
-          { label: "Estimated operational exposure", value: impactTotals.estimatedOperationalExposure, valueLabel: formatDashboardMoney(impactTotals.estimatedOperationalExposure) },
+          { label: "Return processing cost", value: impactTotals.returnProcessingCost, valueLabel: formatDashboardMoney(impactTotals.returnProcessingCost) },
+          { label: "Review conversion margin drag", value: impactTotals.reviewConversionMarginDrag, valueLabel: formatDashboardMoney(impactTotals.reviewConversionMarginDrag) },
+          { label: "Basket/bulk margin exposure", value: impactTotals.purchaseContextMarginExposure, valueLabel: formatDashboardMoney(impactTotals.purchaseContextMarginExposure) },
+          { label: "Stored/fallback margin exposure", value: impactTotals.storedMarginExposure, valueLabel: formatDashboardMoney(impactTotals.storedMarginExposure) },
         ],
       },
       {
@@ -2541,7 +3216,7 @@ function buildAnalyticsBusinessImpactCalculation({ totals, windowDays, productLi
     },
     assumptions: [
       `Projection window: ${windowDays} days`,
-      "Uses stored QuickScan and full diagnosis signals.",
+      "Uses stored Catalog Scan and Product Diagnosis signals.",
       "Uses observed returns and refunds where Shopify order data is available.",
       "Uses review drag only when negative review or rating signals exist.",
       "Uses conservative margin estimates when exact margin data is unavailable.",
@@ -2570,6 +3245,15 @@ function buildAnalyticsImpactInput(label, status, detail) {
     detail,
     tone: status === "Available" ? "green" : status === "Estimated" ? "orange" : status === "Not used" ? "slate" : "red",
   };
+}
+
+function firstFiniteBusinessImpactNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return 0;
 }
 
 function sumAnalyticsTrends(trends) {
@@ -2621,6 +3305,13 @@ function formatAnalyticsPercent(value) {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0))}%`;
 }
 
+function formatAnalyticsDateLabel(value) {
+  const timestamp = Number(value);
+  const date = Number.isFinite(timestamp) ? new Date(timestamp) : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
+}
+
 function formatAnalyticsRelativeTime(date) {
   const timestamp = date instanceof Date ? date.getTime() : new Date(date).getTime();
   if (!Number.isFinite(timestamp)) return "recently";
@@ -2646,7 +3337,7 @@ export const jobs = [
 
 export const billing = {
   plan: "Pulse Starter",
-  includedScan: "Catalog Signal Scan",
+  includedScan: "Catalog Scan",
   creditsAvailable: 14,
   creditsUsed: 6,
   monthlyCredits: 20,
@@ -2705,10 +3396,10 @@ export function getProductBySlug(productId) {
 export function runCatalogSignalScan() {
   return {
     status: "success",
-    message: "Catalog Signal Scan queued. ProductPulse is refreshing product, return and review signals.",
+    message: "Catalog Scan queued. ProductPulse is refreshing product, return and review signals.",
     job: {
       id: "job-catalog-scan-now",
-      name: "Catalog Signal Scan",
+      name: "Catalog Scan",
       source: "ProductPulse",
       status: "Running",
       progress: 8,
@@ -2730,7 +3421,7 @@ export function startProductDiagnosis(productId, availableCredits = billing.cred
 
   return {
     status: "success",
-    message: `AI Product Diagnosis started for ${product.title}. One credit was consumed.`,
+    message: `Product Diagnosis started for ${product.title}. 1.0 diagnosis credit was consumed.`,
     product,
     creditsRemaining: availableCredits - product.creditCost,
   };

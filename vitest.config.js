@@ -8,7 +8,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./tests/setup.js"],
-    include: ["tests/{unit,components,integration}/**/*.{test,spec}.{js,jsx}"],
+    include: ["tests/{unit,components,integration,evals}/**/*.{test,spec}.{js,jsx}"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],

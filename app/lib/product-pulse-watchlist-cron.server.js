@@ -3,14 +3,19 @@ import prisma from "../db.server";
 import { unauthenticated } from "../shopify.server";
 import { serializeError } from "./product-pulse-job-logs.server";
 import { runSelectedProductDiagnosesForShop } from "./product-pulse-jobs.server";
-import { getWatchSettingsForShop, recordWatchActivityForShop } from "./product-pulse-watchlist.server";
+import { getStorePointBalanceForShop } from "./product-pulse-points.server";
+import {
+  maybeSendWatchlistRunAlertForQueuedActivity,
+  sendWatchlistCreditExhaustedEmailForShop,
+} from "./product-pulse-watchlist-alerts.server";
+import { enforceWatchlistPlanLimitForShop, getWatchSettingsForShop, recordWatchActivityForShop } from "./product-pulse-watchlist.server";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CRON_TIME = "03:00";
 const DEFAULT_CRON_TIMEZONE = "UTC";
 const DEFAULT_CRON_WINDOW_MINUTES = 120;
 const DEFAULT_CRON_LOCK_TTL_MINUTES = 120;
-const WATCH_RUN_EVENT_TYPES = ["watch_scan_queued"];
+const WATCH_RUN_EVENT_TYPES = ["watch_scan_queued", "watch_cron_credit_exhausted"];
 const activeWatchlistCronRuns = global.productPulseWatchlistCronRuns || new Set();
 
 if (!global.productPulseWatchlistCronRuns) {
@@ -176,11 +181,49 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
       };
     }
 
-    const productIds = items.map((item) => item.productGid).filter(Boolean);
-    if (!productIds.length) {
+    const productItems = items.filter((item) => item.productGid);
+    if (!productItems.length) {
       return { shop, status: "skipped", reason: "no_active_products", watchedCount: 0, cadenceDays };
     }
 
+    const pointBalance = await getStorePointBalanceForShop(shop);
+    const creditPlan = splitWatchlistItemsByAvailableCredits(productItems, pointBalance?.available);
+    if (!creditPlan.queueItems.length) {
+      await recordWatchActivityForShop(shop, {
+        eventType: "watch_cron_credit_exhausted",
+        title: "Scheduled Watchlist Product Diagnosis skipped",
+        detail: "Watchlist cron found active watched products, but the shop has no available diagnosis credits.",
+        metadata: {
+          triggeredBy: "watchlist-cron",
+          scheduleTime: config.scheduleTime,
+          timezone: config.timezone,
+          cadenceDays,
+          availableCredits: creditPlan.availableCredits,
+          watchedCount: productItems.length,
+          skippedForCredits: creditPlan.skippedForCredits.map(formatCreditSkippedItem),
+        },
+      });
+      await sendWatchlistCreditExhaustedEmailForShop({
+        shop,
+        settings,
+        items: creditPlan.skippedForCredits,
+        pointBalance,
+        now,
+        cadenceDays,
+      });
+      return {
+        shop,
+        status: "skipped",
+        reason: "insufficient_credits",
+        watchedCount: items.length,
+        cadenceDays,
+        queuedCount: 0,
+        skippedForCredits: creditPlan.skippedForCredits.length,
+        availableCredits: creditPlan.availableCredits,
+      };
+    }
+
+    const productIds = creditPlan.queueItems.map((item) => item.productGid).filter(Boolean);
     const { admin } = await unauthenticated.admin(shop);
     const result = await runSelectedProductDiagnosesForShop(shop, productIds, { admin });
     if (result?.status !== "success") {
@@ -199,9 +242,9 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
       };
     }
 
-    await recordWatchActivityForShop(shop, {
+    const queuedActivity = await recordWatchActivityForShop(shop, {
       eventType: "watch_scan_queued",
-      title: "Scheduled watch diagnostics queued",
+      title: "Scheduled Watchlist Product Diagnosis queued",
       detail: `${result.queuedCount || productIds.length} deep product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued by Watchlist cron.`,
       metadata: {
         triggeredBy: "watchlist-cron",
@@ -210,10 +253,15 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
         cadenceDays,
         queuedCount: result.queuedCount || productIds.length,
         productGids: productIds,
-        productTitles: items.map((item) => item.productTitle).filter(Boolean),
+        productTitles: creditPlan.queueItems.map((item) => item.productTitle).filter(Boolean),
         jobIds: Array.isArray(result.jobs) ? result.jobs.map((job) => job.id).filter(Boolean) : [],
+        availableCreditsAtQueue: creditPlan.availableCredits,
+        availableCredits: Math.max(0, creditPlan.availableCredits - productIds.length),
+        skippedForCredits: creditPlan.skippedForCredits.map(formatCreditSkippedItem),
+        creditExhausted: creditPlan.skippedForCredits.length > 0,
       },
     });
+    await maybeSendWatchlistRunAlertForQueuedActivity(shop, queuedActivity);
 
     return {
       shop,
@@ -222,6 +270,8 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
       cadenceDays,
       queuedCount: result.queuedCount || productIds.length,
       jobIds: Array.isArray(result.jobs) ? result.jobs.map((job) => job.id).filter(Boolean) : [],
+      skippedForCredits: creditPlan.skippedForCredits.length,
+      availableCredits: creditPlan.availableCredits,
     };
   } catch (error) {
     await recordWatchCronFailure(shop, {
@@ -239,25 +289,49 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
   }
 }
 
+export function splitWatchlistItemsByAvailableCredits(items = [], availableCredits = 0) {
+  const creditLimit = Math.max(0, Math.floor(Number(availableCredits || 0)));
+  const normalizedItems = Array.isArray(items) ? items.filter((item) => item?.productGid) : [];
+  return {
+    availableCredits: creditLimit,
+    queueItems: normalizedItems.slice(0, creditLimit),
+    skippedForCredits: normalizedItems.slice(creditLimit),
+  };
+}
+
+export function formatCreditSkippedItem(item = {}) {
+  return {
+    productGid: item.productGid || "",
+    productTitle: item.productTitle || "",
+    handle: item.handle || "",
+    sku: item.sku || "",
+  };
+}
+
 async function getActiveWatchlistItemsByShop() {
-  const items = await prisma.productWatchlistItem.findMany({
-    where: { status: { not: "Paused" } },
-    orderBy: [{ shop: "asc" }, { addedAt: "asc" }],
+  const watchedShops = await prisma.productWatchlistItem.findMany({
     select: {
-      id: true,
       shop: true,
-      productGid: true,
-      productTitle: true,
-      handle: true,
-      sku: true,
     },
   });
 
-  return items.reduce((groups, item) => {
-    if (!groups.has(item.shop)) groups.set(item.shop, []);
-    groups.get(item.shop).push(item);
-    return groups;
-  }, new Map());
+  const shops = [...new Set(watchedShops.map((item) => item.shop).filter(Boolean))];
+  const groups = new Map();
+  for (const shop of shops) {
+    const limitContext = await enforceWatchlistPlanLimitForShop(shop);
+    const activeItems = limitContext.items
+      .filter((item) => item.status !== "Paused")
+      .map((item) => ({
+        id: item.id,
+        shop: item.shop,
+        productGid: item.productGid,
+        productTitle: item.productTitle,
+        handle: item.handle,
+        sku: item.sku,
+      }));
+    if (activeItems.length) groups.set(shop, activeItems);
+  }
+  return groups;
 }
 
 async function getLatestWatchlistRunForShop(shop) {
@@ -274,7 +348,7 @@ async function recordWatchCronFailure(shop, { now = new Date(), cadenceDays = nu
   return recordWatchActivityForShop(shop, {
     eventType: "watch_cron_failed",
     title: "Watchlist cron failed",
-    detail: error?.message || String(error || "Watchlist cron could not queue diagnostics."),
+    detail: error?.message || String(error || "Watchlist cron could not queue Product Diagnosis."),
     metadata: {
       triggeredBy: "watchlist-cron",
       cadenceDays,
@@ -410,3 +484,8 @@ async function releaseSchedulerLock(lock) {
 function isUniqueConstraintError(error) {
   return error?.code === "P2002";
 }
+
+export const __productPulseWatchlistCronTestHooks = {
+  splitWatchlistItemsByAvailableCredits,
+  formatCreditSkippedItem,
+};

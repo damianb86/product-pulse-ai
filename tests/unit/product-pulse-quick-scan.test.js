@@ -7,7 +7,7 @@ import {
   isShopifyOrderAccessDeniedError,
 } from "../../app/lib/product-pulse-quick-scan.server";
 
-describe("ProductPulse QuickScan", () => {
+describe("ProductPulse Catalog Scan", () => {
   it("keeps only deterministic high-risk candidates from Shopify-native events", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
@@ -78,7 +78,7 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates[0].metrics.topReturnReasons).toContain("Size Too Small");
   });
 
-  it("honors the configured minimum QuickScan risk score", () => {
+  it("honors the configured minimum Catalog Scan risk score", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
       settings: {
@@ -118,7 +118,7 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates).toHaveLength(0);
   });
 
-  it("keeps high-momentum products even when product risk is below the QuickScan risk threshold", () => {
+  it("keeps high-momentum products even when product risk is below the Catalog Scan risk threshold", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const momentumProductId = "gid://shopify/Product/momentum";
     const baselineProducts = Array.from({ length: 4 }, (_, index) => ({
@@ -334,7 +334,7 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates).toEqual([]);
   });
 
-  it("uses normalized CSV review ratings as a deterministic QuickScan source", () => {
+  it("uses normalized CSV review ratings as a deterministic Catalog Scan source", () => {
     const productId = "gid://shopify/Product/12345";
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
@@ -381,7 +381,7 @@ describe("ProductPulse QuickScan", () => {
     expect(candidates[0].metrics.riskComponents.csvRatingRisk).toBeGreaterThan(14);
   });
 
-  it("does not promote one isolated bad CSV rating into a QuickScan candidate", () => {
+  it("does not promote one isolated bad CSV rating into a Catalog Scan candidate", () => {
     const productId = "gid://shopify/Product/12345";
     const candidates = buildQuickScanCandidates({
       windowDays: 60,
@@ -455,6 +455,9 @@ describe("ProductPulse QuickScan", () => {
   it("keeps refund line item connections out of the orders bulk query", () => {
     const query = buildOrdersBulkQuery(60);
 
+    expect(query).toContain("processed_at:>=");
+    expect(query).toContain("processedAt");
+    expect(query).toContain("customer");
     expect(query).toContain("lineItems");
     expect(query).toContain("returns");
     expect(query).not.toMatch(/\brefunds\s*\{/);
@@ -559,6 +562,7 @@ describe("ProductPulse QuickScan", () => {
         __typename: "Order",
         id: "gid://shopify/Order/1",
         createdAt: "2026-05-13T12:00:00Z",
+        customer: { id: "gid://shopify/Customer/reltest-1" },
         lineItems: {
           edges: [{
             node: {
@@ -610,6 +614,10 @@ describe("ProductPulse QuickScan", () => {
     expect(products[0].collections).toEqual([{ id: "gid://shopify/Collection/1", handle: "shirts", title: "Shirts" }]);
     expect(events).toHaveLength(2);
     expect(events.map((event) => event.type)).toEqual(["sale", "return"]);
+    expect(events[0]).toMatchObject({
+      customerKey: "gid://shopify/Customer/reltest-1",
+      customerId: "gid://shopify/Customer/reltest-1",
+    });
     expect(events[1]).toMatchObject({
       productId: "gid://shopify/Product/1",
       reason: "SIZE_TOO_SMALL",
@@ -624,18 +632,18 @@ describe("ProductPulse QuickScan", () => {
     expect(isShopifyOrderAccessDeniedError(new Error("products bulk operation failed: ACCESS_DENIED."))).toBe(false);
   });
 
-  it("does not persist QuickScan candidates that already have full diagnoses", () => {
+  it("does not persist Catalog Scan candidates that already have product diagnoses", () => {
     const result = getPersistableQuickScanCandidates(
       [
         { productGid: "gid://shopify/Product/1", title: "Full diagnosis product" },
-        { productGid: "gid://shopify/Product/2", title: "QuickScan product" },
+        { productGid: "gid://shopify/Product/2", title: "Catalog Scan product" },
       ],
       ["gid://shopify/Product/1"],
     );
 
     expect(result.ignoredFullDiagnosisProducts).toBe(1);
     expect(result.persistableCandidates).toEqual([
-      { productGid: "gid://shopify/Product/2", title: "QuickScan product" },
+      { productGid: "gid://shopify/Product/2", title: "Catalog Scan product" },
     ]);
   });
 });

@@ -3,6 +3,7 @@ import { authenticate } from "../shopify.server";
 import { ProductDiagnosisScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 import {
+  deleteProductAnalysisForShop,
   getProductDetailForShop,
   recordProductDetailActionForShop,
   rerunProductDiagnosisForShop,
@@ -24,9 +25,9 @@ export const action = async ({ request, params }) => {
   const productId = String(formData.get("productId") || params.productId || "");
 
   if (actionType === "diagnose") {
-    const snapshotDiagnosis = await rerunProductDiagnosisForShop(session.shop, productId);
+    const snapshotDiagnosis = await rerunProductDiagnosisForShop(session.shop, productId, { admin });
     if (snapshotDiagnosis) return snapshotDiagnosis;
-    return { status: "validation_error", message: "Run QuickScan before starting a product diagnosis." };
+    return { status: "validation_error", message: "ProductPulse could not find that Shopify product." };
   }
 
   if (actionType === "apply-action") {
@@ -42,11 +43,15 @@ export const action = async ({ request, params }) => {
         applyMode: String(formData.get("applyMode") || ""),
         actionVariant: String(formData.get("actionVariant") || ""),
         descriptionOperation: String(formData.get("descriptionOperation") || ""),
+        descriptionChangesJson: String(formData.get("descriptionChangesJson") || ""),
+        metafieldNamespace: String(formData.get("metafieldNamespace") || ""),
+        metafieldKey: String(formData.get("metafieldKey") || ""),
+        metafieldType: String(formData.get("metafieldType") || ""),
       },
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before saving product actions." };
+    return { status: "validation_error", message: "Run Catalog Scan before saving product actions." };
   }
 
   if (actionType === "dismiss-action") {
@@ -61,7 +66,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before dismissing product actions." };
+    return { status: "validation_error", message: "Run Catalog Scan before dismissing product actions." };
   }
 
   if (actionType === "restore-action") {
@@ -76,7 +81,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before restoring product actions." };
+    return { status: "validation_error", message: "Run Catalog Scan before restoring product actions." };
   }
 
   if (actionType === "review-action") {
@@ -91,7 +96,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before marking product actions reviewed." };
+    return { status: "validation_error", message: "Run Catalog Scan before marking product actions reviewed." };
   }
 
   if (actionType === "ignore-issue") {
@@ -108,7 +113,7 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before ignoring product issues." };
+    return { status: "validation_error", message: "Run Catalog Scan before ignoring product issues." };
   }
 
   if (actionType === "unignore-issue") {
@@ -125,19 +130,19 @@ export const action = async ({ request, params }) => {
       admin,
     );
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before restoring product issues." };
+    return { status: "validation_error", message: "Run Catalog Scan before restoring product issues." };
   }
 
   if (actionType === "mark-resolved") {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-resolved");
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before resolving a product." };
+    return { status: "validation_error", message: "Run Catalog Scan before resolving a product." };
   }
 
   if (actionType === "mark-unresolved") {
     const snapshotAction = await recordProductDetailActionForShop(session.shop, productId, "mark-unresolved");
     if (snapshotAction) return snapshotAction;
-    return { status: "validation_error", message: "Run QuickScan before restoring a product." };
+    return { status: "validation_error", message: "Run Catalog Scan before restoring a product." };
   }
 
   if (actionType === "add-to-watchlist") {
@@ -153,6 +158,10 @@ export const action = async ({ request, params }) => {
 
   if (actionType === "remove-from-watchlist") {
     return removeWatchedProductForShop(session.shop, String(formData.get("productGid") || ""));
+  }
+
+  if (actionType === "delete-product-analysis") {
+    return deleteProductAnalysisForShop(session.shop, productId);
   }
 
   return { status: "validation_error", message: "Unsupported product action." };

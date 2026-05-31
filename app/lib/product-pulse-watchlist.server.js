@@ -1,9 +1,19 @@
 import prisma from "../db.server";
 import { generateWatchChangeReportNarrative } from "./product-pulse-ai.server";
-import { getProductScoreHistoryForProductsForShop } from "./product-pulse-history.server";
+import { getProductScoreHistoryForProductsForShop, recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
+import { recordTimelineForWatchActivities } from "./product-pulse-timeline.server";
 
-export const WATCHLIST_MAX_PRODUCTS = 5;
+export const WATCHLIST_MAX_PRODUCTS = 99;
+export const PRODUCT_PULSE_BETA_ACTIVE_ENV = "PRODUCT_PULSE_BETA_ACTIVE";
+export const PRODUCT_PULSE_PLAN_KEY_ENV = "PRODUCT_PULSE_PLAN_KEY";
+export const WATCHLIST_PLAN_PRODUCT_LIMITS = Object.freeze({
+  free: { base: 1, beta: 5, name: "Free" },
+  starter: { base: 5, beta: 10, name: "Starter" },
+  growth: { base: 25, beta: 25, name: "Growth" },
+  pro: { base: 50, beta: 50, name: "Pro" },
+  premium: { base: 99, beta: 99, name: "Premium" },
+});
 export const WATCH_SCAN_CADENCE_OPTIONS = [
   { value: "1", label: "Every day" },
   { value: "2", label: "Every 2 days" },
@@ -35,12 +45,100 @@ const DEFAULT_WATCH_SETTINGS = {
 const WATCH_TREND_COLORS = ["#3A6BFF", "#7C3AED", "#14B8A6", "#F59E0B", "#EF4444"];
 const WATCH_CHANGE_REPORT_EVENT = "watch_change_report";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
+const WATCHLIST_BASELINE_SOURCE = "watchlist-baseline";
+const FULL_DIAGNOSIS_SOURCE = "full-diagnosis";
 
-export async function getWatchlistForShop(shop) {
-  const items = await prisma.productWatchlistItem.findMany({
+export function isProductPulseBetaActive(env = process.env) {
+  const raw = env?.[PRODUCT_PULSE_BETA_ACTIVE_ENV] ?? env?.PRODUCT_PULSE_BETA ?? "true";
+  return !["0", "false", "off", "no"].includes(String(raw).trim().toLowerCase());
+}
+
+export function normalizeProductPulsePlanKey(planKey = "") {
+  const normalized = String(planKey || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return WATCHLIST_PLAN_PRODUCT_LIMITS[normalized] ? normalized : "free";
+}
+
+export function getWatchlistProductLimitForPlan(planKey = "free", options = {}) {
+  const normalizedPlanKey = normalizeProductPulsePlanKey(planKey);
+  const betaActive = typeof options.betaActive === "boolean"
+    ? options.betaActive
+    : isProductPulseBetaActive(options.env || process.env);
+  const planLimit = WATCHLIST_PLAN_PRODUCT_LIMITS[normalizedPlanKey] || WATCHLIST_PLAN_PRODUCT_LIMITS.free;
+  return Math.max(0, Number(betaActive ? planLimit.beta : planLimit.base) || 0);
+}
+
+export function getWatchlistLimitContext(options = {}) {
+  const env = options.env || process.env;
+  const planKey = normalizeProductPulsePlanKey(
+    options.planKey
+      || env?.[PRODUCT_PULSE_PLAN_KEY_ENV]
+      || env?.PRODUCT_PULSE_CURRENT_PLAN_KEY
+      || "free",
+  );
+  const betaActive = typeof options.betaActive === "boolean" ? options.betaActive : isProductPulseBetaActive(env);
+  const maxProducts = getWatchlistProductLimitForPlan(planKey, { betaActive, env });
+  const plan = WATCHLIST_PLAN_PRODUCT_LIMITS[planKey] || WATCHLIST_PLAN_PRODUCT_LIMITS.free;
+  return {
+    planKey,
+    planName: plan.name,
+    betaActive,
+    maxProducts,
+  };
+}
+
+export async function enforceWatchlistPlanLimitForShop(shop, options = {}) {
+  const db = options.db || prisma;
+  const limitContext = getWatchlistLimitContext(options);
+  if (!shop) return { ...limitContext, items: [], removedItems: [], removedCount: 0 };
+
+  const items = await db.productWatchlistItem.findMany({
     where: { shop },
-    orderBy: { addedAt: "asc" },
+    orderBy: [{ addedAt: "asc" }, { id: "asc" }],
   });
+  const keptItems = items.slice(0, limitContext.maxProducts);
+  const removedItems = items.slice(limitContext.maxProducts);
+  if (!removedItems.length) {
+    return { ...limitContext, items: keptItems, removedItems: [], removedCount: 0 };
+  }
+
+  const removedIds = removedItems.map((item) => item.id).filter(Boolean);
+  if (removedIds.length) {
+    await db.productWatchlistItem.deleteMany({
+      where: { shop, id: { in: removedIds } },
+    });
+  }
+
+  if (options.recordActivity !== false) {
+    for (const item of removedItems) {
+      await recordWatchActivityForShop(shop, {
+        eventType: "product_removed_plan_limit",
+        title: "Product removed by plan limit",
+        detail: `${item.productTitle} was removed because the ${limitContext.planName} plan allows ${limitContext.maxProducts} watched product${limitContext.maxProducts === 1 ? "" : "s"}.`,
+        productGid: item.productGid,
+        productTitle: item.productTitle,
+        watchlistItemId: item.id,
+        metadata: {
+          reason: "watchlist_plan_limit",
+          planKey: limitContext.planKey,
+          planName: limitContext.planName,
+          betaActive: limitContext.betaActive,
+          maxProducts: limitContext.maxProducts,
+        },
+      });
+    }
+  }
+
+  return {
+    ...limitContext,
+    items: keptItems,
+    removedItems,
+    removedCount: removedItems.length,
+  };
+}
+
+export async function getWatchlistForShop(shop, options = {}) {
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop, options);
+  const items = limitContext.items;
   const productGids = items.map((item) => item.productGid).filter(Boolean);
   const [snapshots, latestChangeReports, activeDiagnosisJobs] = productGids.length
     ? await Promise.all([
@@ -61,45 +159,117 @@ export async function getWatchlistForShop(shop) {
     findActiveWatchlistDiagnosisJobForItem(item, activeDiagnosisJobs),
   ));
   const watchedCount = rows.length;
-  const [activities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
+  const [activities, runActivities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
+    getWatchActivityRowsForShop(shop, { take: 120, eventTypes: ["watch_scan_queued", "watch_manual_scan_queued"] }),
     productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 80 }) : new Map(),
     getWatchActivityStatsForShop(shop, productPulseSettings),
     getWatchSettingsForShop(shop),
   ]);
 
   return {
-    maxProducts: WATCHLIST_MAX_PRODUCTS,
+    maxProducts: limitContext.maxProducts,
+    planKey: limitContext.planKey,
+    planName: limitContext.planName,
+    betaActive: limitContext.betaActive,
+    removedForPlanLimit: limitContext.removedCount,
     watchedCount,
-    slotsAvailable: Math.max(0, WATCHLIST_MAX_PRODUCTS - watchedCount),
+    slotsAvailable: Math.max(0, limitContext.maxProducts - watchedCount),
     rows,
     activities,
+    runActivities,
+    selectedRunId: optionalString(options.selectedRunId || options.runId),
     trend: buildWatchlistTrend(rows, trendHistoryByProductGid, productPulseSettings),
     settings,
     mock: getWatchlistOverviewSections({ rows, activities, activityStats, settings }),
   };
 }
 
-export async function getWatchSettingsForShop(shop) {
+export async function getWatchlistProductForShop(shop, productId, { runId = "" } = {}) {
+  const lookupValues = getWatchlistProductLookupValues(productId);
+  if (!shop || !lookupValues.length) return null;
+
+  const watchlist = await getWatchlistForShop(shop);
+  const product = (watchlist.rows || []).find((row) => {
+    const rowValues = getWatchlistProductLookupValues([
+      row.id,
+      row.productGid,
+      row.handle,
+    ]);
+    return rowValues.some((value) => lookupValues.includes(value));
+  }) || null;
+  if (!product || !runId) return product;
+
+  const run = await prisma.productWatchActivity.findFirst({
+    where: {
+      shop,
+      id: String(runId),
+      productGid: product.productGid,
+      eventType: WATCH_CHANGE_REPORT_EVENT,
+    },
+  });
+  if (!run) return product;
+  return {
+    ...product,
+    latestChangeReport: {
+      ...formatWatchChangeReportActivity(run),
+      history: Array.isArray(product.latestChangeReport?.history) ? product.latestChangeReport.history : [],
+    },
+  };
+}
+
+export async function getDefaultWatchAlertRecipientsForShop(shop, options = {}) {
+  const explicitRecipients = normalizeDefaultAlertRecipients(options.defaultAlertRecipients);
+  if (explicitRecipients.length) return explicitRecipients.slice(0, 1);
+
+  const db = options.db || prisma;
+  if (!shop || typeof db?.session?.findMany !== "function") return [];
+
+  try {
+    const sessions = await db.session.findMany({
+      where: { shop },
+      select: { email: true, accountOwner: true, isOnline: true },
+      take: 20,
+    });
+    const sortedSessions = [...(Array.isArray(sessions) ? sessions : [])].sort((left, right) => {
+      const ownerDelta = Number(Boolean(right.accountOwner)) - Number(Boolean(left.accountOwner));
+      if (ownerDelta) return ownerDelta;
+      return Number(Boolean(right.isOnline)) - Number(Boolean(left.isOnline));
+    });
+    return normalizeDefaultAlertRecipients(sortedSessions.map((session) => session.email)).slice(0, 1);
+  } catch {
+    return [];
+  }
+}
+
+export async function getWatchSettingsForShop(shop, options = {}) {
+  const defaultAlertRecipients = await getDefaultWatchAlertRecipientsForShop(shop, options);
   const settings = await prisma.productWatchSettings.upsert({
     where: { shop },
     create: {
       shop,
       scanCadenceDays: DEFAULT_WATCH_SETTINGS.scanCadenceDays,
-      alertRecipients: DEFAULT_WATCH_SETTINGS.alertRecipients,
+      alertRecipients: defaultAlertRecipients.length ? defaultAlertRecipients : DEFAULT_WATCH_SETTINGS.alertRecipients,
       triggerRule: DEFAULT_WATCH_SETTINGS.triggerRule,
       summarySchedule: DEFAULT_WATCH_SETTINGS.summarySchedule,
       alertsEnabled: DEFAULT_WATCH_SETTINGS.alertsEnabled,
     },
     update: {},
   });
+  if (!normalizeRecipientList(settings.alertRecipients).length && defaultAlertRecipients.length) {
+    const updatedSettings = await prisma.productWatchSettings.update({
+      where: { shop },
+      data: { alertRecipients: defaultAlertRecipients },
+    });
+    return formatWatchSettings(updatedSettings);
+  }
   return formatWatchSettings(settings);
 }
 
-export async function updateWatchSettingsForShop(shop, formData) {
+export async function updateWatchSettingsForShop(shop, formData, options = {}) {
   const scanCadenceDays = normalizeCadenceDays(formData.get("scanCadenceDays"));
   const triggerRule = normalizeOptionValue(formData.get("triggerRule"), WATCH_TRIGGER_RULE_OPTIONS, DEFAULT_WATCH_SETTINGS.triggerRule);
-  const summarySchedule = normalizeOptionValue(formData.get("summarySchedule"), WATCH_SUMMARY_OPTIONS, DEFAULT_WATCH_SETTINGS.summarySchedule);
+  const summarySchedule = DEFAULT_WATCH_SETTINGS.summarySchedule;
   const alertsEnabled = String(formData.get("alertsEnabled") || "") === "on";
   const recipients = parseAlertRecipients(String(formData.get("alertRecipients") || ""));
   if (recipients.invalid.length) {
@@ -108,20 +278,22 @@ export async function updateWatchSettingsForShop(shop, formData) {
       message: `Invalid alert recipient${recipients.invalid.length === 1 ? "" : "s"}: ${recipients.invalid.join(", ")}`,
     };
   }
+  const defaultAlertRecipients = await getDefaultWatchAlertRecipientsForShop(shop, options);
+  const alertRecipients = recipients.valid.length ? recipients.valid : defaultAlertRecipients;
 
   const settings = await prisma.productWatchSettings.upsert({
     where: { shop },
     create: {
       shop,
       scanCadenceDays,
-      alertRecipients: recipients.valid,
+      alertRecipients,
       triggerRule,
       summarySchedule,
       alertsEnabled,
     },
     update: {
       scanCadenceDays,
-      alertRecipients: recipients.valid,
+      alertRecipients,
       triggerRule,
       summarySchedule,
       alertsEnabled,
@@ -131,7 +303,7 @@ export async function updateWatchSettingsForShop(shop, formData) {
     eventType: "settings_changed",
     title: "Watch settings updated",
     detail: `${getCadenceLabel(scanCadenceDays)} · ${getTriggerRuleLabel(triggerRule)}`,
-    metadata: { scanCadenceDays, triggerRule, summarySchedule, alertsEnabled, recipients: recipients.valid.length },
+    metadata: { scanCadenceDays, triggerRule, alertsEnabled, recipients: alertRecipients.length },
   });
 
   return {
@@ -142,22 +314,28 @@ export async function updateWatchSettingsForShop(shop, formData) {
   };
 }
 
-export async function toggleWatchAlertsForShop(shop) {
+export async function toggleWatchAlertsForShop(shop, options = {}) {
+  const defaultAlertRecipients = await getDefaultWatchAlertRecipientsForShop(shop, options);
   const current = await prisma.productWatchSettings.upsert({
     where: { shop },
     create: {
       shop,
       scanCadenceDays: DEFAULT_WATCH_SETTINGS.scanCadenceDays,
-      alertRecipients: DEFAULT_WATCH_SETTINGS.alertRecipients,
+      alertRecipients: defaultAlertRecipients.length ? defaultAlertRecipients : DEFAULT_WATCH_SETTINGS.alertRecipients,
       triggerRule: DEFAULT_WATCH_SETTINGS.triggerRule,
       summarySchedule: DEFAULT_WATCH_SETTINGS.summarySchedule,
       alertsEnabled: DEFAULT_WATCH_SETTINGS.alertsEnabled,
     },
     update: {},
   });
+  const nextAlertsEnabled = !current.alertsEnabled;
+  const updateData = { alertsEnabled: nextAlertsEnabled };
+  if (nextAlertsEnabled && !normalizeRecipientList(current.alertRecipients).length && defaultAlertRecipients.length) {
+    updateData.alertRecipients = defaultAlertRecipients;
+  }
   const settings = await prisma.productWatchSettings.update({
     where: { shop },
-    data: { alertsEnabled: !current.alertsEnabled },
+    data: updateData,
   });
   await recordWatchActivityForShop(shop, {
     eventType: "settings_changed",
@@ -181,23 +359,26 @@ export async function addWatchedProductForShop(shop, product = {}) {
     return { status: "validation_error", message: "Select a Shopify product to add to the watchlist." };
   }
 
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop);
   const existing = await prisma.productWatchlistItem.findUnique({
     where: { shop_productGid: { shop, productGid } },
   });
   if (existing) {
+    const baseline = await captureInitialWatchlistSnapshotForItems(shop, [existing]);
     return {
       status: "success",
       message: `${existing.productTitle} is already on the watchlist.`,
       action: { id: "add-watched-product" },
+      baseline,
       suppressBanner: true,
     };
   }
 
-  const watchedCount = await prisma.productWatchlistItem.count({ where: { shop } });
-  if (watchedCount >= WATCHLIST_MAX_PRODUCTS) {
+  const watchedCount = limitContext.items.length;
+  if (watchedCount >= limitContext.maxProducts) {
     return {
       status: "validation_error",
-      message: `Watchlist is full. Remove a watched product before adding another one.`,
+      message: `Watchlist is full for the ${limitContext.planName} plan (${limitContext.maxProducts} product${limitContext.maxProducts === 1 ? "" : "s"}). Remove a watched product before adding another one.`,
     };
   }
 
@@ -222,11 +403,13 @@ export async function addWatchedProductForShop(shop, product = {}) {
     watchlistItemId: item.id,
     metadata: { handle: item.handle, sku: item.sku },
   });
+  const baseline = await captureInitialWatchlistSnapshotForItems(shop, [item]);
 
   return {
     status: "success",
     message: `${item.productTitle} added to the watchlist.`,
     action: { id: "add-watched-product", productGid: item.productGid },
+    baseline,
     watchedCount: watchedCount + 1,
   };
 }
@@ -237,18 +420,17 @@ export async function addWatchedProductsForShop(shop, products = []) {
     return { status: "validation_error", message: "Select at least one product to add to the watchlist." };
   }
 
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop);
   const productGids = normalizedProducts.map((product) => product.productGid);
-  const [existingItems, watchedCount] = await Promise.all([
-    prisma.productWatchlistItem.findMany({
-      where: { shop, productGid: { in: productGids } },
-      select: { productGid: true, productTitle: true },
-    }),
-    prisma.productWatchlistItem.count({ where: { shop } }),
-  ]);
+  const existingItems = await prisma.productWatchlistItem.findMany({
+    where: { shop, productGid: { in: productGids } },
+    select: { productGid: true, productTitle: true },
+  });
+  const watchedCount = limitContext.items.length;
   const existingProductGids = new Set(existingItems.map((item) => item.productGid));
   const candidates = normalizedProducts.filter((product) => !existingProductGids.has(product.productGid));
   const existingCount = normalizedProducts.length - candidates.length;
-  const slotsAvailable = Math.max(0, WATCHLIST_MAX_PRODUCTS - watchedCount);
+  const slotsAvailable = Math.max(0, limitContext.maxProducts - watchedCount);
 
   if (!candidates.length) {
     return {
@@ -264,7 +446,7 @@ export async function addWatchedProductsForShop(shop, products = []) {
   if (slotsAvailable <= 0) {
     return {
       status: "validation_error",
-      message: "Watchlist is full. Remove a watched product before adding selected products.",
+      message: `Watchlist is full for the ${limitContext.planName} plan (${limitContext.maxProducts} product${limitContext.maxProducts === 1 ? "" : "s"}). Remove a watched product before adding selected products.`,
       action: { id: "add-watched-products" },
     };
   }
@@ -294,18 +476,19 @@ export async function addWatchedProductsForShop(shop, products = []) {
   }
 
   if (createdItems.length) {
-    await prisma.productWatchActivity.createMany({
-      data: createdItems.map((item) => ({
-        shop,
-        productGid: item.productGid,
-        productTitle: item.productTitle,
-        watchlistItemId: item.id,
-        eventType: "product_added",
-        title: "Product added to watchlist",
-        detail: item.productTitle,
-        metadata: { handle: item.handle, sku: item.sku, bulk: true },
-      })),
-    });
+    const activityRows = createdItems.map((item) => ({
+      shop,
+      productGid: item.productGid,
+      productTitle: item.productTitle,
+      watchlistItemId: item.id,
+      eventType: "product_added",
+      title: "Product added to watchlist",
+      detail: item.productTitle,
+      metadata: { handle: item.handle, sku: item.sku, bulk: true },
+    }));
+    await prisma.productWatchActivity.createMany({ data: activityRows });
+    await recordTimelineForWatchActivities(shop, activityRows);
+    await captureInitialWatchlistSnapshotForItems(shop, createdItems);
   }
 
   const messageParts = [];
@@ -415,19 +598,41 @@ export async function pauseAllWatchesForShop(shop) {
   return { status: "success", message: `${activeItems.length} watched product${activeItems.length === 1 ? "" : "s"} paused.`, action: { id: "pause-all-watches" }, suppressBanner: true };
 }
 
+export async function resumeAllWatchesForShop(shop) {
+  const pausedItems = await prisma.productWatchlistItem.findMany({
+    where: { shop, status: "Paused" },
+    select: { id: true, productGid: true, productTitle: true },
+  });
+  if (!pausedItems.length) {
+    return { status: "success", message: "All watched products are already active.", action: { id: "resume-all-watches" }, suppressBanner: true };
+  }
+
+  await prisma.productWatchlistItem.updateMany({
+    where: { shop, status: "Paused" },
+    data: { status: "Watching" },
+  });
+  await recordWatchActivityForShop(shop, {
+    eventType: "all_watches_resumed",
+    title: "All watches resumed",
+    detail: `${pausedItems.length} paused product${pausedItems.length === 1 ? "" : "s"} resumed`,
+    metadata: { resumedProductGids: pausedItems.map((item) => item.productGid), count: pausedItems.length },
+  });
+
+  return { status: "success", message: `${pausedItems.length} watched product${pausedItems.length === 1 ? "" : "s"} resumed.`, action: { id: "resume-all-watches" }, suppressBanner: true };
+}
+
 export async function getActiveWatchedProductsForShop(shop) {
   if (!shop) return [];
-  return prisma.productWatchlistItem.findMany({
-    where: { shop, status: { not: "Paused" } },
-    orderBy: { addedAt: "asc" },
-    select: {
-      id: true,
-      productGid: true,
-      productTitle: true,
-      handle: true,
-      sku: true,
-    },
-  });
+  const limitContext = await enforceWatchlistPlanLimitForShop(shop);
+  return limitContext.items
+    .filter((item) => item.status !== "Paused")
+    .map((item) => ({
+      id: item.id,
+      productGid: item.productGid,
+      productTitle: item.productTitle,
+      handle: item.handle,
+      sku: item.sku,
+    }));
 }
 
 export async function getWatchlistActivityForShop(shop, { take = 100 } = {}) {
@@ -444,7 +649,7 @@ export async function getWatchlistActivityForShop(shop, { take = 100 } = {}) {
 
 export async function recordWatchActivityForShop(shop, activity = {}) {
   if (!shop || !activity.eventType || !activity.title) return null;
-  return prisma.productWatchActivity.create({
+  const created = await prisma.productWatchActivity.create({
     data: {
       shop,
       productGid: optionalString(activity.productGid),
@@ -457,17 +662,66 @@ export async function recordWatchActivityForShop(shop, activity = {}) {
       createdAt: activity.createdAt || new Date(),
     },
   });
+  if (created.productGid) await recordTimelineForWatchActivities(shop, [created]);
+  return created;
 }
 
-export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan", noChangesReused = false, jobId = null } = {}) {
+export async function captureInitialWatchlistSnapshotForItems(shop, items = [], { createdAt = new Date() } = {}) {
+  const normalizedItems = Array.isArray(items) ? items.filter((item) => item?.productGid) : [];
+  const productGids = [...new Set(normalizedItems.map((item) => item.productGid).filter(Boolean))];
+  if (!shop || !productGids.length) return { count: 0, reportCount: 0, historyCount: 0, skipped: productGids.length };
+
+  const existingReports = await prisma.productWatchActivity.findMany({
+    where: {
+      shop,
+      productGid: { in: productGids },
+      eventType: WATCH_CHANGE_REPORT_EVENT,
+    },
+    select: { productGid: true },
+  });
+  const productsWithReports = new Set(existingReports.map((activity) => activity.productGid).filter(Boolean));
+  const productsNeedingBaseline = productGids.filter((productGid) => !productsWithReports.has(productGid));
+  if (!productsNeedingBaseline.length) {
+    return { count: 0, reportCount: 0, historyCount: 0, skipped: productGids.length };
+  }
+
+  const snapshots = await prisma.productRiskSnapshot.findMany({
+    where: { shop, productGid: { in: productsNeedingBaseline } },
+  });
+  if (!snapshots.length) {
+    return { count: 0, reportCount: 0, historyCount: 0, skipped: productsNeedingBaseline.length, missingSnapshotCount: productsNeedingBaseline.length };
+  }
+
+  const [activityResult, historyResult] = await Promise.all([
+    recordWatchlistScanActivities(shop, snapshots, {
+      source: WATCHLIST_BASELINE_SOURCE,
+      createdAt,
+    }),
+    recordProductScoreHistoryBatch(shop, snapshots, {
+      source: WATCHLIST_BASELINE_SOURCE,
+      recordedAt: createdAt,
+    }),
+  ]);
+
+  return {
+    count: Number(activityResult?.count || 0),
+    reportCount: snapshots.length,
+    historyCount: Number(historyResult?.count || 0),
+    skipped: Math.max(0, productGids.length - snapshots.length),
+    productGids: snapshots.map((snapshot) => snapshot.productGid),
+  };
+}
+
+export async function recordWatchlistScanActivities(shop, snapshots = [], { source = "quickscan", noChangesReused = false, jobId = null, createdAt = new Date() } = {}) {
   const productGids = Array.from(new Set(snapshots.map((snapshot) => snapshot?.productGid).filter(Boolean)));
   if (!shop || !productGids.length) return { count: 0 };
+  const shouldCreateChangeReport = isWatchChangeReportSource(source);
   const [watchedItems, productPulseSettings, previousReports] = await Promise.all([
     prisma.productWatchlistItem.findMany({
       where: { shop, productGid: { in: productGids }, status: { not: "Paused" } },
     }),
     getProductPulseSettings(shop),
-    source === "full-diagnosis"
+    shouldCreateChangeReport
       ? prisma.productWatchActivity.findMany({
         where: { shop, productGid: { in: productGids }, eventType: WATCH_CHANGE_REPORT_EVENT },
         orderBy: { createdAt: "desc" },
@@ -482,9 +736,9 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
       previousReportByProductGid.set(activity.productGid, activity);
     }
   });
-  const now = new Date();
+  const now = createdAt;
   const reportRows = [];
-  if (source === "full-diagnosis") {
+  if (shouldCreateChangeReport) {
     for (const snapshot of snapshots.filter((item) => itemByProductGid.has(item.productGid))) {
       const item = itemByProductGid.get(snapshot.productGid);
       const previousActivity = previousReportByProductGid.get(snapshot.productGid);
@@ -515,6 +769,7 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
         metadata: {
           source,
           noChangesReused,
+          jobId,
           riskScore: report.current.riskScore,
           riskLabel: report.current.riskLabel,
           confidence: report.current.confidence,
@@ -533,21 +788,23 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
       const item = itemByProductGid.get(snapshot.productGid);
       const riskScore = Number(snapshot.riskScore || 0);
       const riskLabel = getRiskLabelForScore(riskScore, productPulseSettings);
+      const eventSpec = getWatchScanActivityEventSpec(source, noChangesReused);
       return {
         shop,
         productGid: snapshot.productGid,
         productTitle: snapshot.productTitle || item.productTitle,
         watchlistItemId: item.id,
-        eventType: source === "full-diagnosis" ? "diagnosis_completed" : "watch_scan_completed",
-        title: source === "full-diagnosis"
-          ? noChangesReused ? "Product diagnosis reused" : "Product diagnosis completed"
-          : "Watch scan updated product risk",
+        eventType: eventSpec.eventType,
+        title: eventSpec.title,
         detail: noChangesReused
           ? `No source changes detected · ${riskLabel} risk (${riskScore}/100)`
+          : source === WATCHLIST_BASELINE_SOURCE
+          ? `Baseline captured · ${riskLabel} risk (${riskScore}/100) · ${snapshot.primaryIssue || "No primary issue"}`
           : `${riskLabel} risk (${riskScore}/100) · ${snapshot.primaryIssue || "No primary issue"}`,
         metadata: {
           source,
           noChangesReused,
+          jobId,
           riskScore,
           riskLabel,
           confidence: snapshot.confidence,
@@ -558,7 +815,32 @@ export async function recordWatchlistScanActivities(shop, snapshots = [], { sour
     });
   const activityRows = [...reportRows, ...rows];
   if (!activityRows.length) return { count: 0 };
-  return prisma.productWatchActivity.createMany({ data: activityRows });
+  const result = await prisma.productWatchActivity.createMany({ data: activityRows });
+  await recordTimelineForWatchActivities(shop, activityRows);
+  return result;
+}
+
+function isWatchChangeReportSource(source) {
+  return source === FULL_DIAGNOSIS_SOURCE || source === WATCHLIST_BASELINE_SOURCE;
+}
+
+function getWatchScanActivityEventSpec(source, noChangesReused = false) {
+  if (source === WATCHLIST_BASELINE_SOURCE) {
+    return {
+      eventType: "watch_baseline_captured",
+      title: "Watchlist baseline captured",
+    };
+  }
+  if (source === FULL_DIAGNOSIS_SOURCE) {
+    return {
+      eventType: "diagnosis_completed",
+      title: noChangesReused ? "Product diagnosis reused" : "Product diagnosis completed",
+    };
+  }
+  return {
+    eventType: "watch_scan_completed",
+    title: "Watch scan updated product risk",
+  };
 }
 
 async function findWatchedProduct(shop, productGid) {
@@ -589,18 +871,45 @@ function formatWatchlistRow(item, snapshot, productPulseSettings = undefined, la
     imageUrl: item.imageUrl || null,
     imageAlt: item.imageAlt || item.productTitle,
     href: item.handle ? `/app/products/${item.handle}` : `/app/products/${encodeURIComponent(item.productGid)}`,
+    watchlistHref: item.handle ? `/app/watchlist/${item.handle}` : `/app/watchlist/${encodeURIComponent(item.productGid)}`,
     riskScore,
     riskLabel,
     riskTone,
-    latestChange: hasSnapshot ? "Watch signal captured" : "Awaiting first scan",
-    latestChangeDetail: hasSnapshot ? snapshot.primaryIssue || "Product quality signal detected" : "This product will be scanned on the next watch run.",
+    latestChange: hasSnapshot ? snapshot.primaryIssue || "New issue" : "Awaiting first scan",
+    latestChangeDetail: hasSnapshot ? "" : `Added ${formatWatchDate(item.addedAt)} · ${status}`,
     latestChangeTone: hasSnapshot ? (riskTone === "critical" ? "red" : riskTone === "warning" ? "orange" : "green") : "slate",
     lastIssue: hasSnapshot ? `Updated ${formatWatchDate(updatedAt)}` : "Not scanned yet",
     lastIssueDetail: hasSnapshot ? formatWatchTimestamp(updatedAt) : "Waiting for automatic watch cadence",
     addedAt: formatWatchDate(item.addedAt),
+    addedAtIso: toWatchIso(item.addedAt),
+    updatedAtIso: toWatchIso(updatedAt),
     latestChangeReport,
     diagnosisJob: activeDiagnosisJob ? formatWatchlistDiagnosisJob(activeDiagnosisJob) : null,
   };
+}
+
+function getWatchlistProductLookupValues(input) {
+  const rawValues = Array.isArray(input) ? input : [input];
+  const values = new Set();
+  rawValues.forEach((rawValue) => {
+    const raw = String(rawValue || "").trim();
+    if (!raw) return;
+    [raw, safeDecodeWatchlistLookupValue(raw)].forEach((value) => {
+      const normalized = String(value || "").trim();
+      if (!normalized) return;
+      values.add(normalized);
+      values.add(normalized.toLowerCase());
+    });
+  });
+  return Array.from(values);
+}
+
+function safeDecodeWatchlistLookupValue(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 async function getActiveWatchlistDiagnosisJobsForShop(shop) {
@@ -665,9 +974,13 @@ function getWatchlistOverviewSections({ rows = [], activities = [], activityStat
   };
 }
 
-async function getWatchActivityRowsForShop(shop, { take = 5 } = {}) {
+async function getWatchActivityRowsForShop(shop, { take = 5, eventTypes = null } = {}) {
+  const where = { shop, eventType: { not: "watch_order_changed" } };
+  if (Array.isArray(eventTypes) && eventTypes.length) {
+    where.eventType = { in: eventTypes.map(String).filter(Boolean) };
+  }
   const activities = await prisma.productWatchActivity.findMany({
-    where: { shop, eventType: { not: "watch_order_changed" } },
+    where,
     orderBy: { createdAt: "desc" },
     take,
   });
@@ -679,13 +992,29 @@ async function getLatestWatchChangeReportsForProducts(shop, productGids = []) {
   const reports = await prisma.productWatchActivity.findMany({
     where: { shop, productGid: { in: productGids }, eventType: WATCH_CHANGE_REPORT_EVENT },
     orderBy: { createdAt: "desc" },
-    take: productGids.length * 8,
+    take: productGids.length * 50,
+  });
+  const groupedReports = new Map();
+  reports.forEach((activity) => {
+    if (!activity.productGid) return;
+    const group = groupedReports.get(activity.productGid) || [];
+    group.push(activity);
+    groupedReports.set(activity.productGid, group);
   });
   const byProductGid = new Map();
-  reports.forEach((activity) => {
-    if (activity.productGid && !byProductGid.has(activity.productGid)) {
-      byProductGid.set(activity.productGid, formatWatchChangeReportActivity(activity));
-    }
+  groupedReports.forEach((activities, productGid) => {
+    const latest = formatWatchChangeReportActivity(activities[0]);
+    latest.runReports = activities
+      .slice()
+      .reverse()
+      .map(formatWatchChangeReportActivity)
+      .filter(Boolean);
+    latest.history = activities
+      .slice()
+      .reverse()
+      .map(formatWatchRunHistoryPoint)
+      .filter(Boolean);
+    byProductGid.set(productGid, latest);
   });
   return byProductGid;
 }
@@ -740,6 +1069,8 @@ function formatWatchChangeReportActivity(activity = {}) {
     id: activity.id,
     productGid: activity.productGid || "",
     productTitle: activity.productTitle || "",
+    jobId: metadata.jobId || report.jobId || "",
+    source: metadata.source || report.source || "",
     title: report.title || activity.title || "Watchlist change report",
     summary: report.summary || activity.detail || "",
     status: report.status || "changed",
@@ -752,9 +1083,43 @@ function formatWatchChangeReportActivity(activity = {}) {
     previous: report.previous || null,
     current: report.current || null,
     narrative: report.narrative || "",
+    sourceChangeCount: Number(report.sourceChangeCount || 0),
+    sourceChanges: Array.isArray(report.sourceChanges) ? report.sourceChanges : [],
     sourceInsights: Array.isArray(report.sourceInsights) ? report.sourceInsights : [],
     sections: Array.isArray(report.sections) ? report.sections : [],
     changes: Array.isArray(report.changes) ? report.changes : [],
+  };
+}
+
+function formatWatchRunHistoryPoint(activity = {}) {
+  const metadata = activity.metadata || {};
+  const report = metadata.report || {};
+  const current = report.current || metadata.snapshotSummary || {};
+  if (!current || typeof current !== "object") return null;
+  const timestamp = report.currentRunAt || current.capturedAt || activity.createdAt?.toISOString?.() || activity.createdAt || null;
+  const sourceChanges = Array.isArray(report.sourceChanges) ? report.sourceChanges : [];
+  return {
+    id: activity.id,
+    jobId: metadata.jobId || report.jobId || "",
+    source: metadata.source || report.source || "",
+    status: report.status || "",
+    changeCount: Number(report.changeCount || 0),
+    actionCount: findWatchNumber(current.actionCount, current.actionsCount, current.openActionCount, current.recommendedActionCount, current.recommendationCount),
+    currentRunAt: timestamp,
+    capturedAt: current.capturedAt || timestamp,
+    riskScore: findWatchNumber(current.riskScore),
+    returnRatePercent: findWatchNumber(current.returnRatePercent),
+    refundRatePercent: findWatchNumber(current.refundRatePercent),
+    productMomentumScore: findWatchNumber(current.productMomentumScore),
+    orderCount: findWatchNumber(current.orderCount),
+    soldUnits: findWatchNumber(current.soldUnits),
+    returnUnits: findWatchNumber(current.returnUnits),
+    refundUnits: findWatchNumber(current.refundUnits),
+    salesAmount: findWatchNumber(current.salesAmount),
+    marginAtRisk: findWatchNumber(current.marginAtRisk),
+    refundAmount: findWatchNumber(current.refundAmount, current.evidenceDetails?.refunds?.amount),
+    signalCount: findWatchNumber(current.signalCount),
+    contentUpdated: sourceChanges.some((change) => String(change?.source || change?.id || "").toLowerCase().includes("content")),
   };
 }
 
@@ -806,30 +1171,34 @@ function buildWatchChangeReport({
       source,
       noChangesReused,
       changeCount: 0,
+      sourceChangeCount: 0,
       previousRunAt: null,
       currentRunAt: current.capturedAt,
       previous: null,
       current,
-      narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, momentum and evidence against this stored point.",
+      narrative: "No previous Watchlist data existed for this product. ProductPulse captured the current diagnosis as the baseline; future Watchlist runs will compare new returns, refunds, reviews, product risk, Sales Momentum and evidence against this stored point.",
+      sourceChanges: [],
       sourceInsights: [],
       sections: [],
       changes: [],
     };
   }
 
+  const sourceChanges = noChangesReused ? [] : buildWatchSourceChangeCards(previous, current);
+  const sourceInsights = buildWatchEvidenceChangeInsights(previous, current);
   const sections = [
     buildRiskChangeSection(previous, current),
     buildEvidenceChangeSection(previous, current),
     buildImpactChangeSection(previous, current),
     buildMomentumChangeSection(previous, current),
   ].filter((section) => section.changes.length);
-  const sourceInsights = buildWatchEvidenceChangeInsights(previous, current);
   const changes = sections.flatMap((section) => section.changes.map((change) => ({ ...change, sectionId: section.id, sectionTitle: section.title })));
-  const status = changes.length ? "changed" : "unchanged";
-  const headline = changes.length ? getWatchReportHeadline(changes) : "No meaningful changes detected";
-  const summary = changes.length
-    ? `${changes.length} meaningful change${changes.length === 1 ? "" : "s"} since the previous Watchlist run. ${headline}`
-    : "No meaningful product risk, evidence, impact or momentum changes were detected since the previous Watchlist run.";
+  const totalChangeCount = sourceChanges.length + changes.length;
+  const status = totalChangeCount ? "changed" : "unchanged";
+  const headline = totalChangeCount ? getWatchReportHeadline(changes, sourceChanges) : "No meaningful changes detected";
+  const summary = totalChangeCount
+    ? `${sourceChanges.length} concrete source change${sourceChanges.length === 1 ? "" : "s"} and ${changes.length} calculated product-state change${changes.length === 1 ? "" : "s"} since the previous Watchlist run. ${headline}`
+    : "No new orders, returns, refunds, reviews or meaningful calculated product-state movement were detected since the previous Watchlist run.";
 
   return {
     id: `watch-report-${snapshot.productGid || "product"}-${createdAt.getTime()}`,
@@ -839,12 +1208,14 @@ function buildWatchChangeReport({
     summary,
     source,
     noChangesReused,
-    changeCount: changes.length,
+    changeCount: totalChangeCount,
+    sourceChangeCount: sourceChanges.length,
     previousRunAt,
     currentRunAt: current.capturedAt,
     previous,
     current,
-    narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceInsights, changes, current, previous } }),
+    narrative: buildWatchChangeDeterministicNarrative({ report: { status, headline, sourceChanges, sourceInsights, changes, current, previous }, noChangesReused }),
+    sourceChanges,
     sourceInsights,
     sections: status === "unchanged" ? [] : sections,
     changes,
@@ -853,6 +1224,7 @@ function buildWatchChangeReport({
 
 function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefined, capturedAt = new Date()) {
   const metrics = snapshot.metrics || {};
+  const evidenceDetails = buildWatchEvidenceDetails(metrics);
   const riskScore = clampRoundNumber(snapshot.riskScore);
   const returnRatePercent = normalizeRatePercent(firstNumber(
     metrics.returnRatePercent,
@@ -878,10 +1250,14 @@ function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefin
     marginAtRisk: roundMoney(firstNumber(metrics.marginAtRisk, metrics.financialExposure?.marginAtRisk, metrics.impactFactors?.marginAtRisk)),
     revenueAtRisk: roundMoney(firstNumber(metrics.revenueAtRisk, metrics.financialExposure?.revenueAtRisk, metrics.impactFactors?.revenueAtRisk)),
     primaryIssue: String(snapshot.primaryIssue || metrics.primaryIssue || metrics.mainIssue || "No primary issue"),
+    orderCount: clampRoundNumber(firstNumber(metrics.orderCount, metrics.monthlyOrderActivity?.summary?.totalOrders, evidenceDetails.orders?.totalOrders)),
+    soldUnits: clampRoundNumber(firstNumber(metrics.soldUnits, metrics.monthlyOrderActivity?.summary?.totalOrderUnits, evidenceDetails.orders?.totalUnits)),
+    salesAmount: roundMoney(firstNumber(metrics.salesAmount, metrics.monthlyOrderActivity?.summary?.totalRevenue, evidenceDetails.orders?.totalRevenue)),
+    refundAmount: roundMoney(firstNumber(metrics.refundAmount, metrics.refunds?.amount, evidenceDetails.refunds?.amount)),
     returnRatePercent,
     refundRatePercent,
-    returnUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.returns?.units, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
-    refundUnits: clampRoundNumber(firstNumber(metrics.refundUnits, metrics.refunds?.units, metrics.monthlyOrderActivity?.summary?.refundedOrders)),
+    returnUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.returns?.units, metrics.monthlyOrderActivity?.summary?.totalReturnedUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
+    refundUnits: clampRoundNumber(firstNumber(metrics.refundUnits, metrics.refunds?.units, metrics.monthlyOrderActivity?.summary?.totalRefundedUnits, metrics.monthlyOrderActivity?.summary?.refundedOrders)),
     negativeReviewCount: clampRoundNumber(firstNumber(metrics.negativeReviewCount, metrics.reviews?.negativeReviews)),
     reviewCount: clampRoundNumber(firstNumber(metrics.reviewCount, metrics.reviews?.totalReviews)),
     signalCount: clampRoundNumber(firstNumber(metrics.signalCount, metrics.signalsCount, metrics.totalSignals, metrics.evidenceSignalCount)),
@@ -898,27 +1274,39 @@ function buildWatchSnapshotSummary(snapshot = {}, productPulseSettings = undefin
     productMomentumScore: clampRoundNumber(firstNumber(metrics.productMomentumScore, productMomentum.score)),
     productMomentumTier: firstString(metrics.productMomentumTier, productMomentum.tier, "No momentum"),
     productMomentumDirection: firstString(metrics.momentumDirection, productMomentum.direction),
-    evidenceDetails: buildWatchEvidenceDetails(metrics),
+    evidenceDetails,
     sourceFingerprint: metrics.incrementalDiagnosis?.cache?.sourceFingerprint || null,
   };
 }
 
 function buildWatchEvidenceDetails(metrics = {}) {
   const cache = metrics.incrementalDiagnosis?.cache || {};
+  const sourceEvents = cache.sourceEvents || {};
   const customerText = cache.customerText || {};
   const refundCache = cache.refunds || {};
+  const orderItems = normalizeWatchSourceEvents(sourceEvents.sales, "orders").slice(-80);
+  const returnSourceItems = normalizeWatchSourceEvents(sourceEvents.returns, "returns").slice(-60);
+  const refundSourceItems = normalizeWatchSourceEvents(sourceEvents.refunds, "refunds").slice(-50);
   const returnItems = normalizeWatchAnalysisItems(customerText.returnItems).slice(-60);
   const reviewItems = normalizeWatchAnalysisItems(customerText.reviewItems).slice(-80);
   const refundItems = normalizeWatchAnalysisItems(refundCache.items).slice(-40);
   const textInsights = metrics.textInsights || {};
   const refundInsights = metrics.refundInsights || {};
+  const monthlySummary = metrics.monthlyOrderActivity?.summary || {};
   return {
+    orders: {
+      totalOrders: clampRoundNumber(firstNumber(metrics.orderCount, monthlySummary.totalOrders, countWatchUniqueOrders(orderItems))),
+      totalUnits: clampRoundNumber(firstNumber(metrics.soldUnits, monthlySummary.totalOrderUnits, sumWatchItemNumbers(orderItems, "quantity"))),
+      totalRevenue: roundMoney(firstNumber(metrics.salesAmount, monthlySummary.totalRevenue, sumWatchItemNumbers(orderItems, "amount"))),
+      items: orderItems.map(trimWatchSourceEventItem),
+    },
     returns: {
-      totalUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
+      totalUnits: clampRoundNumber(firstNumber(metrics.returnUnits, metrics.monthlyOrderActivity?.summary?.totalReturnedUnits, metrics.monthlyOrderActivity?.summary?.returnedOrders)),
       rate: normalizeRatePercent(firstNumber(metrics.returnRate, metrics.monthlyOrderActivity?.summary?.returnRate)),
       topReasons: normalizeWatchCountRows(metrics.topReturnReasonDetails),
       sentiment: normalizeWatchSentiment(textInsights.returns?.sentiment),
       repeatedLanguage: normalizeWatchCountRows(textInsights.returns?.repeatedLanguage),
+      sourceItems: returnSourceItems.map(trimWatchSourceEventItem),
       items: returnItems.map(trimWatchEvidenceItem),
     },
     reviews: {
@@ -932,18 +1320,21 @@ function buildWatchEvidenceDetails(metrics = {}) {
       items: reviewItems.map(trimWatchEvidenceItem),
     },
     refunds: {
-      totalUnits: clampRoundNumber(firstNumber(metrics.refundUnits)),
+      totalUnits: clampRoundNumber(firstNumber(metrics.refundUnits, metrics.monthlyOrderActivity?.summary?.totalRefundedUnits, metrics.monthlyOrderActivity?.summary?.refundedOrders)),
       amount: roundMoney(firstNumber(metrics.refundAmount)),
       rate: normalizeRatePercent(firstNumber(metrics.refundRate)),
       topReasons: normalizeWatchCountRows(metrics.topRefundReasonDetails || refundInsights.topReasons),
       sentiment: normalizeWatchSentiment(refundInsights.sentiment),
       repeatedLanguage: normalizeWatchCountRows(refundInsights.repeatedLanguage),
+      sourceItems: refundSourceItems.map(trimWatchSourceEventItem),
       items: refundItems.map(trimWatchEvidenceItem),
     },
     content: {
       changed: Boolean(metrics.incrementalDiagnosis?.productContent?.changed),
       mode: metrics.incrementalDiagnosis?.productContent?.mode || "",
       reason: metrics.incrementalDiagnosis?.productContent?.reason || "",
+      signature: metrics.incrementalDiagnosis?.productContent?.signature || cache.productContent?.signature || "",
+      productUpdatedAt: metrics.incrementalDiagnosis?.productContent?.productUpdatedAt || cache.productContent?.productUpdatedAt || "",
       descriptionWordCount: clampRoundNumber(firstNumber(metrics.descriptionWordCount)),
       contentQualityScore: clampRoundNumber(firstNumber(metrics.contentQualityScore), 0, 100),
       contentIssues: normalizeWatchCountRows((Array.isArray(metrics.contentIssues) ? metrics.contentIssues : []).map((item) => ({
@@ -954,10 +1345,224 @@ function buildWatchEvidenceDetails(metrics = {}) {
   };
 }
 
+function buildWatchSourceChangeCards(previous, current) {
+  const previousDetails = previous?.evidenceDetails || {};
+  const currentDetails = current?.evidenceDetails || {};
+  return [
+    buildWatchOrderSourceChange(previous, current, previousDetails.orders, currentDetails.orders),
+    buildWatchReturnSourceChange(previous, current, previousDetails.returns, currentDetails.returns),
+    buildWatchRefundSourceChange(previous, current, previousDetails.refunds, currentDetails.refunds),
+    buildWatchReviewSourceChange(previous, current, previousDetails.reviews, currentDetails.reviews),
+    buildWatchContentSourceChange(previousDetails.content, currentDetails.content),
+  ].filter(Boolean);
+}
+
+function hasWatchSourceBaseline(previous = {}, previousSource = {}, itemFields = ["items"]) {
+  if (previous?.sourceFingerprint) return true;
+  return itemFields.some((field) => {
+    const items = Array.isArray(previousSource?.[field]) ? previousSource[field] : [];
+    return items.some((item) => item?.key);
+  });
+}
+
+function buildWatchOrderSourceChange(previous, current, previousOrders = {}, currentOrders = {}) {
+  let newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
+  const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
+  const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
+  newItems = reconcileNewWatchOrderItemsWithAggregateDelta(newItems, { previous, orderDelta });
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousOrders, ["items"]);
+  const newOrderCount = countWatchUniqueOrders(newItems) || (allowAggregateFallback ? Math.max(0, Math.round(orderDelta)) : 0);
+  const newUnits = sumWatchItemNumbers(newItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || (allowAggregateFallback ? Math.max(0, revenueDelta) : 0));
+  if (!newOrderCount && !newUnits && newRevenue < 1) return null;
+  return {
+    id: "new-orders",
+    source: "orders",
+    label: "New orders",
+    value: `${formatNumberWithSuffix(newOrderCount)} order${newOrderCount === 1 ? "" : "s"}`,
+    delta: newUnits ? `+${formatNumberWithSuffix(newUnits)} unit${newUnits === 1 ? "" : "s"}` : newRevenue ? `+${formatMoney(newRevenue)}` : "New activity",
+    direction: "up",
+    tone: "green",
+    icon: "shopify-orders",
+    detail: [
+      newRevenue ? `${formatMoney(newRevenue)} order revenue captured since the previous Watchlist run.` : "",
+      newItems.length ? summarizeWatchVariants(newItems) : "",
+    ].filter(Boolean).join(" "),
+    items: newItems.slice(-6),
+  };
+}
+
+function reconcileNewWatchOrderItemsWithAggregateDelta(items = [], { previous = {}, orderDelta = 0 } = {}) {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const maxNewOrders = Math.max(0, Math.round(Number(orderDelta || 0)));
+  if (!maxNewOrders || countWatchUniqueOrders(normalizedItems) <= maxNewOrders) return normalizedItems;
+
+  const withoutStaleDerivedItems = normalizedItems.filter((item) => !isStaleDerivedWatchSaleItem(item, previous?.capturedAt));
+  if (countWatchUniqueOrders(withoutStaleDerivedItems) <= maxNewOrders) return withoutStaleDerivedItems;
+
+  return keepMostRecentWatchOrderItems(withoutStaleDerivedItems, maxNewOrders);
+}
+
+function isStaleDerivedWatchSaleItem(item = {}, cutoffValue = null) {
+  const id = String(item?.id || item?.key || "").toLowerCase();
+  if (!id.includes("derived-sale")) return false;
+  if (Number(item?.amount || 0) > 0) return false;
+  const cutoff = parseWatchDate(cutoffValue);
+  const itemDate = parseWatchDate(item.createdAt || item.updatedAt || item.processedAt || item.date);
+  return Boolean(cutoff && itemDate && itemDate.getTime() <= cutoff.getTime());
+}
+
+function keepMostRecentWatchOrderItems(items = [], maxNewOrders = 0) {
+  const sorted = [...items].sort((left, right) => {
+    const leftTime = parseWatchDate(left.createdAt || left.updatedAt || left.processedAt || left.date)?.getTime() || 0;
+    const rightTime = parseWatchDate(right.createdAt || right.updatedAt || right.processedAt || right.date)?.getTime() || 0;
+    return rightTime - leftTime;
+  });
+  const keptOrderIds = new Set();
+  const kept = [];
+  for (const item of sorted) {
+    const orderId = String(item?.orderId || item?.key || item?.id || "").trim();
+    if (orderId && keptOrderIds.has(orderId)) {
+      kept.push(item);
+      continue;
+    }
+    if (keptOrderIds.size >= maxNewOrders) continue;
+    if (orderId) keptOrderIds.add(orderId);
+    kept.push(item);
+  }
+  const keptKeys = new Set(kept.map((item) => item?.key || item?.id).filter(Boolean));
+  return items.filter((item) => keptKeys.has(item?.key || item?.id));
+}
+
+function buildWatchReturnSourceChange(previous, current, previousReturns = {}, currentReturns = {}) {
+  const newSourceItems = getNewWatchEvidenceItems(previousReturns.sourceItems, currentReturns.sourceItems, { sinceAt: previous?.capturedAt });
+  const newTextItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items, { sinceAt: previous?.capturedAt });
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.returnUnits, previousReturns.totalUnits), findWatchNumber(current?.returnUnits, currentReturns.totalUnits));
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReturns, ["sourceItems", "items"]);
+  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newCount = newSourceItems.length || newTextItems.length || (allowAggregateFallback && newUnits ? 1 : 0);
+  if (!newCount && !newUnits) return null;
+  const sentiment = summarizeWatchEvidenceItems(newTextItems);
+  const reasons = countWatchTerms([
+    ...newSourceItems.map((item) => item.reason || item.reasonText),
+    ...newTextItems.map((item) => item.reason || item.issueCode),
+  ].filter(Boolean));
+  return {
+    id: "new-returns",
+    source: "returns",
+    label: "New returns",
+    value: `${formatNumberWithSuffix(newUnits || newCount)} returned unit${(newUnits || newCount) === 1 ? "" : "s"}`,
+    delta: `+${formatNumberWithSuffix(newCount)} return signal${newCount === 1 ? "" : "s"}`,
+    direction: "up",
+    tone: "orange",
+    icon: "shopify-returns",
+    detail: [
+      reasons.length ? `New return reason language: ${formatWatchCountList(reasons, 3)}.` : "",
+      sentiment.total ? `New return text sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      newTextItems[0]?.text ? `Latest note: "${truncateWatchText(newTextItems[0].text, 110)}"` : "",
+    ].filter(Boolean).join(" "),
+    items: [...newSourceItems, ...newTextItems].slice(-6),
+  };
+}
+
+function buildWatchRefundSourceChange(previous, current, previousRefunds = {}, currentRefunds = {}) {
+  const newSourceItems = getNewWatchEvidenceItems(previousRefunds.sourceItems, currentRefunds.sourceItems, { sinceAt: previous?.capturedAt });
+  const newTextItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items, { sinceAt: previous?.capturedAt });
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.refundUnits, previousRefunds.totalUnits), findWatchNumber(current?.refundUnits, currentRefunds.totalUnits));
+  const amountDelta = watchNumberDelta(findWatchNumber(previousRefunds.amount), findWatchNumber(currentRefunds.amount));
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousRefunds, ["sourceItems", "items"]);
+  const newUnits = sumWatchItemNumbers(newSourceItems, "quantity") || sumWatchItemNumbers(newTextItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newAmount = roundMoney(sumWatchItemNumbers(newSourceItems, "amount") || (allowAggregateFallback ? Math.max(0, amountDelta) : 0));
+  const newCount = newSourceItems.length || newTextItems.length || (allowAggregateFallback && newUnits ? 1 : 0);
+  if (!newCount && !newUnits && newAmount < 1) return null;
+  const sentiment = summarizeWatchEvidenceItems(newTextItems);
+  const reasons = countWatchTerms(getWatchRefundReasonTerms({ textItems: newTextItems, sourceItems: newSourceItems }));
+  return {
+    id: "new-refunds",
+    source: "refunds",
+    label: "New refunds",
+    value: `${formatNumberWithSuffix(newUnits || newCount)} refunded unit${(newUnits || newCount) === 1 ? "" : "s"}`,
+    delta: newAmount ? `+${formatMoney(newAmount)}` : `+${formatNumberWithSuffix(newCount)} refund signal${newCount === 1 ? "" : "s"}`,
+    direction: "up",
+    tone: "orange",
+    icon: "shopify-refunds",
+    detail: [
+      reasons.length ? `New refund reason language: ${formatWatchCountList(reasons, 3)}.` : "",
+      sentiment.total ? `New refund-note sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      newTextItems[0]?.text ? `Latest note: "${truncateWatchText(newTextItems[0].text, 110)}"` : "",
+    ].filter(Boolean).join(" "),
+    items: [...newSourceItems, ...newTextItems].slice(-6),
+  };
+}
+
+function buildWatchReviewSourceChange(previous, current, previousReviews = {}, currentReviews = {}) {
+  const newItems = getNewWatchEvidenceItems(previousReviews.items, currentReviews.items, { sinceAt: previous?.capturedAt });
+  const reviewDelta = watchNumberDelta(findWatchNumber(previous?.reviewCount, previousReviews.total), findWatchNumber(current?.reviewCount, currentReviews.total));
+  const negativeDelta = watchNumberDelta(findWatchNumber(previous?.negativeReviewCount, previousReviews.negative), findWatchNumber(current?.negativeReviewCount, currentReviews.negative));
+  const ratingDelta = watchNumberDelta(findWatchNumber(previousReviews.averageRating), findWatchNumber(currentReviews.averageRating));
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReviews, ["items"]);
+  const safeNegativeDelta = allowAggregateFallback || newItems.length ? negativeDelta : 0;
+  const safeRatingDelta = allowAggregateFallback || newItems.length ? ratingDelta : 0;
+  const newCount = newItems.length || (allowAggregateFallback ? Math.max(0, Math.round(reviewDelta)) : 0);
+  if (!newCount && Math.abs(safeRatingDelta) < 0.1 && !safeNegativeDelta) return null;
+  const sentiment = summarizeWatchEvidenceItems(newItems);
+  const repeated = extractWatchRepeatedLanguage(newItems);
+  const ratingDirection = safeRatingDelta > 0 ? "up" : safeRatingDelta < 0 ? "down" : "neutral";
+  return {
+    id: "new-reviews",
+    source: "reviews",
+    label: newCount ? "New reviews" : "Review rating changed",
+    value: newCount ? `${formatNumberWithSuffix(newCount)} review${newCount === 1 ? "" : "s"}` : `${formatNumberWithSuffix(previousReviews.averageRating || 0)} to ${formatNumberWithSuffix(currentReviews.averageRating || 0)}`,
+    delta: Math.abs(safeRatingDelta) >= 0.1
+      ? `${safeRatingDelta > 0 ? "+" : ""}${formatNumberWithSuffix(safeRatingDelta)} rating`
+      : `${safeNegativeDelta > 0 ? "+" : ""}${formatNumberWithSuffix(safeNegativeDelta)} negative`,
+    direction: ratingDirection === "neutral" ? (safeNegativeDelta > 0 ? "up" : safeNegativeDelta < 0 ? "down" : "neutral") : ratingDirection,
+    tone: safeNegativeDelta > 0 || sentiment.negative > sentiment.positive || safeRatingDelta < -0.1 ? "orange" : "blue",
+    icon: "star",
+    detail: [
+      sentiment.total ? `New review sentiment: ${sentiment.negative} negative, ${sentiment.neutral} neutral, ${sentiment.positive} positive.` : "",
+      Math.abs(safeRatingDelta) >= 0.1 ? `Average rating moved from ${formatNumberWithSuffix(previousReviews.averageRating || 0)} to ${formatNumberWithSuffix(currentReviews.averageRating || 0)}.` : "",
+      repeated.length ? `Repeated new review language: ${formatWatchCountList(repeated, 4)}.` : "",
+      newItems[0]?.text ? `Latest review: "${truncateWatchText(newItems[0].text, 110)}"` : "",
+    ].filter(Boolean).join(" "),
+    items: newItems.slice(-6),
+  };
+}
+
+function buildWatchContentSourceChange(previousContent = {}, currentContent = {}) {
+  if (!currentContent?.changed) return null;
+  if (!isConcreteWatchContentChange(previousContent, currentContent)) return null;
+  return {
+    id: "product-content-updated",
+    source: "content",
+    label: "Product content",
+    value: "Updated",
+    delta: "Changed",
+    direction: "neutral",
+    tone: "blue",
+    icon: "shopify-product",
+    detail: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous Product Diagnosis.",
+    items: [],
+  };
+}
+
+function isConcreteWatchContentChange(previousContent = {}, currentContent = {}) {
+  const reason = String(currentContent.reason || "").toLowerCase();
+  if (!reason || reason.includes("cache_missing") || reason.includes("signature_missing") || reason === "no_previous_cutoff") {
+    return false;
+  }
+  const previousSignature = String(previousContent.signature || "").trim();
+  const currentSignature = String(currentContent.signature || "").trim();
+  if (previousSignature && currentSignature) return previousSignature !== currentSignature;
+  return reason.includes("signature_changed") || reason.includes("content_changed");
+}
+
 function buildWatchEvidenceChangeInsights(previous, current) {
   const previousDetails = previous?.evidenceDetails || {};
   const currentDetails = current?.evidenceDetails || {};
   return [
+    buildWatchOrderInsight(previous, current, previousDetails.orders, currentDetails.orders),
     buildWatchReturnInsight(previous, current, previousDetails.returns, currentDetails.returns),
     buildWatchReviewInsight(previous, current, previousDetails.reviews, currentDetails.reviews),
     buildWatchRefundInsight(previous, current, previousDetails.refunds, currentDetails.refunds),
@@ -965,20 +1570,52 @@ function buildWatchEvidenceChangeInsights(previous, current) {
   ].filter(Boolean);
 }
 
+function buildWatchOrderInsight(previous, current, previousOrders = {}, currentOrders = {}) {
+  let newItems = getNewWatchEvidenceItems(previousOrders.items, currentOrders.items, { sinceAt: previous?.capturedAt });
+  const orderDelta = watchNumberDelta(findWatchNumber(previous?.orderCount, previousOrders.totalOrders), findWatchNumber(current?.orderCount, currentOrders.totalOrders));
+  const unitDelta = watchNumberDelta(findWatchNumber(previous?.soldUnits, previousOrders.totalUnits), findWatchNumber(current?.soldUnits, currentOrders.totalUnits));
+  const revenueDelta = watchNumberDelta(findWatchNumber(previous?.salesAmount, previousOrders.totalRevenue), findWatchNumber(current?.salesAmount, currentOrders.totalRevenue));
+  newItems = reconcileNewWatchOrderItemsWithAggregateDelta(newItems, { previous, orderDelta });
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousOrders, ["items"]);
+  const newOrderCount = countWatchUniqueOrders(newItems) || (allowAggregateFallback ? Math.max(0, Math.round(orderDelta)) : 0);
+  const newUnits = sumWatchItemNumbers(newItems, "quantity") || (allowAggregateFallback ? Math.max(0, Math.round(unitDelta)) : 0);
+  const newRevenue = roundMoney(sumWatchItemNumbers(newItems, "amount") || (allowAggregateFallback ? Math.max(0, revenueDelta) : 0));
+  if (!newOrderCount && !newUnits && newRevenue < 1) return null;
+  return {
+    id: "order-evidence",
+    title: "Order activity changed",
+    tone: "green",
+    metric: `${formatNumberWithSuffix(newOrderCount)} new order${newOrderCount === 1 ? "" : "s"}`,
+    summary: `${formatNumberWithSuffix(newUnits || newOrderCount)} sold unit${(newUnits || newOrderCount) === 1 ? "" : "s"} were captured since the previous Watchlist report.`,
+    bullets: [
+      newRevenue ? `New order revenue: ${formatMoney(newRevenue)}.` : "",
+      summarizeWatchVariants(newItems),
+      summarizeWatchGeography(newItems),
+    ].filter(Boolean),
+  };
+}
+
 function buildWatchReturnInsight(previous, current, previousReturns = {}, currentReturns = {}) {
   const newItems = getNewWatchEvidenceItems(previousReturns.items, currentReturns.items, { sinceAt: previous?.capturedAt });
+  const newSourceItems = getNewWatchEvidenceItems(previousReturns.sourceItems, currentReturns.sourceItems, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.returnUnits || currentReturns.totalUnits || 0) - Number(previous?.returnUnits || previousReturns.totalUnits || 0);
   const rateDelta = Number(current?.returnRatePercent || currentReturns.rate || 0) - Number(previous?.returnRatePercent || previousReturns.rate || 0);
-  if (!newItems.length && Math.abs(unitDelta) < 1 && Math.abs(rateDelta) < 0.2) return null;
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReturns, ["sourceItems", "items"]);
+  const safeUnitDelta = allowAggregateFallback || newItems.length || newSourceItems.length ? unitDelta : 0;
+  const safeRateDelta = allowAggregateFallback || newItems.length || newSourceItems.length ? rateDelta : 0;
+  if (!newItems.length && !newSourceItems.length && Math.abs(safeUnitDelta) < 1 && Math.abs(safeRateDelta) < 0.2) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReturns.items);
   const sentimentLabel = newItems.length ? "New return sentiment" : "Current return sentiment";
-  const reasons = countWatchTerms(newItems.map((item) => item.reason || item.issueCode).filter(Boolean));
+  const reasons = countWatchTerms([
+    ...newItems.map((item) => item.reason || item.issueCode),
+    ...newSourceItems.map((item) => item.reason || item.reasonText),
+  ].filter(Boolean));
   const repeated = extractWatchRepeatedLanguage(newItems);
   return {
     id: "return-evidence",
     title: "Return evidence changed",
-    tone: unitDelta > 0 || rateDelta > 0 ? "orange" : "green",
-    metric: unitDelta > 0 ? `+${formatNumberWithSuffix(unitDelta)} returned unit${unitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentReturns.totalUnits || current?.returnUnits || 0)} returned units`,
+    tone: safeUnitDelta > 0 || safeRateDelta > 0 ? "orange" : "green",
+    metric: safeUnitDelta > 0 ? `+${formatNumberWithSuffix(safeUnitDelta)} returned unit${safeUnitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentReturns.totalUnits || current?.returnUnits || 0)} returned units`,
     summary: newItems.length
       ? `${newItems.length} new return text signal${newItems.length === 1 ? "" : "s"} were captured since the previous Watchlist report.`
       : `Return pressure moved from ${formatNumberWithSuffix(previous?.returnRatePercent || previousReturns.rate || 0, "%")} to ${formatNumberWithSuffix(current?.returnRatePercent || currentReturns.rate || 0, "%")}.`,
@@ -995,7 +1632,10 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
   const newItems = getNewWatchEvidenceItems(previousReviews.items, currentReviews.items, { sinceAt: previous?.capturedAt });
   const negativeDelta = Number(current?.negativeReviewCount || currentReviews.negative || 0) - Number(previous?.negativeReviewCount || previousReviews.negative || 0);
   const reviewDelta = Number(current?.reviewCount || currentReviews.total || 0) - Number(previous?.reviewCount || previousReviews.total || 0);
-  if (!newItems.length && Math.abs(negativeDelta) < 1 && Math.abs(reviewDelta) < 1) return null;
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousReviews, ["items"]);
+  const safeNegativeDelta = allowAggregateFallback || newItems.length ? negativeDelta : 0;
+  const safeReviewDelta = allowAggregateFallback || newItems.length ? reviewDelta : 0;
+  if (!newItems.length && Math.abs(safeNegativeDelta) < 1 && Math.abs(safeReviewDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentReviews.items);
   const sentimentLabel = newItems.length ? "New review sentiment" : "Current review sentiment";
   const repeated = extractWatchRepeatedLanguage(newItems);
@@ -1003,8 +1643,8 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
   return {
     id: "review-evidence",
     title: "Review evidence changed",
-    tone: negativeDelta > 0 || sentiment.negative > sentiment.positive ? "orange" : "blue",
-    metric: newItems.length ? `${newItems.length} new review${newItems.length === 1 ? "" : "s"}` : `${negativeDelta > 0 ? "+" : ""}${negativeDelta} negative reviews`,
+    tone: safeNegativeDelta > 0 || sentiment.negative > sentiment.positive ? "orange" : "blue",
+    metric: newItems.length ? `${newItems.length} new review${newItems.length === 1 ? "" : "s"}` : `${safeNegativeDelta > 0 ? "+" : ""}${safeNegativeDelta} negative reviews`,
     summary: newItems.length
       ? `${newItems.length} new review text signal${newItems.length === 1 ? "" : "s"} were added to the watched product evidence.`
       : `Stored review volume changed from ${previous?.reviewCount || previousReviews.total || 0} to ${current?.reviewCount || currentReviews.total || 0}.`,
@@ -1019,17 +1659,20 @@ function buildWatchReviewInsight(previous, current, previousReviews = {}, curren
 
 function buildWatchRefundInsight(previous, current, previousRefunds = {}, currentRefunds = {}) {
   const newItems = getNewWatchEvidenceItems(previousRefunds.items, currentRefunds.items, { sinceAt: previous?.capturedAt });
+  const newSourceItems = getNewWatchEvidenceItems(previousRefunds.sourceItems, currentRefunds.sourceItems, { sinceAt: previous?.capturedAt });
   const unitDelta = Number(current?.refundUnits || currentRefunds.totalUnits || 0) - Number(previous?.refundUnits || previousRefunds.totalUnits || 0);
-  if (!newItems.length && Math.abs(unitDelta) < 1) return null;
+  const allowAggregateFallback = hasWatchSourceBaseline(previous, previousRefunds, ["sourceItems", "items"]);
+  const safeUnitDelta = allowAggregateFallback || newItems.length || newSourceItems.length ? unitDelta : 0;
+  if (!newItems.length && !newSourceItems.length && Math.abs(safeUnitDelta) < 1) return null;
   const sentiment = summarizeWatchEvidenceItems(newItems.length ? newItems : currentRefunds.items);
   const sentimentLabel = newItems.length ? "New refund-note sentiment" : "Current refund-note sentiment";
-  const reasons = countWatchTerms(newItems.flatMap((item) => [item.reasonText, item.reason, item.restockType, item.issueCode]).filter(Boolean));
+  const reasons = countWatchTerms(getWatchRefundReasonTerms({ textItems: newItems, sourceItems: newSourceItems }));
   const repeated = extractWatchRepeatedLanguage(newItems);
   return {
     id: "refund-evidence",
     title: "Refund evidence changed",
-    tone: unitDelta > 0 ? "orange" : "green",
-    metric: unitDelta > 0 ? `+${formatNumberWithSuffix(unitDelta)} refunded unit${unitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentRefunds.totalUnits || current?.refundUnits || 0)} refunded units`,
+    tone: safeUnitDelta > 0 ? "orange" : "green",
+    metric: safeUnitDelta > 0 ? `+${formatNumberWithSuffix(safeUnitDelta)} refunded unit${safeUnitDelta === 1 ? "" : "s"}` : `${formatNumberWithSuffix(currentRefunds.totalUnits || current?.refundUnits || 0)} refunded units`,
     summary: newItems.length
       ? `${newItems.length} new refund note signal${newItems.length === 1 ? "" : "s"} were captured.`
       : `Refunded units changed from ${previous?.refundUnits || previousRefunds.totalUnits || 0} to ${current?.refundUnits || currentRefunds.totalUnits || 0}.`,
@@ -1044,12 +1687,13 @@ function buildWatchRefundInsight(previous, current, previousRefunds = {}, curren
 
 function buildWatchContentInsight(previousContent = {}, currentContent = {}) {
   if (!currentContent?.changed) return null;
+  if (!isConcreteWatchContentChange(previousContent, currentContent)) return null;
   return {
     id: "product-content",
     title: "Product content changed",
     tone: "blue",
     metric: "PDP content updated",
-    summary: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous deep diagnosis.",
+    summary: currentContent.reason || "Product title, description, variant, SEO, tag, collection or media content changed since the previous Product Diagnosis.",
     bullets: [
       Number(currentContent.descriptionWordCount || 0) ? `Description now has ${currentContent.descriptionWordCount} words.` : "",
       Number(currentContent.contentQualityScore || 0) ? `Current content quality score: ${currentContent.contentQualityScore}.` : "",
@@ -1162,15 +1806,15 @@ function buildImpactChangeSection(previous, current) {
   const changes = [
     moneyWatchChange({
       id: "estimated-impact",
-      label: "Estimated impact",
+      label: "Estimated Margin Exposure",
       previous: previous.estimatedImpact,
       current: current.estimatedImpact,
       threshold: 1,
-      detail: "Estimated business exposure changed since the previous run.",
+      detail: "Estimated Margin Exposure changed since the previous run.",
     }),
     moneyWatchChange({
       id: "margin-at-risk",
-      label: "Margin at risk",
+      label: "Estimated Margin Exposure",
       previous: previous.marginAtRisk,
       current: current.marginAtRisk,
       threshold: 1,
@@ -1185,36 +1829,36 @@ function buildImpactChangeSection(previous, current) {
       detail: "Estimated revenue exposure changed for this watched product.",
     }),
   ].filter(Boolean);
-  return { id: "impact", title: "Financial exposure", tone: "orange", changes };
+  return { id: "impact", title: "Estimated Margin Exposure", tone: "orange", changes };
 }
 
 function buildMomentumChangeSection(previous, current) {
   const changes = [
     numericWatchChange({
       id: "momentum-score",
-      label: "Product Momentum",
+      label: "Sales Momentum",
       previous: previous.productMomentumScore,
       current: current.productMomentumScore,
       suffix: "/100",
       threshold: 1,
-      detail: "Commercial momentum changed based on recent sales velocity and catalog position.",
+      detail: "Sales Momentum changed based on recent sales velocity and catalog position.",
     }),
     textWatchChange({
       id: "momentum-tier",
-      label: "Momentum tier",
+      label: "Sales Momentum tier",
       previous: previous.productMomentumTier,
       current: current.productMomentumTier,
       detail: "The commercial attention category changed.",
     }),
     textWatchChange({
       id: "momentum-direction",
-      label: "Momentum direction",
+      label: "Sales Momentum direction",
       previous: previous.productMomentumDirection,
       current: current.productMomentumDirection,
       detail: "The product's sales movement label changed.",
     }),
   ].filter(Boolean);
-  return { id: "momentum", title: "Commercial momentum", tone: "green", changes };
+  return { id: "momentum", title: "Sales Momentum", tone: "green", changes };
 }
 
 function numericWatchChange({ id, label, previous, current, suffix = "", threshold = 1, detail }) {
@@ -1264,7 +1908,72 @@ function textWatchChange({ id, label, previous, current, detail }) {
   };
 }
 
-function getWatchReportHeadline(changes = []) {
+function getWatchRefundReasonTerms({ textItems = [], sourceItems = [] } = {}) {
+  const terms = [];
+  (Array.isArray(textItems) ? textItems : []).forEach((item) => {
+    [item.reasonText, item.reason].forEach((value) => {
+      if (isMeaningfulWatchRefundTerm(value)) terms.push(value);
+    });
+    const issueCode = normalizeWatchRefundIssueCode(item.issueCode, item);
+    if (issueCode) terms.push(issueCode);
+    if (!issueCode && isMeaningfulWatchRefundTerm(item.restockType)) terms.push(item.restockType);
+  });
+  (Array.isArray(sourceItems) ? sourceItems : []).forEach((item) => {
+    [item.reasonText, item.reason].forEach((value) => {
+      if (isMeaningfulWatchRefundTerm(value)) terms.push(value);
+    });
+    if (!terms.length && isMeaningfulWatchRefundTerm(item.restockType)) terms.push(item.restockType);
+  });
+  return terms;
+}
+
+function normalizeWatchRefundIssueCode(issueCode, item = {}) {
+  const normalized = String(issueCode || "").trim().toLowerCase();
+  if (!normalized || ["product_quality", "refund_impact", "shipping_delivery"].includes(normalized)) return "";
+  if (normalized === "fit_sizing" && hasWatchCompatibilityContext(item)) return "compatibility";
+  return normalized;
+}
+
+function hasWatchCompatibilityContext(item = {}) {
+  const text = normalizeWatchTermForComparison([
+    item.text,
+    item.analysisText,
+    item.noteText,
+    item.reasonText,
+  ].filter(Boolean).join(" "));
+  return /\b(compatibility|compatible|case|ring|wallet|pop grip|popgrip|casefit)\b/.test(text)
+    && /\b(boundary|outside|unsupported|supported|mismatch|gap|does not work|doesnt work|won t work|wont work)\b/.test(text);
+}
+
+function isMeaningfulWatchRefundTerm(value) {
+  const normalized = normalizeWatchTermForComparison(value);
+  if (!normalized) return false;
+  return ![
+    "refund discrepancy",
+    "no restock",
+    "no_restock",
+    "refund impact",
+    "product quality",
+    "shipping delivery",
+    "order level refund",
+  ].includes(normalized);
+}
+
+function normalizeWatchTermForComparison(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getWatchReportHeadline(changes = [], sourceChanges = []) {
+  const preferredSource = sourceChanges.find((change) => ["new-returns", "new-refunds", "new-reviews", "new-orders"].includes(change.id))
+    || sourceChanges[0];
+  if (preferredSource) {
+    const value = [preferredSource.value, preferredSource.delta].filter(Boolean).join(" · ");
+    return `${preferredSource.label}: ${value}.`;
+  }
   const preferred = changes.find((change) => ["risk-score", "return-rate", "negative-reviews", "estimated-impact", "momentum-score"].includes(change.id))
     || changes[0];
   if (!preferred) return "No meaningful changes detected";
@@ -1273,20 +1982,28 @@ function getWatchReportHeadline(changes = []) {
 }
 
 function buildWatchChangeDeterministicNarrative({ productTitle = "This product", report = {}, noChangesReused = false } = {}) {
-  if (noChangesReused || report.status === "unchanged") {
-    return `${productTitle} did not show meaningful Watchlist changes since the previous run. Product risk, source evidence, financial exposure and commercial momentum stayed close to the last stored report.`;
+  const hasReportedMovement = (Array.isArray(report.sourceChanges) && report.sourceChanges.length)
+    || (Array.isArray(report.changes) && report.changes.length);
+  if (report.status === "unchanged" || (noChangesReused && !hasReportedMovement)) {
+    return `${productTitle} did not show new orders, returns, refunds, reviews or meaningful calculated Watchlist movement since the previous run. Product risk, source evidence, Estimated Margin Exposure and Sales Momentum stayed close to the last stored report.`;
   }
   if (report.status === "baseline") {
-    return `${productTitle} now has a Watchlist baseline. Future runs will compare new returns, refunds, reviews, source language, product risk and momentum against this stored point.`;
+    return `${productTitle} now has a Watchlist baseline. Future runs will compare new returns, refunds, reviews, source language, product risk and Sales Momentum against this stored point.`;
   }
-  const insightText = (report.sourceInsights || [])
-    .slice(0, 3)
-    .map((insight) => `${insight.title}: ${insight.summary}`)
+  const sourceChangeText = (report.sourceChanges || [])
+    .slice(0, 4)
+    .map((change) => `${change.label}: ${[change.value, change.delta].filter(Boolean).join(" · ")}${change.detail ? ` (${change.detail})` : ""}`)
     .join(" ");
+  const calculatedContextText = (report.changes || [])
+    .slice(0, 4)
+    .map((change) => `${change.label} ${change.delta || "changed"}${change.from && change.to ? ` (${change.from} to ${change.to})` : ""}`)
+    .join("; ");
   return [
-    `${productTitle} changed since the previous Watchlist run.`,
-    report.headline || "",
-    insightText || "The report below shows the most relevant movement in risk, evidence, impact and momentum.",
+    sourceChangeText
+      ? `Since the previous Watchlist run, ${productTitle} had these concrete source changes: ${sourceChangeText}`
+      : `${productTitle} had no concrete new orders, returns, refunds, reviews or product-content updates isolated since the previous Watchlist run.`,
+    calculatedContextText ? `Secondary calculated context: ${calculatedContextText}.` : "",
+    report.headline && !sourceChangeText ? report.headline : "",
   ].filter(Boolean).join(" ");
 }
 
@@ -1360,7 +2077,7 @@ function buildWatchlistTrend(products = [], historyByProductGid = new Map(), pro
     calloutTitle: highestSeries
       ? `${highestSeries.productTitle} is currently highest at ${highestSeries.riskScore}/100`
       : "Waiting for score history",
-    calloutDetail: "Each line shows saved risk score movement for one watched product after scans or diagnostics.",
+    calloutDetail: "Each line shows saved risk score movement for one watched product after Catalog Scan or Product Diagnosis.",
   };
 }
 
@@ -1398,12 +2115,18 @@ function getActivityIcon(eventType) {
   if (eventType === "product_paused") return "pause";
   if (eventType === "product_resumed") return "play";
   if (eventType === "all_watches_paused") return "pause";
+  if (eventType === "all_watches_resumed") return "play";
   if (eventType === "diagnosis_completed") return "wand";
   if (eventType === WATCH_CHANGE_REPORT_EVENT) return "chart-line";
+  if (eventType === "watch_baseline_captured") return "flag";
   if (eventType === "watch_scan_completed") return "refresh";
   if (eventType === "watch_scan_queued") return "play";
+  if (eventType === "watch_manual_scan_queued") return "play";
+  if (eventType === "watch_cron_credit_exhausted" || eventType === "watch_manual_scan_credit_exhausted") return "alert-triangle";
   if (eventType === "settings_changed") return "settings";
-  if (eventType === "alert_sent") return "email";
+  if (eventType === "alert_sent" || eventType === "watch_alert_sent") return "email";
+  if (eventType === "watch_alert_skipped") return "info";
+  if (eventType === "watch_alert_failed") return "alert-triangle";
   return "info";
 }
 
@@ -1412,8 +2135,10 @@ function getActivityTone(eventType, metadata = {}) {
   if (eventType === "product_paused") return "purple";
   if (eventType === "product_resumed") return "green";
   if (eventType === "all_watches_paused") return "purple";
+  if (eventType === "all_watches_resumed") return "green";
   if (eventType === "product_added") return "blue";
   if (eventType === "diagnosis_completed") return "purple";
+  if (eventType === "watch_baseline_captured") return "blue";
   if (eventType === WATCH_CHANGE_REPORT_EVENT) {
     const status = metadata.report?.status || "";
     if (status === "unchanged") return "green";
@@ -1421,6 +2146,11 @@ function getActivityTone(eventType, metadata = {}) {
     return "orange";
   }
   if (eventType === "watch_scan_queued") return "blue";
+  if (eventType === "watch_manual_scan_queued") return "purple";
+  if (eventType === "watch_cron_credit_exhausted" || eventType === "watch_manual_scan_credit_exhausted") return "orange";
+  if (eventType === "watch_alert_sent") return "green";
+  if (eventType === "watch_alert_skipped") return "blue";
+  if (eventType === "watch_alert_failed") return "red";
   if (eventType === "watch_scan_completed") {
     const riskScore = Number(metadata.riskScore || 0);
     if (riskScore >= 75) return "red";
@@ -1469,6 +2199,11 @@ function normalizeOptionValue(value, options, fallback) {
 function normalizeRecipientList(value) {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
   return [];
+}
+
+function normalizeDefaultAlertRecipients(value) {
+  const rawRecipients = Array.isArray(value) ? value.join(",") : String(value || "");
+  return parseAlertRecipients(rawRecipients).valid;
 }
 
 function parseAlertRecipients(value) {
@@ -1552,6 +2287,39 @@ function normalizeWatchAnalysisItems(items = []) {
     .sort((a, b) => new Date(a.createdAt || a.updatedAt || 0).getTime() - new Date(b.createdAt || b.updatedAt || 0).getTime());
 }
 
+function normalizeWatchSourceEvents(items = [], type = "source") {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => {
+      const key = String(item.key || item.cacheKey || item.id || item.returnId || item.refundId || item.orderId || "").trim();
+      if (!key) return null;
+      return {
+        key,
+        source: type,
+        id: item.id || null,
+        orderId: item.orderId || null,
+        returnId: item.returnId || null,
+        refundId: item.refundId || null,
+        title: String(item.title || "").trim(),
+        sku: String(item.sku || "").trim(),
+        variant: String(item.variant || item.variantTitle || "").trim(),
+        quantity: Number(item.quantity || item.processedQuantity || item.refundedQuantity || 0),
+        amount: Number(item.amount || item.totalRefundedAmount || 0),
+        reason: String(item.reasonLabel || item.reason || item.restockType || "").trim(),
+        reasonText: String(item.reasonNote || item.customerNote || item.note || item.reasonLabel || item.reason || "").trim(),
+        noteText: String(item.note || item.reasonNote || item.customerNote || "").trim(),
+        restockType: String(item.restockType || "").trim(),
+        country: String(item.country || "").trim(),
+        province: String(item.province || "").trim(),
+        city: String(item.city || "").trim(),
+        createdAt: item.createdAt || item.processedAt || item.orderDate || item.orderProcessedAt || item.updatedAt || null,
+        updatedAt: item.updatedAt || item.processedAt || item.createdAt || null,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.createdAt || a.updatedAt || 0).getTime() - new Date(b.createdAt || b.updatedAt || 0).getTime());
+}
+
 function trimWatchEvidenceItem(item = {}) {
   return {
     key: item.key,
@@ -1569,6 +2337,31 @@ function trimWatchEvidenceItem(item = {}) {
     quantity: item.quantity,
     amount: item.amount,
     variant: item.variant,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
+
+function trimWatchSourceEventItem(item = {}) {
+  return {
+    key: item.key,
+    source: item.source,
+    id: item.id,
+    orderId: item.orderId,
+    returnId: item.returnId,
+    refundId: item.refundId,
+    title: truncateWatchText(item.title || "", 140),
+    sku: item.sku,
+    variant: truncateWatchText(item.variant || "", 120),
+    quantity: Number(item.quantity || 0),
+    amount: roundMoney(item.amount),
+    reason: truncateWatchText(item.reason || "", 140),
+    reasonText: truncateWatchText(item.reasonText || "", 220),
+    noteText: truncateWatchText(item.noteText || "", 220),
+    restockType: item.restockType,
+    country: item.country,
+    province: item.province,
+    city: item.city,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
@@ -1600,11 +2393,14 @@ function normalizeWatchSentiment(sentiment = {}) {
 function getNewWatchEvidenceItems(previousItems = [], currentItems = [], { sinceAt = null } = {}) {
   const previousList = Array.isArray(previousItems) ? previousItems : [];
   const previousKeys = new Set(previousList.map((item) => item?.key).filter(Boolean));
-  const hasPreviousItemBaseline = previousKeys.size > 0;
+  const previousFingerprints = new Set(previousList.map(getWatchEvidenceStableFingerprint).filter(Boolean));
+  const hasPreviousItemBaseline = previousKeys.size > 0 || previousFingerprints.size > 0;
   const cutoff = parseWatchDate(sinceAt);
 
   return (Array.isArray(currentItems) ? currentItems : []).filter((item) => {
     if (!item?.key || previousKeys.has(item.key)) return false;
+    const fingerprint = getWatchEvidenceStableFingerprint(item);
+    if (fingerprint && previousFingerprints.has(fingerprint)) return false;
     if (hasPreviousItemBaseline) return true;
 
     const itemDate = parseWatchDate(item.createdAt || item.updatedAt || item.processedAt || item.date);
@@ -1615,6 +2411,35 @@ function getNewWatchEvidenceItems(previousItems = [], currentItems = [], { since
 
     return hasPreviousItemBaseline;
   });
+}
+
+function getWatchEvidenceStableFingerprint(item = {}) {
+  if (!item || typeof item !== "object") return "";
+  const source = normalizeWatchFingerprintText(item.source || item.sourceLabel);
+  const text = normalizeWatchFingerprintText(item.text || item.analysisText || item.noteText || item.reasonText);
+  const reason = normalizeWatchFingerprintText(item.reason || item.issueCode || item.restockType);
+  if (!text && !reason) return "";
+  const reviewLike = source.includes("review") || Number(item.rating || 0) > 0;
+  return [
+    source,
+    text,
+    reason,
+    Number(item.rating || 0) || "",
+    reviewLike && text ? "" : normalizeWatchFingerprintDate(item.createdAt || item.updatedAt || item.processedAt || item.date),
+  ].join("|");
+}
+
+function normalizeWatchFingerprintText(value = "") {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeWatchFingerprintDate(value = "") {
+  const date = parseWatchDate(value);
+  return date ? date.toISOString() : "";
 }
 
 function summarizeWatchEvidenceItems(items = []) {
@@ -1668,6 +2493,44 @@ function formatWatchCountList(items = [], limit = 4) {
     .join(", ");
 }
 
+function summarizeWatchVariants(items = []) {
+  const variants = countWatchTerms((Array.isArray(items) ? items : [])
+    .map((item) => item?.variant || item?.sku || item?.title)
+    .filter(Boolean));
+  return variants.length ? `New activity by variant/SKU: ${formatWatchCountList(variants, 3)}.` : "";
+}
+
+function summarizeWatchGeography(items = []) {
+  const places = countWatchTerms(getWatchUniqueOrderItems(items)
+    .map((item) => [item?.city, item?.province, item?.country].filter(Boolean).join(", "))
+    .filter(Boolean));
+  return places.length ? `New order geography: ${formatWatchCountList(places, 3)}.` : "";
+}
+
+function sumWatchItemNumbers(items = [], key) {
+  return (Array.isArray(items) ? items : []).reduce((total, item) => total + Number(item?.[key] || 0), 0);
+}
+
+function countWatchUniqueOrders(items = []) {
+  return getWatchUniqueOrderItems(items).length;
+}
+
+function getWatchUniqueOrderItems(items = []) {
+  const orderIds = new Set();
+  const uniqueItems = [];
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const orderId = String(item?.orderId || "").trim();
+    if (orderId) {
+      if (orderIds.has(orderId)) return;
+      orderIds.add(orderId);
+      uniqueItems.push(item);
+    } else if (item?.key || item?.id) {
+      uniqueItems.push(item);
+    }
+  });
+  return uniqueItems;
+}
+
 function humanizeWatchLabel(value) {
   return String(value || "")
     .replace(/[_-]+/g, " ")
@@ -1688,6 +2551,19 @@ function firstNumber(...values) {
     if (Number.isFinite(number)) return number;
   }
   return 0;
+}
+
+function findWatchNumber(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function watchNumberDelta(previous, current) {
+  return Number.isFinite(previous) && Number.isFinite(current) ? current - previous : 0;
 }
 
 function firstString(...values) {
@@ -1771,5 +2647,6 @@ export const __productPulseWatchlistTestHooks = {
   buildWatchChangeReport,
   buildWatchlistTrend,
   formatWatchlistRow,
+  getWatchScanActivityEventSpec,
   getNewWatchEvidenceItems,
 };

@@ -17,8 +17,12 @@ import {
   buildIssueTrendMap,
   buildRiskTrendFromSignalTrend,
 } from "./product-pulse-trends.server";
+import { recordTimelineForLatestScoreSnapshots } from "./product-pulse-timeline.server";
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
 import { calculateProductScoreModel } from "./product-pulse-scoring";
+import { buildReturnRefundRelationshipSummaries } from "./product-pulse-return-refund-relationship.server";
+import { buildProductPurchaseContextSummaries } from "./product-pulse-purchase-context.server";
+import { buildProductRelationshipSummaries } from "./product-pulse-product-relationships.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
@@ -43,7 +47,7 @@ export function getQuickScanWindowDays(settings = undefined) {
 
 export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   if (!admin?.graphql) {
-    throw new Error("A Shopify Admin API context is required to run QuickScan.");
+    throw new Error("A Shopify Admin API context is required to run Catalog Scan.");
   }
 
   const startedAt = Date.now();
@@ -53,7 +57,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.started",
-    message: "QuickScan started using Shopify-native signals and connected CSV review ratings.",
+    message: "Catalog Scan started using Shopify-native signals and connected CSV review ratings.",
     data: { windowDays },
   });
 
@@ -86,7 +90,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
 
   await updateQuickScanJob(jobId, {
     progress: 72,
-    source: "Calculating product risk and momentum",
+    source: "Calculating product risk and Sales Momentum",
   });
 
   const candidates = buildQuickScanCandidates({
@@ -101,7 +105,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.scored",
-    message: "Deterministic risk and Product Momentum scoring completed.",
+    message: "Deterministic risk and Sales Momentum scoring completed.",
     data: {
       candidateCount: candidates.length,
       topCandidates: candidates.slice(0, 5).map((candidate) => ({
@@ -127,7 +131,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.persisted",
-    message: "QuickScan persisted products above the product risk or momentum threshold and skipped products with full diagnoses.",
+    message: "Catalog Scan persisted products above the product risk or Sales Momentum threshold and skipped products with Product Diagnosis results.",
     data: {
       persistedCandidates: persistence.persistedCandidates,
       ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
@@ -141,7 +145,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     status: "Completed",
     progress: 100,
     source: extraction.meta.orderAccessDenied
-      ? "QuickScan completed with catalog only - Shopify order access unavailable"
+      ? "Catalog Scan completed with catalog only - Shopify order access unavailable"
       : getQuickScanCompletionSource(persistence),
     finishedAt: new Date(),
   });
@@ -149,7 +153,7 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     shop,
     jobId,
     event: "quick_scan.completed",
-    message: "QuickScan completed.",
+    message: "Catalog Scan completed.",
     data: {
       durationMs: Date.now() - startedAt,
       candidateCount: candidates.length,
@@ -172,13 +176,13 @@ async function loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays = QUIC
         shop,
         jobId,
         event: "quick_scan.csv_reviews_loaded",
-        message: "Loaded normalized CSV review ratings for deterministic QuickScan scoring.",
+        message: "Loaded normalized CSV review ratings for deterministic Catalog Scan scoring.",
         data: {
           ratingRows: ratings.length,
           ignoredOutsideWindow: Math.max(0, allRatings.length - ratings.length),
           windowDays,
           productsWithRatings: countCsvRatingProductKeys(ratings),
-          usage: "rating-only; review text is not read during QuickScan",
+          usage: "rating-only; review text is not read during Catalog Scan",
         },
       });
     }
@@ -189,7 +193,7 @@ async function loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays = QUIC
       jobId,
       level: "warn",
       event: "quick_scan.csv_reviews_skipped",
-      message: "CSV review ratings could not be loaded; QuickScan will continue without CSV rating signals.",
+      message: "CSV review ratings could not be loaded; Catalog Scan will continue without CSV rating signals.",
       data: { error: getErrorMessage(error) },
     });
     return [];
@@ -242,11 +246,26 @@ export function buildQuickScanCandidates({
   applyCsvReviewRatingsToAggregates({ aggregates, productIndex, csvReviewRatings });
 
   const aggregateList = Array.from(aggregates.values());
+  const returnRefundRelationshipSummaries = buildReturnRefundRelationshipSummaries({
+    products: Array.from(productIndex.values()),
+    events,
+  });
+  const productPurchaseContextSummaries = buildProductPurchaseContextSummaries({
+    products: Array.from(productIndex.values()),
+    events,
+    assumeCompleteOrderEvents: true,
+  });
+  const productRelationshipSummaries = buildProductRelationshipSummaries({
+    products: Array.from(productIndex.values()),
+    events,
+    windowDays,
+    assumeCompleteOrderEvents: true,
+  });
   const storeTotals = getStoreTotals(aggregateList);
   const now = new Date();
   const momentumBaselineSnapshots = buildQuickScanMomentumBaselineSnapshots(aggregateList, windowDays, now);
-  const riskMinimumScore = getQuickScanMinimumRiskScore(settings);
-  const momentumMinimumScore = getQuickScanMinimumMomentumScore(settings);
+  const riskMinimumScore = getQuickScanRuntimeMinimumRiskScore(settings);
+  const momentumMinimumScore = getQuickScanRuntimeMinimumMomentumScore(settings);
 
   return aggregateList
     .map((aggregate) => scoreProductAggregate(aggregate, storeTotals, {
@@ -256,8 +275,11 @@ export function buildQuickScanCandidates({
       riskMinimumScore,
       momentumMinimumScore,
       now,
+      returnRefundRelationshipSummary: returnRefundRelationshipSummaries.get(aggregate.product.id) || null,
+      productPurchaseContextSummary: productPurchaseContextSummaries.get(aggregate.product.id) || null,
+      productRelationshipSummary: productRelationshipSummaries.get(aggregate.product.id) || null,
     }))
-    .filter((candidate) => isPersistableCandidate(candidate, settings))
+    .filter((candidate) => isPersistableCandidate(candidate, { riskMinimumScore, momentumMinimumScore }))
     .sort((a, b) => b.metrics.quickScanCandidateScore - a.metrics.quickScanCandidateScore)
     .slice(0, 50);
 }
@@ -329,7 +351,7 @@ async function recordOrderAccessUnavailableLog({ shop, jobId, mode }) {
     jobId,
     level: "warn",
     event: "quick_scan.orders_unavailable",
-    message: "Shopify denied access to orders. QuickScan will complete with product catalog data only until Order object access is approved.",
+    message: "Shopify denied access to orders. Catalog Scan will complete with product catalog data only until Order object access is approved.",
     data: {
       code: "SHOPIFY_ORDER_ACCESS_DENIED",
       mode,
@@ -502,7 +524,7 @@ async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId 
       jobId,
       level: "warn",
       event: "quick_scan.refunds_skipped",
-      message: "Supplemental refund extraction failed; QuickScan will continue with sales and returns.",
+      message: "Supplemental refund extraction failed; Catalog Scan will continue with sales and returns.",
       data: { error: getErrorMessage(error) },
     });
     return [];
@@ -569,7 +591,7 @@ async function extractOptionalPaginatedEvents({ shop, jobId, label, extractor })
       jobId,
       level: "warn",
       event: `quick_scan.${label}_skipped`,
-      message: `Paginated ${label} extraction failed; QuickScan will continue without that signal group.`,
+      message: `Paginated ${label} extraction failed; Catalog Scan will continue without that signal group.`,
       data: { error: getErrorMessage(error) },
     });
     return [];
@@ -605,6 +627,30 @@ async function extractProductsWithPaginatedQueries({ admin }) {
             productType
             tags
             status
+            featuredMedia {
+              preview {
+                image {
+                  url
+                  altText
+                }
+              }
+            }
+            media(first: 1) {
+              nodes {
+                preview {
+                  image {
+                    url
+                    altText
+                  }
+                }
+                ... on MediaImage {
+                  image {
+                    url
+                    altText
+                  }
+                }
+              }
+            }
             options {
               name
               values
@@ -649,7 +695,7 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
   const events = [];
   let ordersCursor;
   let hasNextOrdersPage = true;
-  const orderQuery = `created_at:>=${getSinceDate(windowDays)}`;
+  const orderQuery = `processed_at:>=${getSinceDate(windowDays)}`;
 
   while (hasNextOrdersPage) {
     const data = await shopifyGraphql(
@@ -664,6 +710,10 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
           nodes {
             id
             createdAt
+            processedAt
+            customer {
+              id
+            }
             lineItems(first: $lineItemsFirst) {
               nodes {
                 id
@@ -703,7 +753,13 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
     );
 
     (data?.orders?.nodes || []).forEach((order) => {
-      const orderContext = { id: order.id, createdAt: order.createdAt };
+      const orderContext = {
+        id: order.id,
+        createdAt: getShopifyOrderDate(order),
+        processedAt: order.processedAt,
+        originalCreatedAt: order.createdAt,
+        customerKey: order.customer?.id || null,
+      };
       getNodes(order.lineItems).forEach((lineItem) => {
         events.push(normalizeOrderLineItemEvent(lineItem, orderContext));
       });
@@ -748,6 +804,9 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
             if (refundLineItem.id) seenRefundLineItemIds.add(refundLineItem.id);
             const event = normalizeRefundLineItemEvent(refundLineItem, {
               id: refund.id,
+              orderDate: getShopifyOrderDate(order),
+              orderProcessedAt: order.processedAt,
+              orderCreatedAt: order.createdAt,
               createdAt: refund.processedAt || refund.createdAt || order.createdAt,
               updatedAt: refund.updatedAt || refund.processedAt || refund.createdAt || order.createdAt,
               orderId: order.id,
@@ -806,6 +865,7 @@ function buildPaginatedRefundsQuery() {
             id
             name
             createdAt
+            processedAt
             updatedAt
             displayFinancialStatus
             totalRefundedSet {
@@ -950,6 +1010,7 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
           nodes {
             id
             createdAt
+            processedAt
             returns(first: $returnsFirst) {
               nodes {
                 id
@@ -1006,7 +1067,15 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
     (data?.orders?.nodes || []).forEach((order) => {
       getNodes(order.returns).forEach((itemReturn) => {
         getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
-          events.push(normalizeReturnLineItemEvent(returnLineItem, { id: itemReturn.id, createdAt: itemReturn.createdAt || order.createdAt, orderId: order.id }));
+          events.push(normalizeReturnLineItemEvent(returnLineItem, {
+            id: itemReturn.id,
+            orderDate: getShopifyOrderDate(order),
+            orderProcessedAt: order.processedAt,
+            orderCreatedAt: order.createdAt,
+            createdAt: itemReturn.createdAt || order.createdAt,
+            status: itemReturn.status || "",
+            orderId: order.id,
+          }));
         });
       });
     });
@@ -1074,7 +1143,13 @@ function normalizeBulkOrderEvents(lines) {
     if (!line?.id) return;
 
     if (line.__typename === "Order" || ("createdAt" in line && !line.__parentId)) {
-      const order = { id: line.id, createdAt: line.createdAt };
+      const order = {
+        id: line.id,
+        createdAt: getShopifyOrderDate(line),
+        processedAt: line.processedAt,
+        originalCreatedAt: line.createdAt,
+        customerKey: line.customer?.id || null,
+      };
       orders.set(line.id, order);
       appendGroupedOrderEvents(line, order, events);
       return;
@@ -1082,13 +1157,29 @@ function normalizeBulkOrderEvents(lines) {
 
     if (line.__typename === "Refund") {
       const order = orders.get(line.__parentId);
-      refunds.set(line.id, { id: line.id, createdAt: line.createdAt || order?.createdAt, orderId: line.__parentId, note: line.note });
+      refunds.set(line.id, {
+        id: line.id,
+        orderDate: order?.createdAt || null,
+        orderProcessedAt: order?.processedAt || null,
+        orderCreatedAt: order?.originalCreatedAt || null,
+        createdAt: line.createdAt || order?.createdAt,
+        orderId: line.__parentId,
+        note: line.note,
+      });
       return;
     }
 
     if (line.__typename === "Return") {
       const order = orders.get(line.__parentId);
-      returns.set(line.id, { id: line.id, createdAt: line.createdAt || order?.createdAt, orderId: line.__parentId });
+      returns.set(line.id, {
+        id: line.id,
+        orderDate: order?.createdAt || null,
+        orderProcessedAt: order?.processedAt || null,
+        orderCreatedAt: order?.originalCreatedAt || null,
+        createdAt: line.createdAt || order?.createdAt,
+        status: line.status || "",
+        orderId: line.__parentId,
+      });
       return;
     }
 
@@ -1122,6 +1213,9 @@ function appendGroupedOrderEvents(orderLine, order, events) {
     getNodes(refund.refundLineItems).forEach((refundLineItem) => {
       events.push(normalizeRefundLineItemEvent(refundLineItem, {
         id: refund.id,
+        orderDate: order.createdAt,
+        orderProcessedAt: order.processedAt,
+        orderCreatedAt: order.originalCreatedAt,
         createdAt: refund.createdAt || order.createdAt,
         orderId: order.id,
         note: refund.note,
@@ -1132,7 +1226,11 @@ function appendGroupedOrderEvents(orderLine, order, events) {
   getNodes(orderLine.returns).forEach((itemReturn) => {
     const returnContext = {
       id: itemReturn.id,
+      orderDate: order.createdAt,
+      orderProcessedAt: order.processedAt,
+      orderCreatedAt: order.originalCreatedAt,
       createdAt: itemReturn.createdAt || order.createdAt,
+      status: itemReturn.status || "",
       orderId: order.id,
     };
     getNodes(itemReturn.returnLineItems).forEach((returnLineItem) => {
@@ -1144,12 +1242,20 @@ function appendGroupedOrderEvents(orderLine, order, events) {
 function normalizeOrderLineItemEvent(lineItem, order) {
   const product = lineItem.product || {};
   const variant = lineItem.variant || {};
+  const orderDate = order?.createdAt || order?.processedAt || order?.originalCreatedAt || null;
+  const customerKey = order?.customerKey || order?.customerId || order?.customer?.id || null;
 
   return {
     type: "sale",
     id: lineItem.id,
     orderId: order?.id,
-    occurredAt: order?.createdAt,
+    lineItemId: lineItem.id,
+    occurredAt: orderDate,
+    orderDate,
+    orderProcessedAt: order?.processedAt || null,
+    orderCreatedAt: order?.originalCreatedAt || null,
+    customerKey,
+    customerId: customerKey,
     productId: product.id,
     variantId: variant.id,
     handle: product.handle,
@@ -1160,6 +1266,10 @@ function normalizeOrderLineItemEvent(lineItem, order) {
     variantSku: variant.sku || lineItem.sku,
     variantOptions: variant.selectedOptions || [],
   };
+}
+
+function getShopifyOrderDate(order = {}) {
+  return order?.processedAt || order?.createdAt || order?.updatedAt || null;
 }
 
 function normalizeRefundLineItemEvent(refundLineItem, refund) {
@@ -1175,7 +1285,16 @@ function normalizeRefundLineItemEvent(refundLineItem, refund) {
 
   return {
     type: "refund",
+    id: refundLineItem.id,
+    refundId: refund?.id || null,
+    refundLineItemId: refundLineItem.id,
+    orderId: refund?.orderId || null,
+    orderName: refund?.orderName || "",
+    lineItemId: lineItem.id || null,
     occurredAt: refundLineItem.createdAt || refund?.createdAt,
+    orderDate: refund?.orderDate || null,
+    orderProcessedAt: refund?.orderProcessedAt || null,
+    orderCreatedAt: refund?.orderCreatedAt || null,
     productId: product.id || variant.product?.id,
     variantId: variant.id,
     handle: product.handle || variant.product?.handle,
@@ -1205,6 +1324,9 @@ function buildOrderLevelRefundFallbackEvents({
   const totalRefundedAmount = getOrderLevelRefundAmount(order, refund, lineItems);
   const context = {
     id: refund?.id || `order-refund:${order?.id || ""}`,
+    orderDate: getShopifyOrderDate(order),
+    orderProcessedAt: order?.processedAt,
+    orderCreatedAt: order?.createdAt,
     createdAt: refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt,
     updatedAt: refund?.updatedAt || refund?.processedAt || refund?.createdAt || order?.updatedAt || order?.createdAt,
     orderId: order?.id,
@@ -1234,7 +1356,15 @@ function normalizeOrderLevelRefundLineItemEvent(lineItem, refund) {
 
   return {
     type: "refund",
+    id: `order-level-refund:${refund?.orderId || ""}:${refund?.id || ""}:${lineItem?.id || ""}`,
+    refundId: refund?.id || null,
+    orderId: refund?.orderId || null,
+    orderName: refund?.orderName || "",
+    lineItemId: lineItem.id || null,
     occurredAt: refund?.createdAt,
+    orderDate: refund?.orderDate || null,
+    orderProcessedAt: refund?.orderProcessedAt || null,
+    orderCreatedAt: refund?.orderCreatedAt || null,
     productId: product.id || variant.product?.id,
     variantId: variant.id,
     handle: product.handle || variant.product?.handle,
@@ -1343,12 +1473,23 @@ function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
   const variant = lineItem.variant || {};
   return {
     type: "return",
+    id: returnLineItem.id,
+    returnId: itemReturn?.id || null,
+    returnLineItemId: returnLineItem.id,
+    orderId: itemReturn?.orderId || null,
+    lineItemId: lineItem.id || null,
     occurredAt: returnLineItem.createdAt || itemReturn?.createdAt,
+    orderDate: itemReturn?.orderDate || null,
+    orderProcessedAt: itemReturn?.orderProcessedAt || null,
+    orderCreatedAt: itemReturn?.orderCreatedAt || null,
     productId: product.id,
     variantId: variant.id,
     handle: product.handle,
     title: product.title || lineItem.title,
+    status: itemReturn?.status || "",
     quantity: toNumber(returnLineItem.quantity || returnLineItem.processedQuantity || returnLineItem.refundedQuantity),
+    processedQuantity: toNumber(returnLineItem.processedQuantity),
+    refundedQuantity: toNumber(returnLineItem.refundedQuantity),
     amount: moneyAmount(returnLineItem.withCodeDiscountedTotalPriceSet),
     reason: returnLineItem.returnReason || "Return",
     reasonHandle: returnLineItem.returnReason,
@@ -1493,6 +1634,9 @@ function applyEventToAggregate(aggregate, event) {
         id: event.id || `${event.productId || aggregate.product.id}:${event.variantId || ""}:${event.occurredAt}:${aggregate.salesEvents.length}`,
         orderId: event.orderId || event.id || `${event.productId || aggregate.product.id}:${event.occurredAt}:${aggregate.salesEvents.length}`,
         createdAt: event.occurredAt,
+        orderDate: event.orderDate || event.occurredAt,
+        orderProcessedAt: event.orderProcessedAt || null,
+        orderCreatedAt: event.orderCreatedAt || null,
         quantity,
         amount: toNumber(event.amount),
       });
@@ -1582,6 +1726,15 @@ function buildQuickScanMomentumBaselineSnapshots(aggregateList = [], windowDays 
   }));
 }
 
+function getQuickScanProductImage(product = {}) {
+  const mediaNode = Array.isArray(product.media?.nodes) ? product.media.nodes[0] || {} : {};
+  const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
+  return {
+    imageUrl: typeof image.url === "string" ? image.url : "",
+    imageAlt: typeof image.altText === "string" ? image.altText : product.title || "",
+  };
+}
+
 function scoreProductAggregate(aggregate, storeTotals, {
   windowDays,
   extractionMode,
@@ -1589,6 +1742,9 @@ function scoreProductAggregate(aggregate, storeTotals, {
   riskMinimumScore = getQuickScanMinimumRiskScore(),
   momentumMinimumScore = getQuickScanMinimumMomentumScore(),
   now = new Date(),
+  returnRefundRelationshipSummary = null,
+  productPurchaseContextSummary = null,
+  productRelationshipSummary = null,
 }) {
   const returnRate = safeRate(aggregate.returnUnits, aggregate.soldUnits);
   const refundRate = safeRate(aggregate.refundUnits, aggregate.soldUnits);
@@ -1640,6 +1796,9 @@ function scoreProductAggregate(aggregate, storeTotals, {
     missingOrders: extractionMode === "catalog-only",
     calculationState: "calculated_from_persisted_components",
     windowDays,
+    returnRefundRelationshipSummary,
+    productPurchaseContextSummary,
+    productRelationshipIntelligenceSummary: productRelationshipSummary,
   }, { sentimentSharesReviewSource: true });
   const riskScore = scoreModel.riskScore;
   const riskComponents = {
@@ -1685,6 +1844,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
   const riskQualified = riskScore >= riskMinimumScore;
   const momentumQualified = productMomentum.score >= momentumMinimumScore;
   const quickScanCandidateScore = Math.max(riskScore, productMomentum.score);
+  const productImage = getQuickScanProductImage(aggregate.product);
 
   return {
     productGid: aggregate.product.id,
@@ -1698,6 +1858,10 @@ function scoreProductAggregate(aggregate, storeTotals, {
     metrics: {
       windowDays,
       extractionMode,
+      imageUrl: productImage.imageUrl,
+      productImageUrl: productImage.imageUrl,
+      imageAlt: productImage.imageAlt,
+      productImageAlt: productImage.imageAlt,
       soldUnits: aggregate.soldUnits,
       salesAmount: roundMoney(aggregate.salesAmount),
       avgUnitRevenue: roundMoney(aggregate.soldUnits > 0 ? aggregate.salesAmount / aggregate.soldUnits : 0),
@@ -1711,6 +1875,21 @@ function scoreProductAggregate(aggregate, storeTotals, {
       refundNoteCount: aggregate.refundNotes.length,
       refundNotes: aggregate.refundNotes.slice(0, 5),
       refundPressure: getRefundPressureSummary({ aggregate, refundRate: refundRatePercent }),
+      returnRefundRelationshipSummary,
+      productPurchaseContextSummary,
+      productRelationshipIntelligenceSummary: productRelationshipSummary,
+      productPurchaseContextFactors: scoreModel.purchaseContextFactors,
+      productPurchaseContextScoringImpact: scoreModel.purchaseContextExplanations,
+      purchaseContextSignalBreakdown: scoreModel.purchaseContextFactors.customerSignalBreakdown,
+      productRelationshipFactors: scoreModel.productRelationshipFactors,
+      productRelationshipScoringImpact: scoreModel.productRelationshipExplanations,
+      returnRefundRelationshipFactors: scoreModel.relationshipFactors,
+      returnRefundScoringImpact: scoreModel.relationshipExplanations,
+      returnPressure: scoreModel.relationshipFactors.returnPressure,
+      refundLeakage: scoreModel.relationshipFactors.refundLeakage,
+      customerSignalBreakdown: scoreModel.relationshipFactors.customerSignalBreakdown,
+      financialExposureBreakdown: scoreModel.relationshipFactors.financialExposure,
+      scoringVersion: scoreModel.scoringVersion,
       revenueAtRisk: roundMoney(impactFactors.revenueAtRisk),
       marginAtRisk: roundMoney(impactFactors.marginAtRisk),
       estimatedImpact: roundMoney(impactFactors.estimatedImpact),
@@ -1828,8 +2007,9 @@ async function persistQuickScanCandidates(shop, candidates) {
       },
     })));
   });
+  await recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" });
   await Promise.all([
-    recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" }),
+    recordTimelineForLatestScoreSnapshots(shop, persistedSnapshots, { source: "quickscan" }),
     recordWatchlistScanActivities(shop, persistedSnapshots, { source: "quickscan" }),
   ]);
 
@@ -1867,8 +2047,8 @@ function getQuickScanCompletionSource(persistence) {
   const persisted = persistence.persistedCandidates;
   const ignored = persistence.ignoredFullDiagnosisProducts;
   const productLabel = `${persisted} product${persisted === 1 ? "" : "s"} needing attention`;
-  if (!ignored) return `QuickScan completed - ${productLabel}`;
-  return `QuickScan completed - ${productLabel}; ${ignored} full diagnosis product${ignored === 1 ? "" : "s"} ignored`;
+  if (!ignored) return `Catalog Scan completed - ${productLabel}`;
+  return `Catalog Scan completed - ${productLabel}; ${ignored} product diagnosis product${ignored === 1 ? "" : "s"} ignored`;
 }
 
 async function updateQuickScanJob(jobId, data) {
@@ -1887,11 +2067,27 @@ async function shopifyGraphql(admin, query, variables) {
   return json.data;
 }
 
-function isPersistableCandidate(candidate, settings = undefined) {
-  const minimumRiskScore = getQuickScanMinimumRiskScore(settings);
-  const minimumMomentumScore = getQuickScanMinimumMomentumScore(settings);
+function isPersistableCandidate(candidate, settingsOrThresholds = undefined) {
+  const minimumRiskScore = Number.isFinite(settingsOrThresholds?.riskMinimumScore)
+    ? settingsOrThresholds.riskMinimumScore
+    : getQuickScanRuntimeMinimumRiskScore(settingsOrThresholds);
+  const minimumMomentumScore = Number.isFinite(settingsOrThresholds?.momentumMinimumScore)
+    ? settingsOrThresholds.momentumMinimumScore
+    : getQuickScanRuntimeMinimumMomentumScore(settingsOrThresholds);
   const momentumScore = Number(candidate.metrics?.productMomentum?.score ?? candidate.metrics?.productMomentumScore ?? 0);
   return candidate.riskScore >= minimumRiskScore || momentumScore >= minimumMomentumScore;
+}
+
+function getQuickScanRuntimeMinimumRiskScore(settings = undefined) {
+  const explicitScore = Number(settings?.risk?.minimumScore);
+  if (Number.isFinite(explicitScore)) return clamp(explicitScore, 0, 100);
+  return getQuickScanMinimumRiskScore(settings);
+}
+
+function getQuickScanRuntimeMinimumMomentumScore(settings = undefined) {
+  const explicitScore = Number(settings?.momentum?.minimumScore);
+  if (Number.isFinite(explicitScore)) return clamp(explicitScore, 0, 101);
+  return getQuickScanMinimumMomentumScore(settings);
 }
 
 function getCsvRatingSummary(aggregate) {
@@ -2199,12 +2395,16 @@ const PRODUCT_CATALOG_BULK_QUERY = `{
 
 export function buildOrdersBulkQuery(windowDays) {
   return `{
-    orders(query: "created_at:>=${getSinceDate(windowDays)}") {
+    orders(query: "processed_at:>=${getSinceDate(windowDays)}") {
       edges {
         node {
           __typename
           id
           createdAt
+          processedAt
+          customer {
+            id
+          }
           lineItems {
             edges {
               node {
