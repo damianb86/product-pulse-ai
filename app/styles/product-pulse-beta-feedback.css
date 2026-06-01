@@ -72,6 +72,17 @@
   padding-right: 0;
 }
 
+.ppProductMomentumHeader:has(.ppBetaFeedbackHeaderActions) {
+  padding-right: 86px;
+}
+
+.ppProductMomentumHeader .ppBetaFeedbackHeaderActions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin-left: 0;
+}
+
 .ppBasketContextHeader:has(.ppBetaFeedbackPanelControls) {
   align-items: flex-start;
   gap: 12px;
