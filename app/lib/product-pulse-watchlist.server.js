@@ -162,7 +162,7 @@ export async function getWatchlistForShop(shop, options = {}) {
   const [activities, runActivities, trendHistoryByProductGid, activityStats, settings] = await Promise.all([
     getWatchActivityRowsForShop(shop, { take: 5 }),
     getWatchActivityRowsForShop(shop, { take: 120, eventTypes: ["watch_scan_queued", "watch_manual_scan_queued"] }),
-    productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 80 }) : new Map(),
+    productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 0 }) : new Map(),
     getWatchActivityStatsForShop(shop, productPulseSettings),
     getWatchSettingsForShop(shop),
   ]);

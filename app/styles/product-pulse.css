@@ -29283,12 +29283,13 @@ s-page[inline-size="large-500"] {
 
 .ppWatchOverviewMain .ppWatchTrendPanel {
   grid-column: auto;
-  min-height: 310px;
+  min-height: 0;
   padding: 12px;
 }
 
 .ppWatchOverviewMain .ppWatchTrendChart {
-  height: 170px;
+  min-height: 280px;
+  aspect-ratio: 2.25 / 1;
 }
 
 .ppWatchOverviewMain .ppWatchTrendLegend {
@@ -29296,15 +29297,38 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchTrendChart {
-  height: 268px;
-  padding: 6px 4px 0;
+  position: relative;
+  width: 100%;
+  min-height: 320px;
+  aspect-ratio: 2.35 / 1;
+  padding: 4px 0 0;
   background: var(--pp-cloud-white);
 }
 
-.ppWatchTrendChart svg {
+.ppWatchTrendChart svg,
+.ppWatchTrendChart .recharts-wrapper,
+.ppWatchTrendChart .recharts-surface {
   width: 100%;
   height: 100%;
   overflow: visible;
+}
+
+.ppWatchTrendChart .recharts-wrapper {
+  min-width: 0;
+}
+
+.ppWatchTrendChart .recharts-line-curve {
+  filter: drop-shadow(0 3px 4px rgba(var(--pp-shadow-rgb), 0.08));
+}
+
+.ppWatchTrendNoData {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--pp-slate-500);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .ppWatchTrendLine {
@@ -29980,11 +30004,12 @@ s-page[inline-size="large-500"] {
   }
 
   .ppWatchTrendPanel {
-    min-height: 380px;
+    min-height: 0;
   }
 
   .ppWatchTrendChart {
-    height: 220px;
+    min-height: 240px;
+    aspect-ratio: 1.45 / 1;
   }
 }
 

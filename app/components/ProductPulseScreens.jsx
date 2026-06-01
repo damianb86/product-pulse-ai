@@ -4592,18 +4592,18 @@ function WatchlistActivityPanel({ activities = [], showAllLink = true }) {
 function WatchlistTrendPanel({ trend = {} }) {
   const series = useMemo(() => (
     Array.isArray(trend.series)
-      ? trend.series.filter((item) => item.path).map((item, index) => ({
+      ? trend.series.map((item, index) => ({
         ...item,
         trendKey: getWatchTrendSeriesKey(item, index),
-      }))
+      })).filter((item) => getWatchOverviewTrendSourcePoints(item).length)
       : []
   ), [trend.series]);
   const defaultVisibleSeriesKeys = useMemo(() => series.slice(0, 5).map((item) => item.trendKey), [series]);
   const [visibleSeriesKeys, setVisibleSeriesKeys] = useState(() => new Set(defaultVisibleSeriesKeys));
   const hasSeries = series.length > 0;
   const riskScore = Number.isFinite(Number(trend.riskScore)) ? Math.round(Number(trend.riskScore)) : null;
-  const visibleSeries = series.filter((item) => visibleSeriesKeys.has(item.trendKey));
-  const chart = buildWatchOverviewTrendChart(visibleSeries);
+  const visibleSeries = useMemo(() => series.filter((item) => visibleSeriesKeys.has(item.trendKey)), [series, visibleSeriesKeys]);
+  const chart = useMemo(() => buildWatchOverviewTrendChart(visibleSeries), [visibleSeries]);
   const panel = buildBetaFeedbackPanel("watchlist.trend", "Watchlist trend", {
     watchlist: {
       riskScore,
@@ -4644,37 +4644,52 @@ function WatchlistTrendPanel({ trend = {} }) {
           <span>{riskScore === null ? "No data" : `Avg ${trend.riskLabel || "risk"}`}</span>
         </div>
         <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
-          <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Watchlist product risk trend, 0 to 100 risk score">
-            <line className="ppWatchTrendAxisLine" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
-            <line className="ppWatchTrendAxisLine" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
-            {chart.yTicks.map((tick) => {
-              const y = getWatchTrendY(tick.value, chart.axisMax, chart.plot);
-              return (
-                <g key={`watch-overview-y-${tick.value}`}>
-                  <line className="ppWatchTrendGridLine" x1={chart.plot.left} x2={chart.plot.right} y1={y} y2={y} />
-                  <text className="ppWatchTrendAxisLabel" x={chart.plot.left - 10} y={y + 3} textAnchor="end">{tick.label}</text>
-                </g>
-              );
-            })}
-            {chart.xTicks.map((tick) => (
-              <g className="ppWatchTrendXTick" key={`watch-overview-x-${tick.id}`}>
-                <line className="ppWatchTrendGridLine ppWatchTrendGridLine-vertical" x1={tick.x} x2={tick.x} y1={chart.plot.top} y2={chart.plot.bottom} />
-                <text x={tick.x} y={chart.plot.bottom + 22} textAnchor="middle">{tick.label}</text>
-              </g>
-            ))}
-            {chart.series.map((item) => {
-              const linePoints = item.chartPoints;
-              if (!linePoints.length) return null;
-              return (
-                <path
+          {chart.data.length ? (
+            <ComposedChart
+              responsive
+              style={{ width: "100%", height: "100%" }}
+              data={chart.data}
+              margin={{ top: 18, right: 18, bottom: 26, left: 2 }}
+            >
+              <CartesianGrid stroke="rgba(100, 116, 139, 0.16)" strokeDasharray="5 7" />
+              <XAxis
+                dataKey={chart.xDataKey}
+                type="number"
+                domain={[chart.xDomain.min, chart.xDomain.max]}
+                ticks={chart.xTicks.map((tick) => tick.value)}
+                tickFormatter={(value) => chart.xTickLabels[String(value)] || ""}
+                axisLine={{ stroke: "rgba(100, 116, 139, 0.28)" }}
+                tickLine={false}
+                tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+                allowDecimals={false}
+              />
+              <YAxis
+                domain={[0, 100]}
+                ticks={chart.yTicks.map((tick) => tick.value)}
+                tickFormatter={(value) => formatInteger(value)}
+                axisLine={{ stroke: "rgba(100, 116, 139, 0.28)" }}
+                tickLine={false}
+                tick={{ fill: "var(--pp-slate-600)", fontSize: 11, fontWeight: 850 }}
+                width={42}
+              />
+              {chart.series.map((item) => (
+                <Line
                   key={item.trendKey}
-                  className="ppWatchTrendLine"
-                  d={buildSmoothSvgPath(linePoints)}
+                  type="monotone"
+                  dataKey={item.dataKey}
+                  name={item.productTitle || "Watched product"}
                   stroke={item.color || "#2563EB"}
+                  strokeWidth={2.7}
+                  dot={false}
+                  activeDot={false}
+                  connectNulls
+                  isAnimationActive={false}
                 />
-              );
-            })}
-          </svg>
+              ))}
+            </ComposedChart>
+          ) : (
+            <div className="ppWatchTrendNoData">No risk history yet</div>
+          )}
         </div>
         <div className="ppWatchTrendLegend" aria-label="Watched product trend legend">
           {hasSeries ? series.map((item) => {
@@ -4711,36 +4726,44 @@ function WatchlistTrendPanel({ trend = {} }) {
 }
 
 function buildWatchOverviewTrendChart(series = []) {
-  const width = 760;
-  const height = 220;
-  const plot = { left: 42, right: 736, top: 16, bottom: 172 };
   const axisMax = 100;
   const sourceSeries = (Array.isArray(series) ? series : [])
-    .map((item) => ({
+    .map((item, index) => ({
       ...item,
+      dataKey: `watchSeries${index}`,
       sourcePoints: getWatchOverviewTrendSourcePoints(item),
     }))
     .filter((item) => item.sourcePoints.length);
   const timedPoints = sourceSeries
     .flatMap((item) => item.sourcePoints)
     .filter((point) => Number.isFinite(point.time));
-  const minTime = timedPoints.length ? Math.min(...timedPoints.map((point) => point.time)) : NaN;
-  const maxTime = timedPoints.length ? Math.max(...timedPoints.map((point) => point.time)) : NaN;
-  const hasTimeDomain = Number.isFinite(minTime) && Number.isFinite(maxTime) && maxTime > minTime;
-  const timeDomain = hasTimeDomain ? { min: minTime, max: maxTime } : null;
-  const chartSeries = sourceSeries.map((item) => ({
-    ...item,
-    chartPoints: getWatchOverviewTrendChartPoints(item.sourcePoints, plot, axisMax, timeDomain),
-  })).filter((item) => item.chartPoints.length);
+  const rawMinTime = timedPoints.length ? Math.min(...timedPoints.map((point) => point.time)) : NaN;
+  const rawMaxTime = timedPoints.length ? Math.max(...timedPoints.map((point) => point.time)) : NaN;
+  const hasTimedDomain = Number.isFinite(rawMinTime) && Number.isFinite(rawMaxTime);
+  const timePadding = hasTimedDomain && rawMinTime === rawMaxTime ? PRODUCT_METRIC_TIMELINE_DAY_MS / 2 : 0;
+  const timeDomain = hasTimedDomain
+    ? { min: rawMinTime - timePadding, max: rawMaxTime + timePadding, rawMin: rawMinTime, rawMax: rawMaxTime }
+    : null;
+  const xDataKey = timeDomain ? "time" : "index";
+  const data = timeDomain
+    ? buildWatchOverviewTimedTrendRows(sourceSeries)
+    : buildWatchOverviewIndexedTrendRows(sourceSeries);
+  const xDomain = timeDomain
+    ? { min: timeDomain.min, max: timeDomain.max }
+    : { min: 0, max: Math.max(0, data.length - 1) };
+  const xTicks = timeDomain
+    ? getWatchOverviewTimedTrendTicks(timeDomain)
+    : getWatchOverviewIndexedTrendTicks(data);
 
   return {
-    width,
-    height,
-    plot,
     axisMax,
+    data,
+    xDataKey,
+    xDomain,
     yTicks: [0, 25, 50, 75, 100].map((value) => ({ value, label: formatInteger(value) })),
-    xTicks: getWatchOverviewTrendXTicks({ sourceSeries, timeDomain, plot }),
-    series: chartSeries,
+    xTicks,
+    xTickLabels: Object.fromEntries(xTicks.map((tick) => [String(tick.value), tick.label])),
+    series: sourceSeries,
   };
 }
 
@@ -4775,47 +4798,59 @@ function getWatchOverviewTrendSourcePoints(item = {}) {
     .filter((point) => Number.isFinite(point.value));
 }
 
-function getWatchOverviewTrendChartPoints(points = [], plot, axisMax = 100, timeDomain = null) {
-  if (!points.length) return [];
-  if (points.length === 1) {
-    const y = getWatchTrendY(points[0].value, axisMax, plot);
-    return [{ x: plot.left, y }, { x: plot.right, y }];
-  }
-  return points.map((point, index) => ({
-    x: timeDomain && Number.isFinite(point.time)
-      ? plot.left + ((point.time - timeDomain.min) / Math.max(timeDomain.max - timeDomain.min, 1)) * (plot.right - plot.left)
-      : getWatchTrendX(index, points.length, plot),
-    y: getWatchTrendY(point.value, axisMax, plot),
-  }));
+function buildWatchOverviewTimedTrendRows(series = []) {
+  const rowsByTime = new Map();
+  series.forEach((item) => {
+    item.sourcePoints.forEach((point) => {
+      if (!Number.isFinite(point.time)) return;
+      const key = String(point.time);
+      const row = rowsByTime.get(key) || { time: point.time };
+      row[item.dataKey] = point.value;
+      rowsByTime.set(key, row);
+    });
+  });
+  return [...rowsByTime.values()].sort((left, right) => left.time - right.time);
 }
 
-function getWatchOverviewTrendXTicks({ sourceSeries = [], timeDomain = null, plot } = {}) {
-  if (timeDomain) {
-    const tickCount = 6;
-    return Array.from({ length: tickCount }, (_, index) => {
-      const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
-      const time = timeDomain.min + (timeDomain.max - timeDomain.min) * ratio;
-      return {
-        id: `time-${index}-${Math.round(time)}`,
-        x: plot.left + ratio * (plot.right - plot.left),
-        label: formatWatchOverviewTrendXAxisLabel(time, timeDomain),
-      };
+function buildWatchOverviewIndexedTrendRows(series = []) {
+  const longestPointCount = series.reduce((count, item) => Math.max(count, item.sourcePoints.length), 0);
+  return Array.from({ length: longestPointCount }, (_, index) => {
+    const row = { index };
+    series.forEach((item) => {
+      const point = item.sourcePoints[index];
+      if (point && Number.isFinite(point.value)) row[item.dataKey] = point.value;
     });
-  }
+    return row;
+  });
+}
 
-  const longest = sourceSeries.reduce((winner, item) => (
-    item.sourcePoints.length > winner.sourcePoints.length ? item : winner
-  ), { sourcePoints: [] });
-  const pointCount = longest.sourcePoints.length;
-  if (!pointCount) return [];
-  const tickCount = Math.min(6, pointCount);
+function getWatchOverviewTimedTrendTicks(domain = null) {
+  if (!domain) return [];
+  const tickCount = 6;
+  if (domain.rawMin === domain.rawMax) {
+    return [{
+      value: domain.rawMin,
+      label: formatWatchOverviewTrendXAxisLabel(domain.rawMin, domain),
+    }];
+  }
   return Array.from({ length: tickCount }, (_, index) => {
-    const sourceIndex = tickCount === 1 ? 0 : Math.round((index / (tickCount - 1)) * (pointCount - 1));
-    const point = longest.sourcePoints[sourceIndex] || {};
+    const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
+    const value = domain.rawMin + (domain.rawMax - domain.rawMin) * ratio;
     return {
-      id: `index-${index}-${sourceIndex}`,
-      x: getWatchTrendX(sourceIndex, pointCount, plot),
-      label: point.dateLabel || `Run ${sourceIndex + 1}`,
+      value,
+      label: formatWatchOverviewTrendXAxisLabel(value, domain),
+    };
+  });
+}
+
+function getWatchOverviewIndexedTrendTicks(data = []) {
+  if (!data.length) return [];
+  const tickCount = Math.min(6, data.length);
+  return Array.from({ length: tickCount }, (_, index) => {
+    const sourceIndex = tickCount === 1 ? 0 : Math.round((index / (tickCount - 1)) * (data.length - 1));
+    return {
+      value: sourceIndex,
+      label: `Run ${sourceIndex + 1}`,
     };
   });
 }
@@ -4823,7 +4858,7 @@ function getWatchOverviewTrendXTicks({ sourceSeries = [], timeDomain = null, plo
 function formatWatchOverviewTrendXAxisLabel(value, domain = null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const spanDays = domain ? (domain.max - domain.min) / PRODUCT_METRIC_TIMELINE_DAY_MS : 0;
+  const spanDays = domain ? ((domain.rawMax ?? domain.max) - (domain.rawMin ?? domain.min)) / PRODUCT_METRIC_TIMELINE_DAY_MS : 0;
   const options = spanDays >= 150
     ? { month: "short" }
     : spanDays >= 40
