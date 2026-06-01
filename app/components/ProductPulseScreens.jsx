@@ -1963,9 +1963,6 @@ function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "
           <h3>Changes since previous run {windowLabel ? <span>{windowLabel}</span> : null}</h3>
           <div className="ppBetaFeedbackHeaderActions">
             <BetaFeedbackPanelControls panel={panel} />
-            <span className="ppWatchOverviewToolbarIcon" aria-hidden="true">
-              <s-icon type="filter" size="small"></s-icon>
-            </span>
             <label className="ppWatchOverviewSort">
               <span>Sort by</span>
               <select value={sort} onChange={(event) => onSortChange?.(event.target.value)}>
@@ -2039,12 +2036,8 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
         ))}
       </div>
       <div className="ppWatchOverviewRecommendation">
-        <Link className="ppWatchOverviewEvidenceLink" to={row.watchlistHref || row.href || "/app/watchlist"}>
-          <s-icon type="file" size="small"></s-icon>
-          Review evidence
-        </Link>
-        <Link className="ppWatchOverviewProductButton" to={row.watchlistHref || row.href || "/app/watchlist"}>
-          View product <s-icon type="chevron-right" size="small"></s-icon>
+        <Link className="ppWatchOverviewProductButton" to={row.watchlistHref || row.href || "/app/watchlist"} aria-label={`Open ${row.title || "product"} Watchlist details`}>
+          <s-icon type="external" size="small"></s-icon>
         </Link>
       </div>
     </article>
