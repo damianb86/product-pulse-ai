@@ -19,9 +19,18 @@ const tableTargets = [
   { id: "watchlistTable", selector: "[data-pp-watchlist-table]" },
 ];
 
+const settingsPanelTargets = [
+  { id: "settingsPanel", selector: "[data-pp-watchlist-settings-panel]" },
+];
+
 const settingsTargets = [
   { id: "settingsPanel", selector: "[data-pp-watchlist-settings-panel]" },
   { id: "runScanButton", selector: "[data-pp-watchlist-run-scan]" },
+];
+
+const backgroundProcessTargets = [
+  { id: "backgroundProcessPopover", selector: "[data-pp-background-process-popover]" },
+  { id: "backgroundProcessButton", selector: "[data-pp-background-process-button]" },
 ];
 
 const reportTargets = [
@@ -44,7 +53,9 @@ const recentRunsTargets = [
 const watchlistWizardSteps = [
   { id: "addProduct", kind: "addProduct", route: WATCHLIST_ROUTE },
   { id: "table", kind: "table", route: WATCHLIST_ROUTE, targets: tableTargets },
+  { id: "settingsOverview", kind: "settingsOverview", route: WATCHLIST_ROUTE, targets: settingsPanelTargets },
   { id: "settings", kind: "settings", route: WATCHLIST_ROUTE, targets: settingsTargets },
+  { id: "backgroundProcesses", kind: "backgroundProcesses", route: WATCHLIST_ROUTE, targets: backgroundProcessTargets },
   { id: "reportRow", kind: "reportRow", route: WATCHLIST_ROUTE, targets: reportTargets },
   { id: "productHero", kind: "productHero", targets: productHeroTargets },
   { id: "recentRuns", kind: "recentRuns", targets: recentRunsTargets },
@@ -58,7 +69,9 @@ export function ProductPulseWatchlistWizard() {
   const [stepIndex, setStepIndex] = useState(0);
   const [productAdded, setProductAdded] = useState(false);
   const [scanStarted, setScanStarted] = useState(false);
+  const [scanReportReady, setScanReportReady] = useState(false);
   const [reportedProduct, setReportedProduct] = useState(null);
+  const waitingForScanReportRef = useRef(false);
   const step = watchlistWizardSteps[stepIndex] || watchlistWizardSteps[0];
   const addModalOpen = useSelectorPresent('[data-pp-watchlist-add-modal="true"]', active && step.kind === "addProduct");
   const reportReady = useSelectorPresent('[data-pp-watchlist-ready-row="true"] [data-pp-watchlist-view-report="true"]', active);
@@ -67,8 +80,8 @@ export function ProductPulseWatchlistWizard() {
     [addModalOpen, step],
   );
   const targetRects = useWatchlistWizardTargets(targets, active);
-  const nextDisabled = getWatchlistWizardNextDisabled(step, { productAdded, scanStarted, reportReady });
-  const labels = getWatchlistWizardControlLabels(step, { productAdded, scanStarted, reportReady });
+  const nextDisabled = getWatchlistWizardNextDisabled(step, { productAdded, scanStarted, reportReady, scanReportReady });
+  const labels = getWatchlistWizardControlLabels(step, { productAdded, scanStarted, reportReady, scanReportReady });
 
   const completeWizard = useCallback(() => {
     markWatchlistWizardCompleted();
@@ -85,6 +98,8 @@ export function ProductPulseWatchlistWizard() {
     if (document.body.classList.contains("ppWizardActive")) return;
     setProductAdded(false);
     setScanStarted(false);
+    setScanReportReady(false);
+    waitingForScanReportRef.current = false;
     setReportedProduct(null);
     setStepIndex(0);
     setActive(true);
@@ -98,10 +113,31 @@ export function ProductPulseWatchlistWizard() {
   }, [active, location.pathname]);
 
   useEffect(() => {
+    const handleStartWatchlistWizard = () => {
+      clearWatchlistWizardCompleted();
+      setProductAdded(false);
+      setScanStarted(false);
+      setScanReportReady(false);
+      waitingForScanReportRef.current = false;
+      setReportedProduct(null);
+      setStepIndex(0);
+      setActive(true);
+      if (!isWatchlistIndexRoute(location.pathname)) {
+        navigate(WATCHLIST_ROUTE);
+      }
+    };
+
+    window.addEventListener("productpulse:watchlist-wizard-start", handleStartWatchlistWizard);
+    return () => window.removeEventListener("productpulse:watchlist-wizard-start", handleStartWatchlistWizard);
+  }, [location.pathname, navigate]);
+
+  useEffect(() => {
     document.body.classList.toggle("ppWatchlistWizardActive", active);
     document.body.classList.toggle("ppWatchlistWizardAddProductActive", active && step.kind === "addProduct");
     document.body.classList.toggle("ppWatchlistWizardTableActive", active && step.kind === "table");
+    document.body.classList.toggle("ppWatchlistWizardSettingsOverviewActive", active && step.kind === "settingsOverview");
     document.body.classList.toggle("ppWatchlistWizardSettingsActive", active && step.kind === "settings");
+    document.body.classList.toggle("ppWatchlistWizardBackgroundProcessesActive", active && step.kind === "backgroundProcesses");
     document.body.classList.toggle("ppWatchlistWizardReportActive", active && step.kind === "reportRow");
     document.body.classList.toggle("ppWatchlistWizardProductHeroActive", active && step.kind === "productHero");
     document.body.classList.toggle("ppWatchlistWizardRecentRunsActive", active && step.kind === "recentRuns");
@@ -109,7 +145,9 @@ export function ProductPulseWatchlistWizard() {
       document.body.classList.remove("ppWatchlistWizardActive");
       document.body.classList.remove("ppWatchlistWizardAddProductActive");
       document.body.classList.remove("ppWatchlistWizardTableActive");
+      document.body.classList.remove("ppWatchlistWizardSettingsOverviewActive");
       document.body.classList.remove("ppWatchlistWizardSettingsActive");
+      document.body.classList.remove("ppWatchlistWizardBackgroundProcessesActive");
       document.body.classList.remove("ppWatchlistWizardReportActive");
       document.body.classList.remove("ppWatchlistWizardProductHeroActive");
       document.body.classList.remove("ppWatchlistWizardRecentRunsActive");
@@ -123,22 +161,50 @@ export function ProductPulseWatchlistWizard() {
 
   useEffect(() => {
     if (!active) return undefined;
-    const selector = getWatchlistWizardScrollSelector(step, addModalOpen);
-    if (!selector) return undefined;
-    const timeout = window.setTimeout(() => {
-      document.querySelector(selector)?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-    }, 140);
-    return () => window.clearTimeout(timeout);
+    const timeouts = [80, 360].map((delay) => (
+      window.setTimeout(() => scrollWatchlistWizardTargetIntoView(step, addModalOpen), delay)
+    ));
+    return () => timeouts.forEach((timeout) => window.clearTimeout(timeout));
   }, [active, addModalOpen, step]);
 
   useEffect(() => {
-    if (!active || step.kind !== "settings" || !scanStarted || !reportReady) return undefined;
+    if (!active) return undefined;
+
+    const blockInteraction = (event) => {
+      if (!shouldBlockWatchlistWizardInteraction(event.target, step.kind)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    window.addEventListener("pointerdown", blockInteraction, true);
+    window.addEventListener("click", blockInteraction, true);
+    window.addEventListener("submit", blockInteraction, true);
+    return () => {
+      window.removeEventListener("pointerdown", blockInteraction, true);
+      window.removeEventListener("click", blockInteraction, true);
+      window.removeEventListener("submit", blockInteraction, true);
+    };
+  }, [active, step.kind]);
+
+  useEffect(() => {
+    if (!active || step.kind !== "backgroundProcesses" || !scanStarted || !scanReportReady) return undefined;
     const timeout = window.setTimeout(() => {
       const reportStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "reportRow");
       if (reportStepIndex >= 0) setStepIndex(reportStepIndex);
+      waitingForScanReportRef.current = false;
     }, 260);
     return () => window.clearTimeout(timeout);
-  }, [active, reportReady, scanStarted, step.kind]);
+  }, [active, scanReportReady, scanStarted, step.kind]);
+
+  useEffect(() => {
+    if (!active || step.kind !== "backgroundProcesses") return undefined;
+    const timeout = window.setTimeout(() => openBackgroundProcessesPopover(), 80);
+    const interval = window.setInterval(() => openBackgroundProcessesPopover(), 1000);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [active, step.kind]);
 
   useEffect(() => {
     if (!active || step.kind !== "reportRow" || !isWatchlistProductRoute(location.pathname)) return;
@@ -152,17 +218,27 @@ export function ProductPulseWatchlistWizard() {
       const detail = event.detail || {};
       if (detail.type === "product-added") {
         setProductAdded(true);
+        setScanReportReady(false);
+        waitingForScanReportRef.current = false;
         const tableStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "table");
         if (tableStepIndex >= 0) setStepIndex(tableStepIndex);
       }
       if (detail.type === "scan-started") {
         setScanStarted(true);
+        setScanReportReady(false);
+        waitingForScanReportRef.current = true;
+        const backgroundStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "backgroundProcesses");
+        if (backgroundStepIndex >= 0) setStepIndex(backgroundStepIndex);
+        window.setTimeout(() => openBackgroundProcessesPopover(), 80);
       }
       if (detail.type === "report-ready") {
         setReportedProduct({
           title: detail.productTitle || "",
           href: detail.productHref || "",
         });
+        if (waitingForScanReportRef.current) {
+          setScanReportReady(true);
+        }
       }
       if (detail.type === "report-opened") {
         setReportedProduct({
@@ -188,8 +264,10 @@ export function ProductPulseWatchlistWizard() {
     const nextIndex = stepIndex + 1;
     setStepIndex(nextIndex);
     const nextStep = watchlistWizardSteps[nextIndex];
-    if (nextStep?.route) navigate(nextStep.route);
-  }, [completeWizard, navigate, nextDisabled, stepIndex]);
+    if (nextStep?.route && !isCurrentWatchlistWizardRoute(location.pathname, nextStep)) {
+      navigate(nextStep.route);
+    }
+  }, [completeWizard, location.pathname, navigate, nextDisabled, stepIndex]);
 
   const handleNext = useCallback(() => {
     advanceWizard();
@@ -204,8 +282,10 @@ export function ProductPulseWatchlistWizard() {
     const previousIndex = stepIndex - 1;
     setStepIndex(previousIndex);
     const previousStep = watchlistWizardSteps[previousIndex];
-    if (previousStep?.route) navigate(previousStep.route);
-  }, [navigate, stepIndex]);
+    if (previousStep?.route && !isCurrentWatchlistWizardRoute(location.pathname, previousStep)) {
+      navigate(previousStep.route);
+    }
+  }, [location.pathname, navigate, stepIndex]);
 
   if (!hydrated || !active) return null;
 
@@ -221,8 +301,14 @@ export function ProductPulseWatchlistWizard() {
         {step.kind === "table" ? (
           <WatchlistTableStep targetRects={targetRects} />
         ) : null}
+        {step.kind === "settingsOverview" ? (
+          <WatchlistSettingsOverviewStep targetRects={targetRects} />
+        ) : null}
         {step.kind === "settings" ? (
           <WatchlistSettingsStep targetRects={targetRects} scanStarted={scanStarted} reportReady={reportReady} />
+        ) : null}
+        {step.kind === "backgroundProcesses" ? (
+          <WatchlistBackgroundProcessesStep targetRects={targetRects} />
         ) : null}
         {step.kind === "reportRow" ? (
           <WatchlistReportRowStep targetRects={targetRects} reportedProduct={reportedProduct} />
@@ -335,6 +421,35 @@ function WatchlistTableStep({ targetRects }) {
   );
 }
 
+function WatchlistSettingsOverviewStep({ targetRects }) {
+  const anchor = targetRects.settingsPanel;
+  if (!anchor) {
+    return <WatchlistWizardLoadingCard title="Opening Watch settings" body="We are locating the Watchlist settings panel." />;
+  }
+
+  return (
+    <WatchlistWizardTooltip
+      anchorRect={anchor}
+      className="ppWatchlistWizardTooltip-settingsOverview"
+      title="Watchlist settings"
+      eyebrow="Configuration"
+      preferredWidth={402}
+      estimatedHeight={174}
+      forceSide="top"
+      offsetY={-12}
+    >
+      <p>
+        This panel controls how Watchlist runs: the scan cadence, alert recipients, trigger rules,
+        email alerts, and bulk pause or resume actions for watched products.
+      </p>
+      <p>
+        This step is only an overview, so the settings are locked while the wizard explains them.
+        On the next step you will run a manual scan.
+      </p>
+    </WatchlistWizardTooltip>
+  );
+}
+
 function WatchlistSettingsStep({ targetRects, scanStarted, reportReady }) {
   const anchor = targetRects.runScanButton || targetRects.settingsPanel;
   if (!anchor) {
@@ -373,6 +488,40 @@ function WatchlistSettingsStep({ targetRects, scanStarted, reportReady }) {
           new results.
         </p>
       )}
+    </WatchlistWizardTooltip>
+  );
+}
+
+function WatchlistBackgroundProcessesStep({ targetRects }) {
+  const anchor = targetRects.backgroundProcessPopover || targetRects.backgroundProcessButton;
+  if (!anchor) {
+    return <WatchlistWizardLoadingCard title="Opening background processes" body="We are opening the process monitor for this Watchlist scan." />;
+  }
+
+  return (
+    <WatchlistWizardTooltip
+      anchorRect={anchor}
+      className="ppWatchlistWizardTooltip-backgroundProcesses"
+      title="Track the Watchlist scan"
+      eyebrow="Background processes"
+      preferredWidth={408}
+      estimatedHeight={256}
+      forceSide="left"
+      offsetY={22}
+    >
+      <p>
+        ProductPulse is running the Watchlist process across the active products in this list. The
+        system checks each product against the latest stored evidence and queues any diagnosis work
+        needed to create fresh Watchlist results.
+      </p>
+      <p>
+        When the run completes, the Watchlist report can be delivered by email. As each product
+        finishes, its individual report becomes available here first.
+      </p>
+      <div className="ppWizardProcessingStatus" role="status" aria-live="polite">
+        <span className="ppWizardInlineSpinner" aria-hidden="true" />
+        <span>Waiting for the first Watchlist report...</span>
+      </div>
     </WatchlistWizardTooltip>
   );
 }
@@ -628,6 +777,7 @@ function getWatchlistWizardTargets(step, addModalOpen) {
 function getWatchlistWizardNextDisabled(step, state) {
   if (step.kind === "addProduct") return !state.productAdded;
   if (step.kind === "settings") return !state.scanStarted || !state.reportReady;
+  if (step.kind === "backgroundProcesses") return !state.scanReportReady;
   if (step.kind === "reportRow") return true;
   return false;
 }
@@ -642,6 +792,9 @@ function getWatchlistWizardControlLabels(step, state) {
       next: !state.scanStarted ? "Run scan now first" : state.reportReady ? "Next" : "Waiting for report",
     };
   }
+  if (step.kind === "backgroundProcesses") {
+    return { back: "Back", next: state.scanReportReady ? "Next" : "Waiting for first report" };
+  }
   if (step.kind === "reportRow") return { back: "Back", next: "Open report first" };
   if (step.kind === "recentRuns") return { back: "Back", next: "Finish" };
   return { back: "Back", next: "Next" };
@@ -652,11 +805,52 @@ function getWatchlistWizardScrollSelector(step, addModalOpen) {
     return addModalOpen ? '[data-pp-watchlist-add-modal="true"]' : '[data-pp-watchlist-add-button="header"]';
   }
   if (step.kind === "table") return "[data-pp-watchlist-table]";
+  if (step.kind === "settingsOverview") return "[data-pp-watchlist-settings-panel]";
   if (step.kind === "settings") return "[data-pp-watchlist-run-scan]";
+  if (step.kind === "backgroundProcesses") return "[data-pp-background-process-popover], [data-pp-background-process-button]";
   if (step.kind === "reportRow") return '[data-pp-watchlist-ready-row="true"]';
   if (step.kind === "productHero") return "[data-pp-watchlist-product-hero]";
   if (step.kind === "recentRuns") return "[data-pp-watchlist-recent-runs]";
   return "";
+}
+
+function scrollWatchlistWizardTargetIntoView(step, addModalOpen) {
+  const selector = getWatchlistWizardScrollSelector(step, addModalOpen);
+  if (!selector) return;
+  const element = document.querySelector(selector);
+  if (!element) return;
+  const block = getWatchlistWizardScrollBlock(step);
+  element.scrollIntoView?.({ block, inline: "nearest", behavior: "auto" });
+}
+
+function getWatchlistWizardScrollBlock(step) {
+  if (step.kind === "table") return "end";
+  if (step.kind === "settingsOverview" || step.kind === "settings") return "center";
+  if (step.kind === "backgroundProcesses") return "center";
+  if (step.kind === "reportRow") return "center";
+  return "center";
+}
+
+function shouldBlockWatchlistWizardInteraction(target, stepKind) {
+  if (!(target instanceof Element)) return false;
+  if (target.closest(".ppWatchlistWizardRoot")) return false;
+  if (stepKind === "table") {
+    return Boolean(target.closest("[data-pp-watchlist-table] a, [data-pp-watchlist-table] button, [data-pp-watchlist-table] [role='button']"));
+  }
+  if (stepKind === "settingsOverview") {
+    return Boolean(target.closest("[data-pp-watchlist-settings-panel]"));
+  }
+  if (stepKind === "settings") {
+    const settingsPanel = target.closest("[data-pp-watchlist-settings-panel]");
+    if (!settingsPanel) return false;
+    const runScanButton = target.closest("[data-pp-watchlist-run-scan]");
+    const runScanForm = target.closest("form")?.querySelector("[data-pp-watchlist-run-scan]");
+    return !runScanButton && !runScanForm;
+  }
+  if (stepKind === "backgroundProcesses") {
+    return Boolean(target.closest(".ppGlobalTopbar, [data-pp-background-process-popover], [data-pp-background-process-button]"));
+  }
+  return false;
 }
 
 function isCurrentWatchlistWizardRoute(pathname, step) {
@@ -788,4 +982,17 @@ function markWatchlistWizardCompleted() {
   } catch {
     // Ignore storage failures; the visible wizard can still be dismissed for this session.
   }
+}
+
+function clearWatchlistWizardCompleted() {
+  try {
+    window.localStorage.removeItem(WATCHLIST_WIZARD_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures; the visible wizard can still restart for this session.
+  }
+}
+
+function openBackgroundProcessesPopover() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:wizard-open-background-processes"));
 }

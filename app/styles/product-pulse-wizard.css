@@ -605,14 +605,49 @@ button.ppWizardSpotlightTarget,
   pointer-events: none;
 }
 
+.ppWatchlistWizardTableActive [data-pp-watchlist-table] {
+  scroll-margin-top: 96px;
+  scroll-margin-bottom: 128px;
+}
+
+.ppWatchlistWizardSettingsOverviewActive .ppWatchlistScreen,
 .ppWatchlistWizardSettingsActive .ppWatchlistScreen {
   padding-bottom: 132px;
 }
 
+.ppWatchlistWizardSettingsOverviewActive [data-pp-watchlist-settings-panel],
 .ppWatchlistWizardSettingsActive [data-pp-watchlist-settings-panel],
 .ppWatchlistWizardSettingsActive [data-pp-watchlist-run-scan] {
   scroll-margin-top: 128px;
   scroll-margin-bottom: 168px;
+}
+
+.ppWatchlistWizardBackgroundProcessesActive .ppGlobalTopbar {
+  z-index: 2147481510;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.ppWatchlistWizardBackgroundProcessesActive .ppGlobalTopbarPopover {
+  z-index: 2147481520;
+}
+
+.ppWatchlistWizardBackgroundProcessesActive .ppGlobalTopbarJobsButton.ppWizardSpotlightTarget,
+.ppWatchlistWizardBackgroundProcessesActive .ppGlobalTopbarJobsPopover.ppWizardSpotlightTarget {
+  box-shadow:
+    0 0 0 3px rgba(var(--pp-primary-green-rgb), 0.16),
+    0 18px 44px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppWatchlistWizardBackgroundProcessesActive .ppGlobalTopbarAction:not(:has([data-pp-background-process-button])) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ppWatchlistWizardBackgroundProcessesActive .ppGlobalTopbar :is(a, button, [role="button"]) {
+  cursor: not-allowed !important;
 }
 
 .ppWatchlistTableWrap.ppWizardSpotlightTarget,
@@ -634,6 +669,30 @@ button.ppWizardSpotlightTarget,
 
 .ppWatchlistTable tr.ppWizardSpotlightTarget td:first-child {
   box-shadow: inset 3px 0 var(--pp-primary-green);
+}
+
+.ppWatchlistWizardTableActive [data-pp-watchlist-table].ppWizardSpotlightTarget :is(a, button, [role="button"]),
+.ppWatchlistWizardSettingsOverviewActive [data-pp-watchlist-settings-panel].ppWizardSpotlightTarget :is(a, button, input, select, textarea, summary, [role="button"]) {
+  cursor: not-allowed !important;
+  opacity: 0.62;
+  pointer-events: none !important;
+}
+
+.ppWatchlistWizardSettingsActive [data-pp-watchlist-settings-panel].ppWizardSpotlightTarget :is(a, button, input, select, textarea, summary, [role="button"]) {
+  cursor: not-allowed !important;
+  opacity: 0.62;
+  pointer-events: none !important;
+}
+
+.ppWatchlistWizardSettingsActive [data-pp-watchlist-settings-panel].ppWizardSpotlightTarget [data-pp-watchlist-run-scan].ppWizardSpotlightTarget {
+  position: relative !important;
+  z-index: 2147481600 !important;
+  cursor: pointer !important;
+  opacity: 1;
+  pointer-events: auto !important;
+  box-shadow:
+    0 0 0 4px rgba(var(--pp-primary-green-rgb), 0.18),
+    0 14px 32px rgba(var(--pp-shadow-rgb), 0.2) !important;
 }
 
 .ppWatchlistWizardReportActive [data-pp-watchlist-ready-row].ppWizardSpotlightTarget,

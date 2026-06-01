@@ -72,6 +72,8 @@ const PRODUCT_METRIC_TIMELINE_CHART = Object.freeze({
 const useProductPulseIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 const PRODUCT_PULSE_WIZARD_STORAGE_KEY = "productPulse.onboardingWizard.completed.v1";
 const PRODUCT_PULSE_WIZARD_START_ROUTE = "/app/dashboard";
+const PRODUCT_PULSE_WATCHLIST_WIZARD_STORAGE_KEY = "productPulse.watchlistWizard.completed.v1";
+const PRODUCT_PULSE_WATCHLIST_WIZARD_START_ROUTE = "/app/watchlist";
 const MOCK_DATASET_STAGE_ACTIONS = [
   {
     stage: "products",
@@ -133,6 +135,16 @@ function dispatchProductPulseWizardStart() {
     // The wizard still listens to the event and can restart for the current session.
   }
   window.dispatchEvent(new CustomEvent("productpulse:wizard-start"));
+}
+
+function dispatchProductPulseWatchlistWizardStart() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(PRODUCT_PULSE_WATCHLIST_WIZARD_STORAGE_KEY);
+  } catch {
+    // The wizard still listens to the event and can restart for the current session.
+  }
+  window.dispatchEvent(new CustomEvent("productpulse:watchlist-wizard-start"));
 }
 
 function dispatchProductPulseSettingsDirtyState(dirty) {
@@ -5473,6 +5485,11 @@ export function SettingsScreen({ data = {}, actionData }) {
     navigate(PRODUCT_PULSE_WIZARD_START_ROUTE);
   };
 
+  const handleStartWatchlistWizard = () => {
+    dispatchProductPulseWatchlistWizardStart();
+    navigate(PRODUCT_PULSE_WATCHLIST_WIZARD_START_ROUTE);
+  };
+
   return (
     <FullWidthPage heading="Settings" className="ppSettingsPage">
       <ScreenShell className="ppDashboard ppSettingsScreen">
@@ -5610,12 +5627,18 @@ export function SettingsScreen({ data = {}, actionData }) {
               </div>
               <div className="ppSettingsWizardDevActions">
                 <p>
-                  Clears the local completion flag, moves to the dashboard, and opens the first wizard step.
+                  Clears the local completion flag, opens the target page, and starts the selected wizard from its first step.
                 </p>
-                <button className="ppPrimaryButton ppSettingsWizardDevButton" type="button" onClick={handleStartWizard}>
-                  <s-icon type="play" size="small"></s-icon>
-                  Start wizard
-                </button>
+                <div className="ppSettingsWizardDevButtonGroup">
+                  <button className="ppPrimaryButton ppSettingsWizardDevButton" type="button" onClick={handleStartWizard}>
+                    <s-icon type="play" size="small"></s-icon>
+                    Start wizard
+                  </button>
+                  <button className="ppSecondaryButton ppSettingsWizardDevButton" type="button" onClick={handleStartWatchlistWizard}>
+                    <s-icon type="play" size="small"></s-icon>
+                    Start Watchlist wizard
+                  </button>
+                </div>
               </div>
             </section>
 

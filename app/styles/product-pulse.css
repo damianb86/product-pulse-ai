@@ -31248,6 +31248,14 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
+.ppSettingsWizardDevButtonGroup {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .ppSettingsWizardDevButton {
   min-width: 168px;
   justify-content: center;
@@ -32047,7 +32055,6 @@ s-page[inline-size="large-500"] {
 .ppProductsEmptyState .ppDashboardIcon .ppProductPulseIconBadgeGlyph > s-icon {
   display: block;
   margin: 0;
-  transform: scale(2);
   transform-origin: top left;
 }
 

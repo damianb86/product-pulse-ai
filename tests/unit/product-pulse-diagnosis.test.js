@@ -4746,7 +4746,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
         title: "Product",
         description: "",
         status: "ACTIVE",
-        vendor: "Qorve",
+        vendor: "Zuam",
         productType: "Toy",
         variants: [
           { id: "gid://shopify/ProductVariant/1", title: "Blue", price: 29, compareAtPrice: 39, inventoryItemId: "gid://shopify/InventoryItem/1" },
@@ -4794,7 +4794,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       ai: {
         report: {
           recommendation_copy: {
-            product_title: "Qorve Toy with clear age guidance",
+            product_title: "Zuam Toy with clear age guidance",
             media_guidance: "Add alt text and visual context.",
             qa_note: "Ask QA to inspect scary packaging feedback.",
           },
@@ -4807,7 +4807,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       shopifyField: "Product.title",
       applicationRisk: "Medium",
       reviewApplyFlow: "Review -> Apply",
-      draftTitle: "Qorve Toy with clear age guidance",
+      draftTitle: "Zuam Toy with clear age guidance",
     });
     expect(byId.get("set-product-draft")?.payload.shopifyField).toBe("Product.status");
     expect(byId.get("limit-variant-inventory")?.payload.shopifyField).toBe("InventoryLevel quantities");
@@ -4817,7 +4817,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       id: "gid://shopify/MediaImage/1",
       currentAltText: "",
     });
-    expect(byId.get("improve-product-media")?.payload.draftText).toContain("Qorve Toy");
+    expect(byId.get("improve-product-media")?.payload.draftText).toContain("Zuam Toy");
     expect(byId.get("improve-product-media")?.payload.shopifyField).toBe("Product media alt text");
     expect(byId.get("apply-risk-tags")?.payload.tags).toEqual(expect.arrayContaining(["risk-high", "sentiment-negative", "variant-issue"]));
     expect(recommendations.every((item) => item.payload.recipe === true)).toBe(true);

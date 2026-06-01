@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { createMemoryRouter, Link, RouterProvider, useLocation } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 import { ProductPulseWatchlistWizard } from "../../app/components/ProductPulseWatchlistWizard";
@@ -25,6 +25,8 @@ describe("ProductPulseWatchlistWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add to watchlist" }));
 
     expect(await screen.findByRole("dialog", { name: "Watched products" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "View Watchlist report for GEN Watch Product" }));
+    expect(screen.getByTestId("watchlist-path")).toHaveTextContent("/app/watchlist");
     expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBeNull();
   });
 
@@ -38,13 +40,20 @@ describe("ProductPulseWatchlistWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
+    expect(await screen.findByRole("dialog", { name: "Watchlist settings" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run scan now" }));
+    expect(screen.queryByRole("dialog", { name: "Watchlist scan is running" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
     expect(await screen.findByRole("dialog", { name: "Run a Watchlist scan" })).toHaveClass("isTop");
     expect(screen.getByRole("button", { name: "Run scan now first" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Run scan now" }));
 
-    expect(await screen.findByRole("dialog", { name: "Watchlist scan is running" })).toBeInTheDocument();
-    expect(screen.getByText("Waiting for a Watchlist report...")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Track the Watchlist scan" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Background processes" })).toBeInTheDocument();
+    expect(screen.getByText("Waiting for the first Watchlist report...")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Finish scan" }));
 
@@ -75,6 +84,21 @@ describe("ProductPulseWatchlistWizard", () => {
 
     expect(screen.queryByRole("dialog", { name: "Monitor product changes automatically" })).not.toBeInTheDocument();
   });
+
+  it("restarts from Settings when the development start event is fired", async () => {
+    window.localStorage.setItem(WATCHLIST_WIZARD_STORAGE_KEY, "true");
+    renderWatchlistWizard("/app/settings");
+
+    expect(screen.queryByRole("dialog", { name: "Monitor product changes automatically" })).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("productpulse:watchlist-wizard-start"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("watchlist-path")).toHaveTextContent("/app/watchlist"));
+    expect(await screen.findByRole("dialog", { name: "Monitor product changes automatically" })).toBeInTheDocument();
+    expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBeNull();
+  });
 });
 
 function renderWatchlistWizard(initialEntry = "/app/watchlist") {
@@ -88,7 +112,14 @@ function renderWatchlistWizard(initialEntry = "/app/watchlist") {
 function WatchlistWizardHarness() {
   const location = useLocation();
   const [modalOpen, setModalOpen] = useState(false);
+  const [jobsOpen, setJobsOpen] = useState(false);
   const [rows, setRows] = useState([]);
+
+  useEffect(() => {
+    const handleOpenBackgroundProcesses = () => setJobsOpen(true);
+    window.addEventListener("productpulse:wizard-open-background-processes", handleOpenBackgroundProcesses);
+    return () => window.removeEventListener("productpulse:wizard-open-background-processes", handleOpenBackgroundProcesses);
+  }, []);
 
   const addProduct = () => {
     setModalOpen(false);
@@ -113,6 +144,23 @@ function WatchlistWizardHarness() {
   return (
     <>
       <ProductPulseWatchlistWizard />
+      <div className="ppGlobalTopbar">
+        <button
+          type="button"
+          data-pp-background-process-button
+          aria-label="Background processes"
+          aria-expanded={jobsOpen}
+          onClick={() => setJobsOpen((current) => !current)}
+        >
+          Background processes
+        </button>
+        {jobsOpen ? (
+          <section data-pp-background-process-popover role="dialog" aria-label="Background processes">
+            <h2>Background processes</h2>
+            <p>1 running</p>
+          </section>
+        ) : null}
+      </div>
       <main>
         <span data-testid="watchlist-path">{`${location.pathname}${location.search}`}</span>
         {location.pathname === "/app/watchlist" ? (
@@ -163,10 +211,10 @@ function WatchlistWizardHarness() {
               <button type="button" data-pp-watchlist-run-scan onClick={startScan}>
                 Run scan now
               </button>
-              <button type="button" onClick={finishScan}>
-                Finish scan
-              </button>
             </section>
+            <button type="button" onClick={finishScan}>
+              Finish scan
+            </button>
             {modalOpen ? (
               <section data-pp-watchlist-add-modal="true" role="dialog" aria-modal="true" aria-labelledby="watchlist-add-title">
                 <h2 id="watchlist-add-title">Add watched product</h2>

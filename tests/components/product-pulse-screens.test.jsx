@@ -21,12 +21,14 @@ import {
 import { defaultView } from "../fixtures/product-pulse-fixtures";
 
 const WIZARD_STORAGE_KEY = "productPulse.onboardingWizard.completed.v1";
+const WATCHLIST_WIZARD_STORAGE_KEY = "productPulse.watchlistWizard.completed.v1";
 
 afterEach(() => {
   vi.restoreAllMocks();
   window.localStorage.removeItem(__productPulseScreensTestHooks.productDetailPanelCollapseStorageKey);
   window.localStorage.removeItem(__productPulseScreensTestHooks.watchRecentRunsWindowStorageKey);
   window.localStorage.removeItem(WIZARD_STORAGE_KEY);
+  window.localStorage.removeItem(WATCHLIST_WIZARD_STORAGE_KEY);
   delete window.shopify;
 });
 
@@ -1510,7 +1512,7 @@ describe("ProductPulse screens", () => {
           title: "Vintage Denim Jacket",
           handle: "vintage-denim-jacket",
           status: "ACTIVE",
-          detail: "Qorve / Outerwear",
+          detail: "Zuam / Outerwear",
           sku: "VDJ-1",
           imageUrl: null,
           imageAlt: null,
@@ -1551,7 +1553,7 @@ describe("ProductPulse screens", () => {
             title: "Vintage Denim Jacket",
             handle: "vintage-denim-jacket",
             status: "ACTIVE",
-            detail: "Qorve / Outerwear",
+            detail: "Zuam / Outerwear",
             sku: "VDJ-1",
             imageUrl: null,
             imageAlt: null,
@@ -1563,7 +1565,7 @@ describe("ProductPulse screens", () => {
             title: "Denim Tote",
             handle: "denim-tote",
             status: "ACTIVE",
-            detail: "Qorve / Bags",
+            detail: "Zuam / Bags",
             sku: "DT-1",
             imageUrl: null,
             imageAlt: null,
@@ -1638,9 +1640,13 @@ describe("ProductPulse screens", () => {
 
   it("shows development-only wizard and mock dataset controls in development mode", async () => {
     window.localStorage.setItem(WIZARD_STORAGE_KEY, "true");
+    window.localStorage.setItem(WATCHLIST_WIZARD_STORAGE_KEY, "true");
     const wizardStartEvents = [];
+    const watchlistWizardStartEvents = [];
     const handleWizardStart = (event) => wizardStartEvents.push(event);
+    const handleWatchlistWizardStart = (event) => watchlistWizardStartEvents.push(event);
     window.addEventListener("productpulse:wizard-start", handleWizardStart);
+    window.addEventListener("productpulse:watchlist-wizard-start", handleWatchlistWizardStart);
 
     const { router } = renderWithRouter(<SettingsScreen data={{
       ...defaultView,
@@ -1676,7 +1682,14 @@ describe("ProductPulse screens", () => {
     expect(wizardStartEvents).toHaveLength(1);
     await waitFor(() => expect(router.state.location.pathname).toBe("/app/dashboard"));
 
+    fireEvent.click(screen.getByRole("button", { name: "Start Watchlist wizard" }));
+
+    expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBeNull();
+    expect(watchlistWizardStartEvents).toHaveLength(1);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/app/watchlist"));
+
     window.removeEventListener("productpulse:wizard-start", handleWizardStart);
+    window.removeEventListener("productpulse:watchlist-wizard-start", handleWatchlistWizardStart);
   });
 
   it("uses the Shopify save bar guard when the wizard tries to leave dirty Settings", async () => {
@@ -2356,8 +2369,8 @@ describe("ProductPulse screens", () => {
   it("puts storefront and Shopify Admin in product actions", () => {
     const product = {
       ...defaultView.startHere,
-      shopifyAdminUrl: "https://admin.shopify.com/store/qorve/products/123",
-      shopifyStorefrontUrl: "https://qorve.example.com/products/core-linen-trouser",
+      shopifyAdminUrl: "https://admin.shopify.com/store/zuam/products/123",
+      shopifyStorefrontUrl: "https://zuam.example.com/products/core-linen-trouser",
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
@@ -4919,7 +4932,7 @@ describe("ProductPulse screens", () => {
   it("shows concrete variant option suggestions and a Shopify edit link", () => {
     const product = {
       ...defaultView.startHere,
-      shopifyAdminUrl: "https://admin.shopify.com/store/qorve/products/123",
+      shopifyAdminUrl: "https://admin.shopify.com/store/zuam/products/123",
       recommendedActions: [{
         id: "correct-variant-options",
         label: "Fix variant names/options",
@@ -4951,7 +4964,7 @@ describe("ProductPulse screens", () => {
   it("does not show no-op variant label suggestions", () => {
     const product = {
       ...defaultView.startHere,
-      shopifyAdminUrl: "https://admin.shopify.com/store/qorve/products/123",
+      shopifyAdminUrl: "https://admin.shopify.com/store/zuam/products/123",
       recommendedActions: [{
         id: "correct-variant-options",
         label: "Fix variant names/options",

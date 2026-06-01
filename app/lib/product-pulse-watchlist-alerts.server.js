@@ -763,11 +763,17 @@ function buildEmailTopBarHtml({ generatedAt } = {}) {
 }
 
 function buildEmailAssistantIconHtml() {
-  return `<span class="gw-watchlist-brand-icon" role="img" aria-label="Watchlist" style="display:inline-block;width:22px;height:22px;margin-right:8px;border-radius:7px;background:#eef2ff;border:1px solid #a5b4fc;box-sizing:border-box;vertical-align:-6px;">
-    <span style="display:block;width:3px;height:3px;margin:5px 0 0 5px;border-radius:50%;background:#4f46e5;"></span>
-    <span style="display:block;width:8px;height:2px;margin:-2px 0 0 10px;border-radius:999px;background:#2563eb;"></span>
-    <span style="display:block;width:3px;height:3px;margin:4px 0 0 5px;border-radius:50%;background:#4f46e5;"></span>
-    <span style="display:block;width:8px;height:2px;margin:-2px 0 0 10px;border-radius:999px;background:#2563eb;"></span>
+  return `<span class="gw-watchlist-brand-icon" role="img" aria-label="Watchlist" style="display:inline-block;width:22px;height:22px;margin-right:8px;color:#ffffff;line-height:0;vertical-align:-5px;">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="display:block;width:22px;height:22px;color:#ffffff;">
+      <circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.9"></circle>
+      <circle cx="12" cy="12" r="2.4" fill="none" stroke="currentColor" stroke-width="1.9"></circle>
+      <path d="M12 2.8v3.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>
+      <path d="M12 18.1v3.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>
+      <path d="M2.8 12h3.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>
+      <path d="M18.1 12h3.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>
+      <path d="M12 12l5.2-5.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>
+      <path d="M7.7 8.7a6.2 6.2 0 0 1 8.6 0" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"></path>
+    </svg>
   </span>`;
 }
 

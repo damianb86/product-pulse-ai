@@ -26,7 +26,7 @@ SHOPIFY_APP_URL=
 PROD_SHOPIFY_APP_URL=
 SHOPIFY_ADMIN_APP_HANDLE=product-pulse-ai
 SCOPES=read_products,write_products,read_orders,read_all_orders,read_customers,read_returns,read_inventory,read_locations
-DATABASE_URL=postgresql://qorve_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
+DATABASE_URL=postgresql://zuam_dev:replace-with-local-password@127.0.0.1:5432/product_pulse_ai
 APP_ENV=development
 PRODUCT_PULSE_AI_LEVEL=1
 OPENAI_API_KEY=
@@ -51,13 +51,13 @@ When `PRODUCT_PULSE_AI_LEVEL` is not set, local development defaults to `1` and 
 
 ## Docker Deploy
 
-ProductPulse AI is configured to deploy like Reply Pilot on the shared Qorve Docker stack:
+ProductPulse AI is configured to deploy like Reply Pilot on the shared Zuam Docker stack:
 
 - Shared Caddy and PostgreSQL live in `../shared-docker`.
 - The app joins the external Docker network `shared_apps`.
 - `deploy.sh` loads both the app `.env` and the shared `shared-docker/.env`, validates `docker-compose.yml`, then runs `docker compose up -d --build --remove-orphans`.
 - Docker publishes `SHOPIFY_APP_URL` from `PROD_SHOPIFY_APP_URL`; keep local `SHOPIFY_APP_URL` for development.
-- In Docker, use the shared PostgreSQL hostname in `DATABASE_URL`, for example `postgresql://qorve_dev:replace-with-app-db-password@postgres:5432/product_pulse_ai?schema=public&connection_limit=3`.
+- In Docker, use the shared PostgreSQL hostname in `DATABASE_URL`, for example `postgresql://zuam_dev:replace-with-app-db-password@postgres:5432/product_pulse_ai?schema=public&connection_limit=3`.
 
 ```bash
 cd ../shared-docker

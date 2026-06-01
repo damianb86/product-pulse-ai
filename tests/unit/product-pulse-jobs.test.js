@@ -20,7 +20,7 @@ describe("ProductPulse product job helpers", () => {
         productTitle: "Open Product",
         primaryIssue: "Returns",
         riskScore: 82,
-        metrics: { vendor: "Qorve", collections: ["Featured"] },
+        metrics: { vendor: "Zuam", collections: ["Featured"] },
         sourceCoverage: ["Returns"],
       },
       {
@@ -29,7 +29,7 @@ describe("ProductPulse product job helpers", () => {
         productTitle: "Resolved Product",
         primaryIssue: "Refunds",
         riskScore: 24,
-        metrics: { vendor: "Qorve", collections: ["Featured"] },
+        metrics: { vendor: "Zuam", collections: ["Featured"] },
         sourceCoverage: ["Refunds"],
       },
     ];
@@ -268,7 +268,7 @@ describe("ProductPulse product job helpers", () => {
   it("builds product-list evidence bars in fixed source-family order with real metric detail", () => {
     const bars = productPulseJobsTestHooks.getSignalLifecycleBars({
       productType: "Toys",
-      vendor: "Qorve",
+      vendor: "Zuam",
       tags: ["gift", "kids"],
       collections: ["Featured"],
       variantCount: 3,
@@ -320,7 +320,7 @@ describe("ProductPulse product job helpers", () => {
       title: "Manual Search Product",
       handle: "manual-search-product",
       descriptionHtml: "<p>A useful product description for shoppers.</p>",
-      vendor: "Qorve",
+      vendor: "Zuam",
       productType: "Toy",
       status: "ACTIVE",
       tags: ["featured", "gift"],

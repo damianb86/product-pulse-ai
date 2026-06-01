@@ -259,6 +259,12 @@ describe("ProductPulse watchlist alert helpers", () => {
       expect(email.html).not.toContain("ai-assistant-icon-gradient.png");
       expect(email.html).toContain("gw-watchlist-brand-icon");
       expect(email.html).toContain("aria-label=\"Watchlist\"");
+      const brandIconHtml = email.html.match(/<span class="gw-watchlist-brand-icon"[\s\S]*?<\/span>/)?.[0] || "";
+      expect(brandIconHtml).toContain("<svg");
+      expect(brandIconHtml).toContain("color:#ffffff");
+      expect(brandIconHtml).not.toContain("background:#eef2ff");
+      expect(brandIconHtml).not.toContain("border-radius");
+      expect(brandIconHtml).not.toContain("border:1px");
       expect(email.html).toContain("Product change summary");
       expect(email.html).toContain("GEN LiftAir Inflatable Standing Desk");
       expect(email.html).toContain("GEN Quiet Product");

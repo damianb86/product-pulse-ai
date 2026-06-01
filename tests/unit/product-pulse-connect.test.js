@@ -13,7 +13,7 @@ describe("ProductPulse Connect view data", () => {
         available: true,
         health: "connected",
         config: {
-          fileName: "-review-export%2Fqorve-dev-all-published-reviews-in-judgeme-format-2026-05-14-1778771736.csv",
+          fileName: "-review-export%2Fzuam-dev-all-published-reviews-in-judgeme-format-2026-05-14-1778771736.csv",
           normalizedRowCount: 33,
         },
       },

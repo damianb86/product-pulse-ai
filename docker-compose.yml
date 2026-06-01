@@ -53,7 +53,7 @@ services:
       AI_CHATKIT_DOMAIN_KEY: ${AI_CHATKIT_DOMAIN_KEY:?Set AI_CHATKIT_DOMAIN_KEY in the app .env}
       PRODUCT_PULSE_WATCHLIST_CRON_SECRET: ${PRODUCT_PULSE_WATCHLIST_CRON_SECRET:?Set PRODUCT_PULSE_WATCHLIST_CRON_SECRET in the app .env}
     labels:
-      observability.stack: qorve
+      observability.stack: zuam
       observability.app: product-pulse-ai
       observability.service: app
       caddy: ${APP_HOST:?Set APP_HOST in the app .env}
