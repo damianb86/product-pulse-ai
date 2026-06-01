@@ -468,11 +468,13 @@ s-page[inline-size="large-500"] {
   position: absolute;
   top: 50%;
   left: 50%;
+  width: var(--pp-icon-badge-glyph-size);
+  height: var(--pp-icon-badge-glyph-size);
   display: inline-grid;
   place-items: center;
   line-height: 0;
-  transform: scale(2);
-  transform-origin: bottom right;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
 }
 
 .ppProductPulseIconBadgeGlyph > svg,
@@ -2472,13 +2474,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppActionQueueIcon {
-  width: 34px;
-  height: 34px;
-  display: inline-grid;
-  place-items: center;
+  --pp-icon-badge-size: 34px;
+  --pp-icon-badge-glyph-size: 20px;
   border-radius: 10px;
-  background: var(--pp-blue-soft);
-  color: var(--pp-pulse-blue);
 }
 
 .ppActionQueueIcon-purple {
@@ -22783,6 +22781,44 @@ s-page[inline-size="large-500"] {
   text-transform: uppercase;
 }
 
+.ppAnalyticsSortHeader {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.ppAnalyticsSortHeader s-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--pp-slate-500);
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+
+.ppAnalyticsSortHeader:hover,
+.ppAnalyticsSortHeader:focus-visible,
+.ppAnalyticsSortHeader.isActive {
+  color: var(--pp-slate-700);
+  outline: none;
+}
+
+.ppAnalyticsSortHeader:hover s-icon,
+.ppAnalyticsSortHeader:focus-visible s-icon,
+.ppAnalyticsSortHeader.isActive s-icon {
+  opacity: 0.72;
+}
+
 .ppAnalyticsTable td:first-child strong,
 .ppTopProductsTable td:first-child a {
   color: var(--pp-slate-900);
@@ -23079,11 +23115,17 @@ s-page[inline-size="large-500"] {
 
 .ppEvidenceCoverageRows article {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 32px minmax(0, 1fr);
   gap: 11px;
   align-items: start;
   padding: 10px 0;
   border-bottom: 1px solid var(--pp-slate-200);
+}
+
+.ppEvidenceCoverageIcon {
+  --pp-icon-badge-size: 28px;
+  --pp-icon-badge-glyph-size: 18px;
+  align-self: start;
 }
 
 .ppEvidenceCoverageRows article:last-child {

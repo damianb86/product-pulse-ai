@@ -22789,9 +22789,7 @@ function DashboardActionQueue({ queue }) {
         <div className="ppActionQueueList">
           {rows.map((row) => (
             <Link className="ppActionQueueItem" to={row.href || "/app/products"} key={row.label}>
-              <span className={`ppActionQueueIcon ppActionQueueIcon-${row.tone || "blue"}`}>
-                <s-icon type={row.icon || "wand"} size="small"></s-icon>
-              </span>
+              <ProductPulseIconBadge className="ppActionQueueIcon" icon={row.icon || "next-best-action"} tone={row.tone || "blue"} size="tooltip" />
               <span>
                 <strong>{row.label}</strong>
                 <small>{row.detail}</small>
@@ -33790,22 +33788,51 @@ function AnalyticsTrendChart({ chart, ariaLabel = "Analytics trend chart" }) {
   );
 }
 
+const ISSUE_IMPACT_SORT_COLUMNS = [
+  { key: "label", label: "Issue type", defaultDirection: "asc" },
+  { key: "productsAffected", label: "Products affected", defaultDirection: "desc" },
+  { key: "marginAtRisk", label: "Estimated Margin Exposure", defaultDirection: "desc" },
+  { key: "signalCount", label: "Signals", defaultDirection: "desc" },
+  { key: "avgConfidence", label: "Avg confidence", defaultDirection: "desc" },
+];
+
 function IssueImpactTable({ rows }) {
-  const safeRows = rows?.length ? rows : [];
+  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
+  const [sort, setSort] = useState({ key: "marginAtRisk", direction: "desc" });
+  const sortedRows = useMemo(() => {
+    const direction = sort.direction === "asc" ? 1 : -1;
+    return [...safeRows].sort((left, right) => {
+      const primary = compareIssueImpactRows(left, right, sort.key);
+      if (primary !== 0) return primary * direction;
+      return compareIssueImpactRows(left, right, "label");
+    });
+  }, [safeRows, sort]);
+
+  const handleSort = (key) => {
+    setSort((current) => {
+      const column = ISSUE_IMPACT_SORT_COLUMNS.find((item) => item.key === key);
+      if (current.key !== key) return { key, direction: column?.defaultDirection || "desc" };
+      return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+    });
+  };
+
   return (
     <div className="ppAnalyticsTableWrap">
       <table className="ppAnalyticsTable">
         <thead>
           <tr>
-            <th>Issue type</th>
-            <th>Products affected</th>
-            <th>Estimated Margin Exposure</th>
-            <th>Signals</th>
-            <th>Avg confidence</th>
+            {ISSUE_IMPACT_SORT_COLUMNS.map((column) => (
+              <IssueImpactSortHeader
+                key={column.key}
+                column={column}
+                sort={sort}
+                onSort={handleSort}
+              />
+            ))}
           </tr>
         </thead>
         <tbody>
-          {safeRows.map((row) => (
+          {sortedRows.map((row) => (
             <tr key={row.label}>
               <td>
                 <strong>{row.label}</strong>
@@ -33820,6 +33847,36 @@ function IssueImpactTable({ rows }) {
       </table>
     </div>
   );
+}
+
+function IssueImpactSortHeader({ column, sort, onSort }) {
+  const active = sort.key === column.key;
+  const direction = active ? sort.direction : column.defaultDirection || "desc";
+  return (
+    <th aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}>
+      <button className={`ppAnalyticsSortHeader${active ? " isActive" : ""}`} type="button" onClick={() => onSort(column.key)}>
+        <span>{column.label}</span>
+        <s-icon type={direction === "asc" ? "arrow-up" : "arrow-down"} size="small"></s-icon>
+      </button>
+    </th>
+  );
+}
+
+function compareIssueImpactRows(left = {}, right = {}, key = "label") {
+  const leftValue = getIssueImpactSortValue(left, key);
+  const rightValue = getIssueImpactSortValue(right, key);
+  if (typeof leftValue === "number" || typeof rightValue === "number") {
+    return Number(leftValue || 0) - Number(rightValue || 0);
+  }
+  return String(leftValue || "").localeCompare(String(rightValue || ""), undefined, { sensitivity: "base", numeric: true });
+}
+
+function getIssueImpactSortValue(row = {}, key = "label") {
+  if (key === "productsAffected") return Number(row.productsAffected || 0);
+  if (key === "marginAtRisk") return Number(row.marginAtRisk || 0);
+  if (key === "signalCount") return Number(row.signalCount || 0);
+  if (key === "avgConfidence") return Number(row.avgConfidence || 0);
+  return row.label || "";
 }
 
 function AnalyticsBreakdownTabs({ filters, selectedKey, onChange }) {
@@ -33948,7 +34005,12 @@ function EvidenceSourceCoveragePanel({ rows }) {
     <div className="ppEvidenceCoverageRows">
       {safeRows.map((row) => (
         <article key={row.label}>
-          <DashboardIcon type={row.icon || "info"} tone={row.stateTone === "green" ? "green" : row.stateTone === "orange" ? "orange" : "blue"} size="small" />
+          <ProductPulseIconBadge
+            className="ppEvidenceCoverageIcon"
+            icon={row.icon || "info"}
+            tone={row.tone || (row.stateTone === "green" ? "green" : row.stateTone === "orange" ? "orange" : "blue")}
+            size="tooltip"
+          />
           <div>
             <div>
               <strong>{row.label}</strong>

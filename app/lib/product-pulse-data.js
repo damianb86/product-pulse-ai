@@ -1071,23 +1071,28 @@ function normalizeDashboardActionRankValue(value = "") {
 }
 
 function getDashboardActionCategory(action = {}) {
-  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
-  if (value.includes("faq")) return "Product FAQs";
-  if (value.includes("quality") || value.includes("support") || value.includes("note")) return "Product quality notes";
-  if (value.includes("description") || value.includes("copy") || value.includes("pdp")) return "Product descriptions";
-  if (value.includes("tag") || value.includes("collection")) return "Tags and workflows";
-  if (value.includes("variant") || value.includes("option")) return "Variant review";
-  if (value.includes("price")) return "Pricing review";
-  if (value.includes("evidence") || value.includes("review")) return "Evidence review";
+  const family = getDashboardActionFamily(action);
+  if (family === "faq") return "Product FAQs";
+  if (family === "product-copy") return "Product descriptions";
+  if (family === "title-metadata") return "SEO and metadata";
+  if (family === "variant") return "Variant review";
+  if (family === "media") return "Media assets";
+  if (family === "qa-review") return "Quality review";
+  if (family === "workflow-tag") return "Tags and workflows";
+  if (family === "evidence-review") return "Evidence review";
+  if (family === "support-note") return "Support notes";
+  if (family === "commercial-control") return "Commercial controls";
   return "Recommended fixes";
 }
 
 function getDashboardActionTone(action = {}) {
-  const category = getDashboardActionCategory(action);
-  if (category.includes("FAQ")) return "teal";
-  if (category.includes("description")) return "blue";
-  if (category.includes("quality")) return "purple";
-  if (category.includes("Tags")) return "orange";
+  const family = getDashboardActionFamily(action);
+  if (family === "faq") return "green";
+  if (family === "product-copy" || family === "title-metadata" || family === "media") return "blue";
+  if (family === "quality-review" || family === "qa-review" || family === "support-note") return "purple";
+  if (family === "workflow-tag" || family === "evidence-review") return "orange";
+  if (family === "variant") return "purple";
+  if (family === "commercial-control") return "green";
   return "blue";
 }
 
@@ -1393,13 +1398,18 @@ function normalizeDashboardSourceLabel(value) {
 }
 
 function getDashboardActionIcon(action) {
-  const value = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
-  if (value.includes("faq")) return "question-circle";
-  if (value.includes("tag")) return "tag";
-  if (value.includes("support") || value.includes("note")) return "note";
-  if (value.includes("image")) return "image";
-  if (value.includes("description") || value.includes("copy") || value.includes("pdp")) return "note";
-  return "wand";
+  const family = getDashboardActionFamily(action);
+  if (family === "faq") return "question-circle";
+  if (family === "product-copy") return "shopify-product";
+  if (family === "title-metadata") return "search";
+  if (family === "variant") return "variants";
+  if (family === "media") return "image";
+  if (family === "qa-review") return "diagnostic-confidence";
+  if (family === "workflow-tag") return "tag";
+  if (family === "evidence-review") return "ai-evidence-synthesis";
+  if (family === "support-note") return "customer-language-analysis";
+  if (family === "commercial-control") return "financial-exposure";
+  return "next-best-action";
 }
 
 function getDashboardActionImpact(product) {
@@ -2805,7 +2815,8 @@ function buildAnalyticsEvidenceSourceCoverage(productList, sources = []) {
   const sourceRows = [
     {
       label: "Customer language",
-      icon: "note",
+      icon: "customer-language-analysis",
+      tone: "purple",
       count: productList.reduce((sum, product) => sum + Number(product.metrics?.textInsights?.sentiment?.total || product.metrics?.customerTextSignals || 0), 0),
       products: productList.filter((product) => Number(product.metrics?.textInsights?.sentiment?.total || product.metrics?.customerTextSignals || 0) > 0).length,
       detail: "Return notes, review text and imported customer language used for sentiment and issue clustering.",
@@ -2813,27 +2824,31 @@ function buildAnalyticsEvidenceSourceCoverage(productList, sources = []) {
     {
       label: "Reviews",
       icon: "star",
+      tone: "orange",
       count: productList.reduce((sum, product) => sum + Number(product.metrics?.reviewCount || product.metrics?.csvReviewCount || product.metrics?.csvReviewRatingCount || 0), 0),
       products: productList.filter((product) => hasAnalyticsSource(product, "Reviews")).length,
       detail: "Judge.me and uploaded CSV reviews matched to stored products.",
     },
     {
       label: "Returns",
-      icon: "return",
+      icon: "shopify-returns",
+      tone: "orange",
       count: productList.reduce((sum, product) => sum + Number(product.metrics?.returnUnits || 0), 0),
       products: productList.filter((product) => hasAnalyticsSource(product, "Returns")).length,
       detail: "Shopify return line items and return reasons available in the diagnosis window.",
     },
     {
       label: "Refunds",
-      icon: "cash-dollar",
+      icon: "shopify-refunds",
+      tone: "green",
       count: productList.reduce((sum, product) => sum + Number(product.metrics?.refundUnits || 0), 0),
       products: productList.filter((product) => hasAnalyticsSource(product, "Refunds")).length,
       detail: "Shopify refunds contributing financial and operational evidence.",
     },
     {
       label: "Product data",
-      icon: "product",
+      icon: "shopify-product",
+      tone: "blue",
       count: productList.length,
       products: productList.length,
       detail: "Shopify title, product type, variants, tags, collections and product copy.",
@@ -2841,6 +2856,7 @@ function buildAnalyticsEvidenceSourceCoverage(productList, sources = []) {
     {
       label: "SEO / product content",
       icon: "search",
+      tone: "blue",
       count: productList.reduce((sum, product) => sum + Number(product.metrics?.contentIssueCount || product.metrics?.descriptionWords || 0), 0),
       products: productList.filter((product) => Number(product.metrics?.contentIssueCount || product.metrics?.descriptionWords || 0) > 0).length,
       detail: "Product description and catalog-content checks used to identify buyer expectation gaps.",
