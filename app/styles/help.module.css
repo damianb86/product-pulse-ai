@@ -580,7 +580,7 @@
 }
 
 .modal {
-  width: min(100%, 560px);
+  width: min(calc(100vw - 28px), 620px);
   max-height: calc(100vh - 40px);
   display: grid;
   gap: 14px;
@@ -596,6 +596,12 @@
   box-shadow:
     0 20px 64px rgba(var(--pp-shadow-rgb), 0.22),
     0 1px 2px rgba(var(--pp-shadow-rgb), 0.08);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.modal,
+.modal * {
+  box-sizing: border-box;
 }
 
 .modalTop {
@@ -644,7 +650,7 @@
 .modalTop h2 {
   margin: 0;
   color: var(--pp-slate-900);
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1.18;
@@ -684,8 +690,8 @@
 .modalBody p {
   margin: 0;
   color: var(--pp-slate-700);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.48;
 }
 
 .modalBody {
@@ -724,13 +730,15 @@
   display: grid;
   gap: 12px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .formRow {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
   min-width: 0;
+  width: 100%;
 }
 
 .formField {
@@ -748,8 +756,10 @@
 
 .formGrid input,
 .formGrid textarea {
+  display: block;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
   padding: 10px 11px;
   border: 1px solid rgba(var(--pp-slate-500-rgb), 0.22);
   border-radius: 9px;
@@ -759,6 +769,13 @@
   font-size: 12.5px;
   line-height: 1.42;
   box-shadow: inset 0 1px 0 rgba(var(--pp-shadow-rgb), 0.03);
+}
+
+.formGrid input::placeholder,
+.formGrid textarea::placeholder {
+  color: var(--pp-slate-500);
+  font-family: inherit;
+  font-size: 12.5px;
 }
 
 .formGrid textarea {
