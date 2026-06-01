@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
+const CHATKIT_CONVERSATION_STATE_STORAGE_KEY = "productPulse.chatkit.conversationState.v1";
 const CHATKIT_THEME_STORAGE_KEY = "productPulse.chatkit.theme.v2";
 const CHATKIT_ASSISTANT_NAME = "Pulse Guide";
 let chatKitBrowserScriptPromise;
@@ -20,6 +21,7 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
   const [startScreenDismissed, setStartScreenDismissed] = useState(false);
   const chatKitMethodsRef = useRef(null);
   const conversationIdRef = useRef("");
+  const startScreenDismissedRef = useRef(false);
   const pageContextRef = useRef(pageContext || { type: "unknown" });
   const backendSessionRef = useRef(null);
   const normalizedPageContext = useMemo(() => pageContext || { type: "unknown" }, [pageContext]);
@@ -35,10 +37,12 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
   useEffect(() => {
     setIsMounted(true);
     setThemeMode(readStoredThemeMode());
-    const storedConversationId = readStoredConversationId();
-    if (storedConversationId && !conversationIdRef.current) {
-      conversationIdRef.current = storedConversationId;
-      setConversationId(storedConversationId);
+    const storedConversation = readStoredConversationState();
+    if (storedConversation.conversationId && !conversationIdRef.current) {
+      conversationIdRef.current = storedConversation.conversationId;
+      setConversationId(storedConversation.conversationId);
+      startScreenDismissedRef.current = storedConversation.started;
+      setStartScreenDismissed(storedConversation.started);
     }
     if (!enabled) {
       setChatKitScriptReady(false);
@@ -61,6 +65,10 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
+
+  useEffect(() => {
+    startScreenDismissedRef.current = startScreenDismissed;
+  }, [startScreenDismissed]);
 
   useEffect(() => {
     pageContextRef.current = normalizedPageContext;
@@ -96,7 +104,7 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     if (body.conversationId) {
       conversationIdRef.current = body.conversationId;
       setConversationId(body.conversationId);
-      writeStoredConversationId(body.conversationId);
+      writeStoredConversationState(body.conversationId, startScreenDismissedRef.current);
     }
     const session = {
       cacheKey: JSON.stringify({
@@ -114,6 +122,14 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     const session = await ensureBackendSession();
     return fetch(input, attachChatKitMetadata(init, session));
   }, [ensureBackendSession]);
+
+  const markConversationStarted = useCallback(() => {
+    startScreenDismissedRef.current = true;
+    setStartScreenDismissed(true);
+    if (conversationIdRef.current) {
+      writeStoredConversationState(conversationIdRef.current, true);
+    }
+  }, []);
 
   const handleWidgetAction = useCallback(async (action, widgetItem) => {
     const response = await fetch("/api/ai/chatkit/action", {
@@ -160,8 +176,9 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     conversationIdRef.current = "";
     setConversationId("");
     backendSessionRef.current = null;
+    startScreenDismissedRef.current = false;
     setStartScreenDismissed(false);
-    writeStoredConversationId("");
+    writeStoredConversationState("", false);
 
     try {
       await methods?.setThreadId?.(null);
@@ -173,12 +190,13 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
 
   const openChatHistory = useCallback(async () => {
     setStatusMessage("");
+    markConversationStarted();
     try {
       await chatKitMethodsRef.current?.showHistory?.();
     } catch {
       setStatusMessage("Chat history is not available yet.");
     }
-  }, []);
+  }, [markConversationStarted]);
 
   const openAssistant = useCallback(() => {
     setIsOpen(true);
@@ -197,14 +215,15 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
       return;
     }
     setStatusMessage("");
-    setStartScreenDismissed(true);
+    markConversationStarted();
     try {
       await methods.sendUserMessage({ text });
     } catch {
+      startScreenDismissedRef.current = false;
       setStartScreenDismissed(false);
       setStatusMessage("I could not send that prompt. Try typing it below.");
     }
-  }, []);
+  }, [markConversationStarted]);
 
   const chatKit = useChatKit({
     api: {
@@ -248,9 +267,6 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
         : "Ask about ProductPulse data...",
       attachments: { enabled: false },
     },
-    disclaimer: {
-      text: "Read-only assistant. It cannot apply Shopify changes yet.",
-    },
     thread: {
       autoScroll: false,
     },
@@ -259,9 +275,8 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
       const nextThreadId = typeof event?.threadId === "string" ? event.threadId.trim() : "";
       conversationIdRef.current = nextThreadId;
       setConversationId(nextThreadId);
-      setStartScreenDismissed(Boolean(nextThreadId));
       backendSessionRef.current = null;
-      writeStoredConversationId(nextThreadId);
+      writeStoredConversationState(nextThreadId, startScreenDismissedRef.current);
     },
     onError: (event) => {
       setStatusMessage(event?.error?.message || "ChatKit reported an error.");
@@ -272,13 +287,24 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     chatKitMethodsRef.current = chatKit;
   }, [chatKit]);
 
+  useEffect(() => {
+    if (!chatKit?.addEventListener || !chatKit?.removeEventListener) return undefined;
+    const handleConversationStarted = () => markConversationStarted();
+    chatKit.addEventListener("chatkit.response.start", handleConversationStarted);
+    chatKit.addEventListener("chatkit.thread.load.start", handleConversationStarted);
+    return () => {
+      chatKit.removeEventListener("chatkit.response.start", handleConversationStarted);
+      chatKit.removeEventListener("chatkit.thread.load.start", handleConversationStarted);
+    };
+  }, [chatKit, markConversationStarted]);
+
   const assistantClassName = [
     "ppChatKitAssistant",
     isOpen ? "ppChatKitAssistant-open" : "",
     isExpanded ? "ppChatKitAssistant-expanded" : "",
     isDarkTheme ? "ppChatKitAssistant-dark" : "ppChatKitAssistant-light",
   ].filter(Boolean).join(" ");
-  const showStarterScreen = enabled && isMounted && chatKitScriptReady && !conversationId && !startScreenDismissed;
+  const showStarterScreen = enabled && isMounted && chatKitScriptReady && !startScreenDismissed;
 
   return (
     <aside className={assistantClassName} aria-label={`${CHATKIT_ASSISTANT_NAME} assistant`} data-pp-chat-assistant={isOpen ? "open" : "closed"}>
@@ -518,23 +544,36 @@ function isSafeProductPulsePath(url) {
   return url === "/app" || url.startsWith("/app/");
 }
 
-function readStoredConversationId() {
-  if (typeof window === "undefined") return "";
+function readStoredConversationState() {
+  const emptyState = { conversationId: "", started: false };
+  if (typeof window === "undefined") return emptyState;
   try {
-    return String(window.sessionStorage?.getItem(CHATKIT_CONVERSATION_STORAGE_KEY) || "").trim();
+    const rawState = String(window.sessionStorage?.getItem(CHATKIT_CONVERSATION_STATE_STORAGE_KEY) || "").trim();
+    if (!rawState) return emptyState;
+    const parsed = JSON.parse(rawState);
+    const conversationId = String(parsed?.conversationId || "").trim();
+    return {
+      conversationId,
+      started: Boolean(conversationId && parsed?.started),
+    };
   } catch {
-    return "";
+    return emptyState;
   }
 }
 
-function writeStoredConversationId(conversationId) {
+function writeStoredConversationState(conversationId, started) {
   if (typeof window === "undefined") return;
   try {
     const normalized = String(conversationId || "").trim();
     if (normalized) {
       window.sessionStorage?.setItem(CHATKIT_CONVERSATION_STORAGE_KEY, normalized);
+      window.sessionStorage?.setItem(CHATKIT_CONVERSATION_STATE_STORAGE_KEY, JSON.stringify({
+        conversationId: normalized,
+        started: Boolean(started),
+      }));
     } else {
       window.sessionStorage?.removeItem(CHATKIT_CONVERSATION_STORAGE_KEY);
+      window.sessionStorage?.removeItem(CHATKIT_CONVERSATION_STATE_STORAGE_KEY);
     }
   } catch {
     // Storage can be unavailable in embedded browser privacy modes.

@@ -170,6 +170,13 @@ export class AiChatOrchestrator {
         userIntentMetadata: input.userIntentMetadata,
       },
     });
+    if (
+      shouldReplaceGenericConversationTitle(conversation.title, message)
+      && typeof this.conversationStore.updateConversationTitle === "function"
+    ) {
+      await this.conversationStore.updateConversationTitle(context, conversation.id, message);
+      conversation.title = message;
+    }
     const chatContext: AiToolContext = {
       ...context,
       conversationId: conversation.id,
@@ -1174,6 +1181,15 @@ function getUsageEntityFromPageContext(pageContext: AiPageContext): {
     };
   }
   return {};
+}
+
+function shouldReplaceGenericConversationTitle(title: unknown, message: string): boolean {
+  const normalizedTitle = String(title || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const normalizedMessage = String(message || "").replace(/\s+/g, " ").trim();
+  if (!normalizedMessage) return false;
+  return !normalizedTitle
+    || normalizedTitle === "productpulse ai assistant"
+    || normalizedTitle === "productpulse ai chat";
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

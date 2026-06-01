@@ -28,7 +28,7 @@ export type AiChatKitSessionRequest = z.infer<typeof aiChatKitSessionRequestSche
 
 export interface AiChatKitSessionResponse {
   enabled: boolean;
-  conversationId: string;
+  conversationId?: string;
   apiUrl?: string;
   domainKey?: string;
   pageContext: AiPageContext;
@@ -70,39 +70,34 @@ export async function createAiChatKitSession(
     input.pageContext,
     toolRegistry,
   );
-  const conversation = await conversationStore.getOrCreateConversation(context, {
-    conversationId: input.conversationId,
-    titleSeed: "ProductPulse AI assistant",
-    metadata: {
-      source: "chatkit",
-      pageContext: pageContextValidation.pageContext,
-      uiMetadata: input.uiMetadata,
-    },
-  });
-  const chatContext = {
-    ...context,
-    conversationId: conversation.id,
-    createdAt: context.createdAt || now().toISOString(),
-  };
+  const existingConversation = input.conversationId
+    ? await conversationStore.getConversation(context, input.conversationId)
+    : null;
 
   if (!config.enabled) {
-    await conversationStore.addMessage({
-      context: chatContext,
-      conversationId: conversation.id,
-      role: "system",
-      content: buildStructuredMessageContent(createFallbackAssistantResponse(
-        "ChatKit is not configured for this store session.",
-        [config.disabledReason || "ChatKit is disabled."],
-      )),
-      structuredContent: {
-        source: "chatkit_session",
-        status: "disabled",
-        reason: config.disabledReason,
-      },
-    });
+    if (existingConversation) {
+      await conversationStore.addMessage({
+        context: {
+          ...context,
+          conversationId: existingConversation.id,
+          createdAt: context.createdAt || now().toISOString(),
+        },
+        conversationId: existingConversation.id,
+        role: "system",
+        content: buildStructuredMessageContent(createFallbackAssistantResponse(
+          "ChatKit is not configured for this store session.",
+          [config.disabledReason || "ChatKit is disabled."],
+        )),
+        structuredContent: {
+          source: "chatkit_session",
+          status: "disabled",
+          reason: config.disabledReason,
+        },
+      });
+    }
     return {
       enabled: false,
-      conversationId: conversation.id,
+      conversationId: existingConversation?.id,
       pageContext: pageContextValidation.pageContext,
       warnings: pageContextValidation.warnings,
       message: config.disabledReason || "ChatKit is disabled.",
@@ -111,7 +106,7 @@ export async function createAiChatKitSession(
 
   return {
     enabled: true,
-    conversationId: conversation.id,
+    conversationId: existingConversation?.id,
     apiUrl: config.apiUrl,
     domainKey: config.domainKey,
     pageContext: pageContextValidation.pageContext,

@@ -17,6 +17,8 @@ vi.mock("@openai/chatkit-react", async () => {
       setThreadId: vi.fn(),
       sendUserMessage: vi.fn(),
       showHistory: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     })),
   };
 });
@@ -114,6 +116,7 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("dark");
     expect(useChatKit.mock.calls.at(-1)[0].header.enabled).toBe(false);
     expect(useChatKit.mock.calls.at(-1)[0].startScreen).toMatchObject({ greeting: "", prompts: [] });
+    expect(useChatKit.mock.calls.at(-1)[0].disclaimer).toBeUndefined();
   });
 
   it("renders a compact custom start screen with quick prompts", async () => {
@@ -211,6 +214,7 @@ describe("ProductPulseChatKitAssistant", () => {
     });
     expect(methods.focusComposer).toHaveBeenCalled();
     expect(window.sessionStorage.getItem("productPulse.chatkit.conversationId.v1")).toBe(null);
+    expect(window.sessionStorage.getItem("productPulse.chatkit.conversationState.v1")).toBe(null);
 
     fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide chat history" }));
 
@@ -255,7 +259,10 @@ describe("ProductPulseChatKitAssistant", () => {
   });
 
   it("hydrates the active ChatKit thread from session storage", async () => {
-    window.sessionStorage.setItem("productPulse.chatkit.conversationId.v1", "stored-conversation");
+    window.sessionStorage.setItem("productPulse.chatkit.conversationState.v1", JSON.stringify({
+      conversationId: "stored-conversation",
+      started: true,
+    }));
 
     renderWithRouter(
       <ProductPulseChatKitAssistant

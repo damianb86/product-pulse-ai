@@ -73,7 +73,8 @@ describe("ProductPulse ChatKit integration", () => {
     expect(result.client_secret).toBeUndefined();
     expect(result.apiUrl).toBe("/api/ai/chatkit/message");
     expect(result.domainKey).toBe("domain_pk_test");
-    expect(store.contexts[0].shop).toBe("auth-shop.myshopify.com");
+    expect(result.conversationId).toBeUndefined();
+    expect(store.conversations).toHaveLength(0);
     expect(JSON.stringify(result)).not.toContain("auth-shop.myshopify.com");
   });
 
@@ -93,7 +94,30 @@ describe("ProductPulse ChatKit integration", () => {
 
     expect(result.enabled).toBe(false);
     expect(result.message).toContain("OPENAI_API_KEY");
-    expect(store.messages[0].role).toBe("system");
+    expect(result.conversationId).toBeUndefined();
+    expect(store.messages).toHaveLength(0);
+  });
+
+  it("returns an existing ChatKit conversation without creating a generic empty thread", async () => {
+    const store = new InMemoryConversationStore();
+    store.conversations.push({
+      id: "conversation-1",
+      shop: baseContext.shop,
+      userId: baseContext.userId,
+      title: "Existing named chat",
+      createdAt: "2026-05-20T12:00:00.000Z",
+      updatedAt: "2026-05-20T12:00:00.000Z",
+    });
+
+    const result = await createAiChatKitSession(baseContext, { conversationId: "conversation-1" }, {
+      config: enabledConfig(),
+      conversationStore: store,
+      toolRegistry: createRegistry(),
+    });
+
+    expect(result.enabled).toBe(true);
+    expect(result.conversationId).toBe("conversation-1");
+    expect(store.conversations).toHaveLength(1);
   });
 
   it("sanitizes unverified product page context before creating a session", async () => {
