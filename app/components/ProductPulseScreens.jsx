@@ -5939,6 +5939,7 @@ function formatPlansCreditSignedAmount(value = 0) {
 export function PlansCreditsScreen({ data = {} }) {
   const currentPlanKey = getPlansCreditCurrentPlanKey(data);
   const currentPlan = PLANS_CREDIT_PLANS.find((plan) => plan.key === currentPlanKey) || PLANS_CREDIT_PLANS[0];
+  const visiblePlans = PLANS_CREDIT_PLANS.filter((plan) => !plan.unavailable || plan.key === currentPlanKey);
   const billingEnabled = isPlansCreditBillingEnabled(data);
   const pointSummary = getPlansCreditPointSummary(data);
   const usedCredits = Number(pointSummary?.usage?.used ?? data?.billing?.usedCredits ?? data?.billing?.creditsUsed ?? data?.credits?.used ?? 0);
@@ -5960,9 +5961,9 @@ export function PlansCreditsScreen({ data = {} }) {
   const planComparisonFeedbackPanel = buildBetaFeedbackPanel("plans.planComparison", "Plan comparison", {
     ...plansFeedbackContext,
     planComparison: {
-      planCount: PLANS_CREDIT_PLANS.length,
+      planCount: visiblePlans.length,
       currentPlanKey,
-      plans: PLANS_CREDIT_PLANS.map((plan) => ({
+      plans: visiblePlans.map((plan) => ({
         key: plan.key,
         name: plan.name,
         monthlyCredits: plan.monthlyCredits,
@@ -6040,9 +6041,9 @@ export function PlansCreditsScreen({ data = {} }) {
           <div className="ppPlansBetaFeedbackCorner">
             <BetaFeedbackPanelControls panel={planComparisonFeedbackPanel} allowHide={false} />
           </div>
-          <div className="ppPlansMatrix">
+          <div className="ppPlansMatrix" style={{ "--pp-plans-visible-count": visiblePlans.length }}>
             <div className="ppPlansFeatureHeading">Features</div>
-            {PLANS_CREDIT_PLANS.map((plan) => (
+            {visiblePlans.map((plan) => (
               <div
                 className={`ppPlansPlanHead ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedTop" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
                 key={plan.key}
@@ -6059,11 +6060,11 @@ export function PlansCreditsScreen({ data = {} }) {
             ))}
 
             {PLANS_CREDIT_FEATURES.map((feature) => (
-              <PlanFeatureRow feature={feature} plans={PLANS_CREDIT_PLANS} key={feature.label} />
+              <PlanFeatureRow feature={feature} plans={visiblePlans} key={feature.label} />
             ))}
 
             <div className="ppPlansFeatureCell ppPlansActionsSpacer" aria-hidden="true" />
-            {PLANS_CREDIT_PLANS.map((plan) => (
+            {visiblePlans.map((plan) => (
               <div
                 className={`ppPlansActionCell ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedBottom" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
                 key={`${plan.key}-action`}

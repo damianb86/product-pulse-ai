@@ -35710,7 +35710,7 @@ s-page[inline-size="large-500"] {
 
 .ppPlansMatrix {
   display: grid;
-  grid-template-columns: minmax(230px, 1.22fr) repeat(5, minmax(160px, 1fr));
+  grid-template-columns: minmax(230px, 1.22fr) repeat(var(--pp-plans-visible-count, 5), minmax(160px, 1fr));
   align-items: stretch;
 }
 
@@ -36825,8 +36825,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppPlansMatrix {
-  min-width: 1120px;
-  grid-template-columns: minmax(210px, 1.12fr) repeat(5, minmax(154px, 1fr));
+  min-width: calc(210px + (var(--pp-plans-visible-count, 5) * 154px));
+  grid-template-columns: minmax(210px, 1.12fr) repeat(var(--pp-plans-visible-count, 5), minmax(154px, 1fr));
 }
 
 .ppPlansFeatureHeading,
