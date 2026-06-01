@@ -4693,8 +4693,7 @@ s-page[inline-size="large-500"] {
 
 .ppProductInsightAreaFootnote {
   min-width: 0;
-  display: grid;
-  grid-template-columns: 6px minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: 4px;
 }
@@ -4709,6 +4708,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductInsightAreaFootnoteText {
+  flex: 1 1 auto;
   min-width: 0;
   display: -webkit-box;
   overflow: hidden;
