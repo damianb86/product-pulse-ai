@@ -651,67 +651,89 @@ export default function Help() {
 
       {privacyDeleteOpen && (
         <div className={styles.modalBackdrop} role="presentation">
-          <div
+          <section
             className={styles.modal}
             role="dialog"
             aria-modal="true"
             aria-labelledby="privacy-delete-title"
           >
-            <div className={styles.modalHeader}>
-              <h2 id="privacy-delete-title">Delete all ProductPulse data?</h2>
-              <s-button
-                variant="tertiary"
+            <div className={styles.modalTop}>
+              <span className={`${styles.modalIcon} ${styles.modalIconDanger}`}>
+                <HelpIcon type="lock" />
+              </span>
+              <div>
+                <p className={styles.modalEyebrow}>Privacy request</p>
+                <h2 id="privacy-delete-title">Delete all ProductPulse data?</h2>
+              </div>
+              <button
+                className={styles.modalClose}
+                type="button"
                 onClick={() => setPrivacyDeleteOpen(false)}
+                aria-label="Close delete data dialog"
               >
-                Close
-              </s-button>
+                <span aria-hidden="true">&times;</span>
+              </button>
             </div>
-            <p>
-              This permanently deletes source records, jobs, job logs, risk
-              snapshots, diagnoses, product actions, retention records, product
-              timeline events, Watchlist products, Watchlist settings, Watchlist
-              activity, product score history, AI conversations, AI usage events,
-              AI proposals, diagnosis credit ledger entries, contact requests, and Shopify
-              sessions for this shop.
-            </p>
-            <p className={styles.subduedText}>
-              This action cannot be undone. You may be asked to log in again
-              after deletion.
-            </p>
+            <div className={styles.modalBody}>
+              <p>
+                This permanently removes ProductPulse app data for this shop,
+                including source records, jobs, risk snapshots, diagnoses,
+                product actions, retention records, timeline events, Watchlist
+                data, score history, AI records, diagnosis credit ledger entries,
+                contact requests, and Shopify sessions.
+              </p>
+              <div className={styles.modalNotice}>
+                <strong>This action cannot be undone.</strong>
+                <span>You may be asked to log in again after deletion.</span>
+              </div>
+            </div>
             <div className={styles.modalActions}>
-              <s-button
-                variant="tertiary"
+              <button
+                className={styles.modalSecondaryButton}
+                type="button"
                 onClick={() => setPrivacyDeleteOpen(false)}
               >
                 Cancel
-              </s-button>
-              <s-button
-                tone="critical"
-                loading={isPrivacySubmitting}
+              </button>
+              <button
+                className={`${styles.modalPrimaryButton} ${styles.modalDangerButton}`}
+                type="button"
+                disabled={isPrivacySubmitting}
                 onClick={deletePrivacyData}
               >
-                Delete permanently
-              </s-button>
+                {isPrivacySubmitting ? "Deleting..." : "Delete permanently"}
+              </button>
             </div>
-          </div>
+          </section>
         </div>
       )}
 
       {activeModal && (
         <div className={styles.modalBackdrop} role="presentation">
-          <div
+          <section
             className={styles.modal}
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-modal-title"
           >
-            <div className={styles.modalHeader}>
-              <h2 id="contact-modal-title">{activeModal.title}</h2>
-              <s-button variant="tertiary" onClick={closeModal}>
-                Close
-              </s-button>
+            <div className={styles.modalTop}>
+              <span className={styles.modalIcon}>
+                <HelpIcon type={activeModal.type === "setup" ? "sources" : activeModal.type === "suggestion" ? "spark" : "email"} />
+              </span>
+              <div>
+                <p className={styles.modalEyebrow}>Help &amp; contact</p>
+                <h2 id="contact-modal-title">{activeModal.title}</h2>
+              </div>
+              <button
+                className={styles.modalClose}
+                type="button"
+                onClick={closeModal}
+                aria-label="Close contact dialog"
+              >
+                <span aria-hidden="true">&times;</span>
+              </button>
             </div>
-            <p>{activeModal.intro}</p>
+            <p className={styles.modalIntro}>{activeModal.intro}</p>
             <form
               className={styles.formGrid}
               onSubmit={(event) => {
@@ -719,16 +741,17 @@ export default function Help() {
                 submitForm();
               }}
             >
-              <label>
+              <label className={styles.formField}>
                 <span>{activeModal.messageLabel}</span>
                 <textarea
                   value={message}
                   onChange={(event) => setMessage(event.currentTarget.value)}
                   placeholder={activeModal.messagePlaceholder}
-                  rows={5}
+                  rows={4}
                 />
               </label>
-              <label>
+              <div className={styles.formRow}>
+              <label className={styles.formField}>
                 <span>Subject</span>
                 <input
                   value={subject}
@@ -736,7 +759,7 @@ export default function Help() {
                   placeholder={activeModal.subjectPlaceholder}
                 />
               </label>
-              <label>
+              <label className={styles.formField}>
                 <span>Reply email</span>
                 <input
                   type="email"
@@ -745,22 +768,21 @@ export default function Help() {
                   placeholder="you@store.com"
                 />
               </label>
+              </div>
               <div className={styles.modalActions}>
-                <s-button type="button" variant="tertiary" onClick={closeModal}>
+                <button className={styles.modalSecondaryButton} type="button" onClick={closeModal}>
                   Cancel
-                </s-button>
-                <s-button
-                  type="button"
-                  variant="primary"
+                </button>
+                <button
+                  className={styles.modalPrimaryButton}
+                  type="submit"
                   disabled={!message.trim() || isSubmitting}
-                  loading={isSubmitting}
-                  onClick={submitForm}
                 >
                   {isSubmitting ? "Sending..." : activeModal.primary}
-                </s-button>
+                </button>
               </div>
             </form>
-          </div>
+          </section>
         </div>
       )}
     </main>
