@@ -3,6 +3,7 @@ import { Link, useFetcher, useLocation, useRevalidator } from "react-router";
 
 const JOB_STATUS_ACTIVE_POLL_MS = 4_000;
 const JOB_STATUS_IDLE_POLL_MS = 15_000;
+const JOB_POPOVER_HISTORY_LIMIT = 6;
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
@@ -675,7 +676,7 @@ function getProductSearchSubtitle(product) {
 function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJobId, onCancelJob }) {
   const activeJobIds = useMemo(() => new Set(activeJobs.map((job) => job.id)), [activeJobs]);
   const pastJobs = useMemo(
-    () => recentJobs.filter((job) => !activeJobIds.has(job.id)),
+    () => recentJobs.filter((job) => !activeJobIds.has(job.id)).slice(0, JOB_POPOVER_HISTORY_LIMIT),
     [activeJobIds, recentJobs],
   );
   const runningCount = activeJobs.filter((job) => job.status === "Running").length;
