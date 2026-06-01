@@ -29297,10 +29297,8 @@ s-page[inline-size="large-500"] {
 
 .ppWatchTrendChart {
   height: 268px;
-  padding: 12px 0 0;
-  background:
-    linear-gradient(var(--pp-slate-200) 1px, transparent 1px) 0 0 / 100% 25%,
-    linear-gradient(90deg, var(--pp-slate-200) 1px, transparent 1px) 0 0 / 20% 100%;
+  padding: 6px 4px 0;
+  background: var(--pp-cloud-white);
 }
 
 .ppWatchTrendChart svg {
@@ -29315,6 +29313,29 @@ s-page[inline-size="large-500"] {
   stroke-linejoin: round;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+}
+
+.ppWatchTrendAxisLine {
+  stroke: var(--pp-slate-300);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppWatchTrendChart .ppWatchTrendGridLine {
+  stroke: rgba(var(--pp-slate-500-rgb), 0.18);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.ppWatchTrendChart .ppWatchTrendGridLine-vertical {
+  stroke-dasharray: 3 5;
+}
+
+.ppWatchTrendChart .ppWatchTrendAxisLabel,
+.ppWatchTrendChart .ppWatchTrendXTick text {
+  fill: var(--pp-slate-600);
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .ppWatchTrendLegend {

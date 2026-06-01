@@ -4603,6 +4603,7 @@ function WatchlistTrendPanel({ trend = {} }) {
   const hasSeries = series.length > 0;
   const riskScore = Number.isFinite(Number(trend.riskScore)) ? Math.round(Number(trend.riskScore)) : null;
   const visibleSeries = series.filter((item) => visibleSeriesKeys.has(item.trendKey));
+  const chart = buildWatchOverviewTrendChart(visibleSeries);
   const panel = buildBetaFeedbackPanel("watchlist.trend", "Watchlist trend", {
     watchlist: {
       riskScore,
@@ -4643,9 +4644,27 @@ function WatchlistTrendPanel({ trend = {} }) {
           <span>{riskScore === null ? "No data" : `Avg ${trend.riskLabel || "risk"}`}</span>
         </div>
         <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-            {visibleSeries.map((item) => {
-              const linePoints = Array.isArray(item.points) && item.points.length ? item.points : parseSvgPointString(item.path);
+          <svg viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label="Watchlist product risk trend, 0 to 100 risk score">
+            <line className="ppWatchTrendAxisLine" x1={chart.plot.left} x2={chart.plot.right} y1={chart.plot.bottom} y2={chart.plot.bottom} />
+            <line className="ppWatchTrendAxisLine" x1={chart.plot.left} x2={chart.plot.left} y1={chart.plot.top} y2={chart.plot.bottom} />
+            {chart.yTicks.map((tick) => {
+              const y = getWatchTrendY(tick.value, chart.axisMax, chart.plot);
+              return (
+                <g key={`watch-overview-y-${tick.value}`}>
+                  <line className="ppWatchTrendGridLine" x1={chart.plot.left} x2={chart.plot.right} y1={y} y2={y} />
+                  <text className="ppWatchTrendAxisLabel" x={chart.plot.left - 10} y={y + 3} textAnchor="end">{tick.label}</text>
+                </g>
+              );
+            })}
+            {chart.xTicks.map((tick) => (
+              <g className="ppWatchTrendXTick" key={`watch-overview-x-${tick.id}`}>
+                <line className="ppWatchTrendGridLine ppWatchTrendGridLine-vertical" x1={tick.x} x2={tick.x} y1={chart.plot.top} y2={chart.plot.bottom} />
+                <text x={tick.x} y={chart.plot.bottom + 22} textAnchor="middle">{tick.label}</text>
+              </g>
+            ))}
+            {chart.series.map((item) => {
+              const linePoints = item.chartPoints;
+              if (!linePoints.length) return null;
               return (
                 <path
                   key={item.trendKey}
@@ -4689,6 +4708,128 @@ function WatchlistTrendPanel({ trend = {} }) {
       </section>
     </BetaFeedbackPanelFrame>
   );
+}
+
+function buildWatchOverviewTrendChart(series = []) {
+  const width = 760;
+  const height = 220;
+  const plot = { left: 42, right: 736, top: 16, bottom: 172 };
+  const axisMax = 100;
+  const sourceSeries = (Array.isArray(series) ? series : [])
+    .map((item) => ({
+      ...item,
+      sourcePoints: getWatchOverviewTrendSourcePoints(item),
+    }))
+    .filter((item) => item.sourcePoints.length);
+  const timedPoints = sourceSeries
+    .flatMap((item) => item.sourcePoints)
+    .filter((point) => Number.isFinite(point.time));
+  const minTime = timedPoints.length ? Math.min(...timedPoints.map((point) => point.time)) : NaN;
+  const maxTime = timedPoints.length ? Math.max(...timedPoints.map((point) => point.time)) : NaN;
+  const hasTimeDomain = Number.isFinite(minTime) && Number.isFinite(maxTime) && maxTime > minTime;
+  const timeDomain = hasTimeDomain ? { min: minTime, max: maxTime } : null;
+  const chartSeries = sourceSeries.map((item) => ({
+    ...item,
+    chartPoints: getWatchOverviewTrendChartPoints(item.sourcePoints, plot, axisMax, timeDomain),
+  })).filter((item) => item.chartPoints.length);
+
+  return {
+    width,
+    height,
+    plot,
+    axisMax,
+    yTicks: [0, 25, 50, 75, 100].map((value) => ({ value, label: formatInteger(value) })),
+    xTicks: getWatchOverviewTrendXTicks({ sourceSeries, timeDomain, plot }),
+    series: chartSeries,
+  };
+}
+
+function getWatchOverviewTrendSourcePoints(item = {}) {
+  const values = Array.isArray(item.values) ? item.values : [];
+  const valuePoints = values
+    .map((point, index) => {
+      const value = Number(point?.riskScore);
+      if (!Number.isFinite(value)) return null;
+      const timestamp = point?.recordedAt || point?.capturedAt || point?.currentRunAt || "";
+      const time = getWatchOverviewTimestampMs(timestamp);
+      return {
+        index,
+        value: clampNumber(value, 0, 100),
+        timestamp,
+        time,
+        ...formatWatchTrendPointLabels(timestamp),
+      };
+    })
+    .filter(Boolean);
+  if (valuePoints.length) return valuePoints;
+
+  return parseSvgPointString(item.path)
+    .map((point, index) => ({
+      index,
+      value: clampNumber(100 - Number(point.y || 0), 0, 100),
+      timestamp: "",
+      time: NaN,
+      dateLabel: `Run ${index + 1}`,
+      timeLabel: "",
+    }))
+    .filter((point) => Number.isFinite(point.value));
+}
+
+function getWatchOverviewTrendChartPoints(points = [], plot, axisMax = 100, timeDomain = null) {
+  if (!points.length) return [];
+  if (points.length === 1) {
+    const y = getWatchTrendY(points[0].value, axisMax, plot);
+    return [{ x: plot.left, y }, { x: plot.right, y }];
+  }
+  return points.map((point, index) => ({
+    x: timeDomain && Number.isFinite(point.time)
+      ? plot.left + ((point.time - timeDomain.min) / Math.max(timeDomain.max - timeDomain.min, 1)) * (plot.right - plot.left)
+      : getWatchTrendX(index, points.length, plot),
+    y: getWatchTrendY(point.value, axisMax, plot),
+  }));
+}
+
+function getWatchOverviewTrendXTicks({ sourceSeries = [], timeDomain = null, plot } = {}) {
+  if (timeDomain) {
+    const tickCount = 6;
+    return Array.from({ length: tickCount }, (_, index) => {
+      const ratio = tickCount === 1 ? 0 : index / (tickCount - 1);
+      const time = timeDomain.min + (timeDomain.max - timeDomain.min) * ratio;
+      return {
+        id: `time-${index}-${Math.round(time)}`,
+        x: plot.left + ratio * (plot.right - plot.left),
+        label: formatWatchOverviewTrendXAxisLabel(time, timeDomain),
+      };
+    });
+  }
+
+  const longest = sourceSeries.reduce((winner, item) => (
+    item.sourcePoints.length > winner.sourcePoints.length ? item : winner
+  ), { sourcePoints: [] });
+  const pointCount = longest.sourcePoints.length;
+  if (!pointCount) return [];
+  const tickCount = Math.min(6, pointCount);
+  return Array.from({ length: tickCount }, (_, index) => {
+    const sourceIndex = tickCount === 1 ? 0 : Math.round((index / (tickCount - 1)) * (pointCount - 1));
+    const point = longest.sourcePoints[sourceIndex] || {};
+    return {
+      id: `index-${index}-${sourceIndex}`,
+      x: getWatchTrendX(sourceIndex, pointCount, plot),
+      label: point.dateLabel || `Run ${sourceIndex + 1}`,
+    };
+  });
+}
+
+function formatWatchOverviewTrendXAxisLabel(value, domain = null) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const spanDays = domain ? (domain.max - domain.min) / PRODUCT_METRIC_TIMELINE_DAY_MS : 0;
+  const options = spanDays >= 150
+    ? { month: "short" }
+    : spanDays >= 40
+      ? { month: "short", day: "numeric" }
+      : { month: "short", day: "numeric" };
+  return new Intl.DateTimeFormat("en-US", options).format(date);
 }
 
 function getWatchTrendSeriesKey(item = {}, index = 0) {
