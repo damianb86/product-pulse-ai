@@ -28,6 +28,7 @@ import {
   PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS,
   buildProductPulseHtmlStylePreviewHtml,
   getProductPulseHtmlStylePreset,
+  getProductPulseHtmlStyleTemplate,
   normalizeProductPulseHtmlStyle,
 } from "../lib/product-pulse-html-style-presets";
 import { BetaFeedbackPanelControls, BetaFeedbackPanelFrame } from "./beta-feedback/BetaFeedbackLayer";
@@ -6843,6 +6844,8 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
     : getEditableTextPlaceholders(editedText);
   const metafieldMissing = application.isMetafield && (!String(application.metafieldNamespace || "").trim() || !String(application.metafieldKey || "").trim());
   const submitLabel = pending ? "Applying change..." : application.confirmationSubmitLabel || "Accept and apply change";
+  const confirmationPreview = getRecommendedActionPreviewParts(application, editedText);
+  const hasConfirmationHtmlPreview = Boolean(confirmationPreview.afterHtml || confirmationPreview.beforeHtml);
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -6875,16 +6878,34 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
           )}
         </div>
 
-        {application.currentValue && (
+        {(application.currentValue || confirmationPreview.beforeHtml) && (
           <div className="ppActionConfirmCurrent">
             <span>{application.currentValueLabel || "Current value"}</span>
-            <CurrentDescriptionInsertionPreview application={application} asPre />
+            {confirmationPreview.beforeHtml ? (
+              <ActionPreviewHtmlFrame
+                html={confirmationPreview.beforeHtml}
+                expanded
+                mode={confirmationPreview.htmlPreviewMode}
+                title={application.currentValueLabel || "Current value"}
+              />
+            ) : (
+              <CurrentDescriptionInsertionPreview application={application} asPre />
+            )}
           </div>
         )}
 
         <div className="ppActionConfirmChange">
           <span>{application.valueLabel || "New value"}</span>
-          {isGroupedDescription ? (
+          {hasConfirmationHtmlPreview ? (
+            <div className="ppActionConfirmHtmlPreview">
+              <ActionPreviewHtmlFrame
+                html={confirmationPreview.afterHtml || confirmationPreview.beforeHtml}
+                expanded
+                mode={confirmationPreview.htmlPreviewMode}
+                title={application.valueLabel || "Updated HTML preview"}
+              />
+            </div>
+          ) : isGroupedDescription ? (
             <div className="ppActionConfirmDescriptionChanges">
               {selectedDescriptionChanges.map((change) => (
                 <article key={change.id}>
@@ -11831,6 +11852,7 @@ function getFaqRecommendedActionApplication(action, product = null, options = {}
   const variantId = variants.some((variant) => variant.id === requestedVariantId) ? requestedVariantId : defaultVariantId;
   const selectedVariant = variants.find((variant) => variant.id === variantId) || variants[0];
   const currentDescription = getCurrentDescriptionForAction(product, payload);
+  const currentDescriptionHtml = getCurrentDescriptionHtmlForAction(product, payload);
   const value = formatFaqItemsForDisplay(payload.faqItems, payload.draftText);
   const isMetafield = variantId === "metafield-html";
   const metafield = getFaqApplicationMetafield(payload, options);
@@ -11848,12 +11870,14 @@ function getFaqRecommendedActionApplication(action, product = null, options = {}
     value,
     currentValueLabel: "Current Shopify description",
     currentValue: isMetafield ? "" : currentDescription,
+    currentHtml: isMetafield ? "" : currentDescriptionHtml,
     insertionPosition: isMetafield ? "" : "append",
     faqItems: normalizeFaqPreviewItems(payload.faqItems),
     variants,
     variantId,
     defaultVariantId,
     isMetafield,
+    htmlStyle: normalizeProductPulseHtmlStyle(product?.htmlStyle),
     metafieldNamespace: metafield.namespace,
     metafieldKey: metafield.key,
     metafieldType: metafield.type,
@@ -11972,6 +11996,7 @@ function getGroupedDescriptionActionApplication(action, product = null, options 
   const normalizedDescriptionChanges = normalizeDescriptionChangesForApplication(payload.descriptionChanges);
   const fallbackCurrentDescription = normalizedDescriptionChanges.find((change) => String(change.currentDescriptionText || "").trim())?.currentDescriptionText || "";
   const currentDescription = getCurrentDescriptionForAction(product, payload) || fallbackCurrentDescription;
+  const currentDescriptionHtml = getCurrentDescriptionHtmlForAction(product, payload);
   const descriptionChanges = normalizedDescriptionChanges
     .map((change) => Object.prototype.hasOwnProperty.call(editedDescriptionChangeTexts, change.id)
       ? { ...change, text: preserveEditableActionText(editedDescriptionChangeTexts[change.id]) }
@@ -11996,7 +12021,9 @@ function getGroupedDescriptionActionApplication(action, product = null, options 
     value,
     currentValueLabel: "Current Shopify description",
     currentValue: currentDescription,
+    currentHtml: currentDescriptionHtml,
     insertionPosition: "",
+    htmlStyle: normalizeProductPulseHtmlStyle(product?.htmlStyle),
     descriptionChanges,
     selectedChangeIds,
     relatedActions: descriptionChanges.map((change) => change.title),
@@ -12290,6 +12317,7 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
 
   if (payload.draftText && (normalized.includes("pdp") || normalized.includes("description") || normalized.includes("faq") || normalized.includes("fit"))) {
     const currentDescription = getCurrentDescriptionForAction(product, payload);
+    const currentDescriptionHtml = getCurrentDescriptionHtmlForAction(product, payload);
     const operation = getResolvedDescriptionOperationForAction(action, product, currentDescription);
     const value = getDescriptionActionValue({ action, product, operation, currentDescription });
     return withRecipeApplicationFields(action, {
@@ -12305,7 +12333,9 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       value,
       currentValueLabel: "Current Shopify description",
       currentValue: currentDescription,
+      currentHtml: currentDescriptionHtml,
       insertionPosition: operation === "replace" ? "" : operation,
+      htmlStyle: normalizeProductPulseHtmlStyle(product?.htmlStyle),
       relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
     });
   }
@@ -12542,6 +12572,7 @@ function withRecipeApplicationFields(action, application) {
   const payload = action.payload || {};
   return {
     ...application,
+    actionId: action.id || application.actionId || "",
     trigger: payload.trigger || "",
     proposedChange: payload.proposedChange || application.operation || "",
     shopifyField: payload.shopifyField || application.target || "",
@@ -12618,6 +12649,10 @@ function getDescriptionApplyLabel(operation) {
 
 function getCurrentDescriptionForAction(product, payload = {}) {
   return String(product?.currentDescriptionText || payload.currentDescriptionText || "").trim();
+}
+
+function getCurrentDescriptionHtmlForAction(product, payload = {}) {
+  return String(product?.currentDescriptionHtml || payload.currentDescriptionHtml || "").trim();
 }
 
 function getDescriptionActionValue({ action, product, operation, currentDescription }) {
@@ -30227,8 +30262,8 @@ function RecommendedActionPreview({ application, editedText }) {
   const leadingAfterHighlights = afterHighlights.filter((highlight) => highlight.position !== "after");
   const trailingAfterHighlights = afterHighlights.filter((highlight) => highlight.position === "after");
   const expandable = preview.isDescription && (
-    isActionDescriptionPreviewExpandable(preview.beforeText, beforeHighlights)
-    || isActionDescriptionPreviewExpandable(preview.afterText, afterHighlights, preview.afterDiffSegments)
+    isActionDescriptionPreviewExpandable(preview.beforeText, beforeHighlights, [], preview.beforeHtml)
+    || isActionDescriptionPreviewExpandable(preview.afterText, afterHighlights, preview.afterDiffSegments, preview.afterHtml)
   );
 
   return (
@@ -30236,6 +30271,7 @@ function RecommendedActionPreview({ application, editedText }) {
       <RecommendedActionPreviewColumn
         label={preview.beforeLabel}
         text={preview.beforeText}
+        html={preview.beforeHtml}
         highlights={beforeHighlights}
         isDescription={preview.isDescription}
         expanded={previewExpanded}
@@ -30246,6 +30282,8 @@ function RecommendedActionPreview({ application, editedText }) {
       <RecommendedActionPreviewColumn
         label={preview.afterLabel}
         text={preview.afterText}
+        html={preview.afterHtml}
+        htmlPreviewMode={preview.htmlPreviewMode}
         diffSegments={preview.afterDiffSegments}
         leadingHighlights={leadingAfterHighlights}
         trailingHighlights={trailingAfterHighlights}
@@ -30270,6 +30308,8 @@ function RecommendedActionPreview({ application, editedText }) {
 function RecommendedActionPreviewColumn({
   label,
   text = "",
+  html = "",
+  htmlPreviewMode = "",
   diffSegments = [],
   highlights = [],
   leadingHighlights = highlights,
@@ -30279,14 +30319,16 @@ function RecommendedActionPreviewColumn({
   boxClassName = "",
 }) {
   const hasDiffSegments = isDescription && Array.isArray(diffSegments) && diffSegments.length > 0;
+  const hasHtmlPreview = Boolean(String(html || "").trim());
   const displayText = getActionPreviewDisplayText(text, { isDescription, expanded });
   const displayDiffSegments = hasDiffSegments ? getActionPreviewDisplayDiffSegments(diffSegments, { expanded }) : [];
   const expandedClass = expanded ? " isExpanded" : "";
+  const htmlClass = hasHtmlPreview ? " hasHtmlPreview" : "";
 
   return (
     <div className={`ppActionPreviewColumn${expandedClass}`}>
       <strong>{label}</strong>
-      <div className={`ppActionPreviewBox ${boxClassName}${expandedClass}`.trim()}>
+      <div className={`ppActionPreviewBox ${boxClassName}${expandedClass}${htmlClass}`.trim()}>
         {leadingHighlights.map((highlight, index) => (
           <ActionPreviewHighlightBlock
             highlight={highlight}
@@ -30295,7 +30337,9 @@ function RecommendedActionPreviewColumn({
             key={`highlight-leading-${index}`}
           />
         ))}
-        {hasDiffSegments ? (
+        {hasHtmlPreview ? (
+          <ActionPreviewHtmlFrame html={html} expanded={expanded} mode={htmlPreviewMode} title={label} />
+        ) : hasDiffSegments ? (
           <ActionPreviewDiffText segments={displayDiffSegments} />
         ) : (
           displayText && <p>{renderAnalysisText(displayText)}</p>
@@ -30310,6 +30354,18 @@ function RecommendedActionPreviewColumn({
         ))}
       </div>
     </div>
+  );
+}
+
+function ActionPreviewHtmlFrame({ html = "", expanded = false, mode = "", title = "HTML preview" }) {
+  const srcDoc = buildActionHtmlPreviewDocument(html, { openDialogs: mode === "modal" });
+  return (
+    <iframe
+      className={`ppActionPreviewHtmlFrame${expanded ? " isExpanded" : ""}`.trim()}
+      title={title}
+      sandbox=""
+      srcDoc={srcDoc}
+    />
   );
 }
 
@@ -30344,6 +30400,375 @@ function ActionPreviewHighlightBlock({ highlight, isDescription = false, expande
   );
 }
 
+function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = "", proposedText = "" } = {}) {
+  const target = String(application.target || "").toLowerCase();
+  const variantId = String(application.variantId || "").trim();
+  const isDescription = target.includes("description");
+  const isFaq = Array.isArray(application.faqItems) || variantId.includes("description-") || variantId.includes("metafield");
+  const currentHtml = getActionCurrentDescriptionHtml(application, currentText);
+  const htmlStyle = getActionApplicationHtmlStyle(application);
+
+  if (isFaq) {
+    const faqItems = getFaqItemsForHtmlPreview(application, proposedText);
+    if (!faqItems.length) return null;
+    const faqHtml = buildClientProductPulseFaqHtml({
+      faqItems,
+      variant: variantId || "description-collapsible",
+      actionId: application.actionId || "product-faq",
+      htmlStyle,
+    });
+    return {
+      mode: variantId === "description-modal" ? "modal" : "html",
+      beforeHtml: isDescription ? currentHtml : "",
+      afterHtml: isDescription ? [currentHtml, faqHtml].filter(Boolean).join("\n\n") : faqHtml,
+    };
+  }
+
+  if (!isDescription) return null;
+
+  if (Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
+    const selectedChanges = getSelectedDescriptionChanges(application);
+    const usesHtmlBlocks = selectedChanges.some((change) => change.operation !== "replace" || containsAllowedActionPreviewHtml(change.text));
+    if (!usesHtmlBlocks) return null;
+    return {
+      mode: "html",
+      beforeHtml: currentHtml,
+      afterHtml: buildClientUpdatedProductDescriptionHtmlFromChanges({
+        currentHtml,
+        currentText,
+        changes: selectedChanges,
+        actionId: application.actionId || "product-description-changes",
+        htmlStyle,
+      }),
+    };
+  }
+
+  const operation = application.insertionPosition || application.descriptionOperation || "";
+  const proposedHasHtml = containsAllowedActionPreviewHtml(proposedText);
+  const shouldRenderHtml = operation === "append" || operation === "prepend" || proposedHasHtml;
+  if (!shouldRenderHtml) return null;
+
+  return {
+    mode: "html",
+    beforeHtml: currentHtml,
+    afterHtml: buildClientUpdatedProductDescriptionHtml({
+      currentHtml,
+      currentText,
+      draftText: proposedText,
+      operation: operation || "replace",
+      actionId: application.actionId || "product-description-action",
+      htmlStyle,
+    }),
+  };
+}
+
+function getActionApplicationHtmlStyle(application = {}) {
+  return normalizeProductPulseHtmlStyle(application.htmlStyle);
+}
+
+function getActionCurrentDescriptionHtml(application = {}, currentText = "") {
+  const currentHtml = String(application.currentHtml || "").trim();
+  if (currentHtml) return currentHtml;
+  return buildClientProductPulseDescriptionBodyHtml(currentText);
+}
+
+function getFaqItemsForHtmlPreview(application = {}, proposedText = "") {
+  const proposed = normalizeActionText(proposedText);
+  const original = normalizeActionText(application.value || "");
+  const parsedFromEditedText = proposed && proposed !== original
+    ? getFaqPreviewItems({ ...application, faqItems: [] }, proposed)
+    : [];
+  if (parsedFromEditedText.length) return parsedFromEditedText;
+
+  const structuredItems = normalizeFaqPreviewItems(application.faqItems);
+  if (structuredItems.length) return structuredItems;
+  return getFaqPreviewItems({ ...application, faqItems: [] }, proposed);
+}
+
+function buildClientProductPulseFaqHtml({ faqItems = [], variant = "", actionId = "product-faq", htmlStyle } = {}) {
+  const safeActionId = escapeActionPreviewHtml(actionId || "product-faq");
+  const headingHtml = buildClientProductPulseCalloutHeading("Frequently asked questions", htmlStyle);
+  const itemsHtml = buildClientProductPulseFaqItemsHtml(faqItems);
+
+  if (variant === "description-section" || variant === "metafield-html") {
+    return buildClientProductPulseStyledHtmlBlock({
+      actionId: safeActionId,
+      className: "productpulse-faq",
+      title: "Frequently asked questions",
+      contentHtml: `<dl style="margin:0;">\n${itemsHtml}\n</dl>`,
+      htmlStyle,
+    });
+  }
+
+  if (variant === "description-modal") {
+    const modalId = buildActionPreviewDomId("productpulse-faq-dialog", actionId || "product-faq");
+    const escapedModalId = escapeActionPreviewHtml(modalId);
+    const modalItemsHtml = faqItems.map((item, index) => (
+      `<div style="${index > 0 ? "border-top:1px solid #e5e7eb;" : ""}padding:${index > 0 ? "14px" : "0"} 0 0;">\n<dt style="font-weight:800;color:#111827;font-size:15px;line-height:1.35;margin:0 0 6px;">${escapeActionPreviewHtml(item.question)}</dt>\n<dd style="margin:0;color:#475569;line-height:1.6;font-size:14px;">${escapeActionPreviewHtml(item.answer)}</dd>\n</div>`
+    )).join("\n");
+    const modalStyles = [
+      "<style>",
+      `#${escapedModalId}::backdrop{background:rgba(15,23,42,.44);backdrop-filter:blur(2px);}`,
+      `#${escapedModalId}{box-sizing:border-box;max-width:min(720px,calc(100vw - 32px));width:min(720px,calc(100vw - 32px));max-height:calc(100vh - 48px);border:1px solid rgba(148,163,184,.38);border-radius:18px;padding:0;background:#ffffff;color:#111827;box-shadow:0 24px 80px rgba(15,23,42,.28);overflow:hidden;}`,
+      `#${escapedModalId}[open]{display:block;}`,
+      "</style>",
+    ].join("");
+    return buildClientProductPulseStyledHtmlBlock({
+      actionId: safeActionId,
+      className: "productpulse-faq",
+      title: "Frequently asked questions",
+      contentHtml: `${modalStyles}\n<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">\n<div>\n${headingHtml}\n<p style="margin:0;color:#475569;line-height:1.55;font-size:14px;">Open a focused FAQ without expanding the full product description.</p>\n</div>\n<button type="button" onclick="var d=document.getElementById('${escapedModalId}');if(d&&d.showModal)d.showModal();" style="appearance:none;border:0;border-radius:999px;background:#eef2ff;color:#3730a3;font-weight:800;padding:10px 14px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(99,102,241,.18);">View FAQ</button>\n</div>\n<dialog id="${escapedModalId}" aria-label="Frequently asked questions">\n<div style="padding:24px;max-height:calc(100vh - 48px);overflow:auto;background:linear-gradient(135deg,#ffffff 0%,#f8fafc 100%);">\n<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid #e5e7eb;padding-bottom:14px;margin-bottom:16px;">\n<div>\n<p style="margin:0 0 6px;color:#4f46e5;font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;">Product FAQ</p>\n<h3 style="margin:0;color:#111827;font-size:22px;line-height:1.2;font-weight:850;">Frequently asked questions</h3>\n<p style="margin:8px 0 0;color:#64748b;font-size:14px;line-height:1.5;">Quick answers based on the product details and customer evidence.</p>\n</div>\n<form method="dialog" style="margin:0;">\n<button type="submit" aria-label="Close FAQ modal" style="appearance:none;width:38px;height:38px;border:1px solid #dbe3ef;border-radius:12px;background:#ffffff;color:#334155;font-size:22px;line-height:1;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.06);">&times;</button>\n</form>\n</div>\n<dl style="margin:0;display:grid;gap:0;">\n${modalItemsHtml}\n</dl>\n<form method="dialog" style="margin:22px 0 0;display:flex;justify-content:flex-end;">\n<button type="submit" style="appearance:none;border:0;border-radius:12px;background:#1f2937;color:#ffffff;font-weight:800;padding:11px 18px;cursor:pointer;box-shadow:0 8px 18px rgba(15,23,42,.18);">Close</button>\n</form>\n</div>\n</dialog>`,
+      htmlStyle,
+      includeHeading: false,
+    });
+  }
+
+  return buildClientProductPulseStyledHtmlBlock({
+    actionId: safeActionId,
+    className: "productpulse-faq",
+    title: "Frequently asked questions",
+    contentHtml: `<details>\n<summary style="cursor:pointer;font-weight:700;color:#1d4ed8;">Frequently asked questions</summary>\n<dl style="margin:12px 0 0;">\n${itemsHtml}\n</dl>\n</details>`,
+    htmlStyle,
+    includeHeading: false,
+  });
+}
+
+function buildClientProductPulseFaqItemsHtml(faqItems = []) {
+  return (Array.isArray(faqItems) ? faqItems : []).map((item) => (
+    `<dt style="font-weight:700;color:#111827;margin-top:12px;">${escapeActionPreviewHtml(item.question)}</dt>\n<dd style="margin:4px 0 0;color:#374151;line-height:1.55;">${escapeActionPreviewHtml(item.answer)}</dd>`
+  )).join("\n");
+}
+
+function buildClientUpdatedProductDescriptionHtml({ currentHtml = "", currentText = "", draftText = "", operation = "replace", actionId = "product-action", htmlStyle } = {}) {
+  const baseHtml = currentHtml || buildClientProductPulseDescriptionBodyHtml(currentText);
+  if (operation === "replace") return buildClientProductPulseDescriptionReplacement(draftText);
+
+  const suggestionHtml = buildClientProductPulseDescriptionBlock(draftText, actionId, htmlStyle);
+  if (operation === "append") return [baseHtml, suggestionHtml].filter(Boolean).join("\n");
+  return [suggestionHtml, baseHtml].filter(Boolean).join("\n");
+}
+
+function buildClientUpdatedProductDescriptionHtmlFromChanges({ currentHtml = "", currentText = "", changes = [], actionId = "product-description-changes", htmlStyle } = {}) {
+  const normalizedChanges = Array.isArray(changes) ? changes : [];
+  if (!normalizedChanges.length) return "";
+
+  const prependChanges = normalizedChanges.filter((change) => change.operation === "prepend");
+  const replacementChange = normalizedChanges.find((change) => change.operation === "replace");
+  const appendChanges = normalizedChanges.filter((change) => change.operation === "append");
+  const blocks = [];
+
+  prependChanges.forEach((change) => {
+    blocks.push(buildClientProductPulseDescriptionBlock(change.text, change.actionId || change.id || actionId, htmlStyle));
+  });
+
+  if (replacementChange) {
+    blocks.push(buildClientProductPulseDescriptionReplacement(replacementChange.text));
+  } else {
+    const baseHtml = currentHtml || buildClientProductPulseDescriptionBodyHtml(currentText);
+    if (baseHtml) blocks.push(baseHtml);
+  }
+
+  appendChanges.forEach((change) => {
+    blocks.push(buildClientProductPulseDescriptionBlock(change.text, change.actionId || change.id || actionId, htmlStyle));
+  });
+
+  return blocks.filter(Boolean).join("\n");
+}
+
+function buildClientProductPulseDescriptionBlock(text = "", actionId = "product-action", htmlStyle) {
+  const heading = String(actionId || "").includes("faq") ? "Product FAQ" : "Product note";
+  return buildClientProductPulseStyledHtmlBlock({
+    actionId: escapeActionPreviewHtml(actionId || "product-action"),
+    className: "productpulse-note",
+    title: heading,
+    contentHtml: buildClientHtmlParagraphs(text, htmlStyle),
+    htmlStyle,
+  });
+}
+
+function buildClientProductPulseDescriptionReplacement(text = "") {
+  return buildClientProductPulseDescriptionBodyHtml(text);
+}
+
+function buildClientProductPulseDescriptionBodyHtml(text = "") {
+  if (containsAllowedActionPreviewHtml(text)) return sanitizeActionPreviewDescriptionBodyHtml(text);
+  return String(text || "")
+    .split(/\n{2,}|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${escapeActionPreviewHtml(line)}</p>`)
+    .join("\n");
+}
+
+function buildClientHtmlParagraphs(text = "", htmlStyle) {
+  if (containsAllowedActionPreviewHtml(text)) return sanitizeActionPreviewDescriptionHtml(text);
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
+  return String(text || "")
+    .split(/\n{2,}|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p style="${escapeActionPreviewAttribute(preset.paragraphStyle)}">${escapeActionPreviewHtml(line)}</p>`)
+    .join("\n");
+}
+
+function buildClientProductPulseStyledHtmlBlock({ actionId, className, title, contentHtml, htmlStyle, includeHeading = true }) {
+  const style = normalizeProductPulseHtmlStyle(htmlStyle);
+  const preset = getProductPulseHtmlStylePreset(style.preset);
+  const template = getProductPulseHtmlStyleTemplate(style);
+  const attributes = buildClientProductPulseCalloutAttributes(actionId, className, style);
+  const headingHtml = includeHeading ? buildClientProductPulseCalloutHeading(title, style) : "";
+  const safeTitle = escapeActionPreviewHtml(title);
+  const rendered = template
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes, attributes)
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.title, safeTitle)
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.headingHtml, headingHtml)
+    .replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml, contentHtml || "");
+
+  if (rendered.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml)) {
+    return `<section ${attributes}>\n${headingHtml}\n${contentHtml || ""}\n</section>`;
+  }
+  if (!rendered.includes("data-productpulse-action=") && !template.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes)) {
+    return `<section ${attributes}>\n${rendered}\n</section>`;
+  }
+  return rendered.replaceAll("__PRODUCTPULSE_PRESET_TONE__", escapeActionPreviewHtml(preset.tone || "blue"));
+}
+
+function buildClientProductPulseCalloutAttributes(actionId, className = "productpulse-callout", htmlStyle) {
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
+  return [
+    `data-productpulse-action="${escapeActionPreviewAttribute(actionId)}"`,
+    `class="${escapeActionPreviewAttribute(`${className} productpulse-callout`)}"`,
+    `style="${escapeActionPreviewAttribute(preset.attributeStyle)}"`,
+  ].join(" ");
+}
+
+function buildClientProductPulseCalloutHeading(label, htmlStyle) {
+  const preset = getProductPulseHtmlStylePreset(normalizeProductPulseHtmlStyle(htmlStyle).preset);
+  return `<p style="${escapeActionPreviewAttribute(preset.headingStyle)}">${escapeActionPreviewHtml(label)}</p>`;
+}
+
+function buildActionHtmlPreviewDocument(html = "", { openDialogs = false } = {}) {
+  const body = openDialogs
+    ? sanitizeActionPreviewHtml(html).replace(/<dialog\b(?![^>]*\bopen\b)/gi, "<dialog open")
+    : sanitizeActionPreviewHtml(html);
+  return [
+    "<!doctype html>",
+    "<html>",
+    "<head>",
+    "<meta charset=\"utf-8\">",
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+    "<style>",
+    "html{background:#fff;color:#111827;font-family:Inter,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;}",
+    "body{margin:0;padding:14px;background:#fff;font-size:14px;line-height:1.5;}",
+    "*{box-sizing:border-box;}",
+    "img{max-width:100%;height:auto;}",
+    "dialog[open]{position:relative;display:block;margin:14px 0 0;max-width:100%;width:100%;max-height:none;}",
+    "dialog::backdrop{display:none;}",
+    "summary{outline:none;}",
+    "</style>",
+    "</head>",
+    "<body>",
+    body,
+    "</body>",
+    "</html>",
+  ].join("");
+}
+
+function containsAllowedActionPreviewHtml(value = "") {
+  return /<\/?(p|br|strong|b|em|i|ul|ol|li|h3|h4|details|summary|dl|dt|dd|section|aside|div|dialog|button|form)\b/i.test(String(value || ""));
+}
+
+function sanitizeActionPreviewHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
+function sanitizeActionPreviewDescriptionHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/(<[^>]+>)/g)
+    .map((part) => {
+      if (!part) return "";
+      if (part.startsWith("<")) return sanitizeActionPreviewDescriptionTag(part);
+      return escapeActionPreviewHtml(part);
+    })
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeActionPreviewDescriptionBodyHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/(<[^>]+>)/g)
+    .map((part) => {
+      if (!part) return "";
+      if (part.startsWith("<")) return sanitizeActionPreviewDescriptionBodyTag(part);
+      return escapeActionPreviewHtml(part);
+    })
+    .join("")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeActionPreviewDescriptionTag(tag = "") {
+  const match = String(tag || "").match(/^<\s*(\/)?\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/)?>$/i);
+  if (!match) return escapeActionPreviewHtml(tag);
+  const closing = Boolean(match[1]);
+  const tagName = String(match[2] || "").toLowerCase();
+  const selfClosing = Boolean(match[3]);
+  const inlineTags = new Set(["strong", "b", "em", "i"]);
+  if (inlineTags.has(tagName)) return closing ? `</${tagName}>` : `<${tagName}>`;
+  if (tagName === "br") return "<br>";
+  if (tagName === "p") return closing ? "</p>" : "<p style=\"margin:0 0 10px;color:#374151;line-height:1.6;\">";
+  if (tagName === "h3") return closing ? "</h3>" : "<h3 style=\"margin:0 0 10px;color:#1f2937;font-size:16px;line-height:1.35;font-weight:800;\">";
+  if (tagName === "h4") return closing ? "</h4>" : "<h4 style=\"margin:0 0 8px;color:#1f2937;font-size:14px;line-height:1.35;font-weight:800;\">";
+  if (tagName === "ul") return closing ? "</ul>" : "<ul style=\"margin:0 0 10px 20px;padding:0;color:#374151;line-height:1.6;\">";
+  if (tagName === "ol") return closing ? "</ol>" : "<ol style=\"margin:0 0 10px 20px;padding:0;color:#374151;line-height:1.6;\">";
+  if (tagName === "li") return closing ? "</li>" : "<li style=\"margin:0 0 6px;\">";
+  return escapeActionPreviewHtml(selfClosing ? `<${tagName} />` : tag);
+}
+
+function sanitizeActionPreviewDescriptionBodyTag(tag = "") {
+  const match = String(tag || "").match(/^<\s*(\/)?\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/)?>$/i);
+  if (!match) return escapeActionPreviewHtml(tag);
+  const closing = Boolean(match[1]);
+  const tagName = String(match[2] || "").toLowerCase();
+  const selfClosing = Boolean(match[3]);
+  const allowedTags = new Set(["strong", "b", "em", "i", "br", "p", "h3", "h4", "ul", "ol", "li"]);
+  if (!allowedTags.has(tagName)) return escapeActionPreviewHtml(selfClosing ? `<${tagName} />` : tag);
+  if (tagName === "br") return "<br>";
+  return closing ? `</${tagName}>` : `<${tagName}>`;
+}
+
+function buildActionPreviewDomId(prefix, value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${prefix}-${normalized || "item"}`;
+}
+
+function escapeActionPreviewHtml(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeActionPreviewAttribute(value = "") {
+  return escapeActionPreviewHtml(value).replace(/\n/g, " ");
+}
+
 function getRecommendedActionPreviewParts(application = {}, editedText = "") {
   const proposed = normalizeActionText(editedText || application.value || "");
   const current = normalizeActionText(application.currentValue || "");
@@ -30355,6 +30780,10 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
   const afterLabel = isDescription ? "Updated description preview" : `${application.target || "Updated value"} preview`;
   const emptyCurrent = isDescription ? "No current Shopify description was loaded for this product." : "No current Shopify value was loaded.";
   const previewText = (value) => isDescription ? normalizeActionText(value) : toActionPreviewExcerpt(value);
+  const htmlPreview = getRecommendedActionHtmlPreviewParts(application, {
+    currentText: current,
+    proposedText: proposed,
+  });
 
   if (isDescription && Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
     const selectedChanges = getSelectedDescriptionChanges(application);
@@ -30365,6 +30794,9 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
       afterLabel,
       beforeText: previewText(current || emptyCurrent),
       afterText: updatedDescription,
+      beforeHtml: htmlPreview?.beforeHtml || "",
+      afterHtml: htmlPreview?.afterHtml || "",
+      htmlPreviewMode: htmlPreview?.mode || "",
       afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
     };
   }
@@ -30377,6 +30809,9 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
       afterLabel,
       beforeText: previewText(current || emptyCurrent),
       afterText: updatedDescription,
+      beforeHtml: htmlPreview?.beforeHtml || "",
+      afterHtml: htmlPreview?.afterHtml || "",
+      htmlPreviewMode: htmlPreview?.mode || "",
       afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
     };
   }
@@ -30389,6 +30824,9 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
       afterLabel,
       beforeText: previewText(current || emptyCurrent),
       afterText: updatedDescription,
+      beforeHtml: htmlPreview?.beforeHtml || "",
+      afterHtml: htmlPreview?.afterHtml || "",
+      htmlPreviewMode: htmlPreview?.mode || "",
       afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
     };
   }
@@ -30401,6 +30839,9 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
       afterLabel,
       beforeText: previewText(current || emptyCurrent),
       afterText: updatedDescription,
+      beforeHtml: htmlPreview?.beforeHtml || "",
+      afterHtml: htmlPreview?.afterHtml || "",
+      htmlPreviewMode: htmlPreview?.mode || "",
       afterDiffSegments: buildActionDescriptionDiffSegments(current, updatedDescription),
     };
   }
@@ -30410,12 +30851,16 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
     beforeLabel,
     afterLabel,
     beforeText: previewText(current || emptyCurrent),
+    beforeHtml: htmlPreview?.beforeHtml || "",
+    afterHtml: htmlPreview?.afterHtml || "",
+    htmlPreviewMode: htmlPreview?.mode || "",
     highlightText: isDescription ? "" : "",
     afterText: previewText(proposed || "No proposed value supplied."),
   };
 }
 
-function isActionDescriptionPreviewExpandable(text = "", highlights = [], diffSegments = []) {
+function isActionDescriptionPreviewExpandable(text = "", highlights = [], diffSegments = [], html = "") {
+  if (String(html || "").trim()) return true;
   const textLength = normalizeActionText(text).length;
   const highlightLengths = highlights.map((highlight) => normalizeActionText(typeof highlight === "string" ? highlight : highlight?.text).length);
   const diffLength = Array.isArray(diffSegments) && diffSegments.length

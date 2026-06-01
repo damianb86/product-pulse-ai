@@ -19986,6 +19986,11 @@ s-page[inline-size="large-500"] {
   background: var(--pp-mist-gray);
 }
 
+.ppActionPreviewBox.hasHtmlPreview {
+  padding: 6px;
+  background: var(--pp-cloud-white);
+}
+
 .ppActionPreviewBox.isExpanded {
   max-height: none;
   overflow: visible;
@@ -20015,6 +20020,20 @@ s-page[inline-size="large-500"] {
 
 .ppActionPreviewBox-after {
   background: var(--pp-cloud-white);
+}
+
+.ppActionPreviewHtmlFrame {
+  width: 100%;
+  min-height: 220px;
+  display: block;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  box-shadow: inset 0 1px 0 rgba(var(--pp-shadow-rgb), 0.03);
+}
+
+.ppActionPreviewHtmlFrame.isExpanded {
+  min-height: min(520px, 58vh);
 }
 
 .ppActionPreviewInsertedText {
@@ -21049,6 +21068,11 @@ s-page[inline-size="large-500"] {
   background: rgba(var(--pp-slate-100-rgb), 0.56);
 }
 
+.ppRecommendedActionModal .ppActionPreviewBox.hasHtmlPreview {
+  padding: 5px;
+  background: var(--pp-cloud-white);
+}
+
 .ppRecommendedActionModal .ppActionPreviewBox.isExpanded {
   height: auto;
   overflow: visible;
@@ -21063,6 +21087,14 @@ s-page[inline-size="large-500"] {
 .ppRecommendedActionModal .ppActionPreviewBox p {
   font-size: 12px;
   line-height: 1.45;
+}
+
+.ppRecommendedActionModal .ppActionPreviewHtmlFrame {
+  min-height: 100%;
+}
+
+.ppRecommendedActionModal .ppActionPreviewHtmlFrame.isExpanded {
+  min-height: min(520px, 58vh);
 }
 
 .ppRecommendedActionModal .ppActionPreviewDiffBlock {
@@ -21223,7 +21255,7 @@ s-page[inline-size="large-500"] {
   position: fixed;
   left: 50%;
   bottom: 15px;
-  z-index: 90;
+  z-index: 2147482200;
   width: min(720px, calc(100vw - 24px));
   display: flex;
   flex-direction: column;
@@ -24738,7 +24770,7 @@ s-page[inline-size="large-500"] {
 .ppConnectionModalOverlay {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 2147482200;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -25199,7 +25231,7 @@ s-page[inline-size="large-500"] {
 .ppAnalysisConfirmOverlay {
   position: fixed;
   inset: 0;
-  z-index: 82;
+  z-index: 2147482300;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -26187,6 +26219,15 @@ s-page[inline-size="large-500"] {
   font: inherit;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.ppActionConfirmHtmlPreview {
+  display: block;
+}
+
+.ppActionConfirmCurrent .ppActionPreviewHtmlFrame,
+.ppActionConfirmChange .ppActionPreviewHtmlFrame {
+  min-height: min(440px, 48vh);
 }
 
 .ppActionConfirmDescriptionChanges {
