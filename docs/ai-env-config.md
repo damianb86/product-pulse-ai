@@ -70,6 +70,11 @@ These limits bound normal chat cost and prevent unbounded tool loops/history gro
 
 If `PRODUCT_PULSE_AI_LEVEL` is omitted, development defaults to `1` and non-development runtimes default to `3`.
 
+In `PRODUCT_PULSE_AI_LEVEL=3`, current task tiering is:
+- `OPENAI_BASIC_MODEL`: emergent sentiment, content coverage validation, action rationale, connection test text, and relationship insights unless `AI_RELATIONSHIP_INSIGHTS_MODEL` overrides them.
+- `OPENAI_PRO_MODEL`: signal classification, product content-gap audit, chart interpretations, and Watchlist change narratives.
+- `OPENAI_PREMIUM_MODEL`: final product diagnosis report.
+
 ## Rate Limits
 
 ```bash

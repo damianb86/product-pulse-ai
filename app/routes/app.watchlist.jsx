@@ -10,6 +10,7 @@ import {
   removeWatchedProductForShop,
   resumeAllWatchesForShop,
   resumeWatchedProductForShop,
+  searchWatchlistEligibleProductsForShop,
   toggleWatchAlertsForShop,
   updateWatchSettingsForShop,
 } from "../lib/product-pulse-watchlist.server";
@@ -46,6 +47,10 @@ export const action = async ({ request }) => {
 
   if (actionType === "search-shopify-products") {
     return searchShopifyProductsForDiagnosis(session.shop, admin, String(formData.get("query") || ""));
+  }
+
+  if (actionType === "search-watchlist-eligible-products") {
+    return searchWatchlistEligibleProductsForShop(session.shop, String(formData.get("query") || ""));
   }
 
   if (actionType === "add-watched-product") {

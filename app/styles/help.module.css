@@ -30,11 +30,7 @@
   padding: 28px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
   border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(var(--pp-pulse-blue-rgb), 0.08) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(var(--pp-signal-teal-rgb), 0.08) 1px, transparent 1px),
-    linear-gradient(135deg, var(--pp-cloud-white) 0%, var(--pp-blue-soft) 50%, var(--pp-mist-gray) 100%);
-  background-size: 34px 34px, 34px 34px, auto;
+  background: linear-gradient(135deg, var(--pp-cloud-white) 0%, var(--pp-blue-soft) 50%, var(--pp-mist-gray) 100%);
   box-shadow: 0 16px 42px rgba(var(--pp-shadow-rgb), 0.08);
 }
 
@@ -467,11 +463,7 @@
   overflow: hidden;
   padding: 20px;
   color: var(--pp-cloud-white);
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-    var(--pp-dark-neutral-gradient);
-  background-size: 26px 26px, 26px 26px, auto;
+  background: var(--pp-dark-neutral-gradient);
 }
 
 .contactPanel h2,

@@ -11,6 +11,10 @@ const emptyWizardTargets = [];
 const connectTargets = [
   { id: "judgemeRow", selector: '[data-pp-connect-source-row="judgemeReviews"]' },
   { id: "judgemeAction", selector: '[data-pp-connect-source-action="judgemeReviews"]' },
+  { id: "yotpoRow", selector: '[data-pp-connect-source-row="yotpoReviews"]' },
+  { id: "yotpoAction", selector: '[data-pp-connect-source-action="yotpoReviews"]' },
+  { id: "looxRow", selector: '[data-pp-connect-source-row="looxReviews"]' },
+  { id: "looxAction", selector: '[data-pp-connect-source-action="looxReviews"]' },
   { id: "csvRow", selector: '[data-pp-connect-source-row="csvReviews"]' },
   { id: "csvAction", selector: '[data-pp-connect-source-action="csvReviews"]' },
 ];
@@ -82,11 +86,31 @@ const wizardSteps = [
 ];
 
 const csvProviderBadges = [
-  { label: "Judge.me", domain: "judge.me" },
-  { label: "Yotpo", domain: "yotpo.com" },
-  { label: "Loox", domain: "loox.io" },
-  { label: "Okendo", domain: "okendo.io" },
-  { label: "Stamped", domain: "stamped.io" },
+  {
+    label: "Judge.me",
+    domain: "judge.me",
+    href: "https://judge.me/help/en/articles/8236266-exporting-reviews",
+  },
+  {
+    label: "Yotpo",
+    domain: "yotpo.com",
+    href: "https://support.yotpo.com/docs/exporting-reviews-from-yotpo",
+  },
+  {
+    label: "Loox",
+    domain: "loox.io",
+    href: "https://help.loox.io/support/solutions/articles/501000162437/",
+  },
+  {
+    label: "Okendo",
+    domain: "okendo.io",
+    href: "https://support.okendo.io/en/articles/13909417-exporting-data-from-okendo",
+  },
+  {
+    label: "Stamped",
+    domain: "stamped.io",
+    href: "https://stampedsupport.stamped.io/hc/en-us/articles/8839244356891-Exporting-Reviews-Checkout-Comments-or-NPS",
+  },
 ];
 
 const modalCopy = {
@@ -94,6 +118,16 @@ const modalCopy = {
     eyebrow: "Judge.me connection",
     title: "Connect Judge.me reviews",
     body: "Paste the Judge.me private API token here. ProductPulse uses it to read review signals for Catalog Scan and Product Diagnosis.",
+  },
+  yotpo: {
+    eyebrow: "Yotpo connection",
+    title: "Connect Yotpo reviews",
+    body: "Paste the Yotpo Store ID/App Key and API secret here. ProductPulse tests review access before saving the connection.",
+  },
+  loox: {
+    eyebrow: "Loox connection",
+    title: "Connect Loox reviews",
+    body: "Paste the Loox publicStoreId and API secret key here. ProductPulse tests Merchant API review access before saving the connection.",
   },
   csv: {
     eyebrow: "CSV upload",
@@ -450,10 +484,12 @@ function WelcomeWizardStep() {
 function ConnectWizardStep({ targetRects, openModal, completion }) {
   if (openModal) return null;
   const judgeAnchor = targetRects.judgemeAction || targetRects.judgemeRow;
+  const yotpoAnchor = targetRects.yotpoAction || targetRects.yotpoRow;
+  const looxAnchor = targetRects.looxAction || targetRects.looxRow;
   const csvAnchor = targetRects.csvAction || targetRects.csvRow;
 
-  if (!judgeAnchor || !csvAnchor) {
-    return <WizardLoadingCard title="Opening Connect" body="We are locating the Judge.me and CSV review source rows." />;
+  if (!judgeAnchor || !yotpoAnchor || !looxAnchor || !csvAnchor) {
+    return <WizardLoadingCard title="Opening Connect" body="We are locating the Judge.me, Yotpo, Loox, and CSV review source rows." />;
   }
 
   return (
@@ -473,6 +509,36 @@ function ConnectWizardStep({ targetRects, openModal, completion }) {
       </WizardTooltip>
 
       <WizardTooltip
+        anchorRect={looxAnchor}
+        className="ppWizardTooltip-loox"
+        title="Connect Loox Reviews"
+        eyebrow="Direct connector"
+        estimatedHeight={166}
+        forceSide="right"
+        offsetY={12}
+      >
+        <p>
+          Click <strong>Connect</strong> or <strong>Manage</strong> on Loox Reviews to add your
+          publicStoreId and API secret key from Settings &gt; API Keys.
+        </p>
+      </WizardTooltip>
+
+      <WizardTooltip
+        anchorRect={yotpoAnchor}
+        className="ppWizardTooltip-yotpo"
+        title="Connect Yotpo Reviews"
+        eyebrow="Direct connector"
+        estimatedHeight={166}
+        forceSide="right"
+        offsetY={6}
+      >
+        <p>
+          Click <strong>Connect</strong> or <strong>Manage</strong> on Yotpo Reviews to add your
+          Store ID/App Key and API secret. ProductPulse verifies review API access before saving it.
+        </p>
+      </WizardTooltip>
+
+      <WizardTooltip
         anchorRect={csvAnchor}
         className="ppWizardTooltip-csv"
         title="Upload reviews by CSV"
@@ -481,6 +547,7 @@ function ConnectWizardStep({ targetRects, openModal, completion }) {
         forceSide="bottom"
         offsetY={60}
         preferredWidth={392}
+        allowVerticalOverflow
       >
         <p>
           Use CSV Upload when you prefer not to connect a provider directly, or when your review
@@ -488,14 +555,20 @@ function ConnectWizardStep({ targetRects, openModal, completion }) {
         </p>
         <div className="ppWizardProviderBadges" aria-label="Supported CSV provider examples">
           {csvProviderBadges.map((provider) => (
-            <span key={provider.label}>
+            <a
+              key={provider.label}
+              href={provider.href}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`Open ${provider.label} CSV export documentation`}
+            >
               <img
                 src={`https://www.google.com/s2/favicons?domain=${provider.domain}&sz=32`}
                 alt=""
                 aria-hidden="true"
               />
               {provider.label}
-            </span>
+            </a>
           ))}
         </div>
       </WizardTooltip>
@@ -781,8 +854,9 @@ function WizardTooltip({
   hideArrow = false,
   widthRatio,
   centered = false,
+  allowVerticalOverflow = false,
 }) {
-  const placement = getTooltipPlacement(anchorRect, offsetY, preferredWidth, { estimatedHeight, forceSide, widthRatio, centered });
+  const placement = getTooltipPlacement(anchorRect, offsetY, preferredWidth, { estimatedHeight, forceSide, widthRatio, centered, allowVerticalOverflow });
   const sideClass = getWizardTooltipSideClass(placement.side);
 
   return (
@@ -850,6 +924,9 @@ function useWizardSpotlightTargets(targets, enabled) {
     document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
       clearWizardSpotlightElement(element);
     });
+    document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
+      element.classList.remove("ppWizardSpotlightAncestor");
+    });
 
     targets.forEach((target) => {
       const elements = target.all
@@ -865,6 +942,9 @@ function useWizardSpotlightTargets(targets, enabled) {
         element.style.setProperty("--pp-wizard-target-width", `${rect.width}px`);
         element.style.setProperty("--pp-wizard-target-height", `${rect.height}px`);
         element.classList.add("ppWizardSpotlightTarget");
+        if (target.id === "deepScanAction") {
+          element.closest(".ppProductsToolbar")?.classList.add("ppWizardSpotlightAncestor");
+        }
       });
       nextRects[target.id] = getUnionRect(visibleElements);
     });
@@ -876,6 +956,9 @@ function useWizardSpotlightTargets(targets, enabled) {
     if (!enabled) {
       document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
         clearWizardSpotlightElement(element);
+      });
+      document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
+        element.classList.remove("ppWizardSpotlightAncestor");
       });
       setRects((current) => (Object.keys(current).length ? {} : current));
       return undefined;
@@ -899,6 +982,9 @@ function useWizardSpotlightTargets(targets, enabled) {
       window.removeEventListener("scroll", scheduleMeasure, true);
       document.querySelectorAll(".ppWizardSpotlightTarget").forEach((element) => {
         clearWizardSpotlightElement(element);
+      });
+      document.querySelectorAll(".ppWizardSpotlightAncestor").forEach((element) => {
+        element.classList.remove("ppWizardSpotlightAncestor");
       });
     };
   }, [enabled, measure, targetsKey]);
@@ -985,6 +1071,8 @@ function useOpenWizardModal(enabled) {
 function getOpenWizardModal() {
   const candidates = [
     { kind: "judgeme", selector: "#judgeme-connect-title" },
+    { kind: "yotpo", selector: "#yotpo-connect-title" },
+    { kind: "loox", selector: "#loox-connect-title" },
     { kind: "csv", selector: "#csv-upload-title" },
     { kind: "csvPreview", selector: "#csv-preview-title" },
     { kind: "quickScanCsv", selector: "#quick-scan-csv-title" },
@@ -1056,6 +1144,8 @@ function getWizardControlLabels(step, productsState, deepScanStarted, quickScanS
 
 function getConnectCompletionMessage(provider) {
   if (provider === "judgemeReviews") return "Judge.me was connected. When you are ready, click Next to continue to Products.";
+  if (provider === "yotpoReviews") return "Yotpo Reviews was connected. When you are ready, click Next to continue to Products.";
+  if (provider === "looxReviews") return "Loox Reviews was connected. When you are ready, click Next to continue to Products.";
   if (provider === "csvReviews") return "CSV reviews were saved. When you are ready, click Next to continue to Products.";
   return "Source saved. When you are ready, click Next to continue to Products.";
 }
@@ -1152,7 +1242,9 @@ function getTooltipPlacement(anchorRect, offsetY = 0, preferredWidth = 360, opti
     ? clamp((viewportWidth - tooltipWidth) / 2, 16, viewportWidth - tooltipWidth - 16)
     : clamp(anchorRect.left, 16, viewportWidth - tooltipWidth - 16);
   const preferredTop = anchorRect.bottom + 14 + offsetY;
-  const top = preferredTop + estimatedHeight < viewportHeight - bottomBarHeight
+  const top = options.allowVerticalOverflow
+    ? preferredTop
+    : preferredTop + estimatedHeight < viewportHeight - bottomBarHeight
     ? preferredTop
     : clamp(anchorRect.top - estimatedHeight - 14, 16, maxTop);
 

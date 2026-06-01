@@ -99,6 +99,9 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     observedJobsRef.current = currentJobs;
 
     if (finishedJobs.length || activeJobDisappeared) {
+      if (finishedJobs.length) {
+        dispatchProductPulseJobsFinishedEvent(finishedJobs);
+      }
       const completedAnalysisJob = finishedJobs.find((job) => isCompletionNoticeJob(job));
       const failedJob = finishedJobs.find((job) => (
         job.status === "Failed" && !announcedFailedJobIdsRef.current.has(job.id)
@@ -953,6 +956,11 @@ function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismis
 function dispatchProductPulseWizardJobEvent(detail) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail }));
+}
+
+function dispatchProductPulseJobsFinishedEvent(jobs) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("productpulse:jobs-finished", { detail: { jobs } }));
 }
 
 function JobNoticeMedia({ job, tone }) {

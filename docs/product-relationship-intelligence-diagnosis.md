@@ -100,9 +100,8 @@ The AI does not receive:
 Model configuration:
 
 - Preferred env: `AI_RELATIONSHIP_INSIGHTS_MODEL`
-- Fallback env: `AI_CHAT_MODEL`
-- Existing fallback chain: `OPENAI_PRO_MODEL`, `OPENAI_PREMIUM_MODEL`, `OPENAI_BASIC_MODEL`
-- Default fallback model: `gpt-5.4-mini`
+- Production fallback chain: `OPENAI_BASIC_MODEL`, `AI_CHAT_MODEL`, `OPENAI_PRO_MODEL`, `OPENAI_PREMIUM_MODEL`
+- Default fallback model: `gpt-5.4-nano`
 
 Insights are persisted in:
 

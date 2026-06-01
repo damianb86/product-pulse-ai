@@ -69,9 +69,11 @@ export function ProductPulseWatchlistWizard() {
   const [stepIndex, setStepIndex] = useState(0);
   const [productAdded, setProductAdded] = useState(false);
   const [scanStarted, setScanStarted] = useState(false);
+  const [scanJobCompleted, setScanJobCompleted] = useState(false);
   const [scanReportReady, setScanReportReady] = useState(false);
   const [reportedProduct, setReportedProduct] = useState(null);
   const waitingForScanReportRef = useRef(false);
+  const scanJobIdsRef = useRef(new Set());
   const step = watchlistWizardSteps[stepIndex] || watchlistWizardSteps[0];
   const addModalOpen = useSelectorPresent('[data-pp-watchlist-add-modal="true"]', active && step.kind === "addProduct");
   const reportReady = useSelectorPresent('[data-pp-watchlist-ready-row="true"] [data-pp-watchlist-view-report="true"]', active);
@@ -80,8 +82,8 @@ export function ProductPulseWatchlistWizard() {
     [addModalOpen, step],
   );
   const targetRects = useWatchlistWizardTargets(targets, active);
-  const nextDisabled = getWatchlistWizardNextDisabled(step, { productAdded, scanStarted, reportReady, scanReportReady });
-  const labels = getWatchlistWizardControlLabels(step, { productAdded, scanStarted, reportReady, scanReportReady });
+  const nextDisabled = getWatchlistWizardNextDisabled(step, { productAdded, scanStarted, reportReady, scanJobCompleted, scanReportReady });
+  const labels = getWatchlistWizardControlLabels(step, { productAdded, scanStarted, reportReady, scanJobCompleted, scanReportReady });
 
   const completeWizard = useCallback(() => {
     markWatchlistWizardCompleted();
@@ -98,8 +100,10 @@ export function ProductPulseWatchlistWizard() {
     if (document.body.classList.contains("ppWizardActive")) return;
     setProductAdded(false);
     setScanStarted(false);
+    setScanJobCompleted(false);
     setScanReportReady(false);
     waitingForScanReportRef.current = false;
+    scanJobIdsRef.current = new Set();
     setReportedProduct(null);
     setStepIndex(0);
     setActive(true);
@@ -117,8 +121,10 @@ export function ProductPulseWatchlistWizard() {
       clearWatchlistWizardCompleted();
       setProductAdded(false);
       setScanStarted(false);
+      setScanJobCompleted(false);
       setScanReportReady(false);
       waitingForScanReportRef.current = false;
+      scanJobIdsRef.current = new Set();
       setReportedProduct(null);
       setStepIndex(0);
       setActive(true);
@@ -187,14 +193,15 @@ export function ProductPulseWatchlistWizard() {
   }, [active, step.kind]);
 
   useEffect(() => {
-    if (!active || step.kind !== "backgroundProcesses" || !scanStarted || !scanReportReady) return undefined;
+    if (!active || step.kind !== "backgroundProcesses" || !scanStarted || !scanJobCompleted || !scanReportReady) return undefined;
     const timeout = window.setTimeout(() => {
       const reportStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "reportRow");
       if (reportStepIndex >= 0) setStepIndex(reportStepIndex);
       waitingForScanReportRef.current = false;
+      scanJobIdsRef.current = new Set();
     }, 260);
     return () => window.clearTimeout(timeout);
-  }, [active, scanReportReady, scanStarted, step.kind]);
+  }, [active, scanJobCompleted, scanReportReady, scanStarted, step.kind]);
 
   useEffect(() => {
     if (!active || step.kind !== "backgroundProcesses") return undefined;
@@ -205,6 +212,37 @@ export function ProductPulseWatchlistWizard() {
       window.clearInterval(interval);
     };
   }, [active, step.kind]);
+
+  useEffect(() => {
+    if (!active) return undefined;
+
+    const handleQueuedJobs = (event) => {
+      if (!waitingForScanReportRef.current) return;
+      const jobIds = getWatchlistWizardJobIds(event.detail?.jobs || event.detail?.job);
+      if (!jobIds.length) return;
+      scanJobIdsRef.current = new Set([...scanJobIdsRef.current, ...jobIds]);
+      setScanJobCompleted(false);
+    };
+
+    const handleFinishedJobs = (event) => {
+      if (!waitingForScanReportRef.current) return;
+      const jobs = normalizeWatchlistWizardJobs(event.detail?.jobs || event.detail?.job);
+      if (!jobs.length) return;
+      const trackedIds = scanJobIdsRef.current;
+      const completedTrackedJob = jobs.some((job) => {
+        if (!isCompletedWatchlistWizardJob(job)) return false;
+        return trackedIds.size ? trackedIds.has(job.id) : true;
+      });
+      if (completedTrackedJob) setScanJobCompleted(true);
+    };
+
+    window.addEventListener("productpulse:jobs-queued", handleQueuedJobs);
+    window.addEventListener("productpulse:jobs-finished", handleFinishedJobs);
+    return () => {
+      window.removeEventListener("productpulse:jobs-queued", handleQueuedJobs);
+      window.removeEventListener("productpulse:jobs-finished", handleFinishedJobs);
+    };
+  }, [active]);
 
   useEffect(() => {
     if (!active || step.kind !== "reportRow" || !isWatchlistProductRoute(location.pathname)) return;
@@ -218,15 +256,19 @@ export function ProductPulseWatchlistWizard() {
       const detail = event.detail || {};
       if (detail.type === "product-added") {
         setProductAdded(true);
+        setScanJobCompleted(false);
         setScanReportReady(false);
         waitingForScanReportRef.current = false;
+        scanJobIdsRef.current = new Set();
         const tableStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "table");
         if (tableStepIndex >= 0) setStepIndex(tableStepIndex);
       }
       if (detail.type === "scan-started") {
         setScanStarted(true);
+        setScanJobCompleted(false);
         setScanReportReady(false);
         waitingForScanReportRef.current = true;
+        scanJobIdsRef.current = new Set(getWatchlistWizardJobIds(detail.jobs));
         const backgroundStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "backgroundProcesses");
         if (backgroundStepIndex >= 0) setStepIndex(backgroundStepIndex);
         window.setTimeout(() => openBackgroundProcessesPopover(), 80);
@@ -308,7 +350,7 @@ export function ProductPulseWatchlistWizard() {
           <WatchlistSettingsStep targetRects={targetRects} scanStarted={scanStarted} reportReady={reportReady} />
         ) : null}
         {step.kind === "backgroundProcesses" ? (
-          <WatchlistBackgroundProcessesStep targetRects={targetRects} />
+          <WatchlistBackgroundProcessesStep targetRects={targetRects} scanJobCompleted={scanJobCompleted} scanReportReady={scanReportReady} />
         ) : null}
         {step.kind === "reportRow" ? (
           <WatchlistReportRowStep targetRects={targetRects} reportedProduct={reportedProduct} />
@@ -492,11 +534,14 @@ function WatchlistSettingsStep({ targetRects, scanStarted, reportReady }) {
   );
 }
 
-function WatchlistBackgroundProcessesStep({ targetRects }) {
+function WatchlistBackgroundProcessesStep({ targetRects, scanJobCompleted, scanReportReady }) {
   const anchor = targetRects.backgroundProcessPopover || targetRects.backgroundProcessButton;
   if (!anchor) {
     return <WatchlistWizardLoadingCard title="Opening background processes" body="We are opening the process monitor for this Watchlist scan." />;
   }
+  const waitingLabel = scanJobCompleted && !scanReportReady
+    ? "Preparing the first Watchlist report..."
+    : "Waiting for a Watchlist job to complete...";
 
   return (
     <WatchlistWizardTooltip
@@ -520,7 +565,7 @@ function WatchlistBackgroundProcessesStep({ targetRects }) {
       </p>
       <div className="ppWizardProcessingStatus" role="status" aria-live="polite">
         <span className="ppWizardInlineSpinner" aria-hidden="true" />
-        <span>Waiting for the first Watchlist report...</span>
+        <span>{waitingLabel}</span>
       </div>
     </WatchlistWizardTooltip>
   );
@@ -777,7 +822,7 @@ function getWatchlistWizardTargets(step, addModalOpen) {
 function getWatchlistWizardNextDisabled(step, state) {
   if (step.kind === "addProduct") return !state.productAdded;
   if (step.kind === "settings") return !state.scanStarted || !state.reportReady;
-  if (step.kind === "backgroundProcesses") return !state.scanReportReady;
+  if (step.kind === "backgroundProcesses") return !state.scanJobCompleted || !state.scanReportReady;
   if (step.kind === "reportRow") return true;
   return false;
 }
@@ -793,7 +838,10 @@ function getWatchlistWizardControlLabels(step, state) {
     };
   }
   if (step.kind === "backgroundProcesses") {
-    return { back: "Back", next: state.scanReportReady ? "Next" : "Waiting for first report" };
+    const next = !state.scanJobCompleted
+      ? "Waiting for job"
+      : state.scanReportReady ? "Next" : "Waiting for report";
+    return { back: "Back", next };
   }
   if (step.kind === "reportRow") return { back: "Back", next: "Open report first" };
   if (step.kind === "recentRuns") return { back: "Back", next: "Finish" };
@@ -829,6 +877,18 @@ function getWatchlistWizardScrollBlock(step) {
   if (step.kind === "backgroundProcesses") return "center";
   if (step.kind === "reportRow") return "center";
   return "center";
+}
+
+function normalizeWatchlistWizardJobs(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [value].filter(Boolean);
+}
+
+function getWatchlistWizardJobIds(value) {
+  return normalizeWatchlistWizardJobs(value).map((job) => job?.id).filter(Boolean);
+}
+
+function isCompletedWatchlistWizardJob(job) {
+  return job?.status === "Completed" && job?.kind === "product-diagnosis";
 }
 
 function shouldBlockWatchlistWizardInteraction(target, stepKind) {

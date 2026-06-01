@@ -5,6 +5,40 @@ export const judgeMeConnectionLinks = {
   docs: "https://judge.me/help/en/articles/8409180-judge-me-api",
 };
 
+export const yotpoConnectionLinks = {
+  app: "https://settings.yotpo.com/",
+  shopifyApp: "https://apps.shopify.com/yotpo-social-reviews",
+  credentialsHelp: "https://support.yotpo.com/docs/finding-your-yotpo-app-key-and-secret-key-3",
+};
+
+export const looxConnectionLinks = {
+  shopifyApp: "https://apps.shopify.com/loox",
+  apiKeysHelp: "https://help.loox.io/support/solutions/articles/501000356871-loox-reviews-api-and-webhooks",
+};
+
+export function buildYotpoShopifyAdminAppUrl(shopDomain = "") {
+  const storeHandle = String(shopDomain || "")
+    .replace(/^https?:\/\//, "")
+    .replace(/\.myshopify\.com$/i, "")
+    .split(/[/?#]/)[0]
+    .trim();
+  if (!storeHandle) return yotpoConnectionLinks.shopifyApp;
+  return `https://admin.shopify.com/store/${encodeURIComponent(storeHandle)}/apps/yotpo-social-reviews`;
+}
+
+export function buildLooxShopifyAdminAppUrl(shopDomain = "", publicStoreId = "") {
+  const storeHandle = String(shopDomain || "")
+    .replace(/^https?:\/\//, "")
+    .replace(/\.myshopify\.com$/i, "")
+    .split(/[/?#]/)[0]
+    .trim();
+  if (!storeHandle) return looxConnectionLinks.shopifyApp;
+  const baseUrl = `https://admin.shopify.com/store/${encodeURIComponent(storeHandle)}/apps/loox-fashion-reviews`;
+  const normalizedPublicStoreId = String(publicStoreId || "").trim();
+  if (!normalizedPublicStoreId) return baseUrl;
+  return `${baseUrl}/merchant/${encodeURIComponent(normalizedPublicStoreId)}/settings/api-keys`;
+}
+
 export const connectCategoryDefinitions = [
   {
     id: "reviews",
@@ -32,18 +66,18 @@ export const connectCategoryDefinitions = [
         tone: "purple",
         source: "Photo, video and visual product reviews",
         provides: "Ratings, UGC, visual proof, sentiment",
-        available: false,
-        comingSoonMessage: "Loox review import is coming soon.",
+        available: true,
+        actionKind: "loox",
       },
       {
         key: "yotpoReviews",
         name: "Yotpo Reviews",
         logoUrl: "https://www.google.com/s2/favicons?domain=yotpo.com&sz=64",
         tone: "blue",
-        source: "Reviews, Q&A and UGC content",
-        provides: "Sentiment, topics, photos, Q&A",
-        available: false,
-        comingSoonMessage: "Yotpo import is coming soon.",
+        source: "Product reviews, ratings and UGC content",
+        provides: "Sentiment, topics, ratings, photos",
+        available: true,
+        actionKind: "yotpo",
       },
       {
         key: "stampedReviews",
@@ -285,7 +319,7 @@ function getSourceAction({ source, available, connected, active, locked }) {
   if (locked) return "Included";
   if (!available) return "Coming soon";
   if (source.actionKind === "csv") return connected ? "Replace CSV" : "Upload CSV";
-  if (source.actionKind === "judgeme") return active || !connected ? "Manage" : "Resume";
+  if (source.actionKind === "judgeme" || source.actionKind === "yotpo" || source.actionKind === "loox") return active || !connected ? "Manage" : "Resume";
   return connected ? "Manage" : "Connect";
 }
 
@@ -307,10 +341,27 @@ function getSourceDetail({ source, record, available, connected, active, locked 
       return `${displayFileName} uploaded`;
     }
     if (record?.config?.fileName) return `${record.config.fileName} uploaded`;
+    if (source.actionKind === "yotpo" && record?.config?.storeIdLast4) {
+      const sampleCount = Number(record.config.reviewSampleCount || 0);
+      const reviewDetail = Number.isFinite(sampleCount) && sampleCount > 0
+        ? `; ${sampleCount} review sample${sampleCount === 1 ? "" : "s"} read`
+        : "; review API verified";
+      return `Store ID ending in ${record.config.storeIdLast4}${reviewDetail}`;
+    }
+    if (source.actionKind === "loox" && record?.config?.publicStoreIdLast4) {
+      const sampleCount = Number(record.config.reviewSampleCount || 0);
+      const reviewDetail = Number.isFinite(sampleCount) && sampleCount > 0
+        ? `; ${sampleCount} review sample${sampleCount === 1 ? "" : "s"} read`
+        : "; review API verified";
+      return `publicStoreId ending in ${record.config.publicStoreIdLast4}${reviewDetail}`;
+    }
     if (record?.config?.tokenLast4) return `Token ending in ${record.config.tokenLast4}`;
     return record?.lastSyncedAt ? `Last synced ${formatConnectionDate(record.lastSyncedAt)}` : "Ready for sync";
   }
-  return source.actionKind === "judgeme" ? "Add a private API token to connect." : "Ready to configure.";
+  if (source.actionKind === "judgeme") return "Add a private API token to connect.";
+  if (source.actionKind === "yotpo") return "Add your Store ID/App Key and API secret to connect.";
+  if (source.actionKind === "loox") return "Add your publicStoreId and API secret key to connect.";
+  return "Ready to configure.";
 }
 
 function getCsvImportDisplayFileName(config = {}) {

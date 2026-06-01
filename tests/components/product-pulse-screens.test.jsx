@@ -450,17 +450,23 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Yotpo Reviews")).toBeInTheDocument();
     expect(screen.getByText("Stamped Reviews")).toBeInTheDocument();
     expect(screen.getByText("Shopify Returns & Refunds")).toBeInTheDocument();
-    expect(within(screen.getByText("Loox Reviews").closest("tr")).getByRole("button", { name: "Coming soon" })).toBeDisabled();
+    expect(within(screen.getByText("Loox Reviews").closest("tr")).getByRole("button", { name: "Connect" })).toBeInTheDocument();
+    expect(within(screen.getByText("Yotpo Reviews").closest("tr")).getByRole("button", { name: "Connect" })).toBeInTheDocument();
     expect(within(screen.getByText("Stamped Reviews").closest("tr")).getByRole("button", { name: "Coming soon" })).toBeDisabled();
     expect(screen.getAllByText("Coming soon").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Always on").length).toBeGreaterThan(0);
     expect(screen.getByText("Data coverage")).toBeInTheDocument();
+    expect(screen.getByText("Data coverage").querySelector("s-icon")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Need help connecting a source/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("View our setup guide")).not.toBeInTheDocument();
+    expect(screen.queryByText("Coverage rules")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Connection setup progress")).not.toBeInTheDocument();
   });
 
   it("does not show category ignore controls in Connect", () => {
     renderWithRouter(<ConnectScreen data={defaultView} />);
-    expect(screen.getByText("0% effective customer-signal coverage")).toBeInTheDocument();
+    expect(screen.getByLabelText("0% effective customer-signal coverage")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ignore category" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Use category" })).not.toBeInTheDocument();
     expect(screen.queryByText(/ignored by merchant choice/)).not.toBeInTheDocument();
@@ -497,10 +503,46 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("link", { name: "Open Judge.me API settings" })).toHaveAttribute("href", "https://judge.me/settings?jump_to=judge.me+api");
     expect(screen.getByRole("link", { name: "Judge.me API documentation" })).toHaveAttribute("href", "https://judge.me/help/en/articles/8409180-judge-me-api");
     fireEvent.change(screen.getByLabelText("Private API token"), { target: { value: "judgeme_private_123456" } });
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Judge.me Reviews" })).getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(screen.getAllByText("Connected to Judge.me.")).toHaveLength(1));
     expect(screen.queryByText("Done")).not.toBeInTheDocument();
-    expect(screen.getByText("60% effective customer-signal coverage")).toBeInTheDocument();
+    expect(screen.getByLabelText("60% effective customer-signal coverage")).toBeInTheDocument();
+  });
+
+  it("connects Yotpo Reviews from the connection modal", async () => {
+    renderWithRouter(<ConnectScreen data={{ ...defaultView, shop: "damian-xdcxxupp.myshopify.com" }} />);
+    const yotpoRow = screen.getByText("Yotpo Reviews").closest("tr");
+    fireEvent.click(within(yotpoRow).getByRole("button", { name: "Connect" }));
+    const dialog = screen.getByRole("dialog", { name: "Yotpo Reviews" });
+    expect(within(dialog).getByRole("heading", { name: "Yotpo Reviews" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Yotpo in Shopify" })).toHaveAttribute("href", "https://admin.shopify.com/store/damian-xdcxxupp/apps/yotpo-social-reviews");
+    expect(screen.getByRole("link", { name: "Yotpo account settings" })).toHaveAttribute("href", "https://settings.yotpo.com/");
+    expect(screen.getByRole("link", { name: "Find Store ID and API secret" })).toHaveAttribute("href", "https://support.yotpo.com/docs/finding-your-yotpo-app-key-and-secret-key-3");
+    expect(screen.queryByRole("link", { name: "Yotpo API authentication" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reviews API documentation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Product reviews API documentation" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Store ID / App Key"), { target: { value: "yotpo_store_123456" } });
+    fireEvent.change(screen.getByLabelText("API secret"), { target: { value: "yotpo_secret_123456" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(screen.getAllByText("Connected to Yotpo Reviews. Review API access verified.")).toHaveLength(1));
+    expect(screen.getByLabelText("60% effective customer-signal coverage")).toBeInTheDocument();
+  });
+
+  it("connects Loox Reviews from the connection modal", async () => {
+    renderWithRouter(<ConnectScreen data={{ ...defaultView, shop: "damian-xdcxxupp.myshopify.com" }} />);
+    const looxRow = screen.getByText("Loox Reviews").closest("tr");
+    fireEvent.click(within(looxRow).getByRole("button", { name: "Connect" }));
+    const dialog = screen.getByRole("dialog", { name: "Loox Reviews" });
+    expect(within(dialog).getByRole("heading", { name: "Loox Reviews" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Loox API Keys in Shopify" })).toHaveAttribute("href", "https://admin.shopify.com/store/damian-xdcxxupp/apps/loox-fashion-reviews");
+    expect(screen.getByRole("link", { name: "Find publicStoreId and API key" })).toHaveAttribute("href", "https://help.loox.io/support/solutions/articles/501000356871-loox-reviews-api-and-webhooks");
+    fireEvent.change(screen.getByLabelText("publicStoreId"), { target: { value: "loox_public_store_123456" } });
+    expect(screen.getByRole("link", { name: "Open Loox API Keys in Shopify" })).toHaveAttribute("href", "https://admin.shopify.com/store/damian-xdcxxupp/apps/loox-fashion-reviews/merchant/loox_public_store_123456/settings/api-keys");
+    expect(screen.queryByRole("link", { name: "Loox API documentation" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("API secret key"), { target: { value: "loox_secret_123456" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(screen.getAllByText("Connected to Loox Reviews. Review API access verified.")).toHaveLength(1));
+    expect(screen.getByLabelText("60% effective customer-signal coverage")).toBeInTheDocument();
   });
 
   it("shows a CSV review preview before saving the upload", async () => {
@@ -954,7 +996,9 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Resume all watches" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add watched product" }));
     expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
-    expect(screen.getByText(/add one product to automatic monitoring/i)).toBeInTheDocument();
+    expect(screen.getByText(/Only products with a completed Product Diagnosis are shown here/i)).toBeInTheDocument();
+    expect(screen.getByText(/Candidates and Catalog Scan-only products must be diagnosed first/i)).toBeInTheDocument();
+    expect(screen.getByText("Loading eligible products...")).toBeInTheDocument();
   });
 
   it("groups product-level reports under the same Watchlist run in the overview timeline", () => {
@@ -1895,7 +1939,9 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "More actions for Linen Shirt" }));
     expect(screen.getByRole("menuitem", { name: /View Product Diagnosis/ })).toHaveAttribute("href", "/app/products/linen-shirt");
     expect(screen.getByRole("menuitem", { name: "Copy handle" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Add to Watchlist" })).toBeInTheDocument();
+    const watchlistAction = screen.getByRole("menuitem", { name: "Diagnosis required for Watchlist" });
+    expect(watchlistAction).toBeDisabled();
+    expect(watchlistAction).toHaveAttribute("title", "Run Product Diagnosis before adding this product to Watchlist.");
     expect(screen.getByRole("menuitem", { name: "Delete analysis" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Mark for review" })).not.toBeInTheDocument();
     fireEvent.pointerDown(document.body);
@@ -5669,6 +5715,20 @@ describe("ProductPulse screens", () => {
               title: "Customer language",
               body: "Judge-only synthesis says storefront reviews read more like packaging feedback.",
             },
+            {
+              section_key: "customer_language",
+              source_key: "yotpo_reviews",
+              source_title: "Yotpo reviews",
+              title: "Customer language",
+              body: "Yotpo-only synthesis says review language points to setup friction.",
+            },
+            {
+              section_key: "customer_language",
+              source_key: "loox_reviews",
+              source_title: "Loox reviews",
+              title: "Customer language",
+              body: "Loox-only synthesis says review media and wording point to material concerns.",
+            },
           ],
         },
         {
@@ -5683,13 +5743,27 @@ describe("ProductPulse screens", () => {
           weight: "Judge.me average rating",
           points: ["Review text: \"Judge.me packaging note mentioned dents.\""],
         },
+        {
+          source: "Yotpo reviews",
+          quote: "1 negative review out of 2",
+          weight: "Yotpo average rating",
+          points: ["Review text: \"Yotpo setup note mentioned pairing confusion.\""],
+        },
+        {
+          source: "Loox reviews",
+          quote: "1 negative review out of 2",
+          weight: "Loox average rating",
+          points: ["Review text: \"Loox photo review mentioned material concerns.\""],
+        },
       ],
       metrics: {
         ...defaultView.startHere.metrics,
         reviewSourceStats: {
           csv: { reviewCount: 3, negativeReviewCount: 2, avgRating: 2.4, negativeReviewRate: 67, recentNegativeReviewCount: 1 },
           judgeMe: { reviewCount: 4, negativeReviewCount: 1, avgRating: 4.2, negativeReviewRate: 25, recentNegativeReviewCount: 1 },
-          total: { reviewCount: 7, negativeReviewCount: 3, avgRating: 3.4, negativeReviewRate: 43, recentNegativeReviewCount: 2 },
+          yotpo: { reviewCount: 2, negativeReviewCount: 1, avgRating: 3.5, negativeReviewRate: 50, recentNegativeReviewCount: 1 },
+          loox: { reviewCount: 2, negativeReviewCount: 1, avgRating: 3, negativeReviewRate: 50, recentNegativeReviewCount: 1 },
+          total: { reviewCount: 11, negativeReviewCount: 5, avgRating: 3.3, negativeReviewRate: 45, recentNegativeReviewCount: 4 },
         },
         csvReviewCount: 3,
         csvNegativeReviewCount: 2,
@@ -5697,8 +5771,14 @@ describe("ProductPulse screens", () => {
         judgeMeReviewCount: 4,
         judgeMeNegativeReviewCount: 1,
         judgeMeAverageRating: 4.2,
-        avgRating: 3.4,
-        reviewRating: 3.4,
+        yotpoReviewCount: 2,
+        yotpoNegativeReviewCount: 1,
+        yotpoAverageRating: 3.5,
+        looxReviewCount: 2,
+        looxNegativeReviewCount: 1,
+        looxAverageRating: 3,
+        avgRating: 3.3,
+        reviewRating: 3.3,
         textInsights: {
           reviews: {
             bySource: {
@@ -5733,6 +5813,30 @@ describe("ProductPulse screens", () => {
                 repeatedLanguage: [{ term: "packaging dents", count: 1, sources: ["judgeme_review"], sentiments: { negative: 1 } }],
                 examples: [{ source: "judgeme_review", sourceLabel: "Judge.me reviews", title: "Judge packaging note", text: "Judge.me packaging note mentioned dents.", sentiment: "negative", rating: 2 }],
               },
+              yotpo: {
+                sentiment: { total: 2, negative: 1, neutral: 1, positive: 0 },
+                sentimentTrend: [
+                  { label: "May 2026", positive: 0, neutral: 1, negative: 1, total: 2 },
+                ],
+                ratingTrend: [
+                  { label: "May 2026", averageRating: 3.5, reviewCount: 2 },
+                ],
+                emotions: [{ label: "Confusion", count: 1 }],
+                repeatedLanguage: [{ term: "pairing confusion", count: 1, sources: ["yotpo_review"], sentiments: { negative: 1 } }],
+                examples: [{ source: "yotpo_review", sourceLabel: "Yotpo reviews", title: "Yotpo setup note", text: "Yotpo setup note mentioned pairing confusion.", sentiment: "negative", rating: 2 }],
+              },
+              loox: {
+                sentiment: { total: 2, negative: 1, neutral: 0, positive: 1 },
+                sentimentTrend: [
+                  { label: "May 2026", positive: 1, neutral: 0, negative: 1, total: 2 },
+                ],
+                ratingTrend: [
+                  { label: "May 2026", averageRating: 3, reviewCount: 2 },
+                ],
+                emotions: [{ label: "Distrust", count: 1 }],
+                repeatedLanguage: [{ term: "material concerns", count: 1, sources: ["loox_review"], sentiments: { negative: 1 } }],
+                examples: [{ source: "loox_review", sourceLabel: "Loox reviews", title: "Loox material note", text: "Loox photo review mentioned material concerns.", sentiment: "negative", rating: 2 }],
+              },
             },
           },
         },
@@ -5743,7 +5847,14 @@ describe("ProductPulse screens", () => {
     const riskSnapshot = container.querySelector(".ppRiskSnapshotBlock");
 
     expect(within(riskSnapshot).getByText("Average rating")).toBeInTheDocument();
-    expect(within(riskSnapshot).getByText("3.4 / 5")).toBeInTheDocument();
+    expect(within(riskSnapshot).getByText("3.3 / 5")).toBeInTheDocument();
+
+    const judgeMeTab = screen.getByRole("tab", { name: "Judge.me reviews" });
+    const yotpoTab = screen.getByRole("tab", { name: "Yotpo reviews" });
+    const looxTab = screen.getByRole("tab", { name: "Loox reviews" });
+    expect(judgeMeTab.querySelector(".ppProductPulseSourceLogoGlyph-judgeme-reviews")).toHaveAttribute("src", expect.stringContaining("judge.me"));
+    expect(yotpoTab.querySelector(".ppProductPulseSourceLogoGlyph-yotpo-reviews")).toHaveAttribute("src", expect.stringContaining("yotpo.com"));
+    expect(looxTab.querySelector(".ppProductPulseSourceLogoGlyph-loox-reviews")).toHaveAttribute("src", expect.stringContaining("loox.io"));
 
     fireEvent.click(screen.getByRole("tab", { name: "CSV reviews" }));
     expect(screen.getByRole("heading", { name: "CSV reviews" })).toBeInTheDocument();
@@ -5770,6 +5881,18 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText("Mar 2026").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Apr 2026").length).toBeGreaterThan(0);
     expect(screen.getByText("3.8 / 5")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Yotpo reviews" }));
+    expect(screen.getByRole("heading", { name: "Yotpo reviews" })).toBeInTheDocument();
+    expect(screen.getByText(/Yotpo-only synthesis says review language/)).toBeInTheDocument();
+    expect(screen.queryByText(/Judge-only synthesis/)).not.toBeInTheDocument();
+    expect(screen.getByText("Yotpo setup note mentioned pairing confusion.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Loox reviews" }));
+    expect(screen.getByRole("heading", { name: "Loox reviews" })).toBeInTheDocument();
+    expect(screen.getByText(/Loox-only synthesis says review media/)).toBeInTheDocument();
+    expect(screen.queryByText(/Yotpo-only synthesis/)).not.toBeInTheDocument();
+    expect(screen.getByText("Loox photo review mentioned material concerns.")).toBeInTheDocument();
   });
 
   it("renders the full product evidence report with raw evidence relationships", () => {

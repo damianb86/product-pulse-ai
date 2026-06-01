@@ -126,7 +126,7 @@ describe("ProductPulse AI provider fallback", () => {
 
     expect(result).toMatchObject({
       provider: "openai",
-      model: "gpt-5.4",
+      model: "gpt-5.4-nano",
       text: "OpenAI production response.",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -565,6 +565,11 @@ describe("ProductPulse AI provider fallback", () => {
     });
 
     expect(requests).toHaveLength(6);
+    expect(requests[0].model).toBe("gpt-5.4-mini");
+    expect(requests[1].model).toBe("gpt-5.4-nano");
+    expect(requests[2].model).toBe("gpt-5.4-mini");
+    expect(requests[3].model).toBe("gpt-5.4");
+    expect(requests[4].model).toBe("gpt-5.4-nano");
     const chartRequests = requests.filter((request) => String(request.input).includes("chart_interpretations"));
     expect(chartRequests).toHaveLength(1);
     expect(chartRequests[0].model).toBe("gpt-5.4-mini");

@@ -617,7 +617,7 @@ export const APP_SCORE_EXPLANATIONS: AppScoreExplanation[] = [
     logic: "Coverage divides connected source weight by total source weight.",
     formula: "coverageScore = round((connectedWeight / totalWeight) * 100)",
     range: "0 to 100",
-    inputs: ["Shopify products", "Shopify orders", "Shopify returns", "Judge.me reviews", "Chatme reviews", "CSV reviews", "Support tickets", "PDP questions"],
+    inputs: ["Shopify products", "Shopify orders", "Shopify returns", "Judge.me reviews", "Yotpo reviews", "Loox reviews", "CSV reviews", "Support tickets", "PDP questions"],
     thresholds: [
       { label: "Strong", value: ">= 75", meaning: "Good source coverage." },
       { label: "Partial", value: ">= 45", meaning: "Some important sources are connected." },

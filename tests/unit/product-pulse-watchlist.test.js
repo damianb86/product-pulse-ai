@@ -1144,6 +1144,177 @@ describe("ProductPulse watchlist helpers", () => {
     expect(report.changes).toEqual([]);
   });
 
+  it("does not treat equivalent primary issue wording or calculated signal drift as Watchlist evidence movement", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-30T20:04:08.993Z",
+      riskScore: 74,
+      riskLabel: "Medium",
+      confidence: 80,
+      primaryIssue: "Product quality (leaks / seal failure)",
+      orderCount: 13,
+      soldUnits: 13,
+      returnUnits: 11,
+      refundUnits: 1,
+      reviewCount: 0,
+      negativeReviewCount: 0,
+      signalCount: 13,
+      evidenceDetails: {
+        orders: { totalOrders: 13, totalUnits: 13, items: [{ key: "order-1", orderId: "order-1", quantity: 1, createdAt: "2026-05-20T10:00:00.000Z" }] },
+        returns: { totalUnits: 11, sourceItems: [{ key: "return-1", orderId: "order-1", quantity: 1, reason: "Leaks", createdAt: "2026-05-21T10:00:00.000Z" }], items: [] },
+        refunds: { totalUnits: 1, sourceItems: [{ key: "refund-1", orderId: "order-1", quantity: 1, reason: "Leak", createdAt: "2026-05-21T11:00:00.000Z" }], items: [] },
+        reviews: { total: 0, negative: 0, items: [] },
+        content: { changed: false, signature: "old-content-signature", reason: "product_content_unchanged_since_previous_diagnosis" },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 74,
+        confidence: 80,
+        primaryIssue: "Product quality (leaking lid seal/gasket)",
+        metrics: {
+          orderCount: 13,
+          soldUnits: 13,
+          returnUnits: 11,
+          refundUnits: 1,
+          reviewCount: 0,
+          negativeReviewCount: 0,
+          signalCount: 18,
+          contentIssues: [
+            { label: "Missing gasket care guidance" },
+            { label: "Thin leak troubleshooting guidance" },
+          ],
+          incrementalDiagnosis: {
+            productContent: {
+              changed: true,
+              reason: "product_content_signature_changed",
+              signature: "new-content-signature",
+              productUpdatedAt: "2026-06-01T13:59:29.000Z",
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-06-01T14:31:23.409Z"),
+    });
+
+    expect(report.status).toBe("changed");
+    expect(report.sourceChanges.map((change) => change.id)).toEqual(["product-content-updated"]);
+    expect(report.current.primaryIssue).toBe(previousSummary.primaryIssue);
+    expect(report.changes.some((change) => change.id === "primary-issue")).toBe(false);
+    expect(report.changes.some((change) => change.id === "signal-count")).toBe(false);
+  });
+
+  it("normalizes stored Watchlist reports that contain equivalent issue wording and calculated-only signal movement", () => {
+    const normalized = __productPulseWatchlistTestHooks.normalizeStoredWatchChangeReport({
+      status: "changed",
+      title: "Watchlist changes detected",
+      previous: {
+        capturedAt: "2026-05-30T20:04:08.993Z",
+        primaryIssue: "Product quality (leaks / seal failure)",
+        signalCount: 13,
+        productMomentumScore: 57,
+      },
+      current: {
+        capturedAt: "2026-06-01T14:31:23.409Z",
+        primaryIssue: "Product quality (leaking lid seal/gasket)",
+        signalCount: 18,
+        productMomentumScore: 53,
+      },
+      sourceChanges: [
+        { id: "product-content-updated", source: "content", label: "Product content", value: "Updated", delta: "Changed", detail: "product_content_signature_changed" },
+      ],
+      changes: [
+        { id: "primary-issue", label: "Primary issue", from: "Product quality (leaks / seal failure)", to: "Product quality (leaking lid seal/gasket)", delta: "Changed" },
+        { id: "signal-count", label: "Evidence signals", from: "13", to: "18", delta: "+5" },
+        { id: "momentum-score", label: "Sales Momentum", from: "57/100", to: "53/100", delta: "-4/100", direction: "down" },
+      ],
+      sections: [
+        {
+          id: "risk",
+          title: "Risk and diagnosis",
+          changes: [{ id: "primary-issue", label: "Primary issue", from: "Product quality (leaks / seal failure)", to: "Product quality (leaking lid seal/gasket)", delta: "Changed" }],
+        },
+        {
+          id: "evidence",
+          title: "Evidence movement",
+          changes: [{ id: "signal-count", label: "Evidence signals", from: "13", to: "18", delta: "+5" }],
+        },
+        {
+          id: "momentum",
+          title: "Sales Momentum",
+          changes: [{ id: "momentum-score", label: "Sales Momentum", from: "57/100", to: "53/100", delta: "-4/100", direction: "down" }],
+        },
+      ],
+    }, { productTitle: "GEN TrailSeal Travel Mug" });
+
+    expect(normalized.current.primaryIssue).toBe("Product quality (leaks / seal failure)");
+    expect(normalized.changeCount).toBe(2);
+    expect(normalized.changes.map((change) => change.id)).toEqual(["momentum-score"]);
+    expect(normalized.sections.map((section) => section.id)).toEqual(["momentum"]);
+    expect(normalized.narrative).not.toContain("Primary issue");
+    expect(normalized.narrative).not.toContain("Evidence signals");
+  });
+
+  it("still reports evidence signal changes when concrete source activity changed", () => {
+    const previousSummary = {
+      capturedAt: "2026-05-30T20:04:08.993Z",
+      riskScore: 74,
+      riskLabel: "Medium",
+      confidence: 80,
+      primaryIssue: "Product quality (leaks / seal failure)",
+      orderCount: 13,
+      soldUnits: 13,
+      returnUnits: 11,
+      refundUnits: 1,
+      reviewCount: 0,
+      negativeReviewCount: 0,
+      signalCount: 13,
+      sourceFingerprint: "previous-source",
+      evidenceDetails: {
+        orders: { totalOrders: 13, totalUnits: 13, items: [{ key: "order-1", orderId: "order-1", quantity: 1, createdAt: "2026-05-20T10:00:00.000Z" }] },
+        returns: { totalUnits: 11, sourceItems: [], items: [] },
+        refunds: { totalUnits: 1, sourceItems: [], items: [] },
+        reviews: { total: 0, negative: 0, items: [] },
+      },
+    };
+
+    const report = __productPulseWatchlistTestHooks.buildWatchChangeReport({
+      previousSummary,
+      snapshot: {
+        productGid: "gid://shopify/Product/1",
+        riskScore: 74,
+        confidence: 80,
+        primaryIssue: "Product quality (leaks / seal failure)",
+        metrics: {
+          orderCount: 14,
+          soldUnits: 15,
+          returnUnits: 11,
+          refundUnits: 1,
+          reviewCount: 0,
+          negativeReviewCount: 0,
+          signalCount: 18,
+          incrementalDiagnosis: {
+            cache: {
+              sourceFingerprint: "current-source",
+              sourceEvents: {
+                sales: [
+                  { id: "order-1", orderId: "order-1", quantity: 1, createdAt: "2026-05-20T10:00:00.000Z" },
+                  { id: "order-2", orderId: "order-2", quantity: 2, createdAt: "2026-06-01T13:00:00.000Z" },
+                ],
+              },
+            },
+          },
+        },
+      },
+      createdAt: new Date("2026-06-01T14:31:23.409Z"),
+    });
+
+    expect(report.sourceChanges.some((change) => change.id === "new-orders")).toBe(true);
+    expect(report.changes.some((change) => change.id === "signal-count")).toBe(true);
+  });
+
   it("reports no meaningful changes when the current snapshot matches the previous run", () => {
     const previousSummary = {
       capturedAt: "2026-05-16T10:00:00.000Z",

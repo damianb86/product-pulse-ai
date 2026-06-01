@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AiToolExecutionError } from "../domain/errors";
 import type { AiProductRiskDetail, AiToolContext } from "../domain/types";
 import {
   ProductPulseAiRepository,
@@ -166,6 +167,7 @@ export function createProductPulseAiActionDefinitions(
       requiresEntityOwnershipCheck: true,
       async buildProposal(context, input: ProductRefActionInput) {
         const product = await requireProduct(context, productRepository, getProductReference(input));
+        requireCompletedProductDiagnosisForWatchlist(product);
         return {
           actionName: PRODUCT_PULSE_AI_ACTION_NAMES.addToWatchlist,
           category: "watchlist",
@@ -188,6 +190,7 @@ export function createProductPulseAiActionDefinitions(
       async execute(context, proposal) {
         const input = productRefSchema.parse(proposal.proposedInput);
         const product = await requireProduct(context, productRepository, getProductReference(input));
+        requireCompletedProductDiagnosisForWatchlist(product);
         const result = await services.addWatchedProductForShop(context.shop, {
           productGid: product.productGid,
           title: product.title,
@@ -408,6 +411,21 @@ async function requireProduct(
     throw new Error("ProductPulse does not have a stored product record for that product.");
   }
   return product;
+}
+
+function requireCompletedProductDiagnosisForWatchlist(product: AiProductRiskDetail) {
+  if (product.analysisDepth && product.analysisDepth !== "full") {
+    throw new AiToolExecutionError(
+      "WATCHLIST_REQUIRES_COMPLETED_DIAGNOSIS",
+      "Only products with a completed Product Diagnosis can be added to the ProductPulse watchlist. Run Product Diagnosis first.",
+    );
+  }
+  if (!product.analysisDepth && !product.diagnosis) {
+    throw new AiToolExecutionError(
+      "WATCHLIST_REQUIRES_COMPLETED_DIAGNOSIS",
+      "Only products with a completed Product Diagnosis can be added to the ProductPulse watchlist. Run Product Diagnosis first.",
+    );
+  }
 }
 
 function findRecommendation(product: AiProductRiskDetail, actionId: string) {

@@ -17,8 +17,8 @@ const GEMINI_MODEL_RETRY_DELAY_MS = 750;
 
 const AI_TASKS = {
   signal_classification: {
-    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
-    fallbackModel: "gpt-5.4-nano",
+    modelEnv: ["OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-mini",
     maxOutputTokens: 3200,
     temperature: 0.1,
   },
@@ -71,8 +71,8 @@ const AI_TASKS = {
     temperature: 0.2,
   },
   test_text: {
-    modelEnv: ["OPENAI_PREMIUM_MODEL", "OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL"],
-    fallbackModel: "gpt-5.4",
+    modelEnv: ["OPENAI_BASIC_MODEL", "OPENAI_PRO_MODEL", "OPENAI_PREMIUM_MODEL"],
+    fallbackModel: "gpt-5.4-nano",
     maxOutputTokens: 520,
     temperature: 0.35,
   },
@@ -490,6 +490,7 @@ function buildSignalClassificationPrompt(input) {
   const metrics = JSON.stringify(input?.deterministic || {}, null, 2);
   const product = JSON.stringify(input?.product || {}, null, 2);
   const incremental = JSON.stringify(input?.incremental || null, null, 2);
+  const previousPrimaryIssue = String(input?.previousPrimaryIssue || "").trim();
   const sentimentTaxonomy = JSON.stringify(PREDEFINED_CUSTOMER_SENTIMENTS, null, 2);
 
   return [
@@ -497,7 +498,7 @@ function buildSignalClassificationPrompt(input) {
     "Use the text evidence only to interpret language. Do not calculate financial metrics, rates, counts, confidence, or risk score.",
     "If a Shopify return reason is Other, Unknown, or generic, read the customer note/reason text and classify the actual product issue when the text supports it.",
     "Analyze sentiment in return notes and reviews. Capture repeated words, repeated phrases, recurring emotions, and fine-grained findings that should become merchant-facing issues.",
-    "Treat csv_review evidence as imported review evidence from a connected CSV source. Use its rating, text and date the same way you use Judge.me review evidence, but keep the source label distinct when explaining evidence.",
+    "Treat csv_review evidence as imported review evidence from a connected CSV source. Treat yotpo_review evidence as Yotpo Reviews evidence. Treat loox_review evidence as Loox Reviews evidence. Use rating, text and date the same way you use Judge.me review evidence, but keep each source label distinct when explaining evidence.",
     "Shopify refund notes are usually written by the merchant or support team, not the customer. Use shopify_refund_note evidence as operational context: classify product issue patterns and repeated refund reasons, but do not treat staff wording as customer sentiment.",
     "Reserve safety_concern for physical danger, injury, hazard, toxicity, choking, fire, or clearly unsafe use. If the customer says the product is scary, creepy, unsettling, ugly, not their style, or they simply dislike it without objective danger, use subjective_negative_reaction.",
     "Subjective negative reactions start low severity and low confidence. Escalate them only when they repeat across independent texts or represent a meaningful share of available customer text.",
@@ -509,13 +510,14 @@ function buildSignalClassificationPrompt(input) {
     "For repeated_language, never output stop words, helper verbs, connector words, or generic ecommerce/API context such as and, be, been, took, take, item, product, reason, return, review, refund, order, other, selected, customer note, or other reason. Only output shopper-meaningful product terms or phrases.",
     "Use the predefined sentiment taxonomy first. If a customer reaction clearly does not fit the taxonomy, keep sentiment as negative/neutral/positive and add suggested_emotion as a concise snake_case candidate.",
     "Use neutral sentiment when the evidence is factual, mixed, low-intensity, uncertain, or a 3-star review without a clear product complaint or clear praise. Do not force every customer text into positive or negative.",
+    "If previousPrimaryIssue is provided and the new top issue is essentially the same diagnosis or failure mode, set main_issue_label exactly to previousPrimaryIssue. Only reword or change main_issue_label when the actual top issue changed, not when you are merely naming the same issue differently.",
     "Return valid JSON only. No markdown.",
     "Predefined sentiment taxonomy:",
     sentimentTaxonomy,
     "Schema:",
     JSON.stringify({
       classified_signals: [{
-        source: "judgeme_review|csv_review|shopify_return_note|shopify_return_reason|shopify_refund_note",
+        source: "judgeme_review|yotpo_review|loox_review|csv_review|shopify_return_note|shopify_return_reason|shopify_refund_note",
         text: "short evidence snippet",
         issue_category: "fit_sizing|quality_defect|durability|color_expectation|compatibility|shipping_delivery|safety_concern|subjective_negative_reaction|support_conversation|other",
         issue_detail: "snake_case_detail",
@@ -534,7 +536,7 @@ function buildSignalClassificationPrompt(input) {
         human_name: "Runs small",
         summary: "short explanation",
         signals: 0,
-        source_types: ["judgeme_reviews", "csv_reviews", "returns"],
+        source_types: ["judgeme_reviews", "yotpo_reviews", "loox_reviews", "csv_reviews", "returns"],
         severity: "low|medium|high",
       }],
       granular_findings: [{
@@ -553,7 +555,7 @@ function buildSignalClassificationPrompt(input) {
       repeated_language: [{
         term: "too small",
         count: 0,
-        source_types: ["judgeme_reviews", "csv_reviews", "shopify_return_note", "shopify_refund_note"],
+        source_types: ["judgeme_reviews", "yotpo_reviews", "loox_reviews", "csv_reviews", "shopify_return_note", "shopify_refund_note"],
         sentiment: "negative|neutral|positive",
         known_emotion: "frustration",
         suggested_emotion: "",
@@ -589,6 +591,8 @@ function buildSignalClassificationPrompt(input) {
     }, null, 2),
     "Product:",
     product,
+    "Previous stored primary issue:",
+    previousPrimaryIssue || "none",
     "Incremental diagnosis context:",
     incremental,
     "If this is an incremental diagnosis, evidence snippets contain only newly changed evidence since the previous product diagnosis. Use deterministic aggregate metrics for full-window totals, and do not invent old snippets that are not supplied.",
@@ -627,7 +631,7 @@ function buildEmergentSentimentPrompt(input, classification) {
         confidence: "low|medium|high",
         has_sufficient_evidence: true,
         merged_from: ["unsettled", "creeped_out"],
-        source_types: ["shopify_return_note", "judgeme_review", "csv_review", "shopify_refund_note"],
+        source_types: ["shopify_return_note", "judgeme_review", "yotpo_review", "loox_review", "csv_review", "shopify_refund_note"],
         issue_category: "safety_concern|subjective_negative_reaction|product_quality|other",
         merchant_summary: "Customers describe an unusual emotional reaction that is not covered by the known taxonomy.",
         evidence: ["short grounded quote or phrase"],
@@ -736,8 +740,8 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "For basket_context_interpretation, use mostly qualitative interpretation with as few numeric values as possible. Do not recap the visible bar percentages or counts. Explain what the basket, unit, variant, co-purchase, return/refund, review, content and final-report context imply together.",
     "Keep basket_context_interpretation consistent with the main_finding_detail and evidence_summary you return in this same JSON, so it reads as an interpretation of the product diagnosis rather than a standalone metric explanation.",
     "If purchase context is unavailable or too thin to interpret, return an empty string for basket_context_interpretation.",
-    "When review evidence comes from multiple providers, you may also create separate evidence_synthesis_sections entries for each review provider so provider tabs can show scoped interpretation. Set source_title and source_key for provider-specific review sections, and do not reuse the same body across CSV, Judge.me, or any other external review provider.",
-    "Only write a provider-specific section from that provider's own review evidence. Do not mix CSV review text into Judge.me sections, do not mix Judge.me review text into CSV sections, and do not use the aggregate Customer Language section as a substitute for a provider tab.",
+    "When review evidence comes from multiple providers, you may also create separate evidence_synthesis_sections entries for each review provider so provider tabs can show scoped interpretation. Set source_title and source_key for provider-specific review sections, and do not reuse the same body across CSV, Judge.me, Yotpo, Loox, or any other external review provider.",
+    "Only write a provider-specific section from that provider's own review evidence. Do not mix CSV review text into Judge.me, Yotpo, or Loox sections, do not mix provider review text into CSV sections, and do not use the aggregate Customer Language section as a substitute for a provider tab.",
     "Do not put low-priority metadata coverage suggestions, such as product type/tags/collections not being repeated in the description, in the main finding unless they create a real buyer-facing contradiction.",
     "For subjective negative reactions, avoid overstating risk from a single customer. Explain it as a monitor/review signal unless repeated evidence supports action.",
     "Respect deterministic.signalRelevance. If it says reviewSignals level is weak, do not lead the main finding with review language. If customerEvidence level is isolated, treat that signal as evidence to monitor, not as a confirmed issue. If it is emerging, describe it as early evidence with limited confidence. Give priority to returns, refunds, repeated customer language, product content issues, and multi-source agreement.",
@@ -783,6 +787,20 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
           source_title: "Judge.me reviews",
           title: "Customer language",
           body: "Qualitative interpretation specific to Judge.me review evidence only.",
+        },
+        {
+          section_key: "customer_language",
+          source_key: "yotpo_reviews",
+          source_title: "Yotpo reviews",
+          title: "Customer language",
+          body: "Qualitative interpretation specific to Yotpo review evidence only.",
+        },
+        {
+          section_key: "customer_language",
+          source_key: "loox_reviews",
+          source_title: "Loox reviews",
+          title: "Customer language",
+          body: "Qualitative interpretation specific to Loox review evidence only.",
         },
       ],
       issue_names: [{ code: "fit_sizing.runs_small", label: "Runs small" }],

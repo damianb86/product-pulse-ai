@@ -12,6 +12,14 @@ import {
   processCsvReviewUpload,
 } from "./product-pulse-csv.server";
 import { PRODUCT_PULSE_SETTINGS_SOURCE_KEY } from "./product-pulse-settings.server";
+import {
+  getSafeYotpoConnectionErrorMessage,
+  testYotpoReviewConnection,
+} from "./product-pulse-yotpo.server";
+import {
+  getSafeLooxConnectionErrorMessage,
+  testLooxReviewConnection,
+} from "./product-pulse-loox.server";
 
 export async function getConnectViewDataForShop(shop) {
   await ensureSourceRows(shop);
@@ -51,6 +59,153 @@ export async function connectJudgeMeReviews(shop, privateApiToken) {
   });
 
   return { status: "success", message: "Connected to Judge.me.", providerKey: "judgemeReviews" };
+}
+
+export async function connectYotpoReviews(shop, storeIdInput, apiSecretInput) {
+  const storeId = String(storeIdInput || "").trim();
+  const apiSecret = String(apiSecretInput || "").trim();
+  if (!storeId || !apiSecret) {
+    return {
+      status: "validation_error",
+      message: "Enter the Yotpo Store ID/App Key and API secret before connecting.",
+      providerKey: "yotpoReviews",
+    };
+  }
+  if (storeId.length < 8) {
+    return {
+      status: "validation_error",
+      message: "The Yotpo Store ID/App Key looks too short.",
+      providerKey: "yotpoReviews",
+    };
+  }
+  if (apiSecret.length < 8) {
+    return {
+      status: "validation_error",
+      message: "The Yotpo API secret looks too short.",
+      providerKey: "yotpoReviews",
+    };
+  }
+
+  try {
+    const connectionTest = await testYotpoReviewConnection({ storeId, apiSecret });
+    const now = new Date();
+    await upsertSource(shop, "yotpoReviews", {
+      connected: true,
+      active: true,
+      ignored: false,
+      available: true,
+      health: "connected",
+      credentials: {
+        storeId,
+        apiSecret,
+        utoken: connectionTest.utoken,
+        utokenGeneratedAt: now.toISOString(),
+      },
+      config: {
+        storeIdLast4: storeId.slice(-4),
+        apiSecretLast4: apiSecret.slice(-4),
+        connectedBy: "manual",
+        provider: "Yotpo Reviews",
+        reviewSampleCount: connectionTest.reviewSampleCount,
+        totalReviews: connectionTest.totalReviews,
+        connectionTestedAt: now.toISOString(),
+        reviewAccessVerified: true,
+      },
+      connectedAt: now,
+      disabledAt: null,
+      lastSyncedAt: now,
+    });
+
+    const sampleCount = Number(connectionTest.reviewSampleCount || 0);
+    const reviewMessage = sampleCount > 0
+      ? ` Review API access verified with ${sampleCount} sample review${sampleCount === 1 ? "" : "s"}.`
+      : " Review API access verified.";
+    return {
+      status: "success",
+      message: `Connected to Yotpo Reviews.${reviewMessage}`,
+      providerKey: "yotpoReviews",
+    };
+  } catch (error) {
+    return {
+      status: error?.code === "YOTPO_CREDENTIALS_REQUIRED" ? "validation_error" : "error",
+      message: getSafeYotpoConnectionErrorMessage(error),
+      providerKey: "yotpoReviews",
+      errorCode: error?.code || "YOTPO_CONNECTION_FAILED",
+    };
+  }
+}
+
+export async function connectLooxReviews(shop, publicStoreIdInput, apiSecretInput) {
+  const publicStoreId = String(publicStoreIdInput || "").trim();
+  const apiSecret = String(apiSecretInput || "").trim();
+  if (!publicStoreId || !apiSecret) {
+    return {
+      status: "validation_error",
+      message: "Enter the Loox publicStoreId and API secret key before connecting.",
+      providerKey: "looxReviews",
+    };
+  }
+  if (publicStoreId.length < 8) {
+    return {
+      status: "validation_error",
+      message: "The Loox publicStoreId looks too short.",
+      providerKey: "looxReviews",
+    };
+  }
+  if (apiSecret.length < 8) {
+    return {
+      status: "validation_error",
+      message: "The Loox API secret key looks too short.",
+      providerKey: "looxReviews",
+    };
+  }
+
+  try {
+    const connectionTest = await testLooxReviewConnection({ publicStoreId, apiSecret });
+    const now = new Date();
+    await upsertSource(shop, "looxReviews", {
+      connected: true,
+      active: true,
+      ignored: false,
+      available: true,
+      health: "connected",
+      credentials: {
+        publicStoreId,
+        apiSecret,
+      },
+      config: {
+        publicStoreId,
+        publicStoreIdLast4: publicStoreId.slice(-4),
+        apiSecretLast4: apiSecret.slice(-4),
+        connectedBy: "manual",
+        provider: "Loox Reviews",
+        reviewSampleCount: connectionTest.reviewSampleCount,
+        totalReviews: connectionTest.totalReviews,
+        connectionTestedAt: now.toISOString(),
+        reviewAccessVerified: true,
+      },
+      connectedAt: now,
+      disabledAt: null,
+      lastSyncedAt: now,
+    });
+
+    const sampleCount = Number(connectionTest.reviewSampleCount || 0);
+    const reviewMessage = sampleCount > 0
+      ? ` Review API access verified with ${sampleCount} sample review${sampleCount === 1 ? "" : "s"}.`
+      : " Review API access verified.";
+    return {
+      status: "success",
+      message: `Connected to Loox Reviews.${reviewMessage}`,
+      providerKey: "looxReviews",
+    };
+  } catch (error) {
+    return {
+      status: error?.code === "LOOX_CREDENTIALS_REQUIRED" ? "validation_error" : "error",
+      message: getSafeLooxConnectionErrorMessage(error),
+      providerKey: "looxReviews",
+      errorCode: error?.code || "LOOX_CONNECTION_FAILED",
+    };
+  }
 }
 
 export async function previewCsvReviews(shop, file, { admin } = {}) {

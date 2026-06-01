@@ -47,6 +47,8 @@ const WATCH_CHANGE_REPORT_EVENT = "watch_change_report";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const WATCHLIST_BASELINE_SOURCE = "watchlist-baseline";
 const FULL_DIAGNOSIS_SOURCE = "full-diagnosis";
+const WATCHLIST_ELIGIBLE_SEARCH_LIMIT = 10;
+const WATCHLIST_REQUIRES_COMPLETED_DIAGNOSIS_MESSAGE = "Only products with a completed Product Diagnosis can be added to the Watchlist. Run Product Diagnosis first, then add the product.";
 
 export function isProductPulseBetaActive(env = process.env) {
   const raw = env?.[PRODUCT_PULSE_BETA_ACTIVE_ENV] ?? env?.PRODUCT_PULSE_BETA ?? "true";
@@ -353,6 +355,33 @@ export async function toggleWatchAlertsForShop(shop, options = {}) {
   };
 }
 
+export async function searchWatchlistEligibleProductsForShop(shop, rawQuery = "", options = {}) {
+  const query = String(rawQuery || "").trim();
+  const limit = Math.max(1, Math.min(50, Number(options.limit || WATCHLIST_ELIGIBLE_SEARCH_LIMIT) || WATCHLIST_ELIGIBLE_SEARCH_LIMIT));
+  if (!shop) {
+    return { status: "validation_error", query, message: "Shop context is required to search Watchlist products.", products: [] };
+  }
+
+  const productGids = await findWatchlistEligibleSearchProductGids(shop, query);
+  const eligibleByProductGid = await getWatchlistEligibleProductsByGid(shop, productGids);
+  const products = productGids
+    .map((productGid) => eligibleByProductGid.get(productGid))
+    .filter((product) => product && productMatchesWatchlistEligibleSearch(product, query))
+    .sort(compareWatchlistEligibleProducts)
+    .slice(0, limit);
+
+  return {
+    status: "success",
+    query,
+    products,
+    message: products.length
+      ? `${products.length} eligible product${products.length === 1 ? "" : "s"} with completed Product Diagnosis found.`
+      : query
+        ? "No products with completed Product Diagnosis matched that search."
+        : "No products with completed Product Diagnosis are available to add yet.",
+  };
+}
+
 export async function addWatchedProductForShop(shop, product = {}) {
   const productGid = String(product.productGid || product.id || "").trim();
   if (!productGid) {
@@ -374,6 +403,16 @@ export async function addWatchedProductForShop(shop, product = {}) {
     };
   }
 
+  const eligibility = await getWatchlistEligibleProductForShop(shop, productGid);
+  if (!eligibility.eligible) {
+    return {
+      status: "validation_error",
+      message: WATCHLIST_REQUIRES_COMPLETED_DIAGNOSIS_MESSAGE,
+      action: { id: "add-watched-product", productGid },
+      reason: eligibility.reason,
+    };
+  }
+
   const watchedCount = limitContext.items.length;
   if (watchedCount >= limitContext.maxProducts) {
     return {
@@ -382,16 +421,17 @@ export async function addWatchedProductForShop(shop, product = {}) {
     };
   }
 
+  const eligibleProduct = eligibility.product;
   const item = await prisma.productWatchlistItem.create({
     data: {
       shop,
       productGid,
-      productTitle: String(product.title || "Shopify product").trim() || "Shopify product",
-      handle: optionalString(product.handle),
-      sku: optionalString(product.sku),
+      productTitle: eligibleProduct.title,
+      handle: optionalString(eligibleProduct.handle),
+      sku: optionalString(eligibleProduct.sku),
       status: "Watching",
-      imageUrl: optionalString(product.imageUrl),
-      imageAlt: optionalString(product.imageAlt),
+      imageUrl: optionalString(eligibleProduct.imageUrl),
+      imageAlt: optionalString(eligibleProduct.imageAlt),
     },
   });
   await recordWatchActivityForShop(shop, {
@@ -443,6 +483,20 @@ export async function addWatchedProductsForShop(shop, products = []) {
     };
   }
 
+  const eligibleByProductGid = await getWatchlistEligibleProductsByGid(shop, candidates.map((product) => product.productGid));
+  const eligibleCandidates = candidates
+    .map((product) => eligibleByProductGid.get(product.productGid))
+    .filter(Boolean);
+  const skippedForEligibility = Math.max(0, candidates.length - eligibleCandidates.length);
+
+  if (!eligibleCandidates.length) {
+    return {
+      status: "validation_error",
+      message: WATCHLIST_REQUIRES_COMPLETED_DIAGNOSIS_MESSAGE,
+      action: { id: "add-watched-products", addedCount: 0, skippedForEligibility },
+    };
+  }
+
   if (slotsAvailable <= 0) {
     return {
       status: "validation_error",
@@ -451,8 +505,8 @@ export async function addWatchedProductsForShop(shop, products = []) {
     };
   }
 
-  const productsToCreate = candidates.slice(0, slotsAvailable);
-  const skippedForCapacity = Math.max(0, candidates.length - productsToCreate.length);
+  const productsToCreate = eligibleCandidates.slice(0, slotsAvailable);
+  const skippedForCapacity = Math.max(0, eligibleCandidates.length - productsToCreate.length);
   const createdItems = [];
 
   for (const product of productsToCreate) {
@@ -500,6 +554,9 @@ export async function addWatchedProductsForShop(shop, products = []) {
   }
   if (skippedForCapacity) {
     messageParts.push(`${skippedForCapacity} skipped because the watchlist is full`);
+  }
+  if (skippedForEligibility) {
+    messageParts.push(`${skippedForEligibility} skipped because Product Diagnosis is not completed`);
   }
 
   return {
@@ -1064,7 +1121,7 @@ function formatWatchActivity(activity) {
 
 function formatWatchChangeReportActivity(activity = {}) {
   const metadata = activity.metadata || {};
-  const report = metadata.report || {};
+  const report = normalizeStoredWatchChangeReport(metadata.report || {}, { productTitle: activity.productTitle || "" });
   return {
     id: activity.id,
     productGid: activity.productGid || "",
@@ -1093,7 +1150,7 @@ function formatWatchChangeReportActivity(activity = {}) {
 
 function formatWatchRunHistoryPoint(activity = {}) {
   const metadata = activity.metadata || {};
-  const report = metadata.report || {};
+  const report = normalizeStoredWatchChangeReport(metadata.report || {}, { productTitle: activity.productTitle || "" });
   const current = report.current || metadata.snapshotSummary || {};
   if (!current || typeof current !== "object") return null;
   const timestamp = report.currentRunAt || current.capturedAt || activity.createdAt?.toISOString?.() || activity.createdAt || null;
@@ -1157,8 +1214,9 @@ function buildWatchChangeReport({
   noChangesReused = false,
   createdAt = new Date(),
 } = {}) {
-  const current = buildWatchSnapshotSummary(snapshot, productPulseSettings, createdAt);
+  const rawCurrent = buildWatchSnapshotSummary(snapshot, productPulseSettings, createdAt);
   const previous = previousSummary || previousReport?.current || null;
+  const current = previous ? alignEquivalentWatchPrimaryIssue(rawCurrent, previous) : rawCurrent;
   const previousRunAt = previous?.capturedAt || previousReport?.currentRunAt || previousReport?.createdAt || null;
 
   if (!previous) {
@@ -1186,9 +1244,10 @@ function buildWatchChangeReport({
 
   const sourceChanges = noChangesReused ? [] : buildWatchSourceChangeCards(previous, current);
   const sourceInsights = buildWatchEvidenceChangeInsights(previous, current);
+  const hasConcreteEvidenceChanges = sourceChanges.some((change) => ["orders", "returns", "refunds", "reviews"].includes(change.source));
   const sections = [
     buildRiskChangeSection(previous, current),
-    buildEvidenceChangeSection(previous, current),
+    buildEvidenceChangeSection(previous, current, { hasConcreteEvidenceChanges }),
     buildImpactChangeSection(previous, current),
     buildMomentumChangeSection(previous, current),
   ].filter((section) => section.changes.length);
@@ -1219,6 +1278,54 @@ function buildWatchChangeReport({
     sourceInsights,
     sections: status === "unchanged" ? [] : sections,
     changes,
+  };
+}
+
+function normalizeStoredWatchChangeReport(report = {}, { productTitle = "This product" } = {}) {
+  if (!report || typeof report !== "object") return report || {};
+  const previous = report.previous || null;
+  if (!previous || !report.current) return report;
+  const current = previous ? alignEquivalentWatchPrimaryIssue(report.current || {}, previous) : report.current || null;
+  const sourceChanges = Array.isArray(report.sourceChanges) ? report.sourceChanges : [];
+  const hasConcreteEvidenceChanges = sourceChanges.some((change) => ["orders", "returns", "refunds", "reviews"].includes(change.source));
+  const filterChange = (change = {}) => {
+    if (change.id === "primary-issue" && areWatchPrimaryIssuesEquivalent(previous?.primaryIssue, report.current?.primaryIssue)) return false;
+    if (change.id === "signal-count" && !hasConcreteEvidenceChanges) return false;
+    return true;
+  };
+  const originalChanges = Array.isArray(report.changes) ? report.changes : [];
+  const changes = originalChanges.filter(filterChange);
+  const sections = (Array.isArray(report.sections) ? report.sections : [])
+    .map((section) => ({
+      ...section,
+      changes: (Array.isArray(section.changes) ? section.changes : []).filter(filterChange),
+    }))
+    .filter((section) => section.changes.length);
+  const currentChanged = current !== report.current;
+  const changesChanged = changes.length !== originalChanges.length;
+  if (!currentChanged && !changesChanged) return report;
+
+  const totalChangeCount = sourceChanges.length + changes.length;
+  const status = totalChangeCount ? "changed" : "unchanged";
+  const headline = totalChangeCount ? getWatchReportHeadline(changes, sourceChanges) : "No meaningful changes detected";
+  const normalized = {
+    ...report,
+    status,
+    headline,
+    title: status === "changed" ? "Watchlist changes detected" : "No Watchlist changes detected",
+    summary: totalChangeCount
+      ? `${sourceChanges.length} concrete source change${sourceChanges.length === 1 ? "" : "s"} and ${changes.length} calculated product-state change${changes.length === 1 ? "" : "s"} since the previous Watchlist run. ${headline}`
+      : "No new orders, returns, refunds, reviews or meaningful calculated product-state movement were detected since the previous Watchlist run.",
+    changeCount: totalChangeCount,
+    sourceChangeCount: sourceChanges.length,
+    current,
+    changes,
+    sections: status === "unchanged" ? [] : sections,
+  };
+  return {
+    ...normalized,
+    narrative: buildWatchChangeDeterministicNarrative({ productTitle, report: normalized, noChangesReused: normalized.noChangesReused }),
+    aiNarrativeStatus: report.aiNarrativeStatus === "generated" ? "normalized" : report.aiNarrativeStatus,
   };
 }
 
@@ -1740,7 +1847,7 @@ function buildRiskChangeSection(previous, current) {
   return { id: "risk", title: "Risk and diagnosis", tone: "purple", changes };
 }
 
-function buildEvidenceChangeSection(previous, current) {
+function buildEvidenceChangeSection(previous, current, { hasConcreteEvidenceChanges = false } = {}) {
   const changes = [
     numericWatchChange({
       id: "return-rate",
@@ -1776,14 +1883,14 @@ function buildEvidenceChangeSection(previous, current) {
       threshold: 1,
       detail: "Negative review volume changed for this watched product.",
     }),
-    numericWatchChange({
+    shouldReportWatchSignalCountChange(previous, current, { hasConcreteEvidenceChanges }) ? numericWatchChange({
       id: "signal-count",
       label: "Evidence signals",
       previous: previous.signalCount,
       current: current.signalCount,
       threshold: 1,
       detail: "The amount of stored diagnostic evidence changed.",
-    }),
+    }) : null,
     textWatchChange({
       id: "top-return-reason",
       label: "Top return reason",
@@ -1906,6 +2013,143 @@ function textWatchChange({ id, label, previous, current, detail }) {
     direction: "neutral",
     detail,
   };
+}
+
+function alignEquivalentWatchPrimaryIssue(current = {}, previous = {}) {
+  if (!areWatchPrimaryIssuesEquivalent(previous?.primaryIssue, current?.primaryIssue)) return current;
+  if (String(previous?.primaryIssue || "").trim() === String(current?.primaryIssue || "").trim()) return current;
+  return {
+    ...current,
+    primaryIssue: previous.primaryIssue,
+  };
+}
+
+function shouldReportWatchSignalCountChange(previous = {}, current = {}, { hasConcreteEvidenceChanges = false } = {}) {
+  const signalChange = numericWatchChange({
+    id: "signal-count-check",
+    label: "Evidence signals",
+    previous: previous.signalCount,
+    current: current.signalCount,
+    threshold: 1,
+  });
+  if (!signalChange) return false;
+  return Boolean(hasConcreteEvidenceChanges);
+}
+
+function areWatchPrimaryIssuesEquivalent(previousIssue, currentIssue) {
+  const previousText = String(previousIssue || "").trim();
+  const currentText = String(currentIssue || "").trim();
+  if (!previousText || !currentText) return false;
+  if (previousText === currentText) return true;
+  const previousNormalized = normalizeWatchIssueText(previousText);
+  const currentNormalized = normalizeWatchIssueText(currentText);
+  if (!previousNormalized || !currentNormalized) return false;
+  if (previousNormalized === currentNormalized) return true;
+
+  const previousTokens = getWatchIssueSemanticTokens(previousText);
+  const currentTokens = getWatchIssueSemanticTokens(currentText);
+  if (previousTokens.size === 1 && currentTokens.size === 1) {
+    return [...previousTokens][0] === [...currentTokens][0];
+  }
+  if (previousTokens.size < 2 || currentTokens.size < 2) return false;
+  const overlap = countWatchSetOverlap(previousTokens, currentTokens);
+  const smallerSetCoverage = overlap / Math.min(previousTokens.size, currentTokens.size);
+  const unionSize = new Set([...previousTokens, ...currentTokens]).size || 1;
+  const jaccard = overlap / unionSize;
+  const sameFamily = getWatchIssueSemanticFamily(previousTokens) === getWatchIssueSemanticFamily(currentTokens);
+
+  return sameFamily
+    ? smallerSetCoverage >= 0.6 || jaccard >= 0.45
+    : smallerSetCoverage >= 0.8 && jaccard >= 0.55;
+}
+
+function normalizeWatchIssueText(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getWatchIssueSemanticTokens(value = "") {
+  const stopWords = new Set([
+    "a", "an", "and", "or", "the", "to", "of", "for", "with", "without", "from", "in", "on", "at", "by",
+    "issue", "issues", "problem", "problems", "concern", "concerns", "product", "customer", "customers",
+    "impact", "pressure", "main", "primary", "top", "other", "general",
+  ]);
+  const synonyms = {
+    leaks: "leak",
+    leaking: "leak",
+    leakage: "leak",
+    leaky: "leak",
+    spilled: "spill",
+    spilling: "spill",
+    spills: "spill",
+    sealant: "seal",
+    sealed: "seal",
+    sealing: "seal",
+    gaskets: "seal",
+    gasket: "seal",
+    lids: "lid",
+    caps: "lid",
+    cap: "lid",
+    defect: "quality",
+    defects: "quality",
+    defective: "quality",
+    failure: "quality",
+    failures: "quality",
+    failing: "quality",
+    faulty: "quality",
+    broke: "durability",
+    broken: "durability",
+    breaking: "durability",
+    durable: "durability",
+    sizing: "fit",
+    size: "fit",
+    sizes: "fit",
+    small: "fit",
+    tight: "fit",
+    large: "fit",
+    color: "color",
+    colour: "color",
+    colors: "color",
+    colours: "color",
+    setup: "setup",
+    install: "setup",
+    installation: "setup",
+    assembly: "setup",
+    refund: "refund",
+    refunds: "refund",
+    refunded: "refund",
+    return: "return",
+    returns: "return",
+    returned: "return",
+  };
+  return new Set(normalizeWatchIssueText(value)
+    .split(" ")
+    .map((token) => synonyms[token] || token.replace(/s$/, ""))
+    .filter((token) => token.length > 2 && !stopWords.has(token)));
+}
+
+function countWatchSetOverlap(leftSet = new Set(), rightSet = new Set()) {
+  let count = 0;
+  leftSet.forEach((value) => {
+    if (rightSet.has(value)) count += 1;
+  });
+  return count;
+}
+
+function getWatchIssueSemanticFamily(tokens = new Set()) {
+  if (tokens.has("leak") && (tokens.has("seal") || tokens.has("lid") || tokens.has("spill"))) return "leak_seal";
+  if (tokens.has("fit")) return "fit_sizing";
+  if (tokens.has("refund")) return "refund";
+  if (tokens.has("return")) return "return";
+  if (tokens.has("color")) return "color";
+  if (tokens.has("setup")) return "setup";
+  if (tokens.has("durability")) return "durability";
+  if (tokens.has("quality")) return "quality";
+  return [...tokens].sort().slice(0, 2).join("|");
 }
 
 function getWatchRefundReasonTerms({ textItems = [], sourceItems = [] } = {}) {
@@ -2238,6 +2482,172 @@ function getSummaryLabel(value) {
 function optionalString(value) {
   const normalized = String(value || "").trim();
   return normalized || null;
+}
+
+async function findWatchlistEligibleSearchProductGids(shop, query = "") {
+  const normalizedQuery = String(query || "").trim();
+  const productSearchWhere = normalizedQuery
+    ? {
+        OR: [
+          { productTitle: { contains: normalizedQuery, mode: "insensitive" } },
+          { handle: { contains: normalizedQuery, mode: "insensitive" } },
+          { productGid: { contains: normalizedQuery } },
+        ],
+      }
+    : {};
+  const diagnosisSearchWhere = normalizedQuery
+    ? {
+        OR: [
+          { productTitle: { contains: normalizedQuery, mode: "insensitive" } },
+          { productGid: { contains: normalizedQuery } },
+        ],
+      }
+    : {};
+
+  const [snapshots, diagnoses] = await Promise.all([
+    prisma.productRiskSnapshot.findMany({
+      where: { shop, ...productSearchWhere },
+      orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
+      select: { productGid: true },
+      take: normalizedQuery ? 200 : 300,
+    }),
+    prisma.productDiagnosis.findMany({
+      where: { shop, status: "Completed", ...diagnosisSearchWhere },
+      orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+      select: { productGid: true },
+      take: normalizedQuery ? 200 : 300,
+    }),
+  ]);
+
+  return Array.from(new Set([
+    ...snapshots.map((snapshot) => snapshot.productGid),
+    ...diagnoses.map((diagnosis) => diagnosis.productGid),
+  ].filter(Boolean)));
+}
+
+async function getWatchlistEligibleProductForShop(shop, productGid) {
+  const normalizedProductGid = String(productGid || "").trim();
+  if (!shop || !normalizedProductGid) {
+    return { eligible: false, reason: "missing_product_gid", product: null };
+  }
+
+  const eligibleByProductGid = await getWatchlistEligibleProductsByGid(shop, [normalizedProductGid]);
+  const product = eligibleByProductGid.get(normalizedProductGid) || null;
+  if (product) return { eligible: true, reason: "completed_product_diagnosis", product };
+
+  const [snapshot, diagnosis] = await Promise.all([
+    prisma.productRiskSnapshot.findUnique({
+      where: { shop_productGid: { shop, productGid: normalizedProductGid } },
+      select: { id: true },
+    }),
+    prisma.productDiagnosis.findFirst({
+      where: { shop, productGid: normalizedProductGid, status: "Completed" },
+      select: { id: true },
+    }),
+  ]);
+
+  return {
+    eligible: false,
+    reason: !diagnosis ? "missing_completed_product_diagnosis" : !snapshot ? "missing_product_risk_snapshot" : "unknown",
+    product: null,
+  };
+}
+
+async function getWatchlistEligibleProductsByGid(shop, productGids = []) {
+  const uniqueProductGids = Array.from(new Set((Array.isArray(productGids) ? productGids : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)));
+  if (!shop || !uniqueProductGids.length) return new Map();
+
+  const [snapshots, diagnoses] = await Promise.all([
+    prisma.productRiskSnapshot.findMany({
+      where: { shop, productGid: { in: uniqueProductGids } },
+    }),
+    prisma.productDiagnosis.findMany({
+      where: { shop, productGid: { in: uniqueProductGids }, status: "Completed" },
+      orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+    }),
+  ]);
+
+  const latestDiagnosisByProductGid = new Map();
+  diagnoses.forEach((diagnosis) => {
+    if (diagnosis.productGid && !latestDiagnosisByProductGid.has(diagnosis.productGid)) {
+      latestDiagnosisByProductGid.set(diagnosis.productGid, diagnosis);
+    }
+  });
+
+  const snapshotByProductGid = new Map(snapshots.map((snapshot) => [snapshot.productGid, snapshot]));
+
+  return new Map(uniqueProductGids
+    .map((productGid) => {
+      const diagnosis = latestDiagnosisByProductGid.get(productGid);
+      if (!diagnosis) return null;
+      return [productGid, formatWatchlistEligibleProductSearchResult(snapshotByProductGid.get(productGid), diagnosis)];
+    })
+    .filter(Boolean));
+}
+
+function formatWatchlistEligibleProductSearchResult(snapshot = {}, diagnosis = {}) {
+  const metrics = snapshot?.metrics || diagnosis?.metrics || {};
+  const productMomentum = metrics.productMomentum || {};
+  const imageUrl = firstString(metrics.productImageUrl, metrics.imageUrl, metrics.featuredImageUrl);
+  const productTitle = snapshot?.productTitle || diagnosis?.productTitle || "Shopify product";
+  const productGid = snapshot?.productGid || diagnosis?.productGid || "";
+  const imageAlt = firstString(metrics.productImageAlt, metrics.imageAlt, productTitle);
+  const sku = firstString(
+    metrics.sku,
+    Array.isArray(metrics.variants) ? metrics.variants.find((variant) => variant?.sku)?.sku : "",
+    Array.isArray(metrics.affectedVariantDetails) ? metrics.affectedVariantDetails.find((variant) => variant?.sku)?.sku : "",
+  );
+  return {
+    id: productGid,
+    productGid,
+    title: productTitle,
+    handle: snapshot?.handle || metrics.handle || metrics.productHandle || "",
+    status: "Product Diagnosis completed",
+    vendor: metrics.vendor || "",
+    productType: metrics.productType || metrics.categoryName || "",
+    sku,
+    collection: Array.isArray(metrics.collections) ? metrics.collections[0] || "" : "",
+    detail: [
+      `Risk ${clampRoundNumber(snapshot?.riskScore ?? diagnosis?.riskScore, 0, 100)}`,
+      Number.isFinite(Number(productMomentum.score)) ? `Momentum ${Math.round(Number(productMomentum.score))}` : "",
+      diagnosis.completedAt ? `Completed ${formatWatchDate(diagnosis.completedAt)}` : "",
+    ].filter(Boolean).join(" - "),
+    imageUrl: imageUrl || null,
+    imageAlt: imageAlt || null,
+    variant: "default",
+    existingSnapshot: Boolean(snapshot?.id),
+    productPulseStatus: "full",
+    productPulseStatusLabel: "Product Diagnosis completed",
+    productPulseStatusDetail: "This product has a completed Product Diagnosis and can be added to Watchlist.",
+    href: snapshot?.handle ? `/app/products/${snapshot.handle}` : `/app/products/${encodeURIComponent(productGid || "")}`,
+    riskScore: clampRoundNumber(snapshot?.riskScore ?? diagnosis?.riskScore, 0, 100),
+    productMomentumScore: Number(productMomentum.score || metrics.productMomentumScore || 0),
+    latestDiagnosisId: diagnosis.id || metrics.latestDiagnosisId || "",
+    analysisDepth: "full",
+  };
+}
+
+function productMatchesWatchlistEligibleSearch(product = {}, query = "") {
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return [
+    product.title,
+    product.handle,
+    product.productGid,
+    product.id,
+    product.sku,
+    product.vendor,
+    product.productType,
+  ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+}
+
+function compareWatchlistEligibleProducts(first = {}, second = {}) {
+  const firstPriority = Math.max(Number(first.riskScore || 0), Number(first.productMomentumScore || 0));
+  const secondPriority = Math.max(Number(second.riskScore || 0), Number(second.productMomentumScore || 0));
+  if (secondPriority !== firstPriority) return secondPriority - firstPriority;
+  return String(first.title || "").localeCompare(String(second.title || ""));
 }
 
 function normalizeBulkWatchlistProducts(products = []) {
@@ -2649,4 +3059,5 @@ export const __productPulseWatchlistTestHooks = {
   formatWatchlistRow,
   getWatchScanActivityEventSpec,
   getNewWatchEvidenceItems,
+  normalizeStoredWatchChangeReport,
 };

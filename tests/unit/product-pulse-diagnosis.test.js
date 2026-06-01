@@ -1201,6 +1201,295 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("uses Yotpo reviews as deep-diagnosis review evidence", () => {
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        productGid: "gid://shopify/Product/987654321",
+        productTitle: "Cloud Runner Tee",
+        handle: "cloud-runner-tee",
+        primaryIssue: "Product quality",
+        metrics: {},
+      },
+      shopifyData: {
+        product: {
+          id: "gid://shopify/Product/987654321",
+          numericId: "987654321",
+          title: "Cloud Runner Tee",
+          handle: "cloud-runner-tee",
+          description: "Lightweight running tee with quick-dry fabric and a relaxed fit.",
+          variants: [],
+          tags: ["apparel", "running"],
+          collections: ["Activewear"],
+        },
+        sales: [],
+        refunds: [],
+        returns: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      yotpoData: {
+        connected: true,
+        matchConfidence: 1,
+        reviews: [
+          {
+            title: "Runs small",
+            body: "The tee runs small and shrank after the first wash.",
+            rating: 2,
+            createdAt: "2026-05-10T12:00:00Z",
+            sourceType: "yotpo_review",
+            sourceLabel: "Yotpo reviews",
+          },
+          {
+            title: "Fabric issue",
+            body: "The fabric feels thin and scratchy during long runs.",
+            rating: 2,
+            createdAt: "2026-05-11T12:00:00Z",
+            sourceType: "yotpo_review",
+            sourceLabel: "Yotpo reviews",
+          },
+          {
+            title: "Good color",
+            body: "The color is nice and shipping was quick.",
+            rating: 5,
+            createdAt: "2026-05-12T12:00:00Z",
+            sourceType: "yotpo_review",
+            sourceLabel: "Yotpo reviews",
+          },
+        ],
+      },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+    });
+    const aiInput = __productPulseDiagnosisTestHooks.buildAiDeterministicInput(deterministic);
+    const confidence = __productPulseDiagnosisTestHooks.calculateConfidence({
+      signalCount: 3,
+      sourceCoverage: ["Yotpo reviews"],
+      yotpoReviewMatchConfidence: 1,
+      orderAccessDenied: false,
+      sourceAgreement: false,
+      recentSignals: 3,
+      negativeReviewCount: 2,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
+
+    expect(deterministic.metrics.reviewCount).toBe(3);
+    expect(deterministic.metrics.yotpoReviewCount).toBe(3);
+    expect(deterministic.metrics.yotpoNegativeReviewCount).toBe(2);
+    expect(deterministic.metrics.yotpoAverageRating).toBe(3);
+    expect(deterministic.sourceCoverage).toContain("Yotpo reviews");
+    expect(deterministic.evidenceSnippets.filter((snippet) => snippet.source === "yotpo_review")).toHaveLength(2);
+    expect(deterministic.metrics.reviewSourceStats.yotpo).toMatchObject({
+      reviewCount: 3,
+      negativeReviewCount: 2,
+      avgRating: 3,
+    });
+    expect(aiInput.metrics.yotpoReviewCount).toBe(3);
+    expect(aiInput.metrics.yotpoNegativeReviewCount).toBe(2);
+    expect(confidence).toBeGreaterThan(0);
+  });
+
+  it("does not mark Yotpo as diagnosis source coverage when the API returns no reviews", () => {
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        productGid: "gid://shopify/Product/987654321",
+        productTitle: "Cloud Runner Tee",
+        handle: "cloud-runner-tee",
+        primaryIssue: "Product quality",
+        metrics: {},
+      },
+      shopifyData: {
+        product: {
+          id: "gid://shopify/Product/987654321",
+          numericId: "987654321",
+          title: "Cloud Runner Tee",
+          handle: "cloud-runner-tee",
+          description: "Lightweight running tee with quick-dry fabric and a relaxed fit.",
+          variants: [],
+          tags: ["apparel", "running"],
+          collections: ["Activewear"],
+        },
+        sales: [],
+        refunds: [],
+        returns: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      yotpoData: { connected: true, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+    });
+
+    expect(deterministic.metrics.yotpoReviewCount).toBe(0);
+    expect(deterministic.sourceCoverage).not.toContain("Yotpo reviews");
+  });
+
+  it("uses Loox reviews as deep-diagnosis review evidence", () => {
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        productGid: "gid://shopify/Product/987654321",
+        productTitle: "Cloud Runner Tee",
+        handle: "cloud-runner-tee",
+        primaryIssue: "Product quality",
+        metrics: {},
+      },
+      shopifyData: {
+        product: {
+          id: "gid://shopify/Product/987654321",
+          numericId: "987654321",
+          title: "Cloud Runner Tee",
+          handle: "cloud-runner-tee",
+          description: "Lightweight running tee with quick-dry fabric and a relaxed fit.",
+          variants: [],
+          tags: ["apparel", "running"],
+          collections: ["Activewear"],
+        },
+        sales: [],
+        refunds: [],
+        returns: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      yotpoData: { connected: false, reviews: [], matchConfidence: 0 },
+      looxData: {
+        connected: true,
+        matchConfidence: 1,
+        reviews: [
+          {
+            title: "Photo looked different",
+            body: "The material looked thicker in the photos and felt thin in person.",
+            rating: 2,
+            createdAt: "2026-05-10T12:00:00Z",
+            sourceType: "loox_review",
+            sourceLabel: "Loox reviews",
+          },
+          {
+            title: "Nice color",
+            body: "The color is nice and the photo reviews helped me choose.",
+            rating: 5,
+            createdAt: "2026-05-12T12:00:00Z",
+            sourceType: "loox_review",
+            sourceLabel: "Loox reviews",
+          },
+        ],
+      },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+    });
+    const aiInput = __productPulseDiagnosisTestHooks.buildAiDeterministicInput(deterministic);
+    const confidence = __productPulseDiagnosisTestHooks.calculateConfidence({
+      signalCount: 2,
+      sourceCoverage: ["Loox reviews"],
+      looxReviewMatchConfidence: 1,
+      orderAccessDenied: false,
+      sourceAgreement: false,
+      recentSignals: 2,
+      negativeReviewCount: 1,
+      returnUnits: 0,
+      refundUnits: 0,
+    });
+
+    expect(deterministic.metrics.reviewCount).toBe(2);
+    expect(deterministic.metrics.looxReviewCount).toBe(2);
+    expect(deterministic.metrics.looxNegativeReviewCount).toBe(1);
+    expect(deterministic.metrics.looxAverageRating).toBe(3.5);
+    expect(deterministic.sourceCoverage).toContain("Loox reviews");
+    expect(deterministic.evidenceSnippets.filter((snippet) => snippet.source === "loox_review")).toHaveLength(1);
+    expect(deterministic.metrics.reviewSourceStats.loox).toMatchObject({
+      reviewCount: 2,
+      negativeReviewCount: 1,
+      avgRating: 3.5,
+    });
+    expect(aiInput.metrics.looxReviewCount).toBe(2);
+    expect(aiInput.metrics.looxNegativeReviewCount).toBe(1);
+    expect(confidence).toBeGreaterThan(0);
+  });
+
+  it("does not mark Loox as diagnosis source coverage when the API returns no reviews", () => {
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        productGid: "gid://shopify/Product/987654321",
+        productTitle: "Cloud Runner Tee",
+        handle: "cloud-runner-tee",
+        primaryIssue: "Product quality",
+        metrics: {},
+      },
+      shopifyData: {
+        product: {
+          id: "gid://shopify/Product/987654321",
+          numericId: "987654321",
+          title: "Cloud Runner Tee",
+          handle: "cloud-runner-tee",
+          description: "Lightweight running tee with quick-dry fabric and a relaxed fit.",
+          variants: [],
+          tags: ["apparel", "running"],
+          collections: ["Activewear"],
+        },
+        sales: [],
+        refunds: [],
+        returns: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      yotpoData: { connected: false, reviews: [], matchConfidence: 0 },
+      looxData: { connected: true, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+    });
+
+    expect(deterministic.metrics.looxReviewCount).toBe(0);
+    expect(deterministic.sourceCoverage).not.toContain("Loox reviews");
+  });
+
+  it("keeps complete zero Shopify refund extraction from falling back to stale snapshot refunds", () => {
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        productGid: "gid://shopify/Product/8781291651160",
+        productTitle: "GEN Aurora Ceramic Dinner Set",
+        handle: "gen-ceramic-dinner-set-26a108d0",
+        primaryIssue: "Product defect or durability",
+        metrics: {
+          soldUnits: 20,
+          refundUnits: 7,
+          refundAmount: 802,
+          refundRate: 35,
+        },
+      },
+      shopifyData: {
+        product: {
+          id: "gid://shopify/Product/8781291651160",
+          numericId: "8781291651160",
+          title: "GEN Aurora Ceramic Dinner Set",
+          handle: "gen-ceramic-dinner-set-26a108d0",
+          updatedAt: "2026-05-24T12:00:00.000Z",
+          description: "Twelve-piece glazed ceramic dinnerware set with four dinner plates, four salad plates, and four bowls. Includes clear dimensions, dishwasher guidance, microwave guidance, protective packaging, and replacement instructions for transit damage.",
+          variants: [],
+          tags: ["dinnerware"],
+          collections: ["Kitchen"],
+        },
+        sales: [
+          { id: "order-1", orderId: "order-1", quantity: 3, amount: 180, createdAt: "2026-05-25T12:00:00.000Z" },
+          { id: "order-2", orderId: "order-2", quantity: 4, amount: 240, createdAt: "2026-05-26T12:00:00.000Z" },
+        ],
+        refunds: [],
+        returns: [],
+        orderAccessDenied: false,
+        sourceFetchComplete: {
+          sales: true,
+          refunds: true,
+          returns: true,
+        },
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    expect(deterministic.metrics.soldUnits).toBe(7);
+    expect(deterministic.metrics.refundUnits).toBe(0);
+    expect(deterministic.metrics.refundAmount).toBe(0);
+    expect(deterministic.metrics.refundRate).toBe(0);
+    expect(deterministic.metrics.refundInsights.shouldSurface).toBe(false);
+    expect(deterministic.sourceCoverage).not.toContain("Shopify refunds");
+    expect(deterministic.mainIssue).not.toBe("refund_impact");
+  });
+
   it("reuses cached customer text analysis and only analyzes new text on incremental product diagnosis", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const product = {
@@ -1600,6 +1889,28 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("reports cached model summaries with the reused model name and zero token usage", () => {
+    const summary = __productPulseDiagnosisTestHooks.buildCachedAiModelSummary("content_gap", "previous-product-content-analysis");
+
+    expect(summary).toMatchObject({
+      task: "content_gap",
+      model: "previous-product-content-analysis",
+      provider: "cache",
+      usage: {
+        provider: "cache",
+        model: "previous-product-content-analysis",
+        task: "content_gap",
+        requestContext: "cache",
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        usageSource: "cache",
+      },
+    });
+  });
+
   it("refreshes date-derived deterministic metrics without replacing cached Product Diagnosis data", () => {
     const snapshot = {
       productGid: "gid://shopify/Product/123",
@@ -1755,6 +2066,69 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       sufficientToSkip: true,
       sourceFingerprintChanged: true,
     });
+  });
+
+  it("does not reuse cached diagnosis when stored refund metrics are unsupported by current source events", () => {
+    const decision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        productGid: "gid://shopify/Product/8781291651160",
+        primaryIssue: "Refund impact",
+        metrics: {
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: "2026-05-30T12:00:00.000Z",
+          soldUnits: 20,
+          refundUnits: 7,
+          refundAmount: 802,
+          refundRate: 35,
+          incrementalDiagnosis: {
+            cache: {
+              sourceFingerprint: "stale-refund-fingerprint",
+              sourceEvents: {
+                sales: [{ id: "sale-1", quantity: 7, amount: 342, createdAt: "2026-05-28T12:00:00.000Z" }],
+                refunds: [],
+                returns: [],
+              },
+            },
+          },
+        },
+      },
+      deterministic: {
+        riskScore: 32,
+        confidence: 66,
+        estimatedImpact: { estimatedImpact: 0, revenueAtRisk: 0, marginAtRisk: 0 },
+        evidenceSnippets: [],
+        metrics: {
+          soldUnits: 7,
+          refundUnits: 0,
+          refundAmount: 0,
+          refundRate: 0,
+          incrementalDiagnosis: {
+            productContent: { reused: true },
+            customerText: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            refunds: { mode: "incremental", analyzedItems: 0, reusedItems: 0 },
+            sourceChanges: {
+              previousFingerprint: "stale-refund-fingerprint",
+              currentFingerprint: "corrected-no-refund-fingerprint",
+              unchanged: false,
+              sourceExtractionComplete: true,
+              sourceFetchComplete: { sales: true, refunds: true, returns: true },
+              sourceEventFetch: {
+                mode: "incremental_fetch",
+                fetchComplete: true,
+                rawFetchedCounts: { salesEvents: 0, refundEvents: 0, returnEvents: 0 },
+                mergedCounts: { salesEvents: 1, refundEvents: 0, returnEvents: 0 },
+              },
+            },
+            aiEvidenceSnippetCount: 0,
+          },
+        },
+      },
+    });
+
+    expect(decision.shouldReuse).toBe(false);
+    expect(decision.sourceMetricCorrection).toBe(true);
+    expect(decision.dateOnlyRefresh).toBe(false);
+    expect(decision.blockers).toContain("stored_source_metrics_not_supported_by_current_source_events");
   });
 
   it("does not reuse cached diagnosis when stored chart interpretations are missing", () => {

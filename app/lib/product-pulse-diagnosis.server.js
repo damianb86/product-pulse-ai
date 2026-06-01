@@ -34,6 +34,15 @@ import {
   filterDisabledProductActions,
   isDisabledProductAction,
 } from "./product-pulse-disabled-actions";
+import {
+  authenticateYotpo,
+  fetchYotpoProductReviewPages,
+  fetchYotpoReviewPages,
+} from "./product-pulse-yotpo.server";
+import {
+  fetchLooxProductReviewPages,
+  fetchLooxReviewPages,
+} from "./product-pulse-loox.server";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS = 365;
@@ -41,6 +50,10 @@ const PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS = 180;
 const MAX_ORDER_PAGES = 12;
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
+const MAX_YOTPO_PRODUCT_REVIEW_PAGES = 3;
+const MAX_YOTPO_SYNC_PAGES = 5;
+const MAX_LOOX_PRODUCT_REVIEW_PAGES = 3;
+const MAX_LOOX_SYNC_PAGES = 5;
 const MONTHLY_ORDER_ACTIVITY_MAX_MONTHS = 12;
 const RETURN_RATE_PREDICTION_MAX_WEEKS = 52;
 const RETURN_RATE_PREDICTION_FORECAST_WEEKS = 13;
@@ -130,6 +143,8 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   const storedReconstructedRiskHistory = await getReconstructedProductScoreHistoryForShop(shop, snapshot.productGid);
   const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays });
   const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
+  const yotpoData = await fetchYotpoDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
+  const looxData = await fetchLooxDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
   const momentumCatalogBaseline = await fetchProductMomentumCatalogBaseline({ shop, currentProductGid: snapshot.productGid });
   const taxonomyCategorySuggestions = await fetchProductTaxonomyCategorySuggestions({ admin, product: shopifyData.product });
@@ -137,6 +152,8 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     snapshot,
     shopifyData,
     judgeMeData,
+    yotpoData,
+    looxData,
     csvReviewData,
     windowDays,
     momentumCatalogBaseline,
@@ -166,6 +183,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     evidenceSnippets: deterministic.evidenceSnippets,
     recommendationCandidates,
     incremental: buildAiIncrementalDiagnosisInput(deterministic),
+    previousPrimaryIssue: snapshot.primaryIssue || null,
   };
 
   await recordJobLog({
@@ -247,7 +265,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       discardedSuggestions: ai.emergentSentiments?.discarded_suggestions || [],
     },
   });
-  const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai });
+  const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, deterministic, ai });
   const diagnosis = await persistDetailedDiagnosis({ shop, jobId, snapshot, payload: diagnosisPayload });
   const retentionResult = await calculateAndAttachProductRetentionForDiagnosis({
     shop,
@@ -448,6 +466,11 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
           refundEvents: refunds.length,
           returnEvents: returns.length,
         },
+        sourceFetchComplete: {
+          sales: salesFetchComplete,
+          refunds: refundFetchComplete,
+          returns: returnFetchComplete,
+        },
         fetchComplete: salesFetchComplete && refundFetchComplete && returnFetchComplete,
       },
     },
@@ -469,6 +492,11 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
         salesEvents: sales.length,
         refundEvents: refunds.length,
         returnEvents: returns.length,
+      },
+      sourceFetchComplete: {
+        sales: salesFetchComplete,
+        refunds: refundFetchComplete,
+        returns: returnFetchComplete,
       },
       fetchComplete: salesFetchComplete && refundFetchComplete && returnFetchComplete,
     },
@@ -2339,6 +2367,308 @@ async function fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct
   };
 }
 
+async function fetchYotpoDiagnosisData({ shop, jobId, snapshot, shopifyProduct, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
+  const source = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop, sourceKey: "yotpoReviews" } },
+  }).catch(() => null);
+
+  const storeId = String(source?.credentials?.storeId || "").trim();
+  const apiSecret = String(source?.credentials?.apiSecret || "").trim();
+  let utoken = String(source?.credentials?.utoken || "").trim();
+  if (!source?.connected || !source.active || !storeId || (!utoken && !apiSecret)) {
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "product_diagnosis.yotpo_skipped",
+      message: "Yotpo Reviews is not connected or active; diagnosis will continue without Yotpo review evidence.",
+      data: { connected: Boolean(source?.connected), active: Boolean(source?.active), hasStoreId: Boolean(storeId) },
+    });
+    return { connected: false, reviews: [], matchConfidence: 0, errors: [] };
+  }
+
+  const errors = [];
+  const productLookup = await fetchYotpoProductReviewsForDiagnosis({ storeId, snapshot, shopifyProduct });
+  const productMatched = productLookup.reviews.map((review) => ({
+    review: attachYotpoProductIdentifiers(review, productLookup.productId),
+    confidence: productLookup.matchConfidence,
+  }));
+  let refreshedToken = false;
+  if (!productMatched.length && !utoken && apiSecret) {
+    const auth = await authenticateYotpo({ storeId, apiSecret }).catch((error) => {
+      errors.push(serializeError(error));
+      return null;
+    });
+    utoken = auth?.utoken || "";
+    refreshedToken = Boolean(utoken);
+  }
+
+  const fetched = !productMatched.length && utoken
+    ? await fetchYotpoReviewPages({
+      storeId,
+      utoken,
+      maxPages: MAX_YOTPO_SYNC_PAGES,
+    }).catch(async (error) => {
+      errors.push(serializeError(error));
+      if (!apiSecret || ![401, 403].includes(Number(error?.status || 0))) return { reviews: [] };
+      const auth = await authenticateYotpo({ storeId, apiSecret }).catch((authError) => {
+        errors.push(serializeError(authError));
+        return null;
+      });
+      if (!auth?.utoken) return { reviews: [] };
+      utoken = auth.utoken;
+      refreshedToken = true;
+      return fetchYotpoReviewPages({ storeId, utoken, maxPages: MAX_YOTPO_SYNC_PAGES }).catch((retryError) => {
+        errors.push(serializeError(retryError));
+        return { reviews: [] };
+      });
+    })
+    : { reviews: [] };
+
+  const matched = productMatched.length
+    ? productMatched
+    : (fetched.reviews || [])
+      .map((review) => ({
+        review,
+        confidence: getYotpoReviewMatchConfidence(review, snapshot, shopifyProduct),
+      }))
+      .filter((item) => item.confidence >= 0.75);
+  const allMatchedReviews = matched
+    .map((item) => normalizeYotpoReview(item.review, snapshot, shopifyProduct, item.confidence))
+    .filter(Boolean);
+  const reviews = filterReviewsByLookbackWindow(allMatchedReviews, windowDays);
+  const matchConfidence = matched.length ? Math.max(...matched.map((item) => item.confidence)) : 0;
+
+  if (reviews.length || refreshedToken) {
+    await prisma.productPulseSource.update({
+      where: { shop_sourceKey: { shop, sourceKey: "yotpoReviews" } },
+      data: {
+        health: "connected",
+        lastSyncedAt: new Date(),
+        credentials: refreshedToken
+          ? {
+            ...(source.credentials || {}),
+            storeId,
+            apiSecret,
+            utoken,
+            utokenGeneratedAt: new Date().toISOString(),
+          }
+          : source.credentials,
+      },
+    }).catch(() => {});
+  } else if (errors.length) {
+    await prisma.productPulseSource.update({
+      where: { shop_sourceKey: { shop, sourceKey: "yotpoReviews" } },
+      data: { health: "error" },
+    }).catch(() => {});
+  }
+
+  await recordJobLog({
+    shop,
+    jobId,
+    level: errors.length && !reviews.length ? "warn" : "info",
+    event: "product_diagnosis.yotpo_extracted",
+    message: "Yotpo Reviews extraction finished for this product.",
+    data: {
+      fetchedReviews: fetched.reviews?.length || 0,
+      matchedReviews: reviews.length,
+      ignoredOutsideWindow: Math.max(0, allMatchedReviews.length - reviews.length),
+      windowDays,
+      matchConfidence,
+      refreshedToken,
+      productLookupProductId: productLookup.productId,
+      productLookupReviews: productLookup.reviews.length,
+      productLookupErrors: productLookup.errors,
+      errors,
+    },
+  });
+
+  return {
+    connected: true,
+    reviews,
+    matchConfidence,
+    errors,
+  };
+}
+
+async function fetchYotpoProductReviewsForDiagnosis({ storeId, snapshot, shopifyProduct }) {
+  const errors = [];
+  const candidates = buildYotpoProductReviewIdCandidates(snapshot, shopifyProduct);
+
+  for (const candidate of candidates) {
+    const result = await fetchYotpoProductReviewPages({
+      storeId,
+      productId: candidate.productId,
+      maxPages: MAX_YOTPO_PRODUCT_REVIEW_PAGES,
+    }).catch((error) => {
+      errors.push({ productId: candidate.productId, ...serializeError(error) });
+      return null;
+    });
+
+    if (result?.reviews?.length) {
+      return {
+        productId: candidate.productId,
+        reviews: result.reviews,
+        totalReviews: result.totalReviews,
+        matchConfidence: candidate.matchConfidence,
+        errors,
+      };
+    }
+  }
+
+  return {
+    productId: null,
+    reviews: [],
+    totalReviews: 0,
+    matchConfidence: 0,
+    errors,
+  };
+}
+
+async function fetchLooxDiagnosisData({ shop, jobId, snapshot, shopifyProduct, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
+  const source = await prisma.productPulseSource.findUnique({
+    where: { shop_sourceKey: { shop, sourceKey: "looxReviews" } },
+  }).catch(() => null);
+
+  const publicStoreId = String(source?.credentials?.publicStoreId || "").trim();
+  const apiSecret = String(source?.credentials?.apiSecret || "").trim();
+  if (!source?.connected || !source.active || !publicStoreId || !apiSecret) {
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "product_diagnosis.loox_skipped",
+      message: "Loox Reviews is not connected or active; diagnosis will continue without Loox review evidence.",
+      data: { connected: Boolean(source?.connected), active: Boolean(source?.active), hasPublicStoreId: Boolean(publicStoreId) },
+    });
+    return { connected: false, reviews: [], matchConfidence: 0, errors: [] };
+  }
+
+  const errors = [];
+  const productLookup = await fetchLooxProductReviewsForDiagnosis({ publicStoreId, apiSecret, snapshot, shopifyProduct });
+  const productMatched = productLookup.reviews.map((review) => ({
+    review: attachLooxProductIdentifiers(review, productLookup.productId),
+    confidence: productLookup.matchConfidence,
+  }));
+  const fetched = !productMatched.length
+    ? await fetchLooxReviewPages({
+      publicStoreId,
+      apiSecret,
+      maxPages: MAX_LOOX_SYNC_PAGES,
+    }).catch((error) => {
+      errors.push(serializeError(error));
+      return { reviews: [] };
+    })
+    : { reviews: [] };
+
+  const matched = productMatched.length
+    ? productMatched
+    : (fetched.reviews || [])
+      .map((review) => ({
+        review,
+        confidence: getLooxReviewMatchConfidence(review, snapshot, shopifyProduct),
+      }))
+      .filter((item) => item.confidence >= 0.75);
+  const allMatchedReviews = matched
+    .map((item) => normalizeLooxReview(item.review, snapshot, shopifyProduct, item.confidence))
+    .filter(Boolean);
+  const reviews = filterReviewsByLookbackWindow(allMatchedReviews, windowDays);
+  const matchConfidence = matched.length ? Math.max(...matched.map((item) => item.confidence)) : 0;
+
+  if (reviews.length) {
+    await prisma.productPulseSource.update({
+      where: { shop_sourceKey: { shop, sourceKey: "looxReviews" } },
+      data: {
+        health: "connected",
+        lastSyncedAt: new Date(),
+      },
+    }).catch(() => {});
+  } else if (errors.length || productLookup.errors.length) {
+    await prisma.productPulseSource.update({
+      where: { shop_sourceKey: { shop, sourceKey: "looxReviews" } },
+      data: { health: "error" },
+    }).catch(() => {});
+  }
+
+  await recordJobLog({
+    shop,
+    jobId,
+    level: (errors.length || productLookup.errors.length) && !reviews.length ? "warn" : "info",
+    event: "product_diagnosis.loox_extracted",
+    message: "Loox Reviews extraction finished for this product.",
+    data: {
+      fetchedReviews: fetched.reviews?.length || 0,
+      matchedReviews: reviews.length,
+      ignoredOutsideWindow: Math.max(0, allMatchedReviews.length - reviews.length),
+      windowDays,
+      matchConfidence,
+      productLookupProductId: productLookup.productId,
+      productLookupReviews: productLookup.reviews.length,
+      productLookupErrors: productLookup.errors,
+      errors,
+    },
+  });
+
+  return {
+    connected: true,
+    reviews,
+    matchConfidence,
+    errors: [...productLookup.errors, ...errors],
+  };
+}
+
+async function fetchLooxProductReviewsForDiagnosis({ publicStoreId, apiSecret, snapshot, shopifyProduct }) {
+  const errors = [];
+  const candidates = buildLooxProductReviewIdCandidates(snapshot, shopifyProduct);
+
+  for (const candidate of candidates) {
+    const merchantResult = await fetchLooxReviewPages({
+      publicStoreId,
+      apiSecret,
+      productId: candidate.productId,
+      maxPages: MAX_LOOX_PRODUCT_REVIEW_PAGES,
+    }).catch((error) => {
+      errors.push({ productId: candidate.productId, api: "merchant", ...serializeError(error) });
+      return null;
+    });
+
+    if (merchantResult?.reviews?.length) {
+      return {
+        productId: candidate.productId,
+        reviews: merchantResult.reviews,
+        totalReviews: merchantResult.totalReviews,
+        matchConfidence: candidate.matchConfidence,
+        errors,
+      };
+    }
+
+    const storefrontResult = await fetchLooxProductReviewPages({
+      publicStoreId,
+      productId: candidate.productId,
+      maxPages: MAX_LOOX_PRODUCT_REVIEW_PAGES,
+    }).catch((error) => {
+      errors.push({ productId: candidate.productId, api: "storefront", ...serializeError(error) });
+      return null;
+    });
+
+    if (storefrontResult?.reviews?.length) {
+      return {
+        productId: candidate.productId,
+        reviews: storefrontResult.reviews,
+        totalReviews: storefrontResult.totalReviews,
+        matchConfidence: candidate.matchConfidence,
+        errors,
+      };
+    }
+  }
+
+  return {
+    productId: null,
+    reviews: [],
+    totalReviews: 0,
+    matchConfidence: 0,
+    errors,
+  };
+}
+
 async function fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
   const source = await prisma.productPulseSource.findUnique({
     where: { shop_sourceKey: { shop, sourceKey: "csvReviews" } },
@@ -2491,6 +2821,8 @@ function calculateDeterministicDiagnosis({
   snapshot,
   shopifyData,
   judgeMeData,
+  yotpoData = { connected: false, reviews: [], matchConfidence: 0 },
+  looxData = { connected: false, reviews: [], matchConfidence: 0 },
   csvReviewData = { connected: false, reviews: [], matchConfidence: 0 },
   windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS,
   momentumCatalogBaseline = null,
@@ -2508,13 +2840,16 @@ function calculateDeterministicDiagnosis({
   const refunds = shopifyData.refunds || [];
   const returns = shopifyData.returns || [];
   const judgeMeReviews = (judgeMeData.reviews || []).map((review) => normalizeReviewSource(review, "judgeme_review", "Judge.me reviews"));
+  const yotpoReviews = (yotpoData.reviews || []).map((review) => normalizeReviewSource(review, "yotpo_review", "Yotpo reviews"));
+  const looxReviews = (looxData.reviews || []).map((review) => normalizeReviewSource(review, "loox_review", "Loox reviews"));
   const csvReviews = (csvReviewData.reviews || []).map((review) => normalizeReviewSource(review, "csv_review", "CSV reviews"));
-  const reviews = [...judgeMeReviews, ...csvReviews];
-  const rawSoldUnits = preferFreshNumber(sumBy(sales, "quantity"), snapshotMetrics.soldUnits);
-  const salesAmount = roundCurrency(preferFreshNumber(sumBy(sales, "amount"), snapshotMetrics.salesAmount));
-  const returnUnits = preferFreshNumber(sumBy(returns, "quantity"), snapshotMetrics.returnUnits);
-  const refundUnits = preferFreshNumber(sumBy(refunds, "quantity"), snapshotMetrics.refundUnits);
-  const refundAmount = roundCurrency(preferFreshNumber(sumBy(refunds, "amount"), snapshotMetrics.refundAmount));
+  const reviews = [...judgeMeReviews, ...yotpoReviews, ...looxReviews, ...csvReviews];
+  const sourceFetchComplete = getDiagnosisSourceFetchCompleteness(shopifyData);
+  const rawSoldUnits = preferFreshNumber(sumBy(sales, "quantity"), snapshotMetrics.soldUnits, { fallbackWhenZero: !sourceFetchComplete.sales });
+  const salesAmount = roundCurrency(preferFreshNumber(sumBy(sales, "amount"), snapshotMetrics.salesAmount, { fallbackWhenZero: !sourceFetchComplete.sales }));
+  const returnUnits = preferFreshNumber(sumBy(returns, "quantity"), snapshotMetrics.returnUnits, { fallbackWhenZero: !sourceFetchComplete.returns });
+  const refundUnits = preferFreshNumber(sumBy(refunds, "quantity"), snapshotMetrics.refundUnits, { fallbackWhenZero: !sourceFetchComplete.refunds });
+  const refundAmount = roundCurrency(preferFreshNumber(sumBy(refunds, "amount"), snapshotMetrics.refundAmount, { fallbackWhenZero: !sourceFetchComplete.refunds }));
   const monthlyOrderActivity = buildMonthlyOrderActivity({ sales, returns, refunds, windowDays });
   const orderGeography = buildOrderGeographyRows(sales);
   const monthlyOrderUnits = Number(monthlyOrderActivity?.summary?.totalOrderUnits || 0);
@@ -2589,13 +2924,15 @@ function calculateDeterministicDiagnosis({
   });
   const productMomentum = buildProductMomentum({ product, sales, windowDays, catalogBaseline: momentumCatalogBaseline });
   const reviewSourceStats = buildReviewSourceStats(reviews);
-  const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
+  const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
   const sourceFingerprint = buildDiagnosisSourceFingerprint({
     productContentSignature: productContentState.signature,
     sales,
     returns,
     refunds,
     judgeMeReviews,
+    yotpoReviews,
+    looxReviews,
     csvReviews,
     orderAccessDenied: shopifyData.orderAccessDenied,
     sourceCoverage,
@@ -2616,6 +2953,7 @@ function calculateDeterministicDiagnosis({
       : "previous_source_fingerprint_missing",
     sourceExtractionComplete,
     sourceEventFetch,
+    sourceFetchComplete,
   };
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const trendOptions = {
@@ -2699,7 +3037,7 @@ function calculateDeterministicDiagnosis({
     effectiveSampleSize: returnUnits + refundUnits + reviewCount + deterministicContent.issues.length,
     sourceCoverage,
     sourceAgreement,
-    productMatchConfidence: Math.max(judgeMeData.matchConfidence || 0, csvReviewData.matchConfidence || 0, reviews.length ? 0 : 1),
+    productMatchConfidence: Math.max(judgeMeData.matchConfidence || 0, yotpoData.matchConfidence || 0, looxData.matchConfidence || 0, csvReviewData.matchConfidence || 0, reviews.length ? 0 : 1),
     orderAccessDenied: shopifyData.orderAccessDenied,
     missingOrders: shopifyData.orderAccessDenied,
     dataQualityIncomplete: shopifyData.orderAccessDenied,
@@ -2719,6 +3057,8 @@ function calculateDeterministicDiagnosis({
     snapshot,
     shopifyData,
     judgeMeData,
+    yotpoData,
+    looxData,
     csvReviewData,
     product,
     sales,
@@ -2891,12 +3231,20 @@ function calculateDeterministicDiagnosis({
       judgeMeReviewCount: reviewSourceStats.judgeMe.reviewCount,
       judgeMeNegativeReviewCount: reviewSourceStats.judgeMe.negativeReviewCount,
       judgeMeAverageRating: reviewSourceStats.judgeMe.avgRating,
+      yotpoReviewCount: reviewSourceStats.yotpo.reviewCount,
+      yotpoNegativeReviewCount: reviewSourceStats.yotpo.negativeReviewCount,
+      yotpoAverageRating: reviewSourceStats.yotpo.avgRating,
+      looxReviewCount: reviewSourceStats.loox.reviewCount,
+      looxNegativeReviewCount: reviewSourceStats.loox.negativeReviewCount,
+      looxAverageRating: reviewSourceStats.loox.avgRating,
       csvReviewCount: reviewSourceStats.csv.reviewCount,
       csvNegativeReviewCount: reviewSourceStats.csv.negativeReviewCount,
       csvAverageRating: reviewSourceStats.csv.avgRating,
       reviewSourceStats,
       judgeMeInternalProductId: judgeMeData.internalProductId,
       judgeMeMatchConfidence: judgeMeData.matchConfidence,
+      yotpoReviewMatchConfidence: yotpoData.matchConfidence,
+      looxReviewMatchConfidence: looxData.matchConfidence,
       csvReviewMatchConfidence: csvReviewData.matchConfidence,
       orderAccessDenied: shopifyData.orderAccessDenied,
       sourceCoverage,
@@ -2961,6 +3309,8 @@ function buildReconstructedRiskHistory({
   snapshot,
   shopifyData,
   judgeMeData,
+  yotpoData = { connected: false, reviews: [], matchConfidence: 0 },
+  looxData = { connected: false, reviews: [], matchConfidence: 0 },
   csvReviewData,
   product,
   sales = [],
@@ -2983,6 +3333,8 @@ function buildReconstructedRiskHistory({
       snapshot,
       shopifyData,
       judgeMeData,
+      yotpoData,
+      looxData,
       csvReviewData,
       product,
       sales,
@@ -3042,6 +3394,8 @@ function buildReconstructedRiskHistory({
       snapshot,
       shopifyData,
       judgeMeData,
+      yotpoData,
+      looxData,
       csvReviewData,
       product,
       sales: filterEventsUpTo(sales, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
@@ -3136,6 +3490,8 @@ function buildReconstructedRiskHistoryPoint({
   snapshot,
   shopifyData,
   judgeMeData,
+  yotpoData = { connected: false, reviews: [], matchConfidence: 0 },
+  looxData = { connected: false, reviews: [], matchConfidence: 0 },
   csvReviewData,
   product,
   sales,
@@ -3170,7 +3526,7 @@ function buildReconstructedRiskHistoryPoint({
   const textInsights = buildCustomerTextInsights({ returns, reviews });
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
   const reviewSourceStats = buildReviewSourceStats(reviews);
-  const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
+  const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
   applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights);
@@ -3262,7 +3618,7 @@ function buildReconstructedRiskHistoryPoint({
     signalEventCount: customerSignalCount,
     effectiveSampleSize: returnUnits + refundUnits + reviewCount + contentIssueCount,
     sourceAgreement,
-    productMatchConfidence: Math.max(judgeMeData?.matchConfidence || 0, csvReviewData?.matchConfidence || 0, reviews.length ? 0 : 1),
+    productMatchConfidence: Math.max(judgeMeData?.matchConfidence || 0, yotpoData?.matchConfidence || 0, looxData?.matchConfidence || 0, csvReviewData?.matchConfidence || 0, reviews.length ? 0 : 1),
     orderAccessDenied: shopifyData?.orderAccessDenied,
     missingOrders: shopifyData?.orderAccessDenied,
     dataQualityIncomplete: shopifyData?.orderAccessDenied,
@@ -3486,7 +3842,7 @@ function cleanAiStoredInterpretation(value) {
     .slice(0, 700);
 }
 
-function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReviewData, deterministic, ai }) {
+function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, deterministic, ai }) {
   const contentAnalysis = buildContentAnalysis(deterministic, ai.contentGaps);
   const semanticDeterministic = applyAiSemanticClassificationToDeterministic(deterministic, ai);
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
@@ -3564,7 +3920,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, csvReview
   const adjustedMainFinding = adjustMainFindingForSignalStrength(mainFinding, scoredDeterministic);
   const recommendations = buildFinalRecommendations({ snapshot, deterministic: scoredDeterministic, ai, mainIssue });
   const issues = buildFinalIssues({ deterministic: scoredDeterministic, ai, mainIssue, recommendations });
-  const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, aiEvidenceSynthesisSections, judgeMeData, csvReviewData, shopifyData });
+  const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, aiEvidenceSynthesisSections, judgeMeData, yotpoData, looxData, csvReviewData, shopifyData });
   const incrementalDiagnosis = buildPersistedIncrementalDiagnosisState({
     runtimeState: scoredDeterministic.metrics.incrementalDiagnosis,
     aiContentGaps: ai.contentGaps,
@@ -3964,12 +4320,11 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
   const modelsUsed = {
     classification: buildCachedAiModelSummary("signal_classification"),
     emergentSentiment: buildCachedAiModelSummary("emergent_sentiment"),
-    contentGap: {
-      task: "content_gap",
-      model: "previous-product-content-analysis",
-      provider: "cache",
-    },
+    contentGap: buildCachedAiModelSummary("content_gap", "previous-product-content-analysis"),
+    contentCoverageValidation: buildCachedAiModelSummary("content_coverage_validation"),
     actionRationale: buildCachedAiModelSummary("action_rationale"),
+    chartInterpretations: buildCachedAiModelSummary("chart_interpretations"),
+    relationshipInsights: buildCachedAiModelSummary("relationship_insights"),
     finalReport: buildCachedAiModelSummary("final_report"),
   };
   const aiUsage = summarizeAiUsage([], {
@@ -4184,12 +4539,20 @@ function pickNoChangeRefreshMetrics(metrics = {}) {
     "judgeMeReviewCount",
     "judgeMeNegativeReviewCount",
     "judgeMeAverageRating",
+    "yotpoReviewCount",
+    "yotpoNegativeReviewCount",
+    "yotpoAverageRating",
+    "looxReviewCount",
+    "looxNegativeReviewCount",
+    "looxAverageRating",
     "csvReviewCount",
     "csvNegativeReviewCount",
     "csvAverageRating",
     "reviewSourceStats",
     "judgeMeInternalProductId",
     "judgeMeMatchConfidence",
+    "yotpoReviewMatchConfidence",
+    "looxReviewMatchConfidence",
     "csvReviewMatchConfidence",
     "orderAccessDenied",
     "sourceCoverage",
@@ -4208,14 +4571,14 @@ function clampInteger(value, min = 0, max = Number.POSITIVE_INFINITY) {
   return Math.round(Math.max(min, Math.min(max, number)));
 }
 
-function buildCachedAiModelSummary(task) {
+function buildCachedAiModelSummary(task, model = "previous-detailed-diagnosis") {
   return {
     task,
-    model: "previous-detailed-diagnosis",
+    model,
     provider: "cache",
     usage: {
       provider: "cache",
-      model: "previous-detailed-diagnosis",
+      model,
       task,
       requestContext: "cache",
       inputTokens: 0,
@@ -4256,20 +4619,20 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     marginAtRisk: deterministic.estimatedImpact?.marginAtRisk ?? metrics.marginAtRisk,
   });
   const materialUnchanged = !sourceFingerprintCompared && materialComparison.unchanged;
-  const dateOnlyRefresh = isDateOnlyDiagnosisRefresh({
+  const sourceMetricCorrection = hasUnsupportedSourceMetricCorrection({ previousMetrics, currentMetrics: metrics, sourceChanges });
+  const dateOnlyRefresh = !sourceMetricCorrection && isDateOnlyDiagnosisRefresh({
     sourceChanges,
     productContentReused,
     customerTextUnchanged,
     refundsUnchanged,
     noNewAiEvidence,
   });
-  const matchedBy = sourceFingerprintUnchanged
-    ? "source_fingerprint"
-    : materialUnchanged
-      ? "material_metrics"
-      : dateOnlyRefresh
-        ? "date_derived_metrics"
-        : null;
+  let matchedBy = null;
+  if (!sourceMetricCorrection) {
+    if (sourceFingerprintUnchanged) matchedBy = "source_fingerprint";
+    else if (materialUnchanged) matchedBy = "material_metrics";
+    else if (dateOnlyRefresh) matchedBy = "date_derived_metrics";
+  }
   const blockers = [
     !hasPreviousCompletedDiagnosis ? "missing_previous_completed_diagnosis" : null,
     !productContentReused ? "product_content_changed_or_not_cached" : null,
@@ -4277,6 +4640,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     !refundsUnchanged ? "refunds_changed_or_not_incremental" : null,
     !sourceExtractionComplete ? "source_extraction_incomplete" : null,
     !noNewAiEvidence ? "new_ai_evidence_snippets_detected" : null,
+    sourceMetricCorrection ? "stored_source_metrics_not_supported_by_current_source_events" : null,
     !matchedBy ? "source_or_material_metrics_changed" : null,
     !chartInterpretationReuse.available ? "missing_chart_interpretations" : null,
   ].filter(Boolean);
@@ -4307,6 +4671,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     sourceFingerprintCompared,
     sourceFingerprintUnchanged,
     dateOnlyRefresh,
+    sourceMetricCorrection,
     sourceChanges,
     materialComparison,
     chartInterpretationReuse,
@@ -4361,6 +4726,40 @@ function isDateOnlyDiagnosisRefresh({
       && sourceChanges.unchanged === false
       && isIncrementalSourceFetchWithoutNewEvents(sourceChanges.sourceEventFetch),
   );
+}
+
+function hasUnsupportedSourceMetricCorrection({ previousMetrics = {}, currentMetrics = {}, sourceChanges = {} } = {}) {
+  const previousSourceEvents = previousMetrics.incrementalDiagnosis?.cache?.sourceEvents || {};
+  const currentIncremental = currentMetrics.incrementalDiagnosis || {};
+  const sourceEventFetch = sourceChanges.sourceEventFetch || currentIncremental.sourceEvents || {};
+  const sourceFetchComplete = sourceChanges.sourceFetchComplete || currentIncremental.sourceChanges?.sourceFetchComplete || {};
+
+  return [
+    { metricKey: "returnUnits", eventKey: "returns", countKey: "returnEvents", completeKey: "returns" },
+    { metricKey: "refundUnits", amountKey: "refundAmount", eventKey: "refunds", countKey: "refundEvents", completeKey: "refunds" },
+  ].some(({ metricKey, amountKey, eventKey, countKey, completeKey }) => {
+    const previousUnits = Number(previousMetrics[metricKey] || 0);
+    const previousAmount = amountKey ? Number(previousMetrics[amountKey] || 0) : 0;
+    const currentUnits = Number(currentMetrics[metricKey] || 0);
+    const currentAmount = amountKey ? Number(currentMetrics[amountKey] || 0) : 0;
+    if (previousUnits <= 0 && previousAmount <= 0) return false;
+    if (currentUnits > 0 || currentAmount > 0) return false;
+    if (sourceFetchComplete[completeKey] === false) return false;
+    return countSourceEventCacheItems(previousSourceEvents, eventKey) === 0
+      && getSourceEventFetchCount(sourceEventFetch, countKey) === 0;
+  });
+}
+
+function countSourceEventCacheItems(sourceEvents = {}, key = "") {
+  const items = sourceEvents?.[key];
+  return Array.isArray(items) ? items.length : 0;
+}
+
+function getSourceEventFetchCount(sourceEventFetch = {}, key = "") {
+  const merged = Number(sourceEventFetch?.mergedCounts?.[key]);
+  if (Number.isFinite(merged)) return merged;
+  const raw = Number(sourceEventFetch?.rawFetchedCounts?.[key]);
+  return Number.isFinite(raw) ? raw : 0;
 }
 
 function isIncrementalSourceFetchWithoutNewEvents(sourceEventFetch = {}) {
@@ -4471,6 +4870,18 @@ function compareMaterialDiagnosisMetrics(previousMetrics = {}, currentMetrics = 
     "negativeReviewCount",
     "negativeReviewRate",
     "recentNegativeReviewCount",
+    "judgeMeReviewCount",
+    "judgeMeNegativeReviewCount",
+    "judgeMeAverageRating",
+    "yotpoReviewCount",
+    "yotpoNegativeReviewCount",
+    "yotpoAverageRating",
+    "looxReviewCount",
+    "looxNegativeReviewCount",
+    "looxAverageRating",
+    "csvReviewCount",
+    "csvNegativeReviewCount",
+    "csvAverageRating",
     "customerSignalCount",
     "contentIssueCount",
     "descriptionWordCount",
@@ -4586,6 +4997,12 @@ function buildAiDeterministicInput(deterministic) {
       judgeMeReviewCount: deterministic.metrics.judgeMeReviewCount,
       judgeMeAverageRating: deterministic.metrics.judgeMeAverageRating,
       judgeMeNegativeReviewCount: deterministic.metrics.judgeMeNegativeReviewCount,
+      yotpoReviewCount: deterministic.metrics.yotpoReviewCount,
+      yotpoAverageRating: deterministic.metrics.yotpoAverageRating,
+      yotpoNegativeReviewCount: deterministic.metrics.yotpoNegativeReviewCount,
+      looxReviewCount: deterministic.metrics.looxReviewCount,
+      looxAverageRating: deterministic.metrics.looxAverageRating,
+      looxNegativeReviewCount: deterministic.metrics.looxNegativeReviewCount,
       csvReviewCount: deterministic.metrics.csvReviewCount,
       csvAverageRating: deterministic.metrics.csvAverageRating,
       csvNegativeReviewCount: deterministic.metrics.csvNegativeReviewCount,
@@ -5123,7 +5540,7 @@ function getAiSignalSourceGroup(source = "") {
   const value = String(source || "").toLowerCase();
   if (value.includes("refund")) return "refunds";
   if (value.includes("return")) return "returns";
-  if (value.includes("review") || value.includes("judgeme") || value.includes("csv")) return "reviews";
+  if (value.includes("review") || value.includes("judgeme") || value.includes("yotpo") || value.includes("loox") || value.includes("csv")) return "reviews";
   return "customer_language";
 }
 
@@ -5283,7 +5700,7 @@ function mergeAiSemanticTextInsights(fallback = {}, semantic = {}, { replaceAggr
         ...(fallback.reviews || {}),
         ...semantic.reviews,
         repeatedLanguage: mergeSemanticRepeatedLanguage(
-          semantic.repeatedLanguage.filter((item) => item.sources.some((source) => String(source).includes("review") || String(source).includes("csv") || String(source).includes("judgeme"))),
+          semantic.repeatedLanguage.filter((item) => item.sources.some((source) => String(source).includes("review") || String(source).includes("csv") || String(source).includes("judgeme") || String(source).includes("yotpo") || String(source).includes("loox"))),
           fallback.reviews?.repeatedLanguage,
         ),
       },
@@ -7780,7 +8197,13 @@ function getMissingSourceSignals(deterministic = {}) {
   const sourceCoverage = new Set((deterministic.sourceCoverage || metrics.sourceCoverage || []).map((source) => normalizeText(source)));
   const missing = [];
   if (metrics.orderAccessDenied) missing.push("Shopify orders");
-  if (!sourceCoverageHas(sourceCoverage, "csv") && !sourceCoverageHas(sourceCoverage, "judge") && !Number(metrics.reviewCount || 0)) missing.push("external reviews");
+  if (
+    !sourceCoverageHas(sourceCoverage, "csv")
+    && !sourceCoverageHas(sourceCoverage, "judge")
+    && !sourceCoverageHas(sourceCoverage, "yotpo")
+    && !sourceCoverageHas(sourceCoverage, "loox")
+    && !Number(metrics.reviewCount || 0)
+  ) missing.push("external reviews");
   return uniqueBy(missing, normalizeText).slice(0, 4);
 }
 
@@ -10063,7 +10486,7 @@ function getIssueTrend(deterministic, issueCode) {
   return [];
 }
 
-function buildFinalEvidence({ deterministic, ai, aiEvidenceSynthesisSections = [], judgeMeData, csvReviewData, shopifyData }) {
+function buildFinalEvidence({ deterministic, ai, aiEvidenceSynthesisSections = [], judgeMeData, yotpoData, looxData, csvReviewData, shopifyData }) {
   const textInsights = deterministic.metrics.textInsights || {};
   const aiKnownEmotions = normalizeAiKnownEmotions(ai, textInsights);
   const aiEmergentSentiments = normalizeAiEmergentSentiments(ai);
@@ -10131,7 +10554,7 @@ function buildFinalEvidence({ deterministic, ai, aiEvidenceSynthesisSections = [
     });
   }
 
-  buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, csvReviewData }).forEach((entry) => evidence.push(entry));
+  buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, yotpoData, looxData, csvReviewData }).forEach((entry) => evidence.push(entry));
 
   if (textInsights.sentiment?.total || textInsights.repeatedLanguage?.length || ai.classification?.sentiment_summary?.summary) {
     const refundInsights = deterministic.metrics.refundInsights || {};
@@ -10301,16 +10724,20 @@ function normalizeAiEvidenceProviderKey(value = "") {
   if (!normalized) return "";
   if (normalized.includes("csv")) return "csv_reviews";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme_reviews";
+  if (normalized.includes("yotpo")) return "yotpo_reviews";
+  if (normalized.includes("loox")) return "loox_reviews";
   if (normalized.includes("review")) return normalized;
   return normalized;
 }
 
-function buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, csvReviewData }) {
+function buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, yotpoData, looxData, csvReviewData }) {
   const stats = deterministic.metrics.reviewSourceStats || {};
   const reviewInsights = textInsights.reviews || {};
   const entries = [];
   const sources = [
     { key: "judgeMe", label: "Judge.me reviews", connected: Boolean(judgeMeData?.connected) },
+    { key: "yotpo", label: "Yotpo reviews", connected: Boolean(yotpoData?.connected) },
+    { key: "loox", label: "Loox reviews", connected: Boolean(looxData?.connected) },
     { key: "csv", label: "CSV reviews", connected: Boolean(csvReviewData?.connected) },
   ];
 
@@ -10331,6 +10758,12 @@ function buildReviewEvidenceEntries({ deterministic, textInsights, judgeMeData, 
           : "",
         source.key === "judgeMe" && sourceStats.reviewCount
           ? "Judge.me review text, rating and review date were included in AI classification."
+          : "",
+        source.key === "yotpo" && sourceStats.reviewCount
+          ? "Yotpo review text, rating and review date were included in AI classification."
+          : "",
+        source.key === "loox" && sourceStats.reviewCount
+          ? "Loox review text, rating and review date were included in AI classification."
           : "",
         ...getReviewExamplesForSource(reviewInsights, source.key),
       ].filter(Boolean),
@@ -10373,15 +10806,25 @@ function formatReviewEvidenceEmotionCounts(textInsights = {}, reviewInsights = {
 
 function getReviewEvidenceLabel(metrics = {}) {
   const hasJudgeMe = Number(metrics.judgeMeReviewCount || 0) > 0;
+  const hasYotpo = Number(metrics.yotpoReviewCount || 0) > 0;
+  const hasLoox = Number(metrics.looxReviewCount || 0) > 0;
   const hasCsv = Number(metrics.csvReviewCount || 0) > 0;
-  if (hasJudgeMe && hasCsv) return "Connected reviews";
+  if ([hasJudgeMe, hasYotpo, hasLoox, hasCsv].filter(Boolean).length > 1) return "Connected reviews";
   if (hasCsv) return "CSV reviews";
+  if (hasLoox) return "Loox reviews";
+  if (hasYotpo) return "Yotpo reviews";
   if (hasJudgeMe) return "Judge.me reviews";
   return "Reviews";
 }
 
 function getReviewExamplesForSource(reviewInsights, sourceKey) {
-  const sourceType = sourceKey === "csv" ? "csv_review" : "judgeme_review";
+  const sourceType = sourceKey === "csv"
+    ? "csv_review"
+    : sourceKey === "yotpo"
+      ? "yotpo_review"
+      : sourceKey === "loox"
+        ? "loox_review"
+        : "judgeme_review";
   return (Array.isArray(reviewInsights.examples) ? reviewInsights.examples : [])
     .filter((item) => !item.source || item.source === sourceType)
     .slice(0, 3)
@@ -10750,6 +11193,56 @@ function normalizeJudgeMeReview(review, snapshot, product) {
   };
 }
 
+function normalizeYotpoReview(review, snapshot, product, matchConfidence = 0) {
+  if (!review) return null;
+  const body = stripHtml(review.content || review.body || review.review || review.text || review.comment || "");
+  const title = stripHtml(review.title || review.review_title || "");
+  const rating = Number(review.score || review.rating || review.stars || 0);
+  if (!rating || (!body && !title)) return null;
+  const productId = getYotpoReviewProductId(review);
+  return {
+    id: String(review.id || review.review_id || `yotpo-review-${stableSignature([snapshot.productGid, productId, rating, title, body].join("|"))}`),
+    rating,
+    title,
+    body,
+    createdAt: toIso(review.created_at || review.createdAt || review.date || review.created),
+    published: review.published ?? review.deleted !== true,
+    productId,
+    externalProductId: String(review.domain_key || review.product?.domain_key || review.product?.external_id || product.numericId || ""),
+    handle: getYotpoReviewProductHandle(review) || snapshot.handle,
+    reviewerName: review.user?.display_name || review.user?.name || review.name || review.reviewer_name || "",
+    photos: review.images || review.pictures || review.photos || [],
+    sourceType: "yotpo_review",
+    sourceLabel: "Yotpo reviews",
+    matchConfidence,
+  };
+}
+
+function normalizeLooxReview(review, snapshot, product, matchConfidence = 0) {
+  if (!review) return null;
+  const body = stripHtml(review.body || review.content || review.review || review.text || review.comment || review.message || "");
+  const title = stripHtml(review.title || review.review_title || "");
+  const rating = Number(review.rating || review.score || review.stars || 0);
+  if (!rating || (!body && !title)) return null;
+  const productId = getLooxReviewProductId(review);
+  return {
+    id: String(review.id || review.review_id || `loox-review-${stableSignature([snapshot.productGid, productId, rating, title, body].join("|"))}`),
+    rating,
+    title,
+    body,
+    createdAt: toIso(review.date || review.createdAt || review.created_at || review.created),
+    published: review.status ? String(review.status).toLowerCase() === "published" : review.published ?? true,
+    productId,
+    externalProductId: String(review.product_id || review.productId || review.product?.id || product.numericId || ""),
+    handle: getLooxReviewProductHandle(review) || snapshot.handle,
+    reviewerName: review.reviewer?.name || review.user?.display_name || review.user?.name || review.name || review.reviewer_name || "",
+    photos: review.media || review.images || review.pictures || review.photos || [],
+    sourceType: "loox_review",
+    sourceLabel: "Loox reviews",
+    matchConfidence,
+  };
+}
+
 function normalizeCsvDiagnosisReview(row, snapshot, product, matchConfidence = 0) {
   if (!row) return null;
   const body = stripHtml(row.reviewBody || "");
@@ -10862,6 +11355,154 @@ function getJudgeMeReviewMatchConfidence(review, snapshot, product) {
   return 0;
 }
 
+function getYotpoReviewMatchConfidence(review, snapshot, product) {
+  const numericId = String(product.numericId || extractNumericShopifyId(snapshot.productGid) || "");
+  const identifiers = [
+    getYotpoReviewProductId(review),
+    review.domain_key,
+    review.product_id,
+    review.product?.id,
+    review.product?.domain_key,
+    review.product?.external_id,
+  ].map((value) => String(value || ""));
+  if (numericId && identifiers.includes(numericId)) return 1;
+
+  const handle = String(snapshot.handle || product.handle || "").trim().toLowerCase();
+  const reviewHandle = String(getYotpoReviewProductHandle(review)).trim().toLowerCase();
+  if (handle && reviewHandle === handle) return 0.92;
+
+  const reviewUrl = String(review.product_url || review.product?.url || review.url || "").toLowerCase();
+  if (handle && reviewUrl.includes(`/${handle}`)) return 0.86;
+
+  const title = normalizeText(snapshot.productTitle || product.title);
+  const reviewTitle = normalizeText(review.product_title || review.product?.name || review.product?.title || "");
+  if (title && reviewTitle && title === reviewTitle) return 0.82;
+  if (title && reviewTitle && (title.includes(reviewTitle) || reviewTitle.includes(title))) return 0.76;
+  return 0;
+}
+
+function getLooxReviewMatchConfidence(review, snapshot, product) {
+  const numericId = String(product.numericId || extractNumericShopifyId(snapshot.productGid) || "");
+  const identifiers = [
+    getLooxReviewProductId(review),
+    review.product_id,
+    review.productId,
+    review.product?.id,
+    review.product?.external_id,
+  ].map((value) => String(value || ""));
+  if (numericId && identifiers.includes(numericId)) return 1;
+
+  const handle = String(snapshot.handle || product.handle || "").trim().toLowerCase();
+  const reviewHandle = String(getLooxReviewProductHandle(review)).trim().toLowerCase();
+  if (handle && reviewHandle === handle) return 0.92;
+
+  const reviewUrl = String(review.product_url || review.product?.url || review.url || "").toLowerCase();
+  if (handle && reviewUrl.includes(`/${handle}`)) return 0.86;
+
+  const title = normalizeText(snapshot.productTitle || product.title);
+  const reviewTitle = normalizeText(review.product_title || review.product?.name || review.product?.title || "");
+  if (title && reviewTitle && title === reviewTitle) return 0.82;
+  if (title && reviewTitle && (title.includes(reviewTitle) || reviewTitle.includes(title))) return 0.76;
+  return 0;
+}
+
+function buildYotpoProductReviewIdCandidates(snapshot, product) {
+  const numericId = String(product.numericId || extractNumericShopifyId(snapshot.productGid) || "").trim();
+  const candidates = [
+    numericId ? { productId: numericId, matchConfidence: 1 } : null,
+    product.id && !String(product.id).startsWith("gid://") && product.id !== numericId
+      ? { productId: String(product.id), matchConfidence: 1 }
+      : null,
+    snapshot.handle ? { productId: snapshot.handle, matchConfidence: 0.9 } : null,
+    product.handle && product.handle !== snapshot.handle ? { productId: product.handle, matchConfidence: 0.9 } : null,
+  ].filter(Boolean);
+  return uniqueBy(candidates, (candidate) => String(candidate.productId).toLowerCase());
+}
+
+function buildLooxProductReviewIdCandidates(snapshot, product) {
+  const numericId = String(product.numericId || extractNumericShopifyId(snapshot.productGid) || "").trim();
+  const candidates = [
+    numericId ? { productId: numericId, matchConfidence: 1 } : null,
+    product.id && !String(product.id).startsWith("gid://") && product.id !== numericId
+      ? { productId: String(product.id), matchConfidence: 1 }
+      : null,
+  ].filter(Boolean);
+  return uniqueBy(candidates, (candidate) => String(candidate.productId).toLowerCase());
+}
+
+function attachYotpoProductIdentifiers(review, productId) {
+  if (!productId || !review) return review;
+  const product = review.product && typeof review.product === "object" ? review.product : {};
+  return {
+    ...review,
+    product_id: review.product_id || productId,
+    domain_key: review.domain_key || product.domain_key || productId,
+    product: {
+      ...product,
+      id: product.id || productId,
+      domain_key: product.domain_key || productId,
+    },
+  };
+}
+
+function attachLooxProductIdentifiers(review, productId) {
+  if (!productId || !review) return review;
+  const product = review.product && typeof review.product === "object" ? review.product : {};
+  return {
+    ...review,
+    product_id: review.product_id || review.productId || productId,
+    productId: review.productId || productId,
+    product: {
+      ...product,
+      id: product.id || productId,
+    },
+  };
+}
+
+function getYotpoReviewProductId(review = {}) {
+  return String(
+    review.product_id
+      || review.domain_key
+      || review.product?.id
+      || review.product?.domain_key
+      || review.product?.external_id
+      || "",
+  );
+}
+
+function getLooxReviewProductId(review = {}) {
+  return String(
+    review.product_id
+      || review.productId
+      || review.product?.id
+      || review.product?.external_id
+      || "",
+  );
+}
+
+function getYotpoReviewProductHandle(review = {}) {
+  return String(
+    review.product_handle
+      || review.handle
+      || review.product?.handle
+      || review.product?.slug
+      || "",
+  );
+}
+
+function getLooxReviewProductHandle(review = {}) {
+  const productUrl = String(review.product_url || review.product?.url || review.url || "");
+  const urlHandle = productUrl.split("/products/")[1]?.split(/[?#/]/)[0] || "";
+  return String(
+    review.product_handle
+      || review.handle
+      || review.product?.handle
+      || review.product?.slug
+      || urlHandle
+      || "",
+  );
+}
+
 function getCsvReviewMatchConfidence(row, snapshot, product) {
   const numericId = String(product.numericId || extractNumericShopifyId(snapshot.productGid) || "");
   const productGid = String(product.id || snapshot.productGid || "").toLowerCase();
@@ -10881,13 +11522,21 @@ function buildReviewSourceStats(reviews = []) {
   const empty = { reviewCount: 0, negativeReviewCount: 0, avgRating: 0, negativeReviewRate: 0, recentNegativeReviewCount: 0, recentNegativeReviewWindowDays: 30 };
   const stats = {
     judgeMe: { ...empty },
+    yotpo: { ...empty },
+    loox: { ...empty },
     csv: { ...empty },
     total: { ...empty },
   };
 
   reviews.forEach((review) => {
     const sourceType = String(review.sourceType || "").toLowerCase();
-    const key = sourceType.includes("csv") ? "csv" : "judgeMe";
+    const key = sourceType.includes("csv")
+      ? "csv"
+      : sourceType.includes("yotpo")
+        ? "yotpo"
+        : sourceType.includes("loox")
+          ? "loox"
+          : "judgeMe";
     addReviewToStats(stats[key], review);
     addReviewToStats(stats.total, review);
   });
@@ -11460,6 +12109,8 @@ function getReviewSourceGroupKey(source = "", sourceLabel = "") {
   const normalized = `${source} ${sourceLabel}`.toLowerCase();
   if (normalized.includes("csv")) return "csv";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeMe";
+  if (normalized.includes("yotpo")) return "yotpo";
+  if (normalized.includes("loox")) return "loox";
   if (normalized.includes("review")) return normalizeText(sourceLabel || source).replace(/[^a-z0-9]+/g, "_") || "reviews";
   return "";
 }
@@ -11467,6 +12118,8 @@ function getReviewSourceGroupKey(source = "", sourceLabel = "") {
 function getReviewSourceLabelForKey(key = "") {
   if (key === "csv") return "CSV reviews";
   if (key === "judgeMe") return "Judge.me reviews";
+  if (key === "yotpo") return "Yotpo reviews";
+  if (key === "loox") return "Loox reviews";
   return "Reviews";
 }
 
@@ -12244,6 +12897,8 @@ function buildDiagnosisSourceFingerprint({
   returns = [],
   refunds = [],
   judgeMeReviews = [],
+  yotpoReviews = [],
+  looxReviews = [],
   csvReviews = [],
   orderAccessDenied = false,
   sourceCoverage = [],
@@ -12316,6 +12971,24 @@ function buildDiagnosisSourceFingerprint({
       "adjustmentReasons",
     ]),
     judgeMeReviews: buildFingerprintEvents(judgeMeReviews, [
+      "id",
+      "productId",
+      "handle",
+      "rating",
+      "title",
+      "body",
+      "reviewerName",
+    ]),
+    yotpoReviews: buildFingerprintEvents(yotpoReviews, [
+      "id",
+      "productId",
+      "handle",
+      "rating",
+      "title",
+      "body",
+      "reviewerName",
+    ]),
+    looxReviews: buildFingerprintEvents(looxReviews, [
       "id",
       "productId",
       "handle",
@@ -13959,6 +14632,8 @@ function calculateConfidence({
   signalCount,
   sourceCoverage,
   judgeMeMatchConfidence,
+  yotpoReviewMatchConfidence,
+  looxReviewMatchConfidence,
   csvReviewMatchConfidence,
   orderAccessDenied,
   sourceAgreement,
@@ -13972,7 +14647,7 @@ function calculateConfidence({
 }) {
   const sample = Math.min(26, Math.log2(signalCount + 1) * 8);
   const coverage = Math.min(28, sourceCoverage.length * 7);
-  const match = Math.round(Math.max(judgeMeMatchConfidence || 0, csvReviewMatchConfidence || 0) * 16);
+  const match = Math.round(Math.max(judgeMeMatchConfidence || 0, yotpoReviewMatchConfidence || 0, looxReviewMatchConfidence || 0, csvReviewMatchConfidence || 0) * 16);
   const agreement = sourceAgreement ? 18 : 5;
   const recency = recentSignals ? 10 : 0;
   const penalty = orderAccessDenied ? 16 : 0;
@@ -14055,14 +14730,22 @@ function buildEvidenceSnippets({ returns, refunds, reviews, product }) {
   return snippets.slice(0, 60);
 }
 
-function buildSourceCoverage({ shopifyData, judgeMeData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount }) {
+function buildSourceCoverage({ shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount }) {
   const sources = ["Shopify product"];
   if (soldUnits > 0 || !shopifyData.orderAccessDenied) sources.push("Shopify orders");
   if (returnUnits > 0) sources.push("Shopify returns");
   if (refundUnits > 0) sources.push("Shopify refunds");
-  if (judgeMeData.connected) sources.push("Judge.me reviews");
-  if (csvReviewData?.connected) sources.push("CSV reviews");
-  if (reviewCount > 0 && !sources.includes("Judge.me reviews") && !sources.includes("CSV reviews")) sources.push("Reviews");
+  if (judgeMeData?.connected && judgeMeData.reviews?.length) sources.push("Judge.me reviews");
+  if (yotpoData?.connected && yotpoData.reviews?.length) sources.push("Yotpo reviews");
+  if (looxData?.connected && looxData.reviews?.length) sources.push("Loox reviews");
+  if (csvReviewData?.connected && csvReviewData.reviews?.length) sources.push("CSV reviews");
+  if (
+    reviewCount > 0
+    && !sources.includes("Judge.me reviews")
+    && !sources.includes("Yotpo reviews")
+    && !sources.includes("Loox reviews")
+    && !sources.includes("CSV reviews")
+  ) sources.push("Reviews");
   return sources;
 }
 
@@ -14121,7 +14804,7 @@ function buildFallbackClusters(deterministic, mainIssue) {
 
 function hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats = null }) {
   const reviewSourceSignals = reviewSourceStats
-    ? [reviewSourceStats.judgeMe?.negativeReviewCount > 0, reviewSourceStats.csv?.negativeReviewCount > 0].filter(Boolean).length
+    ? [reviewSourceStats.judgeMe?.negativeReviewCount > 0, reviewSourceStats.yotpo?.negativeReviewCount > 0, reviewSourceStats.loox?.negativeReviewCount > 0, reviewSourceStats.csv?.negativeReviewCount > 0].filter(Boolean).length
     : (negativeReviewCount > 0 ? 1 : 0);
   const reviewSignalWeight = reviewSourceSignals >= 2 ? 2 : negativeReviewCount > 0 ? 1 : 0;
   const sourceSignalWeight = [returnUnits > 0, refundUnits > 0].filter(Boolean).length + reviewSignalWeight;
@@ -15404,10 +16087,22 @@ function parseValidDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function preferFreshNumber(fresh, fallback) {
+function preferFreshNumber(fresh, fallback, { fallbackWhenZero = false } = {}) {
   const number = Number(fresh || 0);
   if (number > 0) return number;
+  if (!fallbackWhenZero) return 0;
   return Number(fallback || 0);
+}
+
+function getDiagnosisSourceFetchCompleteness(shopifyData = {}) {
+  const explicit = shopifyData.sourceFetchComplete || shopifyData.incrementalSource?.sourceFetchComplete || {};
+  const accessDenied = shopifyData.orderAccessDenied === true;
+  const allComplete = shopifyData.incrementalSource?.fetchComplete !== false && !accessDenied;
+  return {
+    sales: explicit.sales === undefined ? allComplete : explicit.sales !== false && !accessDenied,
+    refunds: explicit.refunds === undefined ? allComplete : explicit.refunds !== false && !accessDenied,
+    returns: explicit.returns === undefined ? allComplete : explicit.returns !== false && !accessDenied,
+  };
 }
 
 function numberOrNull(value) {
@@ -16312,6 +17007,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildSuggestedMetaDescription,
   buildSuggestedSeoTitle,
   buildNoChangeDiagnosisRefreshData,
+  buildCachedAiModelSummary,
   normalizeAiClassifiedSignals,
   countAiSignalsByIssue,
   classifyIssueText,

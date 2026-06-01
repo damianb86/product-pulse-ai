@@ -17,10 +17,14 @@ import {
   YAxis,
 } from "recharts";
 import {
+  buildLooxShopifyAdminAppUrl,
+  buildYotpoShopifyAdminAppUrl,
   buildConnectViewData,
   CSV_REVIEW_IMPORT_DISPLAY_NAME,
   judgeMeConnectionLinks,
+  looxConnectionLinks,
   upsertLocalConnectionRecord,
+  yotpoConnectionLinks,
 } from "../lib/product-pulse-connect";
 import {
   PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
@@ -363,6 +367,12 @@ export function ConnectScreen({ data, actionData }) {
   const judgeMeSource = connectView.signalCategories
     .flatMap((category) => category.sources)
     .find((source) => source.key === "judgemeReviews");
+  const yotpoSource = connectView.signalCategories
+    .flatMap((category) => category.sources)
+    .find((source) => source.key === "yotpoReviews");
+  const looxSource = connectView.signalCategories
+    .flatMap((category) => category.sources)
+    .find((source) => source.key === "looxReviews");
   const csvSource = connectView.signalCategories
     .flatMap((category) => category.sources)
     .find((source) => source.key === "csvReviews");
@@ -413,6 +423,77 @@ export function ConnectScreen({ data, actionData }) {
       setActiveModal(null);
       setLocalToast({ status: "success", message: "Connected to Judge.me." });
       dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "judgemeReviews" });
+    }, 450);
+  };
+
+  const handleLocalYotpoConnect = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const storeId = String(formData.get("storeId") || "").trim();
+    const apiSecret = String(formData.get("apiSecret") || "").trim();
+    if (!storeId || !apiSecret) {
+      setLocalToast({ status: "validation_error", message: "Enter the Yotpo Store ID/App Key and API secret before connecting." });
+      return;
+    }
+
+    setLocalConnecting(true);
+    window.setTimeout(() => {
+      setRecords((current) => upsertLocalConnectionRecord(current, "yotpoReviews", {
+        connected: true,
+        active: true,
+        ignored: false,
+        available: true,
+        health: "connected",
+        config: {
+          storeIdLast4: storeId.slice(-4),
+          apiSecretLast4: apiSecret.slice(-4),
+          provider: "Yotpo Reviews",
+          reviewSampleCount: 1,
+          reviewAccessVerified: true,
+        },
+        connectedAt: new Date().toISOString(),
+        lastSyncedAt: new Date().toISOString(),
+      }));
+      setLocalConnecting(false);
+      setActiveModal(null);
+      setLocalToast({ status: "success", message: "Connected to Yotpo Reviews. Review API access verified." });
+      dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "yotpoReviews" });
+    }, 450);
+  };
+
+  const handleLocalLooxConnect = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const publicStoreId = String(formData.get("publicStoreId") || "").trim();
+    const apiSecret = String(formData.get("apiSecret") || "").trim();
+    if (!publicStoreId || !apiSecret) {
+      setLocalToast({ status: "validation_error", message: "Enter the Loox publicStoreId and API secret key before connecting." });
+      return;
+    }
+
+    setLocalConnecting(true);
+    window.setTimeout(() => {
+      setRecords((current) => upsertLocalConnectionRecord(current, "looxReviews", {
+        connected: true,
+        active: true,
+        ignored: false,
+        available: true,
+        health: "connected",
+        config: {
+          publicStoreId,
+          publicStoreIdLast4: publicStoreId.slice(-4),
+          apiSecretLast4: apiSecret.slice(-4),
+          provider: "Loox Reviews",
+          reviewSampleCount: 1,
+          reviewAccessVerified: true,
+        },
+        connectedAt: new Date().toISOString(),
+        lastSyncedAt: new Date().toISOString(),
+      }));
+      setLocalConnecting(false);
+      setActiveModal(null);
+      setLocalToast({ status: "success", message: "Connected to Loox Reviews. Review API access verified." });
+      dispatchProductPulseWizardEvent({ type: "connect-provider-saved", provider: "looxReviews" });
     }, 450);
   };
 
@@ -517,6 +598,8 @@ export function ConnectScreen({ data, actionData }) {
                 key={category.id}
                 category={category}
                 onOpenJudgeMe={() => setActiveModal("judgeme")}
+                onOpenYotpo={() => setActiveModal("yotpo")}
+                onOpenLoox={() => setActiveModal("loox")}
                 onOpenCsv={() => setActiveModal("csv")}
                 onLocalActiveChange={handleLocalActiveChange}
                 persistConnectState={persistConnectState}
@@ -529,11 +612,6 @@ export function ConnectScreen({ data, actionData }) {
               persistConnectState={persistConnectState}
               pendingSourceKey={pendingSourceKey}
             />
-
-            <p className="ppConnectHelp">
-              Need help connecting a source? <s-link href="/app/connect">View our setup guide</s-link>
-              <s-icon type="external" size="small"></s-icon>
-            </p>
           </div>
 
           <aside className="ppConnectAside">
@@ -562,25 +640,7 @@ export function ConnectScreen({ data, actionData }) {
               </div>
             </s-section>
 
-            <s-section padding="none">
-              <div className="ppConnectInfoCard ppCoverageRulesCard">
-                <h2>Coverage rules</h2>
-                <p>
-                  Shopify product and order data is always available as baseline context and is not
-                  counted in this customer-signal coverage score.
-                </p>
-                <p>
-                  If your store does not use a category, ignore it and ProductPulse will treat it as
-                  complete for coverage purposes.
-                </p>
-              </div>
-            </s-section>
           </aside>
-        </div>
-
-        <div className="ppConnectFooter">
-          <span>{connectView.coverage}% effective customer-signal coverage</span>
-          <button className="ppPrimaryButton" type="button">Continue</button>
         </div>
 
         {activeModal === "judgeme" && (
@@ -590,6 +650,28 @@ export function ConnectScreen({ data, actionData }) {
             isConnecting={pendingAction === "connect-judgeme" || localConnecting}
             onCancel={() => setActiveModal(null)}
             onLocalSubmit={handleLocalJudgeMeConnect}
+          />
+        )}
+
+        {activeModal === "yotpo" && (
+          <YotpoConnectionModal
+            source={yotpoSource}
+            shopDomain={data?.shop}
+            persistConnectState={persistConnectState}
+            isConnecting={pendingAction === "connect-yotpo" || localConnecting}
+            onCancel={() => setActiveModal(null)}
+            onLocalSubmit={handleLocalYotpoConnect}
+          />
+        )}
+
+        {activeModal === "loox" && (
+          <LooxConnectionModal
+            source={looxSource}
+            shopDomain={data?.shop}
+            persistConnectState={persistConnectState}
+            isConnecting={pendingAction === "connect-loox" || localConnecting}
+            onCancel={() => setActiveModal(null)}
+            onLocalSubmit={handleLocalLooxConnect}
           />
         )}
 
@@ -735,6 +817,9 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     [allVisibleRows, selectedProducts],
   );
   const selectedCount = selectedProducts.size;
+  const selectedWatchlistEligibleCount = selectedProductRows.filter((product) => (
+    getWatchlistProductGid(product) && canAddProductToWatchlist(product)
+  )).length;
   const currentSearchQuery = filters.query || "";
   const currentCandidateSearchQuery = candidateFilters.query || "";
   const currentResolvedSearchQuery = resolvedFilters.query || "";
@@ -1089,9 +1174,9 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const handleAddSelectedToWatchlist = () => {
     if (!selectedCount || pendingBulkWatchlistAdd) return;
     const products = selectedProductRows
-      .filter((product) => product.productGid)
+      .filter((product) => getWatchlistProductGid(product) && canAddProductToWatchlist(product))
       .map((product) => ({
-        productGid: product.productGid,
+        productGid: getWatchlistProductGid(product),
         title: product.title,
         handle: product.handle,
         sku: product.sku,
@@ -1121,11 +1206,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   };
 
   const handleRequestWatchlistToggle = (product) => {
-    if (!product?.productGid || pendingWatchlistAction) return;
+    const productGid = getWatchlistProductGid(product);
+    if (!productGid || pendingWatchlistAction) return;
+    if (!product.isWatched && !canAddProductToWatchlist(product)) return;
     setOpenActionProduct(null);
     setWatchlistConfirmation({
       mode: product.isWatched ? "remove" : "add",
-      product,
+      product: { ...product, productGid },
     });
   };
 
@@ -1214,8 +1301,10 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               className="ppSecondaryActionButton ppProductsToolbarIconButton ppProductsWatchlistBulkButton"
               type="button"
               aria-label={`Add selected products to Watchlist (${selectedCount})`}
-              title="Add to Watchlist"
-              disabled={selectedCount === 0 || pendingBulkWatchlistAdd}
+              title={table === "main" && selectedWatchlistEligibleCount > 0
+                ? "Add to Watchlist"
+                : "Run Product Diagnosis before adding candidates to Watchlist"}
+              disabled={selectedCount === 0 || selectedWatchlistEligibleCount === 0 || pendingBulkWatchlistAdd || table !== "main"}
               onClick={handleAddSelectedToWatchlist}
             >
               <ProductPulseGlyph type="binoculars" />
@@ -1709,9 +1798,11 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const pendingWatchlistRowAction = navigation.state === "submitting" && ["pause-watched-product", "resume-watched-product", "remove-watched-product"].includes(String(navigation.formData?.get("_action") || ""));
   const normalizedShopifyProductSearchQuery = shopifyProductSearchQuery.trim();
   const shopifyProductSearchData = shopifyProductSearchFetcher.data || {};
+  const shopifyProductSearchHasResponse = Object.prototype.hasOwnProperty.call(shopifyProductSearchData, "query");
   const shopifyProductSearchResponseQuery = String(shopifyProductSearchData.query || "");
-  const shopifyProductSearchHasQuery = normalizedShopifyProductSearchQuery.length >= 2;
+  const shopifyProductSearchHasQuery = shopifyProductSearchOpen;
   const shopifyProductSearchHasFreshResponse = shopifyProductSearchHasQuery
+    && shopifyProductSearchHasResponse
     && shopifyProductSearchResponseQuery === normalizedShopifyProductSearchQuery;
   const shopifyProductSearchResults = shopifyProductSearchHasFreshResponse
     ? shopifyProductSearchData.products || []
@@ -1742,11 +1833,10 @@ export function WatchlistScreen({ data = {}, actionData }) {
   useEffect(() => {
     if (!shopifyProductSearchOpen) return undefined;
     const query = shopifyProductSearchQuery.trim();
-    if (query.length < 2) return undefined;
 
     const timeout = window.setTimeout(() => {
       const formData = new FormData();
-      formData.set("_action", "search-shopify-products");
+      formData.set("_action", "search-watchlist-eligible-products");
       formData.set("query", query);
       shopifyProductSearchSubmitRef.current(formData, { method: "post" });
     }, 300);
@@ -1762,7 +1852,10 @@ export function WatchlistScreen({ data = {}, actionData }) {
       dispatchProductPulseWatchlistWizardEvent({ type: "product-added" });
     }
     if (actionData?.status === "success" && actionData?.action?.id === "run-watch-scan") {
-      dispatchProductPulseWatchlistWizardEvent({ type: "scan-started" });
+      dispatchProductPulseWatchlistWizardEvent({
+        type: "scan-started",
+        jobs: Array.isArray(actionData.jobs) ? actionData.jobs : [],
+      });
     }
     if (actionData?.status === "success" && ["pause-watched-product", "resume-watched-product", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistActionConfirmation(null);
@@ -1779,12 +1872,14 @@ export function WatchlistScreen({ data = {}, actionData }) {
   }, [firstReportReadyProduct]);
 
   const handleOpenWatchlistProductSearch = () => {
+    setShopifyProductSearchQuery("");
     setShopifyProductSearchOpen(true);
     dispatchProductPulseWatchlistWizardEvent({ type: "add-product-modal-opened" });
   };
 
   const handleAddWatchedProduct = (product) => {
     if (pendingAdd || !product?.id || watchedProductIds.has(product.id)) return;
+    if (!isProductSearchFullDiagnosis(product)) return;
     const formData = new FormData();
     formData.set("_action", "add-watched-product");
     formData.set("productGid", product.id);
@@ -1894,7 +1989,13 @@ export function WatchlistScreen({ data = {}, actionData }) {
           onQueryChange={setShopifyProductSearchQuery}
           title="Add watched product"
           eyebrow="Watchlist"
-          description={`Search the live Shopify catalog and add one product to automatic monitoring. You can watch up to ${maxProducts} products.`}
+          description={`Only products with a completed Product Diagnosis are shown here. You can watch up to ${maxProducts} products.`}
+          eligibilityNotice="Watchlist only accepts products that already have a completed Product Diagnosis. Candidates and Catalog Scan-only products must be diagnosed first."
+          minimumQueryLength={0}
+          searchLabel="Search diagnosed products"
+          emptyPrompt="Loading eligible products with completed Product Diagnosis..."
+          noResultsText={normalizedShopifyProductSearchQuery ? "No diagnosed products matched this search." : "No products with completed Product Diagnosis are available yet."}
+          pendingText="Loading eligible products..."
           actionLabel="Add to watchlist"
           actionIcon="binoculars"
           addedProductIds={watchedProductIds}
@@ -4656,6 +4757,11 @@ function WatchlistTrendPanel({ trend = {} }) {
           <span>{riskScore === null ? "No data" : `Avg ${trend.riskLabel || "risk"}`}</span>
         </div>
         <div className="ppWatchTrendChart" aria-label="Watchlist product risk trend">
+          <div className="ppWatchTrendLineMarkers" aria-hidden="true">
+            {chart.series.map((item) => (
+              <span className="ppWatchTrendLine" key={`marker-${item.trendKey}`} />
+            ))}
+          </div>
           {chart.data.length ? (
             <ComposedChart
               responsive
@@ -7215,9 +7321,15 @@ function ShopifyProductSearchModal({
   addedStatusKind = "watchlist",
   onAddCandidate,
   candidateActionLabel = "Add to Candidates",
+  eligibilityNotice = "",
+  minimumQueryLength = 2,
+  searchLabel = "Search Shopify products",
+  emptyPrompt = "Type at least 2 characters to search products directly in Shopify.",
+  noResultsText = "No Shopify products matched this search.",
+  pendingText = "Searching Shopify products...",
 }) {
   const normalizedQuery = query.trim();
-  const hasQuery = normalizedQuery.length >= 2;
+  const hasQuery = normalizedQuery.length >= minimumQueryLength;
   const addedProductIdSet = addedProductIds instanceof Set ? addedProductIds : new Set(addedProductIds);
   const watchlistAddMode = actionLabel === "Add to watchlist";
 
@@ -7242,8 +7354,15 @@ function ShopifyProductSearchModal({
           </div>
         </div>
 
+        {eligibilityNotice && (
+          <div className="ppActionConfirmNotice ppWatchlistEligibilityNotice">
+            <ProductPulseGlyph type="binoculars" />
+            <p>{eligibilityNotice}</p>
+          </div>
+        )}
+
         <label className="ppShopifyProductSearchControl">
-          <span>Search Shopify products</span>
+          <span>{searchLabel}</span>
           <div>
             <s-icon type="search" size="small"></s-icon>
             <input
@@ -7260,14 +7379,14 @@ function ShopifyProductSearchModal({
           {!hasQuery && (
             <div className="ppShopifyProductSearchEmpty">
               <DashboardIcon type="search" tone="blue" size="small" />
-              <p>Type at least 2 characters to search products directly in Shopify.</p>
+              <p>{emptyPrompt}</p>
             </div>
           )}
 
           {hasQuery && pending && (
             <div className="ppShopifyProductSearchEmpty" role="status">
               <span className="ppScanSpinner" aria-hidden="true" />
-              <p>Searching Shopify products...</p>
+              <p>{pendingText}</p>
             </div>
           )}
 
@@ -7281,7 +7400,7 @@ function ShopifyProductSearchModal({
           {hasQuery && !pending && !error && results.length === 0 && (
             <div className="ppShopifyProductSearchEmpty">
               <DashboardIcon type="search" tone="blue" size="small" />
-              <p>No Shopify products matched this search.</p>
+              <p>{noResultsText}</p>
             </div>
           )}
 
@@ -7289,6 +7408,8 @@ function ShopifyProductSearchModal({
             <div className="ppShopifyProductResults" role="list">
               {results.map((product) => {
                 const alreadyAdded = addedProductIdSet.has(product.id);
+                const watchlistEligible = !watchlistAddMode || isProductSearchFullDiagnosis(product);
+                const actionDisabled = (watchlistAddMode && (alreadyAdded || !watchlistEligible));
                 return (
                   <article className="ppShopifyProductResult" role="listitem" key={product.id}>
                     <ProductArt
@@ -7312,7 +7433,14 @@ function ShopifyProductSearchModal({
                         className="ppShopifyProductResultRunAction"
                         icon={actionIcon}
                         label={actionLabel}
-                        tooltip="Run Product Diagnosis and move this product into Product Diagnosis while the job runs."
+                        disabled={actionDisabled}
+                        tooltip={watchlistAddMode
+                          ? alreadyAdded
+                            ? "This product is already on the Watchlist."
+                            : watchlistEligible
+                              ? "Add this diagnosed product to automatic Watchlist monitoring."
+                              : "Run Product Diagnosis before adding this product to Watchlist."
+                          : "Run Product Diagnosis and move this product into Product Diagnosis while the job runs."}
                         iconOnly={Boolean(onAddCandidate)}
                         onClick={() => onAnalyze(product)}
                       />
@@ -7410,6 +7538,25 @@ function ProductSearchStatusIcon({ product, alreadyAdded = false, addedActionLab
       </FloatingTablePopover>
     </>
   );
+}
+
+function isProductSearchFullDiagnosis(product = {}) {
+  return product.productPulseStatus === "full"
+    || product.analysisDepth === "full"
+    || Boolean(product.latestDiagnosisId || product.metrics?.latestDiagnosisId || product.metrics?.lastDetailedDiagnosisAt);
+}
+
+function canAddProductToWatchlist(product = {}) {
+  return product.analysisDepth === "full"
+    || product.hasFullDiagnosis === true
+    || Boolean(product.latestDiagnosisId || product.diagnosisId || product.metrics?.latestDiagnosisId || product.metrics?.lastDetailedDiagnosisAt);
+}
+
+function getWatchlistProductGid(product = {}) {
+  const productGid = String(product.productGid || "").trim();
+  if (productGid) return productGid;
+  const id = String(product.id || "").trim();
+  return id.startsWith("gid://shopify/Product/") ? id : "";
 }
 
 function getProductSearchStatus(product = {}, alreadyAdded = false, addedStatusKind = "watchlist") {
@@ -7863,15 +8010,23 @@ function getProductDetailModel(product) {
   const totalReviewStats = asPlainObject(reviewSourceStats.total);
   const providerReviewCount = maxFiniteMetricNumber(
     Number(metrics.csvReviewRatingCount || metrics.csvReviewCount || 0)
-      + Number(metrics.judgeMeReviewCount || 0),
+      + Number(metrics.judgeMeReviewCount || 0)
+      + Number(metrics.yotpoReviewCount || 0)
+      + Number(metrics.looxReviewCount || 0),
     Number(asPlainObject(reviewSourceStats.csv).reviewCount || 0)
-      + Number(asPlainObject(reviewSourceStats.judgeMe).reviewCount || 0),
+      + Number(asPlainObject(reviewSourceStats.judgeMe).reviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.yotpo).reviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.loox).reviewCount || 0),
   );
   const providerNegativeReviewCount = maxFiniteMetricNumber(
     Number(metrics.csvNegativeReviewCount || metrics.csvLowRatingCount || 0)
-      + Number(metrics.judgeMeNegativeReviewCount || 0),
+      + Number(metrics.judgeMeNegativeReviewCount || 0)
+      + Number(metrics.yotpoNegativeReviewCount || 0)
+      + Number(metrics.looxNegativeReviewCount || 0),
     Number(asPlainObject(reviewSourceStats.csv).negativeReviewCount || 0)
-      + Number(asPlainObject(reviewSourceStats.judgeMe).negativeReviewCount || 0),
+      + Number(asPlainObject(reviewSourceStats.judgeMe).negativeReviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.yotpo).negativeReviewCount || 0)
+      + Number(asPlainObject(reviewSourceStats.loox).negativeReviewCount || 0),
   );
   const reviewCount = maxFiniteMetricNumber(metrics.reviewCount, totalReviewStats.reviewCount, providerReviewCount);
   const negativeReviewCount = maxFiniteMetricNumber(metrics.negativeReviewCount, totalReviewStats.negativeReviewCount, providerNegativeReviewCount);
@@ -10202,12 +10357,22 @@ function getProductAverageRating(metrics = {}) {
       rating: firstPositiveMetricNumber(asPlainObject(stats.judgeMe).avgRating, metrics.judgeMeAverageRating),
       count: maxFiniteMetricNumber(asPlainObject(stats.judgeMe).reviewCount, metrics.judgeMeReviewCount),
     },
+    {
+      rating: firstPositiveMetricNumber(asPlainObject(stats.yotpo).avgRating, metrics.yotpoAverageRating),
+      count: maxFiniteMetricNumber(asPlainObject(stats.yotpo).reviewCount, metrics.yotpoReviewCount),
+    },
+    {
+      rating: firstPositiveMetricNumber(asPlainObject(stats.loox).avgRating, metrics.looxAverageRating),
+      count: maxFiniteMetricNumber(asPlainObject(stats.loox).reviewCount, metrics.looxReviewCount),
+    },
   ]);
   if (providerRating > 0) return providerRating;
 
   const values = [
     metrics.csvAverageRating,
     metrics.judgeMeAverageRating,
+    metrics.yotpoAverageRating,
+    metrics.looxAverageRating,
   ];
   const match = values
     .map((value) => Number(value))
@@ -10654,8 +10819,8 @@ function getEvidencePoints(item, product) {
     if (Number(metrics.refundRate || 0) > 0) points.push(`${metrics.refundRate}% refund rate`);
   }
 
-  if (normalized.includes("judge") || normalized.includes("review")) {
-    if (Number(metrics.reviewCount || 0) > 0) points.push(`${formatInteger(metrics.reviewCount)} Judge.me reviews analyzed`);
+  if (normalized.includes("judge") || normalized.includes("yotpo") || normalized.includes("loox") || normalized.includes("review")) {
+    if (Number(metrics.reviewCount || 0) > 0) points.push(`${formatInteger(metrics.reviewCount)} connected reviews analyzed`);
     if (Number(metrics.avgRating || metrics.reviewRating || 0) > 0) points.push(`${metrics.avgRating || metrics.reviewRating} average rating`);
     if (Number(metrics.negativeReviewCount || 0) > 0) points.push(`${formatInteger(metrics.negativeReviewCount)} negative reviews`);
     if (Number(metrics.negativeReviewRate || 0) > 0) points.push(`${metrics.negativeReviewRate}% negative review rate`);
@@ -10758,7 +10923,10 @@ function getEvidenceIcon(source) {
   const normalized = String(source || "").toLowerCase();
   if (normalized.includes("ai evidence") || normalized.includes("ai synthesis")) return "ai-evidence-synthesis";
   if (normalized.includes("customer") || normalized.includes("language") || normalized.includes("sentiment")) return "customer-language-analysis";
-  if (normalized.includes("csv") || (normalized.includes("review") && !normalized.includes("judge") && !normalized.includes("judgeme"))) return "csv-reviews";
+  if (normalized.includes("yotpo")) return "yotpo-reviews";
+  if (normalized.includes("loox")) return "loox-reviews";
+  if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme-reviews";
+  if (normalized.includes("csv")) return "csv-reviews";
   if (normalized.includes("refund")) return "refund-leakage";
   if (normalized.includes("return")) return "shopify-returns";
   if (normalized.includes("order") || normalized.includes("sales")) return "shopify-orders";
@@ -12003,8 +12171,8 @@ function buildReviewSectionFromAction(action) {
   if (normalized.includes("review")) {
     return {
       key: "reviews",
-      label: "Negative Judge.me reviews",
-      source: "Judge.me reviews",
+      label: "Negative review evidence",
+      source: "Connected reviews",
       count: payload.negativeReviewCount || 0,
       items: [{ label: `${payload.negativeReviewCount || 0} negative reviews`, evidence: `${payload.avgRating || 0} average rating` }],
     };
@@ -12874,10 +13042,13 @@ function getDescriptionApplyLabel(operation) {
 }
 
 function getCurrentDescriptionForAction(product, payload = {}) {
-  return String(product?.currentDescriptionText || payload.currentDescriptionText || "").trim();
+  return String(payload.currentDescriptionText || product?.currentDescriptionText || "").trim();
 }
 
 function getCurrentDescriptionHtmlForAction(product, payload = {}) {
+  const payloadText = String(payload.currentDescriptionText || "").trim();
+  const productText = String(product?.currentDescriptionText || "").trim();
+  if (payloadText && payloadText !== productText && !payload.currentDescriptionHtml) return "";
   return String(product?.currentDescriptionHtml || payload.currentDescriptionHtml || "").trim();
 }
 
@@ -12987,7 +13158,7 @@ function getRecommendedActionReason(action, product) {
     return `Refund impact is measurable: ${formatMoney(payload.refundAmount)} across ${formatInteger(payload.refundUnits || 0)} units. This action checks whether the loss is preventable.`;
   }
   if (Number(payload.negativeReviewCount || 0) > 0) {
-    return `${formatInteger(payload.negativeReviewCount)} negative Judge.me reviews are connected to this product. Reviewing them can clarify the language customers use.`;
+    return `${formatInteger(payload.negativeReviewCount)} negative connected reviews are attached to this product. Reviewing them can clarify the language customers use.`;
   }
   if (Array.isArray(payload.faqItems) && payload.faqItems.length) {
     const reasons = Array.isArray(payload.faqNeed?.reasons) ? payload.faqNeed.reasons : [];
@@ -13277,23 +13448,33 @@ function getReviewEvidenceCheckedItem(metrics = {}, sources = []) {
   const totalStats = asPlainObject(reviewSourceStats.total);
   const csvStats = asPlainObject(reviewSourceStats.csv);
   const judgeStats = asPlainObject(reviewSourceStats.judgeMe || reviewSourceStats.judgeme);
+  const yotpoStats = asPlainObject(reviewSourceStats.yotpo);
+  const looxStats = asPlainObject(reviewSourceStats.loox);
   const csvCount = maxFiniteMetricNumber(metrics.csvReviewCount, metrics.csvReviewRatingCount, csvStats.reviewCount);
   const judgeCount = maxFiniteMetricNumber(metrics.judgeMeReviewCount, metrics.judgemeReviewCount, judgeStats.reviewCount);
-  const providerReviewCount = csvCount + judgeCount;
+  const yotpoCount = maxFiniteMetricNumber(metrics.yotpoReviewCount, yotpoStats.reviewCount);
+  const looxCount = maxFiniteMetricNumber(metrics.looxReviewCount, looxStats.reviewCount);
+  const providerReviewCount = csvCount + judgeCount + yotpoCount + looxCount;
   const reviewCount = maxFiniteMetricNumber(metrics.reviewCount, totalStats.reviewCount, providerReviewCount);
   const csvNegativeCount = maxFiniteMetricNumber(metrics.csvNegativeReviewCount, metrics.csvLowRatingCount, csvStats.negativeReviewCount);
   const judgeNegativeCount = maxFiniteMetricNumber(metrics.judgeMeNegativeReviewCount, metrics.judgemeNegativeReviewCount, judgeStats.negativeReviewCount);
-  const providerNegativeCount = csvNegativeCount + judgeNegativeCount;
+  const yotpoNegativeCount = maxFiniteMetricNumber(metrics.yotpoNegativeReviewCount, yotpoStats.negativeReviewCount);
+  const looxNegativeCount = maxFiniteMetricNumber(metrics.looxNegativeReviewCount, looxStats.negativeReviewCount);
+  const providerNegativeCount = csvNegativeCount + judgeNegativeCount + yotpoNegativeCount + looxNegativeCount;
   const negativeReviewCount = maxFiniteMetricNumber(metrics.negativeReviewCount, totalStats.negativeReviewCount, providerNegativeCount);
   const hasCsvReviews = sourceText.includes("csv") || csvCount > 0;
   const hasJudgeMeReviews = sourceText.includes("judge") || judgeCount > 0;
+  const hasYotpoReviews = sourceText.includes("yotpo") || yotpoCount > 0;
+  const hasLooxReviews = sourceText.includes("loox") || looxCount > 0;
   const hasGenericReviewEvidence = sourceText.includes("review") || reviewCount > 0;
 
-  if (!hasCsvReviews && !hasJudgeMeReviews && !hasGenericReviewEvidence) return null;
+  if (!hasCsvReviews && !hasJudgeMeReviews && !hasYotpoReviews && !hasLooxReviews && !hasGenericReviewEvidence) return null;
 
   const providerLabels = [
     hasCsvReviews ? "CSV reviews" : null,
     hasJudgeMeReviews ? "Judge.me reviews" : null,
+    hasYotpoReviews ? "Yotpo reviews" : null,
+    hasLooxReviews ? "Loox reviews" : null,
   ].filter(Boolean);
   const label = providerLabels.length === 1
     ? providerLabels[0]
@@ -13305,8 +13486,12 @@ function getReviewEvidenceCheckedItem(metrics = {}, sources = []) {
     totalStats,
     csvStats,
     judgeStats,
+    yotpoStats,
+    looxStats,
     hasCsvReviews,
     hasJudgeMeReviews,
+    hasYotpoReviews,
+    hasLooxReviews,
   });
 
   return {
@@ -13321,14 +13506,24 @@ function getReviewEvidenceAverageRating(metrics = {}, {
   totalStats = {},
   csvStats = {},
   judgeStats = {},
+  yotpoStats = {},
+  looxStats = {},
   hasCsvReviews = false,
   hasJudgeMeReviews = false,
+  hasYotpoReviews = false,
+  hasLooxReviews = false,
 } = {}) {
-  if (hasCsvReviews && !hasJudgeMeReviews) {
+  if (hasCsvReviews && !hasJudgeMeReviews && !hasYotpoReviews && !hasLooxReviews) {
     return firstFiniteMetricNumber(metrics.csvAverageRating, metrics.csvReviewRating, csvStats.avgRating, csvStats.averageRating, metrics.avgRating, metrics.reviewRating);
   }
-  if (hasJudgeMeReviews && !hasCsvReviews) {
+  if (hasJudgeMeReviews && !hasCsvReviews && !hasYotpoReviews && !hasLooxReviews) {
     return firstFiniteMetricNumber(metrics.judgeMeAverageRating, metrics.judgemeAverageRating, judgeStats.avgRating, judgeStats.averageRating, metrics.avgRating, metrics.reviewRating);
+  }
+  if (hasYotpoReviews && !hasCsvReviews && !hasJudgeMeReviews && !hasLooxReviews) {
+    return firstFiniteMetricNumber(metrics.yotpoAverageRating, yotpoStats.avgRating, yotpoStats.averageRating, metrics.avgRating, metrics.reviewRating);
+  }
+  if (hasLooxReviews && !hasCsvReviews && !hasJudgeMeReviews && !hasYotpoReviews) {
+    return firstFiniteMetricNumber(metrics.looxAverageRating, looxStats.avgRating, looxStats.averageRating, metrics.avgRating, metrics.reviewRating);
   }
   return firstFiniteMetricNumber(totalStats.avgRating, totalStats.averageRating, metrics.avgRating, metrics.reviewRating);
 }
@@ -13764,10 +13959,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   };
 
   const handleRequestWatchlistToggle = () => {
-    if (watchlistPending || !detail.productGid) return;
+    const productGid = getWatchlistProductGid(detail);
+    if (watchlistPending || !productGid) return;
+    if (!isWatched && !detail.hasFullDiagnosis) {
+      showToast("Run Product Diagnosis before adding this product to Watchlist.", "validation_error");
+      return;
+    }
     setWatchlistConfirmation({
       mode: isWatched ? "remove" : "add",
-      product: detail,
+      product: { ...detail, productGid },
     });
   };
 
@@ -22455,6 +22655,23 @@ function getProductPulseIconBadgeGlyph(icon) {
 }
 
 function ProductPulseGlyph({ type }) {
+  if (type === "judgeme-reviews" || type === "yotpo-reviews" || type === "loox-reviews") {
+    const provider = type === "yotpo-reviews"
+      ? { domain: "yotpo.com", label: "Yotpo" }
+      : type === "loox-reviews"
+        ? { domain: "loox.io", label: "Loox" }
+        : { domain: "judge.me", label: "Judge.me" };
+    return (
+      <img
+        className={`ppProductPulseSourceLogoGlyph ppProductPulseSourceLogoGlyph-${type}`}
+        src={`https://www.google.com/s2/favicons?domain=${provider.domain}&sz=64`}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        decoding="async"
+      />
+    );
+  }
   if (type === "next-best-action") {
     return (
       <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-nextBestAction" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
@@ -23710,6 +23927,9 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
   const triggerRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const handle = product.handle || product.href?.split("/").filter(Boolean).pop() || product.title;
+  const canAddToWatchlist = canAddProductToWatchlist(product);
+  const watchlistProductGid = getWatchlistProductGid(product);
+  const watchlistDisabled = !watchlistProductGid || (!product.isWatched && !canAddToWatchlist);
 
   useEffect(() => {
     if (!open || typeof document === "undefined") return undefined;
@@ -23768,11 +23988,12 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
           <button
             role="menuitem"
             type="button"
-            disabled={!product.productGid}
+            disabled={watchlistDisabled}
+            title={watchlistDisabled ? "Run Product Diagnosis before adding this product to Watchlist." : undefined}
             onClick={() => onWatchlistToggle?.(product)}
           >
             {product.isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
-            {product.isWatched ? "Remove from Watchlist" : "Add to Watchlist"}
+            {product.isWatched ? "Remove from Watchlist" : canAddToWatchlist ? "Add to Watchlist" : "Diagnosis required for Watchlist"}
           </button>
           {product.resolvedAt ? (
             <Form method="post" role="none">
@@ -23829,6 +24050,9 @@ function ProductDetailActionsMenu({
   const handle = detail.handle || product?.handle || productId;
   const storefrontUrl = detail.shopifyStorefrontUrl || getStorefrontUrlFromAdminUrl(detail.shopifyAdminUrl, detail.handle);
   const shopifyAdminUrl = detail.shopifyAdminUrl || product?.shopifyAdminUrl || "";
+  const canAddToWatchlist = detail.hasFullDiagnosis === true || canAddProductToWatchlist(detail);
+  const watchlistProductGid = getWatchlistProductGid({ ...product, ...detail });
+  const watchlistDisabled = watchlistPending || !watchlistProductGid || (!isWatched && !canAddToWatchlist);
 
   useEffect(() => {
     if (!open || typeof document === "undefined") return undefined;
@@ -23890,11 +24114,12 @@ function ProductDetailActionsMenu({
           <button
             role="menuitem"
             type="button"
-            disabled={watchlistPending || !detail.productGid}
+            disabled={watchlistDisabled}
+            title={watchlistDisabled ? "Run Product Diagnosis before adding this product to Watchlist." : undefined}
             onClick={handleWatchlistClick}
           >
             {isWatched ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
-            {isWatched ? "Remove from Watchlist" : "Add to Watchlist"}
+            {isWatched ? "Remove from Watchlist" : canAddToWatchlist ? "Add to Watchlist" : "Diagnosis required for Watchlist"}
           </button>
           {resolved ? (
             <Form method="post" role="none">
@@ -25524,6 +25749,8 @@ function normalizeEvidenceProviderKey(value = "") {
   if (!normalized) return "";
   if (normalized.includes("csv")) return "csv_reviews";
   if (normalized.includes("judge") || normalized.includes("judgeme")) return "judgeme_reviews";
+  if (normalized.includes("yotpo")) return "yotpo_reviews";
+  if (normalized.includes("loox")) return "loox_reviews";
   if (normalized.includes("review")) return normalized;
   return normalized;
 }
@@ -26172,18 +26399,20 @@ function isReviewScopedEvidenceItem(item = {}) {
   const sources = getEvidenceList(item.sources || item.sourceTypes || item.source)
     .map((source) => String(source || "").toLowerCase());
   if (!sources.length) return true;
-  return sources.some((source) => source.includes("review") || source.includes("csv") || source.includes("judgeme"));
+  return sources.some((source) => source.includes("review") || source.includes("csv") || source.includes("judgeme") || source.includes("yotpo") || source.includes("loox"));
 }
 
 function isSpecificReviewSource(sourceTitle = "") {
   const normalized = normalizeEvidenceProviderKey(sourceTitle);
-  return ["csv_reviews", "judgeme_reviews"].includes(normalized);
+  return ["csv_reviews", "judgeme_reviews", "yotpo_reviews", "loox_reviews"].includes(normalized);
 }
 
 function getReviewStatsKey(sourceTitle = "") {
   const normalized = normalizeEvidenceProviderKey(sourceTitle);
   if (normalized === "csv_reviews") return "csv";
   if (normalized === "judgeme_reviews") return "judgeMe";
+  if (normalized === "yotpo_reviews") return "yotpo";
+  if (normalized === "loox_reviews") return "loox";
   return "total";
 }
 
@@ -26205,6 +26434,24 @@ function getReviewSourceStats(metrics = {}, sourceTitle = "") {
       reviewCount: metrics.judgeMeReviewCount || 0,
       negativeReviewCount: metrics.judgeMeNegativeReviewCount || 0,
       avgRating: metrics.judgeMeAverageRating || 0,
+      negativeReviewRate: 0,
+      recentNegativeReviewCount: 0,
+    };
+  }
+  if (statsKey === "yotpo") {
+    return {
+      reviewCount: metrics.yotpoReviewCount || 0,
+      negativeReviewCount: metrics.yotpoNegativeReviewCount || 0,
+      avgRating: metrics.yotpoAverageRating || 0,
+      negativeReviewRate: 0,
+      recentNegativeReviewCount: 0,
+    };
+  }
+  if (statsKey === "loox") {
+    return {
+      reviewCount: metrics.looxReviewCount || 0,
+      negativeReviewCount: metrics.looxNegativeReviewCount || 0,
+      avgRating: metrics.looxAverageRating || 0,
       negativeReviewRate: 0,
       recentNegativeReviewCount: 0,
     };
@@ -26327,6 +26574,8 @@ function getReviewRepeatedLanguage(textInsights = {}, sourceTitle = "") {
       const sources = getEvidenceList(item.sources).join(" ").toLowerCase();
       if (sourceKey === "csv_reviews") return sources.includes("csv");
       if (sourceKey === "judgeme_reviews") return sources.includes("judgeme") || sources.includes("judge");
+      if (sourceKey === "yotpo_reviews") return sources.includes("yotpo");
+      if (sourceKey === "loox_reviews") return sources.includes("loox");
       return sources.includes("review");
     }),
   ].map((item) => ({
@@ -28414,7 +28663,7 @@ function getPersistedRiskComponentRows(components = {}) {
   const rows = [
     riskComponentRow(components.base, "base", "Model baseline", "Small baseline applied before signal families.", "blue"),
     riskComponentRow(components.returnsScore ?? components.returnAnomaly ?? components.returnRate, "returns", "Returns score", "Smoothed excess return rate versus the store or category baseline.", "red"),
-    riskComponentRow(components.reviewsScore ?? components.reviewAnomaly ?? components.csvRatings, "reviews", "Reviews score", "Smoothed negative review rate, rating pressure and CSV/Judge.me review signals.", "violet"),
+    riskComponentRow(components.reviewsScore ?? components.reviewAnomaly ?? components.csvRatings, "reviews", "Reviews score", "Smoothed negative review rate, rating pressure and connected review signals.", "violet"),
     riskComponentRow(components.sentimentScore ?? components.textSentimentRisk, "sentiment", "Sentiment score", "Semantic modifier from AI-classified return notes, review text, emotions and repeated phrasing.", "violet"),
     riskComponentRow(components.contentGapScore ?? components.contentRisk, "content", "Content gap score", "Description, title, tag, collection and PDP clarity signals.", "blue"),
     riskComponentRow(components.refundScore ?? components.refundOperationalRisk ?? components.refundPressure ?? components.refundAnomaly, "refunds", "Refund score", "Refund rate pressure and operational refund signals. Dollar impact is kept outside product risk.", "amber"),
@@ -28825,8 +29074,8 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Top refund reason", topReasons[0]?.label || "No reason stored", topReasons[0]?.detail || "Primary refund signal", "target", "violet", topReasons[0]?.badge ? { badge: topReasons[0].badge } : {});
     add("Estimated Margin Exposure", formatMoney(metrics.marginAtRisk || 0), `${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`, "financial-exposure", "teal");
     add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
-  } else if (normalized.includes("review") || normalized.includes("judge")) {
-    add("Total reviews", formatInteger(metrics.reviewCount || metrics.csvReviewCount || metrics.judgeMeReviewCount), `${formatInteger(metrics.negativeReviewCount)} negative reviews`, "star", "blue");
+  } else if (normalized.includes("review") || normalized.includes("judge") || normalized.includes("yotpo") || normalized.includes("loox")) {
+    add("Total reviews", formatInteger(metrics.reviewCount || metrics.csvReviewCount || metrics.judgeMeReviewCount || metrics.yotpoReviewCount || metrics.looxReviewCount), `${formatInteger(metrics.negativeReviewCount)} negative reviews`, "star", "blue");
     add("Average rating", metrics.avgRating || metrics.reviewRating || "0", "Product-level review rating", "star", "teal");
     add("Negative reviews", formatInteger(metrics.negativeReviewCount), `${formatPercent(metrics.negativeReviewRate)} negative review rate`, "negative-review-pressure", Number(metrics.negativeReviewRate || 0) > 25 ? "red" : "amber");
     add("Recent negatives", formatInteger(metrics.recentNegativeReviewCount), "Recent negative review signals", "clock", "violet");
@@ -30652,7 +30901,7 @@ function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = 
 
   if (Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
     const selectedChanges = getSelectedDescriptionChanges(application);
-    const usesHtmlBlocks = selectedChanges.some((change) => change.operation !== "replace" || containsAllowedActionPreviewHtml(change.text));
+    const usesHtmlBlocks = selectedChanges.some((change) => containsAllowedActionPreviewHtml(change.text));
     if (!usesHtmlBlocks) return null;
     return {
       mode: "html",
@@ -30669,7 +30918,7 @@ function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = 
 
   const operation = application.insertionPosition || application.descriptionOperation || "";
   const proposedHasHtml = containsAllowedActionPreviewHtml(proposedText);
-  const shouldRenderHtml = operation === "append" || operation === "prepend" || proposedHasHtml;
+  const shouldRenderHtml = proposedHasHtml;
   if (!shouldRenderHtml) return null;
 
   return {
@@ -32042,6 +32291,8 @@ function ConnectCategoryCard({
   category,
   locked = false,
   onOpenJudgeMe,
+  onOpenYotpo,
+  onOpenLoox,
   onOpenCsv,
   onLocalActiveChange,
   persistConnectState = false,
@@ -32112,6 +32363,8 @@ function ConnectCategoryCard({
                       persistConnectState={persistConnectState}
                       pending={pendingSourceKey === source.key}
                       onOpenJudgeMe={onOpenJudgeMe}
+                      onOpenYotpo={onOpenYotpo}
+                      onOpenLoox={onOpenLoox}
                       onOpenCsv={onOpenCsv}
                       onLocalActiveChange={onLocalActiveChange}
                     />
@@ -32131,6 +32384,8 @@ function ConnectSourceActions({
   persistConnectState,
   pending,
   onOpenJudgeMe,
+  onOpenYotpo,
+  onOpenLoox,
   onOpenCsv,
   onLocalActiveChange,
 }) {
@@ -32166,8 +32421,30 @@ function ConnectSourceActions({
   if (source.actionKind === "judgeme") {
     return (
       <div className="ppConnectActions">
-        <button className="ppConnectSmallButton" type="button" onClick={onOpenJudgeMe}>
+        <button className="ppConnectSmallButton" data-pp-connect-source-action={source.key} type="button" onClick={onOpenJudgeMe}>
           {source.connected ? "Manage" : "Manage"}
+        </button>
+        {activeButton}
+      </div>
+    );
+  }
+
+  if (source.actionKind === "yotpo") {
+    return (
+      <div className="ppConnectActions">
+        <button className="ppConnectSmallButton" data-pp-connect-source-action={source.key} type="button" onClick={onOpenYotpo}>
+          {source.connected ? "Manage" : "Connect"}
+        </button>
+        {activeButton}
+      </div>
+    );
+  }
+
+  if (source.actionKind === "loox") {
+    return (
+      <div className="ppConnectActions">
+        <button className="ppConnectSmallButton" data-pp-connect-source-action={source.key} type="button" onClick={onOpenLoox}>
+          {source.connected ? "Manage" : "Connect"}
         </button>
         {activeButton}
       </div>
@@ -32209,10 +32486,7 @@ function ConnectCoverageCard({ categories, coverage, activeWeight }) {
   return (
     <div className="ppConnectCoverageCard">
       <div className="ppDashboardPanelHeader">
-        <h2>
-          Data coverage
-          <s-icon type="info" size="small" color="subdued"></s-icon>
-        </h2>
+        <h2>Data coverage</h2>
         <p>Customer-signal coverage only. Shopify baseline data is excluded.</p>
       </div>
 
@@ -32298,6 +32572,145 @@ function JudgeMeConnectionModal({ source, persistConnectState, isConnecting, onC
             </button>
             <button className="ppPrimaryButton" type="submit" disabled={isConnecting}>
               {isConnecting ? "Connecting..." : "Connect"}
+            </button>
+          </div>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
+function YotpoConnectionModal({ source, shopDomain, persistConnectState, isConnecting, onCancel, onLocalSubmit }) {
+  const formProps = persistConnectState ? { method: "post" } : { onSubmit: onLocalSubmit };
+  const shopifyAdminAppUrl = buildYotpoShopifyAdminAppUrl(shopDomain);
+  return (
+    <div className="ppConnectionModalOverlay" role="presentation">
+      <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="yotpo-connect-title">
+        <div className="ppConnectionModalHeader">
+          <ConnectSourceLogo source={source} />
+          <div>
+            <span>Yotpo</span>
+            <h2 id="yotpo-connect-title">Yotpo Reviews</h2>
+            <p>Enter your Yotpo API credentials to verify review access before saving.</p>
+          </div>
+        </div>
+
+        <Form {...formProps} className="ppConnectionForm">
+          <input type="hidden" name="_action" value="connect-yotpo" />
+          <label className="ppConnectionField">
+            <span>Store ID / App Key</span>
+            <input
+              name="storeId"
+              type="text"
+              autoComplete="off"
+              placeholder="Paste your Yotpo Store ID or App Key"
+              required
+            />
+          </label>
+          <label className="ppConnectionField">
+            <span>API secret</span>
+            <input
+              name="apiSecret"
+              type="password"
+              autoComplete="off"
+              placeholder="Paste your Yotpo API secret"
+              required
+            />
+          </label>
+          <p className="ppConnectionHint">
+            ProductPulse generates a Yotpo uToken, reads a one-review sample from the Reviews API, then stores the credentials for future Product Diagnosis syncs. The API secret is visible only to Yotpo account administrators.
+          </p>
+
+          <div className="ppConnectionLinkRow">
+            <a href={shopifyAdminAppUrl} target="_blank" rel="noreferrer">
+              Open Yotpo in Shopify
+              <s-icon type="external" size="small"></s-icon>
+            </a>
+            <a href={yotpoConnectionLinks.app} target="_blank" rel="noreferrer">
+              Yotpo account settings
+              <s-icon type="external" size="small"></s-icon>
+            </a>
+            <a href={yotpoConnectionLinks.credentialsHelp} target="_blank" rel="noreferrer">
+              Find Store ID and API secret
+              <s-icon type="external" size="small"></s-icon>
+            </a>
+          </div>
+
+          <div className="ppConnectionModalFooter">
+            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="ppPrimaryButton" type="submit" disabled={isConnecting}>
+              {isConnecting ? "Testing..." : "Connect"}
+            </button>
+          </div>
+        </Form>
+      </section>
+    </div>
+  );
+}
+
+function LooxConnectionModal({ source, shopDomain, persistConnectState, isConnecting, onCancel, onLocalSubmit }) {
+  const formProps = persistConnectState ? { method: "post" } : { onSubmit: onLocalSubmit };
+  const [publicStoreId, setPublicStoreId] = useState(() => String(source?.config?.publicStoreId || "").trim());
+  const shopifyAdminAppUrl = buildLooxShopifyAdminAppUrl(shopDomain, publicStoreId);
+  return (
+    <div className="ppConnectionModalOverlay" role="presentation">
+      <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="loox-connect-title">
+        <div className="ppConnectionModalHeader">
+          <ConnectSourceLogo source={source} />
+          <div>
+            <span>Loox</span>
+            <h2 id="loox-connect-title">Loox Reviews</h2>
+            <p>Enter your Loox API credentials to verify review access before saving.</p>
+          </div>
+        </div>
+
+        <Form {...formProps} className="ppConnectionForm">
+          <input type="hidden" name="_action" value="connect-loox" />
+          <label className="ppConnectionField">
+            <span>publicStoreId</span>
+            <input
+              name="publicStoreId"
+              type="text"
+              autoComplete="off"
+              value={publicStoreId}
+              onChange={(event) => setPublicStoreId(event.target.value)}
+              placeholder="Paste your Loox publicStoreId"
+              required
+            />
+          </label>
+          <label className="ppConnectionField">
+            <span>API secret key</span>
+            <input
+              name="apiSecret"
+              type="password"
+              autoComplete="off"
+              placeholder="Paste your Loox API secret key"
+              required
+            />
+          </label>
+          <p className="ppConnectionHint">
+            ProductPulse tests Loox Merchant API access with the secret key, reads a one-review sample, and stores the publicStoreId for product-level review lookups. Find both values in Loox admin under Settings &gt; API Keys.
+          </p>
+
+          <div className="ppConnectionLinkRow">
+            <a href={shopifyAdminAppUrl} target="_blank" rel="noreferrer">
+              Open Loox API Keys in Shopify
+              <s-icon type="external" size="small"></s-icon>
+            </a>
+            <a href={looxConnectionLinks.apiKeysHelp} target="_blank" rel="noreferrer">
+              Find publicStoreId and API key
+              <s-icon type="external" size="small"></s-icon>
+            </a>
+          </div>
+
+          <div className="ppConnectionModalFooter">
+            <button className="ppConnectSmallButton ppConnectSmallButton-ghost" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="ppPrimaryButton" type="submit" disabled={isConnecting}>
+              {isConnecting ? "Testing..." : "Connect"}
             </button>
           </div>
         </Form>

@@ -299,6 +299,21 @@ button.ppWizardSpotlightTarget,
   pointer-events: auto !important;
 }
 
+.ppWizardProductsActive .ppProductsCandidatesToolbar.ppWizardSpotlightAncestor {
+  position: relative !important;
+  z-index: 2147481550 !important;
+  isolation: isolate;
+  pointer-events: none;
+}
+
+.ppWizardProductsActive .ppProductsCandidatesToolbar.ppWizardSpotlightAncestor :is(a, button, [role="button"]) {
+  pointer-events: none !important;
+}
+
+.ppWizardProductsActive .ppProductsCandidatesToolbar.ppWizardSpotlightAncestor [data-pp-products-run-deep-scan-selected].ppWizardSpotlightTarget {
+  pointer-events: auto !important;
+}
+
 .ppWizardBackgroundProcessesActive .ppGlobalTopbar {
   z-index: 2147481510;
   pointer-events: none !important;
@@ -410,7 +425,7 @@ button.ppWizardSpotlightTarget,
   margin-top: 12px;
 }
 
-.ppWizardProviderBadges span {
+.ppWizardProviderBadges a {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -423,6 +438,17 @@ button.ppWizardSpotlightTarget,
   font-size: 12px;
   font-weight: 650;
   line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ppWizardProviderBadges a:hover,
+.ppWizardProviderBadges a:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.32);
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  text-decoration: none;
+  box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.08);
 }
 
 .ppWizardProviderBadges img {

@@ -6,6 +6,8 @@ import {
   connectJudgeMeReviews,
   confirmCsvReviews,
   getConnectViewDataForShop,
+  connectLooxReviews,
+  connectYotpoReviews,
   previewCsvReviews,
   setSourceActive,
 } from "../lib/product-pulse-connections.server";
@@ -14,6 +16,7 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   return {
     ...getAppViewData(),
+    shop: session.shop,
     connect: await getConnectViewDataForShop(session.shop),
     persistConnectState: true,
   };
@@ -26,6 +29,14 @@ export const action = async ({ request }) => {
 
   if (actionType === "connect-judgeme") {
     return connectJudgeMeReviews(session.shop, formData.get("privateApiToken"));
+  }
+
+  if (actionType === "connect-yotpo") {
+    return connectYotpoReviews(session.shop, formData.get("storeId"), formData.get("apiSecret"));
+  }
+
+  if (actionType === "connect-loox") {
+    return connectLooxReviews(session.shop, formData.get("publicStoreId"), formData.get("apiSecret"));
   }
 
   if (actionType === "preview-csv") {

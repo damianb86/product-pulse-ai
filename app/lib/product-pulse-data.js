@@ -67,13 +67,22 @@ export const sourceGroups = [
         missing: "Connect Judge.me to improve evidence quality.",
       },
       {
+        key: "yotpoReviews",
+        name: "Yotpo reviews",
+        connected: true,
+        required: false,
+        weight: 14,
+        contribution: "Yotpo review rating, review text and recurring complaint phrases.",
+        missing: "Connect Yotpo Reviews to improve evidence quality.",
+      },
+      {
         key: "looxReviews",
         name: "Loox reviews",
-        connected: false,
+        connected: true,
         required: false,
-        weight: 0,
-        contribution: "Photo, video and visual review UGC.",
-        missing: "Coming soon.",
+        weight: 14,
+        contribution: "Loox review rating, review text, media and recurring complaint phrases.",
+        missing: "Connect Loox Reviews to improve evidence quality.",
       },
       {
         key: "stampedReviews",
@@ -712,7 +721,7 @@ function buildDashboardActionRows(productList) {
         href: `/app/products/${product.handle || product.slug || product.id}`,
         icon: getDashboardActionIcon(action),
         tone: getDashboardActionTone(action),
-        category: getDashboardActionCategory(action),
+        category: getDashboardActionCategory(action, product),
         family: getDashboardActionFamily(action),
         actionTier,
         actionTierLabel: getDashboardActionTierLabel(actionTier),
@@ -755,7 +764,7 @@ function buildDashboardActionRows(productList) {
           href: `/app/products/${product.handle || product.slug || product.id}`,
           icon: getDashboardActionIcon(action),
           tone: getDashboardActionTone(action),
-          category: getDashboardActionCategory(action),
+          category: getDashboardActionCategory(action, product),
           family: getDashboardActionFamily(action),
           actionTier,
           actionTierLabel: getDashboardActionTierLabel(actionTier),
@@ -1070,7 +1079,7 @@ function normalizeDashboardActionRankValue(value = "") {
   return String(value || "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function getDashboardActionCategory(action = {}) {
+function getDashboardActionCategory(action = {}, product = {}) {
   const family = getDashboardActionFamily(action);
   if (family === "faq") return "Product FAQs";
   if (family === "product-copy") return "Product descriptions";
@@ -1080,6 +1089,7 @@ function getDashboardActionCategory(action = {}) {
   if (family === "qa-review") return "Quality review";
   if (family === "workflow-tag") return "Tags and workflows";
   if (family === "evidence-review") return "Evidence review";
+  if (family === "support-note" && getDashboardIssueLabel(product.primaryIssue || product.metrics?.mainIssue || "").toLowerCase().includes("quality")) return "Product quality notes";
   if (family === "support-note") return "Support notes";
   if (family === "commercial-control") return "Commercial controls";
   return "Recommended fixes";
@@ -1221,7 +1231,7 @@ function buildDashboardCoverageSummary(productList, { fullDiagnoses, quickScanOn
 
   const sources = [
     { label: "Products", source: "Product data", icon: "product", connectedDetail: "Shopify product data is available by default and is used for title, description, tags, variants and catalog metadata.", missingDetail: "ProductPulse has not stored product data yet. Run Catalog Scan to begin catalog coverage." },
-    { label: "Reviews", source: "Reviews", icon: "star", connectedDetail: "Review evidence was found through connected review sources or CSV imports and can improve issue confidence.", missingDetail: "No review evidence has been found yet. Connect Judge.me or upload a reviews CSV to improve coverage." },
+    { label: "Reviews", source: "Reviews", icon: "star", connectedDetail: "Review evidence was found through connected review sources or CSV imports and can improve issue confidence.", missingDetail: "No review evidence has been found yet. Connect Judge.me, Yotpo, Loox, or upload a reviews CSV to improve coverage." },
     { label: "Returns", source: "Returns", icon: "return", connectedDetail: "Return evidence was found in stored Product Diagnosis results and can explain post-purchase friction.", missingDetail: "No return evidence has been found yet. Order access may be missing or no returns were found in the available window." },
     { label: "Refunds", source: "Refunds", icon: "cash-dollar", connectedDetail: "Refund evidence was found and can contribute to financial pressure and operational risk.", missingDetail: "No refund evidence has been found yet. Refund access may be missing or no refunds were found in the available window." },
   ].map((source) => ({
@@ -1979,9 +1989,13 @@ function buildAnalyticsSourceCoverageMix(productList = []) {
     const metrics = product.metrics || {};
     const reviewCount = Number(metrics.reviewCount || 0);
     const csvReviewCount = Number(metrics.csvReviewCount || 0);
-    const judgeMeReviewCount = Number(metrics.judgeMeReviewCount || Math.max(reviewCount - csvReviewCount, 0));
+    const yotpoReviewCount = Number(metrics.yotpoReviewCount || 0);
+    const looxReviewCount = Number(metrics.looxReviewCount || 0);
+    const judgeMeReviewCount = Number(metrics.judgeMeReviewCount || Math.max(reviewCount - csvReviewCount - yotpoReviewCount - looxReviewCount, 0));
     increment("Returns", metrics.returnUnits);
     increment("Reviews", judgeMeReviewCount || metrics.negativeReviewCount);
+    increment("Yotpo Reviews", yotpoReviewCount);
+    increment("Loox Reviews", looxReviewCount);
     increment("Refunds", metrics.refundUnits);
     increment("CSV Reviews", csvReviewCount);
     increment("Orders", metrics.monthlyOrderActivity?.summary?.totalOrders || metrics.soldOrders || metrics.soldUnits);
@@ -2827,7 +2841,7 @@ function buildAnalyticsEvidenceSourceCoverage(productList, sources = []) {
       tone: "orange",
       count: productList.reduce((sum, product) => sum + Number(product.metrics?.reviewCount || product.metrics?.csvReviewCount || product.metrics?.csvReviewRatingCount || 0), 0),
       products: productList.filter((product) => hasAnalyticsSource(product, "Reviews")).length,
-      detail: "Judge.me and uploaded CSV reviews matched to stored products.",
+      detail: "Judge.me, Yotpo, Loox, and uploaded CSV reviews matched to stored products.",
     },
     {
       label: "Returns",
@@ -3347,7 +3361,7 @@ function clampAnalyticsValue(value, min, max) {
 export const jobs = [
   { id: "job-import-products", name: "Import products", source: "Shopify products", status: "Completed", progress: 100, updatedAt: "2 min ago" },
   { id: "job-read-returns", name: "Read refunds and returns", source: "Shopify orders/returns", status: "Running", progress: 72, updatedAt: "Now" },
-  { id: "job-review-analysis", name: "Analyze reviews", source: "Judge.me + CSV", status: "Queued", progress: 24, updatedAt: "1 min ago" },
+  { id: "job-review-analysis", name: "Analyze reviews", source: "Judge.me + Yotpo + Loox + CSV", status: "Queued", progress: 24, updatedAt: "1 min ago" },
   { id: "job-risk-score", name: "Calculate risk", source: "ProductPulse", status: "Waiting", progress: 12, updatedAt: "1 min ago" },
 ];
 

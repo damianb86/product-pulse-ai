@@ -53,9 +53,14 @@ describe("ProductPulseWatchlistWizard", () => {
 
     expect(await screen.findByRole("dialog", { name: "Track the Watchlist scan" })).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: "Background processes" })).toBeInTheDocument();
-    expect(screen.getByText("Waiting for the first Watchlist report...")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for a Watchlist job to complete...")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Finish scan" }));
+
+    expect(await screen.findByRole("dialog", { name: "Track the Watchlist scan" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Open the product report" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish job" }));
 
     expect(await screen.findByRole("dialog", { name: "Open the product report" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View Watchlist report for GEN Watch Product" })).toHaveClass("ppWizardSpotlightTarget");
@@ -128,7 +133,9 @@ function WatchlistWizardHarness() {
   };
 
   const startScan = () => {
-    dispatchWatchlistWizardEvent({ type: "scan-started" });
+    const job = buildWatchlistJob("Running");
+    dispatchWatchlistWizardEvent({ type: "scan-started", jobs: [job] });
+    window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { jobs: [job] } }));
   };
 
   const finishScan = () => {
@@ -139,6 +146,10 @@ function WatchlistWizardHarness() {
       productTitle: readyRow.title,
       productHref: readyRow.watchlistHref,
     });
+  };
+
+  const finishJob = () => {
+    window.dispatchEvent(new CustomEvent("productpulse:jobs-finished", { detail: { jobs: [buildWatchlistJob("Completed")] } }));
   };
 
   return (
@@ -215,6 +226,9 @@ function WatchlistWizardHarness() {
             <button type="button" onClick={finishScan}>
               Finish scan
             </button>
+            <button type="button" onClick={finishJob}>
+              Finish job
+            </button>
             {modalOpen ? (
               <section data-pp-watchlist-add-modal="true" role="dialog" aria-modal="true" aria-labelledby="watchlist-add-title">
                 <h2 id="watchlist-add-title">Add watched product</h2>
@@ -252,6 +266,15 @@ function buildWatchlistRow(withReport) {
     title: "GEN Watch Product",
     watchlistHref: "/app/watchlist/gen-watch-product",
     latestChangeReport: withReport ? { id: "run-1", status: "changed" } : null,
+  };
+}
+
+function buildWatchlistJob(status) {
+  return {
+    id: "watchlist-job-1",
+    kind: "product-diagnosis",
+    status,
+    productTitle: "GEN Watch Product",
   };
 }
 

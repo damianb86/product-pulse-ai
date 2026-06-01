@@ -21,7 +21,14 @@ describe("ProductPulseWizard", () => {
 
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
     expect(await screen.findByRole("dialog", { name: "Connect Judge.me Reviews" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Connect Yotpo Reviews" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Connect Loox Reviews" })).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Upload reviews by CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Judge.me CSV export documentation" })).toHaveAttribute("href", "https://judge.me/help/en/articles/8236266-exporting-reviews");
+    expect(screen.getByRole("link", { name: "Open Yotpo CSV export documentation" })).toHaveAttribute("href", "https://support.yotpo.com/docs/exporting-reviews-from-yotpo");
+    expect(screen.getByRole("link", { name: "Open Loox CSV export documentation" })).toHaveAttribute("href", "https://help.loox.io/support/solutions/articles/501000162437/");
+    expect(screen.getByRole("link", { name: "Open Okendo CSV export documentation" })).toHaveAttribute("href", "https://support.okendo.io/en/articles/13909417-exporting-data-from-okendo");
+    expect(screen.getByRole("link", { name: "Open Stamped CSV export documentation" })).toHaveAttribute("href", "https://stampedsupport.stamped.io/hc/en-us/articles/8839244356891-Exporting-Reviews-Checkout-Comments-or-NPS");
   });
 
   it("does not start after completion is stored", () => {
@@ -44,6 +51,34 @@ describe("ProductPulseWizard", () => {
 
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/dashboard"));
     expect(await screen.findByRole("dialog", { name: /welcome to your product signal workspace/i })).toBeInTheDocument();
+    expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps the wizard open when the Yotpo Connect modal opens", async () => {
+    renderWizard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
+    await screen.findByRole("dialog", { name: "Connect Yotpo Reviews" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage Yotpo" }));
+
+    expect(await screen.findByRole("heading", { name: "Yotpo Reviews" })).toBeInTheDocument();
+    expect(screen.getByText("Connect Yotpo reviews")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Wizard controls" })).toBeInTheDocument();
+    expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps the wizard open when the Loox Connect modal opens", async () => {
+    renderWizard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
+    await screen.findByRole("dialog", { name: "Connect Loox Reviews" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage Loox" }));
+
+    expect(await screen.findByRole("heading", { name: "Loox Reviews" })).toBeInTheDocument();
+    expect(screen.getByText("Connect Loox reviews")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Wizard controls" })).toBeInTheDocument();
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
   });
 
@@ -156,7 +191,7 @@ describe("ProductPulseWizard", () => {
       expect(screen.getByRole("button", { name: "Analyze selected (1)" })).toHaveClass("ppWizardSpotlightTarget");
       expect(screen.getByRole("button", { name: "Analyze selected (1)" })).toHaveStyle({ "--pp-wizard-target-top": "0px" });
     });
-    expect(screen.getByTestId("candidate-toolbar")).not.toHaveClass("ppWizardSpotlightAncestor");
+    expect(screen.getByTestId("candidate-toolbar")).toHaveClass("ppWizardSpotlightAncestor");
     expect(screen.getByRole("button", { name: "Add selected products to Watchlist (1)" })).not.toHaveClass("ppWizardSpotlightTarget");
     expect(screen.getByRole("button", { name: "Analyze Candidate Product" })).not.toHaveClass("ppWizardSpotlightTarget");
     expect(screen.getByRole("button", { name: "Waiting for Product Diagnosis" })).toBeDisabled();
@@ -358,6 +393,22 @@ function WizardHarness() {
                     </button>
                   </td>
                 </tr>
+                <tr data-pp-connect-source-row="yotpoReviews">
+                  <td>Yotpo Reviews</td>
+                  <td>
+                    <button data-pp-connect-source-action="yotpoReviews" type="button" onClick={() => setOpenConnectModal("yotpo")}>
+                      Manage Yotpo
+                    </button>
+                  </td>
+                </tr>
+                <tr data-pp-connect-source-row="looxReviews">
+                  <td>Loox Reviews</td>
+                  <td>
+                    <button data-pp-connect-source-action="looxReviews" type="button" onClick={() => setOpenConnectModal("loox")}>
+                      Manage Loox
+                    </button>
+                  </td>
+                </tr>
                 <tr data-pp-connect-source-row="csvReviews">
                   <td>CSV Upload</td>
                   <td>
@@ -372,6 +423,22 @@ function WizardHarness() {
               <div className="ppConnectionModalOverlay" role="presentation">
                 <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="judgeme-connect-title">
                   <h2 id="judgeme-connect-title">Judge.me Reviews</h2>
+                  <button type="button" onClick={() => setOpenConnectModal("")}>Close</button>
+                </section>
+              </div>
+            ) : null}
+            {openConnectModal === "yotpo" ? (
+              <div className="ppConnectionModalOverlay" role="presentation">
+                <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="yotpo-connect-title">
+                  <h2 id="yotpo-connect-title">Yotpo Reviews</h2>
+                  <button type="button" onClick={() => setOpenConnectModal("")}>Close</button>
+                </section>
+              </div>
+            ) : null}
+            {openConnectModal === "loox" ? (
+              <div className="ppConnectionModalOverlay" role="presentation">
+                <section className="ppConnectionModal" role="dialog" aria-modal="true" aria-labelledby="loox-connect-title">
+                  <h2 id="loox-connect-title">Loox Reviews</h2>
                   <button type="button" onClick={() => setOpenConnectModal("")}>Close</button>
                 </section>
               </div>

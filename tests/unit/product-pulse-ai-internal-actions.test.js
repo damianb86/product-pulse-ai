@@ -82,6 +82,30 @@ describe("ProductPulse AI internal action registry", () => {
     expect(services.addWatchedProductForShop).not.toHaveBeenCalled();
   });
 
+  it("does not propose adding quickscan-only products to the watchlist", async () => {
+    const { registry, services } = createActionRegistry({
+      productRepository: {
+        getProductRiskDetail: vi.fn().mockResolvedValue(productFixture({
+          analysisDepth: "quickscan",
+          diagnosis: null,
+        })),
+      },
+    });
+
+    const result = await registry.createAiActionProposal(
+      context,
+      PRODUCT_PULSE_AI_ACTION_NAMES.addToWatchlist,
+      { productRef: "quickscan-product" },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatchObject({
+      code: "WATCHLIST_REQUIRES_COMPLETED_DIAGNOSIS",
+      message: expect.stringContaining("completed Product Diagnosis"),
+    });
+    expect(services.addWatchedProductForShop).not.toHaveBeenCalled();
+  });
+
   it("accepts productGid aliases from AI product cards and normalizes the stored proposal input", async () => {
     const { registry, productRepository } = createActionRegistry();
 
@@ -384,7 +408,7 @@ function createActionRegistry(overrides = {}) {
   return { registry, store, productRepository, services };
 }
 
-function productFixture() {
+function productFixture(overrides = {}) {
   return {
     productGid: "gid://shopify/Product/1",
     title: "Core Linen Trouser",
@@ -405,6 +429,7 @@ function productFixture() {
       ],
     },
     actionHistory: [],
+    ...overrides,
   };
 }
 
