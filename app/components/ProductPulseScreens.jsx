@@ -1963,8 +1963,11 @@ function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "
           <h3>Changes since previous run {windowLabel ? <span>{windowLabel}</span> : null}</h3>
           <div className="ppBetaFeedbackHeaderActions">
             <BetaFeedbackPanelControls panel={panel} />
+            <span className="ppWatchOverviewToolbarIcon" aria-hidden="true">
+              <s-icon type="filter" size="small"></s-icon>
+            </span>
             <label className="ppWatchOverviewSort">
-              <span>Sort by:</span>
+              <span>Sort by</span>
               <select value={sort} onChange={(event) => onSortChange?.(event.target.value)}>
                 <option value="urgency">Urgency</option>
                 <option value="risk">Risk</option>
@@ -1995,6 +1998,14 @@ function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "
 }
 
 function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
+  const sourceMetric = getWatchOverviewPrimaryMetric(row);
+  const metrics = [
+    { id: "risk", label: "Risk", value: row.riskDeltaLabel, tone: row.riskDeltaTone },
+    { id: "momentum", label: "Momentum", value: row.momentumDeltaLabel, tone: row.momentumDeltaTone },
+    { id: "margin", label: "Margin", value: row.marginDeltaLabel, tone: row.marginDeltaTone },
+    sourceMetric,
+  ].filter(Boolean);
+
   return (
     <article className={`ppWatchOverviewProductRow ppWatchOverviewProductRow-${row.tone || "neutral"}`}>
       <span className={`ppWatchOverviewRank ppWatchOverviewRank-${row.tone || "neutral"}`}>{rank}</span>
@@ -2014,29 +2025,51 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
         </span>
       </Link>
       <div className="ppWatchOverviewPrimaryChange">
-        <strong>{row.changeTitle}</strong>
-        <span>{row.changeDetail}</span>
+        <span className={`ppWatchOverviewChangeIcon ppWatchOverviewChangeIcon-${row.tone || "neutral"}`} aria-hidden="true">
+          <ProductPulseGlyph type={getWatchOverviewEventIcon(row)} />
+        </span>
+        <span className="ppWatchOverviewPrimaryChangeText">
+          <strong>{row.changeTitle}</strong>
+          <span>{row.changeDetail}</span>
+        </span>
       </div>
       <div className="ppWatchOverviewMetricPack">
-        <WatchOverviewTinyMetric label="Risk" value={row.riskDeltaLabel} tone={row.riskDeltaTone} />
-        <WatchOverviewTinyMetric label="Sales Momentum" value={row.momentumDeltaLabel} tone={row.momentumDeltaTone} />
-        <WatchOverviewTinyMetric label="Margin" value={row.marginDeltaLabel} tone={row.marginDeltaTone} />
-      </div>
-      <div className="ppWatchOverviewSourceDeltas" aria-label={`${row.title} source deltas`}>
-        {row.sourceDeltas.map((item) => (
-          <span className={`ppWatchOverviewSourceDelta ppWatchOverviewSourceDelta-${item.tone || "neutral"}`} key={item.id}>
-            <b>{item.label}</b>
-            <em>{item.value}</em>
-          </span>
+        {metrics.map((metric) => (
+          <WatchOverviewTinyMetric label={metric.label} value={metric.value} tone={metric.tone} key={metric.id || metric.label} />
         ))}
       </div>
       <div className="ppWatchOverviewRecommendation">
-        <span>{row.recommendationLabel}</span>
-        <p>{row.recommendationDetail}</p>
-        <Link to={row.watchlistHref || row.href || "/app/watchlist"}>View product <s-icon type="chevron-right" size="small"></s-icon></Link>
+        <Link className="ppWatchOverviewEvidenceLink" to={row.watchlistHref || row.href || "/app/watchlist"}>
+          <s-icon type="file" size="small"></s-icon>
+          Review evidence
+        </Link>
+        <Link className="ppWatchOverviewProductButton" to={row.watchlistHref || row.href || "/app/watchlist"}>
+          View product <s-icon type="chevron-right" size="small"></s-icon>
+        </Link>
       </div>
     </article>
   );
+}
+
+function getWatchOverviewPrimaryMetric(row = {}) {
+  const sourceDeltas = Array.isArray(row.sourceDeltas) ? row.sourceDeltas : [];
+  const changedSource = sourceDeltas.find((item) => Number(item.delta || 0) !== 0)
+    || sourceDeltas.find((item) => item.value && item.value !== "-");
+  if (changedSource) {
+    return {
+      id: changedSource.id,
+      label: changedSource.label,
+      value: changedSource.value,
+      tone: changedSource.tone,
+    };
+  }
+  const label = Number(row.sourceChangeCount || 0) > 0 ? "Signals" : "Changes";
+  return {
+    id: "signals",
+    label,
+    value: formatInteger(row.sourceChangeCount || row.changeCount || 0),
+    tone: row.tone === "high" || row.tone === "medium" ? "bad" : "neutral",
+  };
 }
 
 function WatchOverviewTinyMetric({ label, value, tone = "neutral" }) {
