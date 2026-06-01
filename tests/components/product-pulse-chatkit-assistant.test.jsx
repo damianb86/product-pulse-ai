@@ -113,6 +113,37 @@ describe("ProductPulseChatKitAssistant", () => {
     expect(useChatKit.mock.calls.at(-1)[0].thread.autoScroll).toBe(false);
     expect(useChatKit.mock.calls.at(-1)[0].theme.colorScheme).toBe("dark");
     expect(useChatKit.mock.calls.at(-1)[0].header.enabled).toBe(false);
+    expect(useChatKit.mock.calls.at(-1)[0].startScreen).toMatchObject({ greeting: "", prompts: [] });
+  });
+
+  it("renders a compact custom start screen with quick prompts", async () => {
+    renderWithRouter(
+      <ProductPulseChatKitAssistant
+        config={{
+          enabled: true,
+          apiUrl: "/api/ai/chatkit/message",
+          domainKey: "domain_pk_test",
+          disabledReason: null,
+        }}
+        pageContext={{ type: "dashboard" }}
+      />,
+    );
+
+    const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
+    fireEvent.load(script);
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
+    await screen.findByTestId("chatkit");
+
+    expect(screen.getByRole("heading", { name: "Ask what to review, why it matters, and what to do next" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: /products|report|drivers|watchlist|summary|actions|scoring|issue/i })).toHaveLength(8);
+
+    const methods = useChatKit.mock.results.at(-1).value;
+    fireEvent.click(screen.getByRole("button", { name: /Priority products/i }));
+
+    await waitFor(() => {
+      expect(methods.sendUserMessage).toHaveBeenCalledWith({ text: "Which unresolved products should I review first and why?" });
+    });
+    expect(screen.queryByRole("heading", { name: "Ask what to review, why it matters, and what to do next" })).not.toBeInTheDocument();
   });
 
   it("lets the assistant header switch between light and dark themes", async () => {

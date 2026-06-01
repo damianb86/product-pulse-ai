@@ -17,6 +17,7 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
   const [conversationId, setConversationId] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [themeMode, setThemeMode] = useState("dark");
+  const [startScreenDismissed, setStartScreenDismissed] = useState(false);
   const chatKitMethodsRef = useRef(null);
   const conversationIdRef = useRef("");
   const pageContextRef = useRef(pageContext || { type: "unknown" });
@@ -29,6 +30,7 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     : "";
   const isDarkTheme = themeMode === "dark";
   const chatKitControlsReady = enabled && isMounted && chatKitScriptReady;
+  const starterContent = useMemo(() => getStarterContent(normalizedPageContext), [normalizedPageContext]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -158,6 +160,7 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     conversationIdRef.current = "";
     setConversationId("");
     backendSessionRef.current = null;
+    setStartScreenDismissed(false);
     writeStoredConversationId("");
 
     try {
@@ -184,6 +187,24 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
       window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail: { type: "chat-opened" } }));
     }
   }, [quotaExceededMessage]);
+
+  const sendStarterPrompt = useCallback(async (prompt) => {
+    const text = typeof prompt === "string" ? prompt.trim() : "";
+    if (!text) return;
+    const methods = chatKitMethodsRef.current;
+    if (!methods?.sendUserMessage) {
+      setStatusMessage("The assistant is still loading. Try again in a moment.");
+      return;
+    }
+    setStatusMessage("");
+    setStartScreenDismissed(true);
+    try {
+      await methods.sendUserMessage({ text });
+    } catch {
+      setStartScreenDismissed(false);
+      setStatusMessage("I could not send that prompt. Try typing it below.");
+    }
+  }, []);
 
   const chatKit = useChatKit({
     api: {
@@ -218,8 +239,8 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     },
     initialThread: conversationId || null,
     startScreen: {
-      greeting: "Ask about ProductPulse risk, evidence, analytics, or watchlist status.",
-      prompts: getStarterPrompts(normalizedPageContext),
+      greeting: "",
+      prompts: [],
     },
     composer: {
       placeholder: normalizedPageContext.type === "product"
@@ -238,6 +259,7 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
       const nextThreadId = typeof event?.threadId === "string" ? event.threadId.trim() : "";
       conversationIdRef.current = nextThreadId;
       setConversationId(nextThreadId);
+      setStartScreenDismissed(Boolean(nextThreadId));
       backendSessionRef.current = null;
       writeStoredConversationId(nextThreadId);
     },
@@ -256,6 +278,7 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     isExpanded ? "ppChatKitAssistant-expanded" : "",
     isDarkTheme ? "ppChatKitAssistant-dark" : "ppChatKitAssistant-light",
   ].filter(Boolean).join(" ");
+  const showStarterScreen = enabled && isMounted && chatKitScriptReady && !conversationId && !startScreenDismissed;
 
   return (
     <aside className={assistantClassName} aria-label={`${CHATKIT_ASSISTANT_NAME} assistant`} data-pp-chat-assistant={isOpen ? "open" : "closed"}>
@@ -322,7 +345,12 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
               {config?.disabledReason || "ChatKit is not configured."}
             </div>
           ) : isMounted && chatKitScriptReady ? (
-            <ChatKit control={chatKit.control} className="ppChatKitSurface" />
+            <div className="ppChatKitBody">
+              <ChatKit control={chatKit.control} className="ppChatKitSurface" />
+              {showStarterScreen ? (
+                <ProductPulseChatKitStartScreen content={starterContent} onSelectPrompt={sendStarterPrompt} />
+              ) : null}
+            </div>
           ) : (
             <div className="ppChatKitDisabled" role="status">Loading assistant...</div>
           )}
@@ -403,6 +431,76 @@ function ChatKitHeaderIcon({ type }) {
       <path d="M17.5 6.5L6.5 17.5" />
     </svg>
   );
+}
+
+function ProductPulseChatKitStartScreen({ content, onSelectPrompt }) {
+  const actions = Array.isArray(content?.actions) ? content.actions : [];
+  return (
+    <section className="ppChatKitStartScreen" aria-label="Pulse Guide start screen">
+      <div className="ppChatKitStartIntro">
+        <span>{content.eyebrow}</span>
+        <h2>{content.title}</h2>
+        <p>{content.description}</p>
+      </div>
+      <div className="ppChatKitStartCapabilityGrid" aria-label="Pulse Guide capabilities">
+        {(content.capabilities || []).map((capability) => (
+          <span key={capability}>{capability}</span>
+        ))}
+      </div>
+      <div className="ppChatKitStartPromptGrid" aria-label="Quick questions">
+        {actions.map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            className={`ppChatKitStartPrompt ppChatKitStartPrompt-${action.tone || "green"}`}
+            onClick={() => onSelectPrompt(action.prompt)}
+          >
+            <span className="ppChatKitStartPromptIcon" aria-hidden="true">
+              <ChatKitStarterIcon type={action.icon} />
+            </span>
+            <span>
+              <strong>{action.label}</strong>
+              <small>{action.description}</small>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ChatKitStarterIcon({ type }) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    "aria-hidden": "true",
+    focusable: "false",
+  };
+  if (type === "risk") {
+    return <svg {...commonProps}><path d="M12 3.8 19.2 7v5.4c0 4.1-2.8 6.7-7.2 7.8-4.4-1.1-7.2-3.7-7.2-7.8V7L12 3.8Z" /><path d="M12 8.2v4.4" /><path d="M12 16.2h.01" /></svg>;
+  }
+  if (type === "evidence") {
+    return <svg {...commonProps}><path d="M7.2 4.8h6.2l3.4 3.4v11H7.2z" /><path d="M13.4 4.8v3.4h3.4" /><path d="M9.6 11.2h4.8" /><path d="M9.6 14.2h4.8" /><path d="M9.6 17.2h3" /></svg>;
+  }
+  if (type === "metrics") {
+    return <svg {...commonProps}><path d="M4.8 18.8h14.4" /><path d="M7.2 15.8v-4.2" /><path d="M12 15.8V7.4" /><path d="M16.8 15.8v-6.1" /><path d="m6.4 9.8 4.1-3.2 3.3 2.4 4-4.1" /></svg>;
+  }
+  if (type === "actions") {
+    return <svg {...commonProps}><path d="M5.4 17.8c3.2-4.6 7.2-7.7 13.2-9.9" /><path d="m15.6 6.4 3.4 1.3-1.3 3.4" /><circle cx="6.6" cy="17.2" r="2" /><path d="m11.2 4.5.6 1.5 1.5.6-1.5.6-.6 1.5-.6-1.5-1.5-.6 1.5-.6z" /></svg>;
+  }
+  if (type === "edit") {
+    return <svg {...commonProps}><path d="M5.4 15.8 15.8 5.4a2.2 2.2 0 0 1 3.1 3.1L8.5 18.9H5.4z" /><path d="m14.4 6.8 2.8 2.8" /></svg>;
+  }
+  if (type === "method") {
+    return <svg {...commonProps}><circle cx="12" cy="12" r="7.4" /><path d="M12 8.3v3.9" /><path d="M12 15.7h.01" /></svg>;
+  }
+  if (type === "watchlist") {
+    return <svg {...commonProps}><path d="M12 4.3 14.3 9l5.2.8-3.8 3.7.9 5.2-4.6-2.4-4.6 2.4.9-5.2L4.5 9.8 9.7 9z" /></svg>;
+  }
+  if (type === "support") {
+    return <svg {...commonProps}><path d="M5 12.8a7 7 0 0 1 14 0v3.4a2 2 0 0 1-2 2h-2.2" /><path d="M5 13h3v5H6.8A1.8 1.8 0 0 1 5 16.2z" /><path d="M19 13h-3v5h1.2a1.8 1.8 0 0 0 1.8-1.8z" /><path d="M10.5 19h3" /></svg>;
+  }
+  return <svg {...commonProps}><path d="M4.8 12h14.4" /><path d="M12 4.8v14.4" /></svg>;
 }
 
 function navigateToProductPulseUrl(url, setStatusMessage, navigate) {
@@ -516,18 +614,40 @@ function parseJsonBody(body) {
   }
 }
 
-function getStarterPrompts(pageContext) {
+function getStarterContent(pageContext) {
   if (pageContext?.type === "product") {
-    return [
-      { label: "Explain this product", prompt: "Explain this product's current risk.", icon: "analytics" },
-      { label: "Show evidence", prompt: "Show the evidence behind this product diagnosis.", icon: "document" },
-      { label: "Next steps", prompt: "What should I review next for this product?", icon: "lightbulb" },
-    ];
+    return {
+      eyebrow: "Product context",
+      title: "Ask Pulse Guide about this product",
+      description: "Use the assistant to read ProductPulse data, explain risk, surface evidence, and prepare confirmed app-owned actions. It will not change Shopify directly.",
+      capabilities: ["Risk", "Evidence", "Metrics", "Internal actions"],
+      actions: [
+        { label: "Explain risk", description: "Why this product is flagged", icon: "risk", tone: "red", prompt: "Explain this product's current risk, confidence, and impact." },
+        { label: "Show evidence", description: "Returns, refunds, reviews, signals", icon: "evidence", tone: "blue", prompt: "Show the strongest evidence behind this product diagnosis." },
+        { label: "Key metrics", description: "Compact numbers to review", icon: "metrics", tone: "green", prompt: "Summarize the key ProductPulse metrics for this product." },
+        { label: "Recommended actions", description: "What to review first", icon: "actions", tone: "purple", prompt: "List the recommended actions for this product and explain which one I should review first." },
+        { label: "Create action", description: "Prepare an app-owned action", icon: "edit", tone: "amber", prompt: "Help me create a new internal ProductPulse action for this product. Ask what type of action I want." },
+        { label: "Rewrite action", description: "Edit an existing recommendation", icon: "edit", tone: "purple", prompt: "Guide me to rewrite an existing recommended action for this product." },
+        { label: "Explain scoring", description: "How the scores are calculated", icon: "method", tone: "blue", prompt: "Explain how ProductPulse calculates this product's scores and what each score means." },
+        { label: "Report issue", description: "Send context to support", icon: "support", tone: "slate", prompt: "I need to report a problem with this product analysis." },
+      ],
+    };
   }
 
-  return [
-    { label: "High risk products", prompt: "Which products should I review first?", icon: "search" },
-    { label: "Store analytics", prompt: "Summarize my ProductPulse analytics.", icon: "chart" },
-    { label: "Watchlist status", prompt: "What is happening on my watchlist?", icon: "star" },
-  ];
+  return {
+    eyebrow: "ProductPulse assistant",
+    title: "Ask what to review, why it matters, and what to do next",
+    description: "Pulse Guide can read ProductPulse data, explain scoring and evidence, summarize the catalog, and prepare confirmed internal actions. Shopify changes stay outside the chat.",
+    capabilities: ["Catalog risk", "Analytics", "Watchlist", "Guidance"],
+    actions: [
+      { label: "Priority products", description: "Unresolved products to review first", icon: "risk", tone: "red", prompt: "Which unresolved products should I review first and why?" },
+      { label: "Marketing report", description: "Catalog summary for planning", icon: "metrics", tone: "green", prompt: "Analyze all unresolved products and give me a concise marketing-ready report." },
+      { label: "Top risk drivers", description: "Common issues across products", icon: "evidence", tone: "blue", prompt: "What are the most common product issues across my catalog?" },
+      { label: "Watchlist status", description: "Current monitored products", icon: "watchlist", tone: "purple", prompt: "Summarize the current ProductPulse watchlist status." },
+      { label: "Analytics summary", description: "Trends, impact, and signals", icon: "metrics", tone: "blue", prompt: "Summarize my ProductPulse analytics and important trends." },
+      { label: "Actions to review", description: "Internal recommendations pending", icon: "actions", tone: "amber", prompt: "Show recommended internal actions that need review." },
+      { label: "Explain scoring", description: "Risk, momentum, impact, confidence", icon: "method", tone: "green", prompt: "Explain how ProductPulse scores risk, momentum, impact, and confidence." },
+      { label: "Report issue", description: "Send context to support", icon: "support", tone: "slate", prompt: "I need help reporting a problem with the app." },
+    ],
+  };
 }
