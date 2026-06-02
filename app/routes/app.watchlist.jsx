@@ -110,7 +110,7 @@ export const action = async ({ request }) => {
       await recordWatchActivityForShop(session.shop, {
         eventType: "watch_manual_scan_credit_exhausted",
         title: "Manual Watchlist Product Diagnosis skipped",
-        detail: "The manual Watchlist scan could not queue Product Diagnosis because the shop has no available diagnosis credits.",
+        detail: "The manual Watchlist scan could not queue Product Diagnosis because the shop has no available credits.",
         metadata: {
           triggeredBy: "watchlist-manual-run",
           forceEmail: true,
@@ -132,7 +132,7 @@ export const action = async ({ request }) => {
       });
       return {
         status: "validation_error",
-        message: "No watched Product Diagnosis jobs were queued because this shop has no available diagnosis credits.",
+        message: "No watched Product Diagnosis jobs were queued because this shop has no available credits.",
         action: { id: "run-watch-scan" },
       };
     }

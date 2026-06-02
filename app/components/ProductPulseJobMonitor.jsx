@@ -252,7 +252,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       onCancelJob={(job) => {
         if (!job?.id) return;
         const confirmed = window.confirm(
-          `Cancel ${getJobTitle(job)}?\n\nThis will stop tracking this queued or running background process. If diagnosis credits were already consumed for this job, they will not be automatically refunded.`,
+          `Cancel ${getJobTitle(job)}?\n\nThis will stop tracking this queued or running background process. If credits were already consumed for this job, they will not be automatically refunded.`,
         );
         if (!confirmed) return;
         const formData = new FormData();
@@ -447,10 +447,10 @@ function ProductPulseGlobalTopbar({
           <button
             className={`ppGlobalTopbarPoints${isCreditsOpen ? " isActive" : ""}`}
             type="button"
-            aria-label={`${pointLabel} Diagnosis Credits available`}
+            aria-label={`${pointLabel} Credits available`}
             aria-expanded={isCreditsOpen}
             aria-controls="pp-global-credits"
-            title={`${pointLabel} Diagnosis Credits available`}
+            title={`${pointLabel} Credits available`}
             onClick={() => setActivePopover(isCreditsOpen ? null : "credits")}
           >
             <span className="ppGlobalTopbarWalletIcon" aria-hidden="true">
@@ -472,12 +472,12 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
   const activity = summary.activity;
 
   return (
-    <div className="ppGlobalTopbarPopover ppGlobalTopbarCreditsPopover" id={id} role="dialog" aria-label="Diagnosis credit details">
-      <section className="ppCreditsSummaryPanel" aria-label="Diagnosis credit summary">
+    <div className="ppGlobalTopbarPopover ppGlobalTopbarCreditsPopover" id={id} role="dialog" aria-label="Credit details">
+      <section className="ppCreditsSummaryPanel" aria-label="Credit summary">
         <div className="ppCreditsSummaryMetric">
           <span>Total remaining</span>
           <strong>{summary.remainingLabel}</strong>
-          <small>Diagnosis Credits</small>
+          <small>Credits</small>
         </div>
         <div className="ppCreditsSummaryMetric">
           <span>Current plan</span>
@@ -486,7 +486,7 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
         </div>
         <div className="ppCreditsSummaryMetric ppCreditsUsageMetric">
           <span>Usage this period</span>
-          <strong><b>{summary.usage.usedLabel}</b> / {summary.usage.totalLabel} diagnosis credits used</strong>
+          <strong><b>{summary.usage.usedLabel}</b> / {summary.usage.totalLabel} credits used</strong>
           <div className="ppCreditsProgress" aria-hidden="true">
             <span style={{ width: `${summary.usage.progressPercent}%` }} />
           </div>
@@ -494,8 +494,8 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
         </div>
       </section>
 
-      <section className="ppCreditsActivity" aria-label="Recent diagnosis credit activity">
-        <h2>Recent diagnosis credit activity</h2>
+      <section className="ppCreditsActivity" aria-label="Recent credit activity">
+        <h2>Recent credit activity</h2>
         {activity.length ? (
           <ul>
             {activity.map((item) => (
@@ -515,14 +515,14 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
             ))}
           </ul>
         ) : (
-          <p className="ppCreditsActivityEmpty">No recent diagnosis credit activity.</p>
+          <p className="ppCreditsActivityEmpty">No recent credit activity.</p>
         )}
       </section>
 
       <footer className="ppCreditsFooter">
-        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">Review diagnosis credits</Link>
+        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">Review credits</Link>
         <Link to="/app/plans-and-credits">
-          View diagnosis credits
+          View credits
           <s-icon type="chevron-right" size="small"></s-icon>
         </Link>
       </footer>
@@ -562,8 +562,8 @@ function normalizeCreditActivity(activity) {
   return activity.map((item, index) => ({
     id: item.id || `${item.title || "diagnosis-credit-activity"}-${index}`,
     icon: item.icon || "product",
-    title: item.title || "Diagnosis credit activity",
-    detail: item.detail || "Diagnosis Credits",
+    title: item.title || "Credit activity",
+    detail: item.detail || "Credits",
     amountLabel: item.amountLabel || formatSignedCreditValue(item.amount),
     timeLabel: item.timeLabel || item.time || "",
   }));
@@ -592,7 +592,7 @@ function formatSignedCreditValue(value) {
   const number = Number(value);
   const amount = normalizeCreditValue(Math.abs(Number.isFinite(number) ? number : 0));
   const sign = number < 0 ? "-" : "+";
-  return `${sign}${formatCompactCreditValue(amount)} diagnosis credit${amount === 1 ? "" : "s"}`;
+  return `${sign}${formatCompactCreditValue(amount)} credit${amount === 1 ? "" : "s"}`;
 }
 
 function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, searchInputRef, onClose }) {
@@ -832,7 +832,7 @@ function getJobTimeMetaLabel(job) {
 function getJobCreditLabel(job) {
   const points = Number(job.pointsConsumed ?? job.creditsConsumed ?? job.credits ?? job.creditCost ?? (job.kind === "product-diagnosis" ? 1 : 0));
   if (!Number.isFinite(points) || points <= 0) return "";
-  return `${formatPointBalanceLabel({ available: points })} diagnosis credit${points === 1 ? "" : "s"}`;
+  return `${formatPointBalanceLabel({ available: points })} credit${points === 1 ? "" : "s"}`;
 }
 
 function formatPointBalanceLabel(pointBalance) {

@@ -44,6 +44,33 @@ const APP_PURCHASE_STATUS = `#graphql
   }
 `;
 
+const APP_SUBSCRIPTION_CREATE = `#graphql
+  mutation ProductPulseStarterSubscriptionCreate(
+    $name: String!
+    $returnUrl: URL!
+    $test: Boolean
+    $lineItems: [AppSubscriptionLineItemInput!]!
+  ) {
+    appSubscriptionCreate(
+      name: $name
+      returnUrl: $returnUrl
+      test: $test
+      lineItems: $lineItems
+    ) {
+      confirmationUrl
+      userErrors {
+        field
+        message
+      }
+      appSubscription {
+        id
+        name
+        status
+      }
+    }
+  }
+`;
+
 export const PRODUCT_PULSE_FREE_PLAN = {
   key: "free",
   name: "Free",
@@ -152,9 +179,55 @@ export async function resolveProductPulseBillingPlan({ admin, billing, session, 
   };
 }
 
+export async function createProductPulseStarterSubscription(shop, admin, returnUrl) {
+  const isTestBilling = await shouldUseProductPulseTestBilling(admin, shop);
+  const response = await admin.graphql(APP_SUBSCRIPTION_CREATE, {
+    variables: {
+      name: PRODUCT_PULSE_STARTER_PLAN,
+      returnUrl,
+      test: isTestBilling,
+      lineItems: [
+        {
+          plan: {
+            appRecurringPricingDetails: {
+              interval: "EVERY_30_DAYS",
+              price: {
+                amount: PRODUCT_PULSE_STARTER_PLAN_CONFIG.priceCents / 100,
+                currencyCode: PRODUCT_PULSE_STARTER_PLAN_CONFIG.currencyCode,
+              },
+            },
+          },
+        },
+      ],
+    },
+  });
+  const body = await readGraphql(response);
+  const payload = readObject(readObject(body.data).appSubscriptionCreate);
+  const userErrors = Array.isArray(payload.userErrors) ? payload.userErrors : [];
+  if (userErrors.length) {
+    const message = userErrors
+      .map((error) => readObject(error).message)
+      .filter(Boolean)
+      .join(", ");
+    throw new ProductPulseBillingError(message || "Shopify could not create the Starter subscription.");
+  }
+
+  const appSubscription = readObject(payload.appSubscription);
+  const confirmationUrl = String(payload.confirmationUrl || "");
+  if (!confirmationUrl) {
+    throw new ProductPulseBillingError("Shopify did not return a confirmation URL for the Starter subscription.");
+  }
+
+  return {
+    confirmationUrl,
+    subscriptionId: String(appSubscription.id || ""),
+    status: String(appSubscription.status || "").toLowerCase(),
+  };
+}
+
 export async function createProductPulseCreditPurchase(shop, packageId, admin, returnUrl) {
   const pkg = readCreditPackage(packageId);
-  const billingName = `ProductPulse ${formatWholeNumber(pkg.credits)} diagnosis credits`;
+  const billingName = `ProductPulse ${formatWholeNumber(pkg.credits)} credits`;
   const isTestBilling = await shouldUseProductPulseTestBilling(admin, shop);
   const purchase = await prisma.creditPurchase.create({
     data: {
@@ -190,14 +263,14 @@ export async function createProductPulseCreditPurchase(shop, packageId, admin, r
         .map((error) => readObject(error).message)
         .filter(Boolean)
         .join(", ");
-      throw new ProductPulseBillingError(message || "Shopify could not create the diagnosis credit purchase.");
+      throw new ProductPulseBillingError(message || "Shopify could not create the credit purchase.");
     }
 
     const appPurchase = readObject(payload.appPurchaseOneTime);
     const confirmationUrl = String(payload.confirmationUrl || "");
     const shopifyPurchaseId = String(appPurchase.id || "");
     if (!confirmationUrl || !shopifyPurchaseId) {
-      throw new ProductPulseBillingError("Shopify did not return a confirmation URL for this diagnosis credit purchase.");
+      throw new ProductPulseBillingError("Shopify did not return a confirmation URL for this credit purchase.");
     }
 
     await prisma.creditPurchase.update({
@@ -211,7 +284,7 @@ export async function createProductPulseCreditPurchase(shop, packageId, admin, r
 
     return { confirmationUrl, purchaseId: purchase.id };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not create diagnosis credit purchase.";
+    const message = error instanceof Error ? error.message : "Could not create credit purchase.";
     await prisma.creditPurchase.update({
       where: { id: purchase.id },
       data: { status: "failed", lastError: message },
@@ -223,13 +296,13 @@ export async function createProductPulseCreditPurchase(shop, packageId, admin, r
 export async function finalizeProductPulseCreditPurchase(shop, purchaseId, admin, options = {}) {
   const purchase = await prisma.creditPurchase.findFirst({ where: { id: purchaseId, shop } });
   if (!purchase) {
-    return { ok: false, message: "Diagnosis credit purchase was not found." };
+    return { ok: false, message: "Credit purchase was not found." };
   }
   if (purchase.status === "credited") {
-    return { ok: true, message: `${formatWholeNumber(purchase.credits)} diagnosis credits were already added.` };
+    return { ok: true, message: `${formatWholeNumber(purchase.credits)} credits were already added.` };
   }
   if (!purchase.shopifyPurchaseId) {
-    return { ok: false, message: "Diagnosis credit purchase is missing Shopify confirmation data." };
+    return { ok: false, message: "Credit purchase is missing Shopify confirmation data." };
   }
 
   let status = "";
@@ -243,7 +316,7 @@ export async function finalizeProductPulseCreditPurchase(shop, purchaseId, admin
   if (status === "active") {
     const result = await recordExtraCreditPackForShop(shop, {
       amount: purchase.credits,
-      packLabel: `${formatWholeNumber(purchase.credits)} diagnosis credits`,
+      packLabel: `${formatWholeNumber(purchase.credits)} credits`,
       purchaseId: purchase.id,
       orderId: purchase.shopifyPurchaseId,
       priceCents: purchase.amountCents,
@@ -256,7 +329,7 @@ export async function finalizeProductPulseCreditPurchase(shop, purchaseId, admin
     return {
       ok: true,
       credited: result.credited,
-      message: `${formatPointAmount(purchase.credits)} diagnosis credits added to your shop.`,
+      message: `${formatPointAmount(purchase.credits)} credits added to your shop.`,
     };
   }
 
@@ -272,8 +345,8 @@ export async function finalizeProductPulseCreditPurchase(shop, purchaseId, admin
     ok: false,
     pending: !status || status === "pending",
     message: !status || status === "pending"
-      ? "Shopify is still confirming this diagnosis credit purchase. Keep this page open and refresh in a few seconds."
-      : "Diagnosis credit purchase was not approved.",
+      ? "Shopify is still confirming this credit purchase. Keep this page open and refresh in a few seconds."
+      : "Credit purchase was not approved.",
   };
 }
 
@@ -365,7 +438,7 @@ function planView(plan) {
 
 function readCreditPackage(packageId) {
   const pkg = PRODUCT_PULSE_CREDIT_PACKAGES.find((candidate) => candidate.id === packageId);
-  if (!pkg) throw new ProductPulseBillingError("Select a valid diagnosis credit package.");
+  if (!pkg) throw new ProductPulseBillingError("Select a valid credit package.");
   return pkg;
 }
 

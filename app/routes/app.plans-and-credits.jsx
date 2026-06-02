@@ -3,10 +3,10 @@ import { Buffer } from "node:buffer";
 import process from "node:process";
 import { authenticate } from "../shopify.server";
 import { PlansCreditsScreen } from "../components/ProductPulseScreens";
-import { PRODUCT_PULSE_STARTER_PLAN } from "../lib/product-pulse-billing-config";
 import { getAppViewData } from "../lib/product-pulse-data";
 import {
   getProductPulseBillingView,
+  createProductPulseStarterSubscription,
   createProductPulseCreditPurchase,
   finalizeProductPulseCreditPurchase,
   resolveProductPulseBillingPlan,
@@ -81,31 +81,19 @@ export const action = async ({ request }) => {
   const intent = String(formData.get("intent") || "");
 
   if (intent === "subscribe-starter") {
-    const isTest = await shouldUseProductPulseTestBilling(admin, session.shop);
     try {
-      const billingRequestResult = await billing.request({
-        plan: PRODUCT_PULSE_STARTER_PLAN,
-        isTest,
-        returnUrl: billingReturnUrl(request, session.shop),
-      });
-      const confirmationUrl = typeof billingRequestResult === "string"
-        ? billingRequestResult
-        : billingRequestResult?.confirmationUrl;
-      if (confirmationUrl) {
-        return {
-          ok: true,
-          intent,
-          message: "Opening Shopify billing approval...",
-          confirmationUrl,
-        };
-      }
+      const subscription = await createProductPulseStarterSubscription(
+        session.shop,
+        admin,
+        billingReturnUrl(request, session.shop),
+      );
       return {
         ok: true,
         intent,
         message: "Opening Shopify billing approval...",
+        confirmationUrl: subscription.confirmationUrl,
       };
     } catch (error) {
-      if (error instanceof Response) throw error;
       const serialized = serializeProductPulseBillingError(error);
       return {
         ok: false,

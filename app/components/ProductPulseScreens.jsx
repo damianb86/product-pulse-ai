@@ -5877,7 +5877,7 @@ const PLANS_CREDIT_PLANS = [
     key: "free",
     name: "Free",
     basePriceCents: 0,
-    credits: "10 diagnosis credits included",
+    credits: "10 credits included",
     monthlyCredits: 10,
     limits: {
       deepDiagnostics: "10 total",
@@ -5895,7 +5895,7 @@ const PLANS_CREDIT_PLANS = [
     name: "Starter",
     basePriceCents: 900,
     compareAtPriceCents: 1800,
-    credits: "50 diagnosis credits /mo",
+    credits: "50 credits /mo",
     monthlyCredits: 50,
     limits: {
       deepDiagnostics: "50 /mo",
@@ -5911,7 +5911,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "growth",
     name: "Growth",
-    credits: "150 diagnosis credits /mo",
+    credits: "150 credits /mo",
     monthlyCredits: 150,
     badge: "Recommended",
     featured: true,
@@ -5930,7 +5930,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "pro",
     name: "Pro",
-    credits: "400 diagnosis credits /mo",
+    credits: "400 credits /mo",
     monthlyCredits: 400,
     unavailable: true,
     limits: {
@@ -5947,7 +5947,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "premium",
     name: "Premium",
-    credits: "1,000 diagnosis credits /mo",
+    credits: "1,000 credits /mo",
     monthlyCredits: 1000,
     badge: "Best value",
     premium: true,
@@ -5973,7 +5973,7 @@ const PLANS_CREDIT_FEATURES = [
   { icon: "binoculars", label: "Products monitored in Watchlist", getValue: (plan) => plan.limits.watchlistProducts },
   { icon: "export", label: "Exports", getValue: (plan) => plan.limits.exports },
   { icon: "support", label: "Support level", getValue: (plan) => plan.limits.support },
-  { icon: "shield", label: "Can buy extra diagnosis credits", getValue: (plan) => plan.limits.extraCredits },
+  { icon: "shield", label: "Can buy extra credits", getValue: (plan) => plan.limits.extraCredits },
 ];
 
 const EXTRA_CREDIT_PACKS = [
@@ -5997,14 +5997,14 @@ const PLAN_USAGE_OPTIONS = [
     icon: "heart",
     title: "Growing usage",
     volume: "50-200 / month",
-    detail: "Growth offers the best balance of diagnosis credits, features, and flexibility.",
+    detail: "Growth offers the best balance of credits, features, and flexibility.",
   },
   {
     tone: "heavy",
     icon: "bars",
     title: "Heavy usage",
     volume: "200+ / month",
-    detail: "Pro or Premium gives you more diagnosis credits, exports, and the strongest support coverage.",
+    detail: "Pro or Premium gives you more credits, exports, and the strongest support coverage.",
   },
 ];
 
@@ -6033,7 +6033,7 @@ function getPlansCreditActivityRows(pointSummary) {
     const direction = entry?.direction === "debit" ? "debit" : "credit";
     return {
       id: entry?.id || `${entry?.title || "diagnosis-credit"}-${entry?.createdAtIso || entry?.timeLabel || ""}`,
-      title: entry?.title || (direction === "debit" ? "Diagnosis credit usage" : "Diagnosis credit added"),
+      title: entry?.title || (direction === "debit" ? "Credit usage" : "Credit added"),
       detail: entry?.detail || entry?.reason || "",
       direction,
       typeLabel: direction === "debit" ? "Spent" : "Earned",
@@ -6057,7 +6057,7 @@ function getPlansCreditPackViews(data = {}) {
         ? formatPlansCurrency(pack.compareAtPriceCents || 0, pack.currencyCode || "USD")
         : ""
     ),
-    description: pack.description || "Extra diagnosis credits",
+    description: pack.description || "Extra credits",
   }));
 }
 
@@ -6143,7 +6143,7 @@ export function PlansCreditsScreen({ data = {} }) {
       })),
     },
   });
-  const creditPacksFeedbackPanel = buildBetaFeedbackPanel("plans.extraCreditPacks", "Extra diagnosis credit packs", {
+  const creditPacksFeedbackPanel = buildBetaFeedbackPanel("plans.extraCreditPacks", "Extra credit packs", {
     ...plansFeedbackContext,
     extraCreditPacks: EXTRA_CREDIT_PACKS.map((pack) => ({
       credits: pack.credits,
@@ -6151,7 +6151,7 @@ export function PlansCreditsScreen({ data = {} }) {
     })),
   });
   const billingFeedbackPanel = buildBetaFeedbackPanel("plans.billingInformation", "Billing information", plansFeedbackContext);
-  const creditActivityFeedbackPanel = buildBetaFeedbackPanel("plans.creditActivity", "Diagnosis credit activity", {
+  const creditActivityFeedbackPanel = buildBetaFeedbackPanel("plans.creditActivity", "Credit activity", {
     ...plansFeedbackContext,
     creditActivity: {
       rowCount: pointActivityRows.length,
@@ -6175,12 +6175,12 @@ export function PlansCreditsScreen({ data = {} }) {
   }, [confirmationUrl]);
 
   return (
-    <FullWidthPage label="Plans & Diagnosis Credits" className="ppPlansPage">
+    <FullWidthPage label="Plan & Credits" className="ppPlansPage">
       <ScreenShell className="ppDashboard ppPlansScreen">
         <div className="ppPlansTopbar">
           <div>
-            <h1>Plans &amp; Diagnosis Credits</h1>
-            <p>Track Diagnosis Credits for Product Diagnosis usage. Plans and extra credit packs are billed through Shopify.</p>
+            <h1>Plan &amp; Credits</h1>
+            <p>Track credits for Product Diagnosis usage. Plans and extra credit packs are billed through Shopify.</p>
           </div>
         </div>
 
@@ -6198,8 +6198,8 @@ export function PlansCreditsScreen({ data = {} }) {
               <strong>{billingEnabled ? "Shopify Billing is active for ProductPulse." : "ProductPulse is running without paid billing in this build."}</strong>
               <p>
                 {billingEnabled
-                  ? "Starter subscriptions and extra Diagnosis Credit packs are approved through Shopify Billing. ProductPulse never collects payment details directly."
-                  : "Plan changes and diagnosis credit-pack purchases remain unavailable until they are implemented through Shopify Billing."}
+                  ? "Starter subscriptions and extra credit packs are approved through Shopify Billing. ProductPulse never collects payment details directly."
+                  : "Plan changes and credit-pack purchases remain unavailable until they are implemented through Shopify Billing."}
               </p>
             </div>
           </aside>
@@ -6212,7 +6212,7 @@ export function PlansCreditsScreen({ data = {} }) {
                 <b>{currentPlan.name}</b>
               </span>
               <span>
-                <small>Monthly diagnosis credits</small>
+                <small>Monthly credits</small>
                 <b>{formatInteger(currentPlan.monthlyCredits)}</b>
               </span>
               <span>
@@ -6281,7 +6281,7 @@ export function PlansCreditsScreen({ data = {} }) {
 
       <p className="ppPlansSecureNote">
         <PlansCreditsIcon type="shield" />
-        Paid upgrades and purchasable diagnosis credit packs are approved through Shopify Billing.
+        Paid upgrades and purchasable credit packs are approved through Shopify Billing.
       </p>
 
       <section className="ppPlansLowerGrid">
@@ -6289,7 +6289,7 @@ export function PlansCreditsScreen({ data = {} }) {
           <div className="ppPlansPanel ppPlansCreditPacks">
             <header>
               <div>
-                <h2>Extra diagnosis credit packs</h2>
+                <h2>Extra credit packs</h2>
                 <p>Buy extra credits when your plan allowance is not enough for Product Diagnosis work.</p>
               </div>
               <BetaFeedbackPanelControls panel={creditPacksFeedbackPanel} allowHide={false} />
@@ -6299,7 +6299,7 @@ export function PlansCreditsScreen({ data = {} }) {
                 <article className="ppPlansPackCard" key={pack.id}>
                   <span className="ppPlansPackIcon" aria-hidden="true"><PlansCreditsIcon type="wallet" /></span>
                   <strong>{formatInteger(pack.credits)}</strong>
-                  <small>Diagnosis credits</small>
+                  <small>Credits</small>
                   {pack.compareAtPriceLabel ? <span className="ppPlansPackOriginalPrice">{pack.compareAtPriceLabel}</span> : null}
                   <b>{pack.priceLabel}</b>
                   <em>{pack.description}</em>
@@ -6310,7 +6310,7 @@ export function PlansCreditsScreen({ data = {} }) {
                       type="submit"
                       disabled={!billingEnabled || isCreditSubmitting ? true : undefined}
                     >
-                      {isCreditSubmitting ? "Opening..." : `Buy ${formatInteger(pack.credits)} diagnosis credits`}
+                      {isCreditSubmitting ? "Opening..." : `Buy ${formatInteger(pack.credits)} credits`}
                     </button>
                   </creditPurchaseFetcher.Form>
                 </article>
@@ -6318,7 +6318,7 @@ export function PlansCreditsScreen({ data = {} }) {
             </div>
             <p className="ppPlansPackFootnote">
               <PlansCreditsIcon type="info" />
-              Extra diagnosis credits are one-time Shopify app purchases and are added after Shopify confirms approval.
+              Extra credits are one-time Shopify app purchases and are added after Shopify confirms approval.
             </p>
             <p className="ppPlansPackFootnote">
               <PlansCreditsIcon type="info" />
@@ -6362,7 +6362,7 @@ export function PlansCreditsScreen({ data = {} }) {
               <span className="ppPlansBillingIcon ppPlansBillingIcon-green" aria-hidden="true"><PlansCreditsIcon type="rollover" /></span>
               <div>
                 <strong>Rollover policy</strong>
-                <p>Free Diagnosis Credits reset according to ProductPulse internal diagnosis credit rules.</p>
+                <p>Free credits reset according to ProductPulse internal credit rules.</p>
               </div>
             </article>
             <article>
@@ -6375,9 +6375,9 @@ export function PlansCreditsScreen({ data = {} }) {
             <article>
               <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="gear" /></span>
               <div>
-                <strong>Manage diagnosis credits</strong>
+                <strong>Manage credits</strong>
                 <p>Plan changes, invoices and cancellation are handled through Shopify app billing.</p>
-                <Link to="/app/plans-and-credits">View diagnosis credits <span aria-hidden="true">-&gt;</span></Link>
+                <Link to="/app/plans-and-credits">View credits <span aria-hidden="true">-&gt;</span></Link>
               </div>
             </article>
           </div>
@@ -6385,11 +6385,11 @@ export function PlansCreditsScreen({ data = {} }) {
       </BetaFeedbackPanelFrame>
 
       <BetaFeedbackPanelFrame panel={creditActivityFeedbackPanel}>
-        <section className="ppPlansPanel ppPlansLedgerPanel" aria-label="Diagnosis credit activity">
+        <section className="ppPlansPanel ppPlansLedgerPanel" aria-label="Credit activity">
           <header>
             <div>
-              <h2>Diagnosis credit activity</h2>
-              <p>Latest Diagnosis Credits earned and spent across free grants and Product Diagnosis usage.</p>
+              <h2>Credit activity</h2>
+              <p>Latest credits earned and spent across free grants and Product Diagnosis usage.</p>
             </div>
             <BetaFeedbackPanelControls panel={creditActivityFeedbackPanel} allowHide={false} />
           </header>
@@ -6418,7 +6418,7 @@ export function PlansCreditsScreen({ data = {} }) {
                   </tr>
                 )) : (
                   <tr>
-                    <td className="ppPlansLedgerEmpty" colSpan={5}>No diagnosis credit activity yet.</td>
+                    <td className="ppPlansLedgerEmpty" colSpan={5}>No credit activity yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -7014,9 +7014,9 @@ function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
             </span>
             <div>
               <span>Estimated cost</span>
-              <strong>1.0 diagnosis credit</strong>
+              <strong>1.0 credit</strong>
             </div>
-            <small>Catalog Scan costs 1.0 diagnosis credit and runs as a background job.</small>
+            <small>Catalog Scan costs 1.0 credit and runs as a background job.</small>
           </div>
 
           <div className="ppCostConfirmInfoGrid">
@@ -7087,9 +7087,9 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
             </span>
             <div>
               <span>Estimated cost</span>
-              <strong>{formatPointValue(confirmation.credits)} diagnosis credit{confirmation.credits === 1 ? "" : "s"}</strong>
+              <strong>{formatPointValue(confirmation.credits)} credit{confirmation.credits === 1 ? "" : "s"}</strong>
             </div>
-            <small>Product Diagnosis costs 1.0 diagnosis credit per product and runs as a background job.</small>
+            <small>Product Diagnosis costs 1.0 credit per product and runs as a background job.</small>
           </div>
 
           <div className="ppCostConfirmInfoGrid">

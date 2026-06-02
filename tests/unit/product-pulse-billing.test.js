@@ -2,6 +2,7 @@ import process from "node:process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   PRODUCT_PULSE_STARTER_PLAN_CONFIG,
+  createProductPulseStarterSubscription,
   getProductPulseBillingView,
   resolveProductPulseBillingPlan,
 } from "../../app/lib/product-pulse-billing.server";
@@ -61,7 +62,60 @@ describe("ProductPulse Shopify Billing", () => {
     });
   });
 
-  it("exposes Starter and one-time diagnosis credit packs for the UI", () => {
+  it("creates a Starter subscription approval URL through GraphQL", async () => {
+    process.env.SHOPIFY_BILLING_TEST = "true";
+    const calls = [];
+    const admin = {
+      graphql: async (_query, options = {}) => {
+        calls.push(options);
+        return {
+          json: async () => ({
+            data: {
+              appSubscriptionCreate: {
+                confirmationUrl: "https://shopify.test/confirm-subscription",
+                userErrors: [],
+                appSubscription: {
+                  id: "gid://shopify/AppSubscription/456",
+                  status: "PENDING",
+                },
+              },
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await createProductPulseStarterSubscription(
+      "starter-shop.myshopify.com",
+      admin,
+      "https://admin.shopify.com/store/starter-shop/apps/product-pulse-ai/app/plans-and-credits?billing=approved",
+    );
+
+    expect(result).toMatchObject({
+      confirmationUrl: "https://shopify.test/confirm-subscription",
+      subscriptionId: "gid://shopify/AppSubscription/456",
+      status: "pending",
+    });
+    expect(calls[0].variables).toMatchObject({
+      name: PRODUCT_PULSE_STARTER_PLAN_CONFIG.shopifyPlanName,
+      test: true,
+      lineItems: [
+        {
+          plan: {
+            appRecurringPricingDetails: {
+              interval: "EVERY_30_DAYS",
+              price: {
+                amount: 9,
+                currencyCode: "USD",
+              },
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it("exposes Starter and one-time credit packs for the UI", () => {
     const view = getProductPulseBillingView();
 
     expect(view).toMatchObject({

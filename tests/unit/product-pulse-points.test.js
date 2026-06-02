@@ -8,7 +8,32 @@ import {
   recordPlanMonthlyPointGrantForShop,
 } from "../../app/lib/product-pulse-points.server";
 
-describe("Diagnosis Credits", () => {
+describe("Credits", () => {
+  it("creates the default welcome balance once with 10 credits", async () => {
+    const db = createPointTestDb();
+
+    const firstBalance = await getStorePointBalanceForShop("welcome-shop.myshopify.com", { db, env: {} });
+    const secondBalance = await getStorePointBalanceForShop("welcome-shop.myshopify.com", { db, env: {} });
+
+    expect(firstBalance).toMatchObject({
+      shop: "welcome-shop.myshopify.com",
+      available: 10,
+      label: "10.0",
+    });
+    expect(secondBalance).toMatchObject({
+      shop: "welcome-shop.myshopify.com",
+      available: 10,
+      label: "10.0",
+    });
+    expect(db.state.entries).toHaveLength(1);
+    expect(db.state.entries[0]).toMatchObject({
+      direction: "credit",
+      amount: 10,
+      balanceAfter: 10,
+      reason: "Initial store credits",
+    });
+  });
+
   it("creates an initial decimal balance from environment config", async () => {
     const db = createPointTestDb();
 
@@ -30,7 +55,7 @@ describe("Diagnosis Credits", () => {
     });
   });
 
-  it("debits diagnosis credits once for an idempotency key", async () => {
+  it("debits credits once for an idempotency key", async () => {
     const db = createPointTestDb();
     await getStorePointBalanceForShop("test-shop.myshopify.com", {
       db,
@@ -40,13 +65,13 @@ describe("Diagnosis Credits", () => {
     const firstDebit = await debitStorePointsForShop("test-shop.myshopify.com", {
       db,
       amount: 1.26,
-      reason: "Product diagnosis credit debit product-diagnosis:job-1",
+      reason: "Product credit debit product-diagnosis:job-1",
       idempotencyKey: "product-diagnosis:job-1",
     });
     const secondDebit = await debitStorePointsForShop("test-shop.myshopify.com", {
       db,
       amount: 1.26,
-      reason: "Product diagnosis credit debit product-diagnosis:job-1",
+      reason: "Product credit debit product-diagnosis:job-1",
       idempotencyKey: "product-diagnosis:job-1",
     });
 
@@ -90,7 +115,7 @@ describe("Diagnosis Credits", () => {
     const packGrant = await recordExtraCreditPackForShop("test-shop.myshopify.com", {
       db,
       credits: 25,
-      packLabel: "25 beta diagnosis credits",
+      packLabel: "25 beta credits",
       orderId: "order-1",
       priceCents: 750,
     });
@@ -120,20 +145,20 @@ describe("Diagnosis Credits", () => {
       limit: 3,
     });
     expect(summary.activity[0]).toMatchObject({
-      title: "Extra diagnosis credit pack",
-      detail: "25 beta diagnosis credits",
-      amountLabel: "+25 diagnosis credits",
+      title: "Extra credit pack",
+      detail: "25 beta credits",
+      amountLabel: "+25 credits",
       balanceAfterLabel: "85",
     });
     expect(summary.activity[1]).toMatchObject({
-      title: "Monthly plan diagnosis credits",
+      title: "Monthly plan credits",
       detail: "Starter",
-      amountLabel: "+50 diagnosis credits",
+      amountLabel: "+50 credits",
       balanceAfterLabel: "60",
     });
   });
 
-  it("credits arbitrary diagnosis credit events once for an idempotency key", async () => {
+  it("credits arbitrary credit events once for an idempotency key", async () => {
     const db = createPointTestDb();
     await getStorePointBalanceForShop("test-shop.myshopify.com", {
       db,
@@ -177,14 +202,14 @@ describe("Diagnosis Credits", () => {
     await debitStorePointsForShop("test-shop.myshopify.com", {
       db,
       amount: 1,
-      reason: "Catalog Scan diagnosis credit debit quick-scan:job-1",
+      reason: "Catalog Scan credit debit quick-scan:job-1",
       idempotencyKey: "quick-scan:job-1",
       metadata: { source: "quick_scan", windowDays: 60 },
     });
     await debitStorePointsForShop("test-shop.myshopify.com", {
       db,
       amount: 2,
-      reason: "Product diagnosis credit debit product-diagnosis:job-2",
+      reason: "Product credit debit product-diagnosis:job-2",
       idempotencyKey: "product-diagnosis:job-2",
       metadata: { source: "product_diagnosis", productTitle: "Core Linen Trouser" },
     });
@@ -214,12 +239,12 @@ describe("Diagnosis Credits", () => {
     expect(summary.activity[0]).toMatchObject({
       title: "Product diagnosis",
       detail: "Core Linen Trouser",
-      amountLabel: "-2 diagnosis credits",
+      amountLabel: "-2 credits",
     });
     expect(summary.activity[1]).toMatchObject({
       title: "Catalog Scan",
       detail: "60-day scan window",
-      amountLabel: "-1 diagnosis credit",
+      amountLabel: "-1 credit",
     });
   });
 });

@@ -337,6 +337,9 @@ export function ProductPulseWatchlistWizard() {
         <div className="ppWizardBlurLayer" />
       </div>
       <div className={`ppWizardRoot ppWatchlistWizardRoot ppWatchlistWizardRoot-${step.kind}`} aria-live="polite">
+        <button className="ppWizardSkipTourButton" type="button" onClick={completeWizard}>
+          Skip tour
+        </button>
         {step.kind === "addProduct" ? (
           <WatchlistAddProductStep targetRects={targetRects} modalOpen={addModalOpen} />
         ) : null}
@@ -416,7 +419,7 @@ function WatchlistAddProductStep({ targetRects, modalOpen }) {
           baseline, and shows what changed without making you rerun manual analysis every day.
         </p>
         <p>
-          Automatic runs only spend diagnosis credits when ProductPulse needs to refresh a watched
+          Automatic runs only spend credits when ProductPulse needs to refresh a watched
           product. If nothing changed, the scan can keep the existing diagnosis without consuming a credit.
         </p>
       </section>

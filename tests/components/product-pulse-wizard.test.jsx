@@ -152,6 +152,19 @@ describe("ProductPulseWizard", () => {
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
   });
 
+  it("skips the full onboarding tour at once", async () => {
+    renderWizard();
+
+    expect(await screen.findByRole("dialog", { name: /welcome to your product signal workspace/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip tour" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /welcome to your product signal workspace/i })).not.toBeInTheDocument();
+    });
+    expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBe("true");
+  });
+
   it("can skip the Catalog Scan and candidate steps independently", async () => {
     window.__PP_WIZARD_TEST_HAS_CANDIDATES__ = true;
     renderWizard();

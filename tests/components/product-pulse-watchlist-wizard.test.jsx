@@ -90,6 +90,19 @@ describe("ProductPulseWatchlistWizard", () => {
     expect(screen.queryByRole("dialog", { name: "Monitor product changes automatically" })).not.toBeInTheDocument();
   });
 
+  it("skips the full Watchlist tour at once", async () => {
+    renderWatchlistWizard();
+
+    expect(await screen.findByRole("dialog", { name: "Monitor product changes automatically" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip tour" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Monitor product changes automatically" })).not.toBeInTheDocument();
+    });
+    expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBe("true");
+  });
+
   it("restarts from Settings when the development start event is fired", async () => {
     window.localStorage.setItem(WATCHLIST_WIZARD_STORAGE_KEY, "true");
     renderWatchlistWizard("/app/settings");

@@ -192,7 +192,7 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
       await recordWatchActivityForShop(shop, {
         eventType: "watch_cron_credit_exhausted",
         title: "Scheduled Watchlist Product Diagnosis skipped",
-        detail: "Watchlist cron found active watched products, but the shop has no available diagnosis credits.",
+        detail: "Watchlist cron found active watched products, but the shop has no available credits.",
         metadata: {
           triggeredBy: "watchlist-cron",
           scheduleTime: config.scheduleTime,

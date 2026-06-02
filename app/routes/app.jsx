@@ -56,7 +56,7 @@ export default function App() {
           <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
           <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
           <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
-          <s-link href="/app/plans-and-credits" data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plans & Diagnosis Credits</s-link>
+          <s-link href="/app/plans-and-credits" data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plan &amp; Credits</s-link>
           {aiCostDashboardEnabled ? (
             <s-link href="/app/ai-costs" data-active={activeSection === "ai-costs" ? "true" : undefined}>AI Costs</s-link>
           ) : null}

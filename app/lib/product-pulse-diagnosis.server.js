@@ -4338,7 +4338,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     shop,
     jobId,
     event: "product_diagnosis.no_changes_reused",
-    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse refreshed deterministic date-based metrics and reused the previous Product Diagnosis without AI calls or diagnosis credit consumption.",
+    message: "No product, order, return, refund, review, or source changes were detected. ProductPulse refreshed deterministic date-based metrics and reused the previous Product Diagnosis without AI calls or credit consumption.",
     data: {
       productGid: activitySnapshot.productGid,
       previousDiagnosisId: reusableDiagnosis.id,
@@ -4367,7 +4367,7 @@ async function buildNoChangeDiagnosisReuseResult({ shop, jobId, snapshot, determ
     status: "skipped",
     skipped: true,
     skipReason: "no_changes_since_previous_diagnosis",
-    message: "No product, order, return, refund, review, or source changes were detected. Deterministic date-based metrics were refreshed, the previous Product Diagnosis was reused, and no diagnosis credit was consumed.",
+    message: "No product, order, return, refund, review, or source changes were detected. Deterministic date-based metrics were refreshed, the previous Product Diagnosis was reused, and no credit was consumed.",
     diagnosisId: reusableDiagnosis.id,
     riskScore: activitySnapshot.riskScore,
     confidence: activitySnapshot.confidence,

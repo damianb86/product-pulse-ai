@@ -239,11 +239,11 @@ export function validateCreditBalance(availableCredits, requestedProducts = 1) {
   if (availableCredits < requestedProducts) {
     return {
       valid: false,
-      message: `Diagnosis needs ${requestedProducts.toFixed ? requestedProducts.toFixed(1) : requestedProducts} diagnosis credit${requestedProducts === 1 ? "" : "s"}, but only ${Number(availableCredits || 0).toFixed(1)} are available.`,
+      message: `Diagnosis needs ${requestedProducts.toFixed ? requestedProducts.toFixed(1) : requestedProducts} credit${requestedProducts === 1 ? "" : "s"}, but only ${Number(availableCredits || 0).toFixed(1)} are available.`,
     };
   }
 
-  return { valid: true, message: "Diagnosis credits available." };
+  return { valid: true, message: "Credits available." };
 }
 
 function clamp(value, min, max) {

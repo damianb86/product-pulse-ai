@@ -211,10 +211,10 @@ export async function sendWatchlistCreditExhaustedEmailForShop({
     const manualRun = triggeredBy === "watchlist-manual-run" || forceEmail;
     const sent = await recordWatchActivityForShop(shop, {
       eventType: WATCH_ALERT_SENT_EVENT,
-      title: manualRun ? "Manual Watchlist diagnosis credit email sent" : "Watchlist diagnosis credit alert sent",
+      title: manualRun ? "Manual Watchlist credit email sent" : "Watchlist credit alert sent",
       detail: manualRun
-        ? "The manual Watchlist run could not queue Product Diagnosis because the shop has no available diagnosis credits."
-        : "The scheduled Watchlist run could not continue because the shop has no available diagnosis credits.",
+        ? "The manual Watchlist run could not queue Product Diagnosis because the shop has no available credits."
+        : "The scheduled Watchlist run could not continue because the shop has no available credits.",
       metadata: {
         triggerRule: normalizedSettings.triggerRule,
         decision,
@@ -226,8 +226,8 @@ export async function sendWatchlistCreditExhaustedEmailForShop({
   } catch (error) {
     await recordWatchActivityForShop(shop, {
       eventType: WATCH_ALERT_FAILED_EVENT,
-      title: "Watchlist diagnosis credit alert failed",
-      detail: error?.message || "Watchlist diagnosis credit alert could not be sent.",
+      title: "Watchlist credit alert failed",
+      detail: error?.message || "Watchlist credit alert could not be sent.",
       metadata: {
         triggerRule: normalizedSettings.triggerRule,
         error: serializeError(error),
@@ -317,12 +317,12 @@ function buildWatchlistAlertDecision({ settings = {}, reports = [], jobs = [], m
     return {
       shouldSend: true,
       reason: metadata.creditExhausted ? "manual_watchlist_credit_exhausted" : "manual_watchlist_run",
-      label: metadata.creditExhausted ? "Manual Watchlist run blocked by diagnosis credits" : "Manual Watchlist run completed",
+      label: metadata.creditExhausted ? "Manual Watchlist run blocked by credits" : "Manual Watchlist run completed",
     };
   }
 
   if (metadata.creditExhausted || uniqueStrings(metadata.skippedForCredits).length) {
-    return { shouldSend: true, reason: "credit_exhausted", label: "Watchlist diagnosis credits exhausted" };
+    return { shouldSend: true, reason: "credit_exhausted", label: "Watchlist credits exhausted" };
   }
 
   const triggerRule = String(settings.triggerRule || "new_or_rising_risk");
@@ -363,7 +363,7 @@ function buildWatchlistRunEmail({
   const pointsConsumed = jobs.reduce((sum, job) => sum + safeNumber(job.payload?.pointsConsumed ?? job.payload?.creditsConsumed), 0);
   const creditExhausted = Boolean(metadata.creditExhausted || String(decision.reason || "").includes("credit_exhausted"));
   const subject = creditExhausted && !reports.length
-    ? `Watchlist paused: diagnosis credits exhausted for ${shop}`
+    ? `Watchlist paused: credits exhausted for ${shop}`
     : `Watchlist report for ${shop}`;
   const reportProducts = buildWatchEmailProducts({ reports, jobs, metadata, skippedForCredits });
   const headerLines = [
@@ -372,8 +372,8 @@ function buildWatchlistRunEmail({
     productCount ? `Products queued: ${productCount}` : "",
     completedJobs.length ? `Completed: ${completedJobs.length}` : "",
     failedJobs.length ? `Failed: ${failedJobs.length}` : "",
-    pointsConsumed ? `Diagnosis credits consumed by completed jobs: ${pointsConsumed}` : "",
-    skippedForCredits.length ? `Skipped for diagnosis credits: ${skippedForCredits.length}` : "",
+    pointsConsumed ? `Credits consumed by completed jobs: ${pointsConsumed}` : "",
+    skippedForCredits.length ? `Skipped for credits: ${skippedForCredits.length}` : "",
   ].filter(Boolean);
 
   const reportLines = reportProducts.length
@@ -382,11 +382,11 @@ function buildWatchlistRunEmail({
   const creditLines = skippedForCredits.length || metadata.creditExhausted
     ? [
       "",
-      "Diagnosis credit notice:",
-      `Available diagnosis credits: ${safeNumber(metadata.availableCredits)}`,
+      "Credit notice:",
+      `Available credits: ${safeNumber(metadata.availableCredits)}`,
       skippedForCredits.length
-        ? `The following products were not queued because the shop ran out of diagnosis credits: ${skippedForCredits.map((item) => item.productTitle || item.productGid).filter(Boolean).join(", ")}.`
-        : "No products were queued because the shop has no available diagnosis credits.",
+        ? `The following products were not queued because the shop ran out of credits: ${skippedForCredits.map((item) => item.productTitle || item.productGid).filter(Boolean).join(", ")}.`
+        : "No products were queued because the shop has no available credits.",
     ]
     : [];
   const failedLines = failedJobs.length
@@ -543,8 +543,8 @@ function buildWatchEmailProducts({ reports = [], jobs = [], metadata = {}, skipp
       imageUrl: item.imageUrl || "",
       imageAlt: item.productTitle || "Watched product",
       status: "skipped",
-      headline: "Skipped for diagnosis credits",
-      narrative: "This product was not queued because the shop ran out of available diagnosis credits before the manual or scheduled Watchlist run reached it.",
+      headline: "Skipped for credits",
+      narrative: "This product was not queued because the shop ran out of available credits before the manual or scheduled Watchlist run reached it.",
       sourceChanges: [],
       sourceInsights: [],
       changes: [],
@@ -561,8 +561,8 @@ function buildWatchEmailProducts({ reports = [], jobs = [], metadata = {}, skipp
       status: "skipped",
       statusLabel: "Skipped",
       statusTone: "warning",
-      headline: "Skipped for diagnosis credits",
-      narrative: "No products were queued because the shop has no available diagnosis credits.",
+      headline: "Skipped for credits",
+      narrative: "No products were queued because the shop has no available credits.",
       sourceChanges: [],
       sourceInsights: [],
       changes: [],
@@ -718,7 +718,7 @@ function buildWatchlistReportHtmlEmail({
                   <span style="color:#94a3b8;padding:0 8px;">|</span>
                   <span style="font-weight:700;">No changes:</span> ${escapeHtml(unchangedCount)}
                   <span style="color:#94a3b8;padding:0 8px;">|</span>
-                  <span style="font-weight:700;">Diagnosis Credits consumed:</span> ${escapeHtml(pointsConsumed)}
+                  <span style="font-weight:700;">Credits consumed:</span> ${escapeHtml(pointsConsumed)}
                 </p>
               </td>
             </tr>
@@ -1004,9 +1004,9 @@ function buildCreditNoticeHtml({ skippedForCredits = [], metadata = {} } = {}) {
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:separate;border-spacing:0;border:1px solid #fed7aa;border-left:4px solid #f97316;border-radius:6px;background:#fff7ed;">
         <tr>
           <td style="padding:12px 14px;font-size:12px;line-height:18px;color:#7c2d12;">
-            <strong style="color:#9a3412;">Diagnosis credit notice</strong><br>
-            Available diagnosis credits after queueing: ${escapeHtml(safeNumber(metadata.availableCredits))}.
-            ${skippedNames ? ` Products not queued: ${escapeHtml(skippedNames)}.` : " No products were queued because the shop has no available diagnosis credits."}
+            <strong style="color:#9a3412;">Credit notice</strong><br>
+            Available credits after queueing: ${escapeHtml(safeNumber(metadata.availableCredits))}.
+            ${skippedNames ? ` Products not queued: ${escapeHtml(skippedNames)}.` : " No products were queued because the shop has no available credits."}
           </td>
         </tr>
       </table>
@@ -1146,7 +1146,7 @@ function getEmailStatusTone(report = {}) {
 }
 
 function getMainTheme(report = {}) {
-  if (report.skippedForCredits) return "Skipped because available diagnosis credits were exhausted.";
+  if (report.skippedForCredits) return "Skipped because available credits were exhausted.";
   if (report.status === "failed") return report.errorMessage || "Diagnosis failed.";
   const preferredInsight = (report.sourceInsights || []).find((insight) => insight?.summary)?.summary;
   const preferredChange = (report.sourceChanges || []).find((change) => change?.detail)?.detail;

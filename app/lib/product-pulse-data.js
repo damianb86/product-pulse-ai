@@ -3451,7 +3451,7 @@ export function startProductDiagnosis(productId, availableCredits = billing.cred
 
   return {
     status: "success",
-    message: `Product Diagnosis started for ${product.title}. 1.0 diagnosis credit was consumed.`,
+    message: `Product Diagnosis started for ${product.title}. 1.0 credit was consumed.`,
     product,
     creditsRemaining: availableCredits - product.creditCost,
   };

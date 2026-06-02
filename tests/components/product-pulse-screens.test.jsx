@@ -313,15 +313,15 @@ function getSmoothPathEndpointYValues(path = "") {
 }
 
 describe("ProductPulse screens", () => {
-  it("renders the Plans & Diagnosis Credits pricing and credit purchase page", () => {
+  it("renders the Plan & Credits pricing and credit purchase page", () => {
     renderWithRouter(<PlansCreditsScreen />);
 
-    expect(screen.getByRole("heading", { name: "Plans & Diagnosis Credits" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Plan & Credits" })).toBeInTheDocument();
     expect(screen.queryByText("Monthly billing")).not.toBeInTheDocument();
-    expect(screen.queryByText("1 diagnosis credit = 1 Product Diagnosis")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 credit = 1 Product Diagnosis")).not.toBeInTheDocument();
     expect(screen.getByText(/running without paid billing/)).toBeInTheDocument();
     expect(screen.getByLabelText("Current usage")).toHaveTextContent("Free");
-    expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Monthly diagnosis credits\s*10/);
+    expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Monthly credits\s*10/);
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Used\s*0/);
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Left\s*10/);
     expect(screen.getByRole("heading", { name: "Free" })).toBeInTheDocument();
@@ -360,12 +360,12 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("API access")).not.toBeInTheDocument();
     expect(screen.queryByText("Seats")).not.toBeInTheDocument();
     expect(screen.queryByText("Watched products")).not.toBeInTheDocument();
-    expect(screen.getByText("Extra diagnosis credit packs")).toBeInTheDocument();
+    expect(screen.getByText("Extra credit packs")).toBeInTheDocument();
     expect(screen.getByText(/Buy extra credits when your plan allowance/)).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Buy .* diagnosis credits/ })).toHaveLength(5);
+    expect(screen.getAllByRole("button", { name: /Buy .* credits/ })).toHaveLength(5);
     expect(screen.getByText("$22")).toBeInTheDocument();
     expect(screen.getByText("$11")).toBeInTheDocument();
-    screen.getAllByRole("button", { name: /Buy .* diagnosis credits/ }).forEach((button) => {
+    screen.getAllByRole("button", { name: /Buy .* credits/ }).forEach((button) => {
       expect(button).toBeDisabled();
     });
     expect(screen.getByRole("button", { name: "Current free plan" })).toBeDisabled();
@@ -379,10 +379,10 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Heavy usage")).toBeInTheDocument();
     expect(screen.getByText("Billing information")).toBeInTheDocument();
     expect(screen.getByText("Shopify Billing required")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /View diagnosis credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
-    expect(screen.getByText("Diagnosis credit activity")).toBeInTheDocument();
-    expect(screen.getByText(/Latest Diagnosis Credits earned and spent/)).toBeInTheDocument();
-    expect(screen.getByText("No diagnosis credit activity yet.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /View credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(screen.getByText("Credit activity")).toBeInTheDocument();
+    expect(screen.getByText(/Latest credits earned and spent/)).toBeInTheDocument();
+    expect(screen.getByText("No credit activity yet.")).toBeInTheDocument();
   });
 
   it("enables Starter subscription and credit pack purchases when Shopify Billing is available", () => {
@@ -399,12 +399,12 @@ describe("ProductPulse screens", () => {
 
     expect(screen.getByText("Shopify Billing is active for ProductPulse.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose Starter" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Buy 10 diagnosis credits" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Buy 25 diagnosis credits" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Buy 50 diagnosis credits" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy 10 credits" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Buy 25 credits" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Buy 50 credits" })).not.toBeInTheDocument();
   });
 
-  it("renders Plans & Diagnosis Credits ledger activity from point history", () => {
+  it("renders Credits ledger activity from point history", () => {
     renderWithRouter(<PlansCreditsScreen data={{
       pointSummary: {
         balance: { available: 85 },
@@ -412,10 +412,10 @@ describe("ProductPulse screens", () => {
         activity: [
           {
             id: "pack-1",
-            title: "Extra diagnosis credit pack",
-            detail: "25 beta diagnosis credits",
+            title: "Extra credit pack",
+            detail: "25 beta credits",
             direction: "credit",
-            amountLabel: "+25 diagnosis credits",
+            amountLabel: "+25 credits",
             balanceAfterLabel: "85",
             timeLabel: "2m ago",
           },
@@ -424,7 +424,7 @@ describe("ProductPulse screens", () => {
             title: "Product Diagnosis",
             detail: "GEN QuietDesk Mini Fan",
             direction: "debit",
-            amountLabel: "-1 diagnosis credit",
+            amountLabel: "-1 credit",
             balanceAfterLabel: "60",
             timeLabel: "1h ago",
           },
@@ -434,12 +434,12 @@ describe("ProductPulse screens", () => {
 
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Used\s*4/);
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Left\s*85/);
-    expect(screen.getByText("Extra diagnosis credit pack")).toBeInTheDocument();
-    expect(screen.getByText("25 beta diagnosis credits")).toBeInTheDocument();
-    expect(screen.getByText("+25 diagnosis credits")).toHaveClass("isCredit");
+    expect(screen.getByText("Extra credit pack")).toBeInTheDocument();
+    expect(screen.getByText("25 beta credits")).toBeInTheDocument();
+    expect(screen.getByText("+25 credits")).toHaveClass("isCredit");
     expect(screen.getAllByText("Product Diagnosis").length).toBeGreaterThan(0);
     expect(screen.getByText("GEN QuietDesk Mini Fan")).toBeInTheDocument();
-    expect(screen.getByText("-1 diagnosis credit")).toHaveClass("isDebit");
+    expect(screen.getByText("-1 credit")).toHaveClass("isDebit");
     expect(screen.getByText("85 left")).toBeInTheDocument();
     expect(screen.getByText("60 left")).toBeInTheDocument();
   });
@@ -1809,7 +1809,7 @@ describe("ProductPulse screens", () => {
       renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
       fireEvent.click(screen.getAllByRole("button", { name: /Run Catalog Scan/ })[0]);
       expect(screen.getByRole("heading", { name: "Confirm Catalog Scan" })).toBeInTheDocument();
-      expect(screen.getByText("Catalog Scan costs 1.0 diagnosis credit and runs as a background job.")).toBeInTheDocument();
+      expect(screen.getByText("Catalog Scan costs 1.0 credit and runs as a background job.")).toBeInTheDocument();
       expect(screen.getByText(/Products that already have a Product Diagnosis will be ignored/)).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Accept cost and run Catalog Scan" }));
       expect(screen.getByText("Catalog Scan running")).toBeInTheDocument();

@@ -2,12 +2,12 @@ import prisma from "../db.server";
 
 export const PRODUCT_PULSE_INITIAL_STORE_POINTS_ENV = "PRODUCT_PULSE_INITIAL_STORE_POINTS";
 export const PRODUCT_PULSE_LEGACY_INITIAL_POINTS_ENV = "PRODUCT_PULSE_INITIAL_POINTS";
-export const PRODUCT_PULSE_DEFAULT_INITIAL_STORE_POINTS = 100;
+export const PRODUCT_PULSE_DEFAULT_INITIAL_STORE_POINTS = 10;
 
 const POINT_DECIMAL_PLACES = 1;
 const POINT_ROUND_FACTOR = 10 ** POINT_DECIMAL_PLACES;
 const POINT_EPSILON = 0.000_001;
-const INITIAL_POINTS_REASON = "Initial store diagnosis credits";
+const INITIAL_POINTS_REASON = "Initial store credits";
 
 export function getConfiguredInitialStorePoints(env = process.env) {
   return normalizePointAmount(
@@ -91,20 +91,20 @@ export async function getStorePointSummaryForShop(shop, options = {}) {
 export async function validateStorePointsForShop(shop, amount, options = {}) {
   const requestedAmount = normalizePointAmount(amount);
   if (requestedAmount <= 0) {
-    return { valid: false, message: "Choose a positive diagnosis credit amount.", requestedAmount };
+    return { valid: false, message: "Choose a positive credit amount.", requestedAmount };
   }
   const balance = await getStorePointBalanceForShop(shop, options);
   if (balance.available + POINT_EPSILON < requestedAmount) {
     return {
       valid: false,
-      message: `This action needs ${formatPointAmount(requestedAmount)} diagnosis credit${requestedAmount === 1 ? "" : "s"}, but only ${balance.label} are available.`,
+      message: `This action needs ${formatPointAmount(requestedAmount)} credit${requestedAmount === 1 ? "" : "s"}, but only ${balance.label} are available.`,
       requestedAmount,
       balance,
     };
   }
   return {
     valid: true,
-    message: "Diagnosis credits available.",
+    message: "Credits available.",
     requestedAmount,
     balance,
   };
@@ -114,12 +114,12 @@ export async function debitStorePointsForShop(shop, input = {}) {
   const db = input.db || prisma;
   const normalizedShop = normalizeShop(shop);
   const amount = normalizePointAmount(input.amount);
-  const reason = String(input.reason || "ProductPulse diagnosis credit debit").trim();
+  const reason = String(input.reason || "ProductPulse credit debit").trim();
   const idempotencyKey = String(input.idempotencyKey || "").trim();
   if (!normalizedShop || amount <= 0) {
     return {
       status: "validation_error",
-      message: "A valid shop and positive diagnosis credit amount are required.",
+      message: "A valid shop and positive credit amount are required.",
       charged: false,
     };
   }
@@ -132,7 +132,7 @@ export async function debitStorePointsForShop(shop, input = {}) {
       if (existing) {
         return {
           status: "already_recorded",
-          message: "Diagnosis credit debit was already recorded.",
+          message: "Credit debit was already recorded.",
           charged: false,
           ledgerEntry: existing,
           balance: buildPointBalance(normalizedShop, existing.balanceAfter, existing),
@@ -144,7 +144,7 @@ export async function debitStorePointsForShop(shop, input = {}) {
     if (currentBalance.available + POINT_EPSILON < amount) {
       return {
         status: "validation_error",
-        message: `This action needs ${formatPointAmount(amount)} diagnosis credit${amount === 1 ? "" : "s"}, but only ${currentBalance.label} are available.`,
+        message: `This action needs ${formatPointAmount(amount)} credit${amount === 1 ? "" : "s"}, but only ${currentBalance.label} are available.`,
         charged: false,
         balance: currentBalance,
       };
@@ -169,7 +169,7 @@ export async function debitStorePointsForShop(shop, input = {}) {
     });
     return {
       status: "success",
-      message: `${formatPointAmount(amount)} diagnosis credit${amount === 1 ? "" : "s"} consumed.`,
+      message: `${formatPointAmount(amount)} credit${amount === 1 ? "" : "s"} consumed.`,
       charged: true,
       amount,
       ledgerEntry: created,
@@ -182,12 +182,12 @@ export async function creditStorePointsForShop(shop, input = {}) {
   const db = input.db || prisma;
   const normalizedShop = normalizeShop(shop);
   const amount = normalizePointAmount(input.amount);
-  const reason = String(input.reason || "ProductPulse diagnosis credit").trim();
+  const reason = String(input.reason || "ProductPulse credit").trim();
   const idempotencyKey = String(input.idempotencyKey || "").trim();
   if (!normalizedShop || amount <= 0) {
     return {
       status: "validation_error",
-      message: "A valid shop and positive diagnosis credit amount are required.",
+      message: "A valid shop and positive credit amount are required.",
       credited: false,
     };
   }
@@ -200,7 +200,7 @@ export async function creditStorePointsForShop(shop, input = {}) {
       if (existing) {
         return {
           status: "already_recorded",
-          message: "Diagnosis credit was already recorded.",
+          message: "Credit was already recorded.",
           credited: false,
           ledgerEntry: existing,
           balance: buildPointBalance(normalizedShop, existing.balanceAfter, existing),
@@ -228,7 +228,7 @@ export async function creditStorePointsForShop(shop, input = {}) {
     });
     return {
       status: "success",
-      message: `${formatPointAmount(amount)} diagnosis credit${amount === 1 ? "" : "s"} added.`,
+      message: `${formatPointAmount(amount)} credit${amount === 1 ? "" : "s"} added.`,
       credited: true,
       amount,
       ledgerEntry: created,
@@ -247,7 +247,7 @@ export async function recordPlanMonthlyPointGrantForShop(shop, input = {}) {
   return creditStorePointsForShop(normalizedShop, {
     ...input,
     amount,
-    reason: `Monthly plan diagnosis credits ${planName} ${periodStartKey}`,
+    reason: `Monthly plan credits ${planName} ${periodStartKey}`,
     idempotencyKey: input.idempotencyKey || `plan-monthly:${normalizedShop}:${planKey}:${periodStartKey}`,
     metadata: {
       ...(input.metadata || {}),
@@ -264,11 +264,11 @@ export async function recordPlanMonthlyPointGrantForShop(shop, input = {}) {
 export async function recordExtraCreditPackForShop(shop, input = {}) {
   const normalizedShop = normalizeShop(shop);
   const amount = normalizePointAmount(input.amount ?? input.credits);
-  const packLabel = input.packLabel || `${formatCompactPointAmount(amount)} diagnosis credit pack`;
+  const packLabel = input.packLabel || `${formatCompactPointAmount(amount)} credit pack`;
   return creditStorePointsForShop(normalizedShop, {
     ...input,
     amount,
-    reason: `Extra diagnosis credit pack ${packLabel}`,
+    reason: `Extra credit pack ${packLabel}`,
     idempotencyKey: input.idempotencyKey || input.orderId || input.purchaseId || "",
     metadata: {
       ...(input.metadata || {}),
@@ -445,35 +445,35 @@ function getPointActivitySpec(entry, metadata = {}) {
   if (source === "environment" || entry?.reason === INITIAL_POINTS_REASON) {
     return {
       icon: "product",
-      title: "Free plan diagnosis credits",
+      title: "Free plan credits",
       detail: "Initial balance",
     };
   }
   if (source === "plan_monthly_allowance") {
     return {
       icon: "product",
-      title: "Monthly plan diagnosis credits",
+      title: "Monthly plan credits",
       detail: metadata.planName || "Plan allowance",
     };
   }
   if (source === "extra_credit_pack") {
     return {
       icon: "product",
-      title: "Extra diagnosis credit pack",
-      detail: metadata.packLabel || "Purchased diagnosis credits",
+      title: "Extra credit pack",
+      detail: metadata.packLabel || "Purchased credits",
     };
   }
   return {
     icon: entry?.direction === "debit" ? "clock" : "product",
-    title: entry?.direction === "debit" ? "Diagnosis credit usage" : "Diagnosis credit added",
-    detail: String(entry?.reason || "Diagnosis Credits"),
+    title: entry?.direction === "debit" ? "Credit usage" : "Credit added",
+    detail: String(entry?.reason || "Credits"),
   };
 }
 
 function formatSignedCreditAmount(value) {
   const amount = normalizePointAmount(Math.abs(value));
   const sign = value < 0 ? "-" : "+";
-  return `${sign}${formatCompactPointAmount(amount)} diagnosis credit${amount === 1 ? "" : "s"}`;
+  return `${sign}${formatCompactPointAmount(amount)} credit${amount === 1 ? "" : "s"}`;
 }
 
 function formatCompactPointAmount(value) {

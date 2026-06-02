@@ -164,6 +164,36 @@
   cursor: pointer;
 }
 
+.ppWizardSkipTourButton {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 2147483220;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border: 1px solid rgba(var(--pp-shadow-rgb), 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--pp-slate-700);
+  box-shadow: 0 10px 28px rgba(var(--pp-shadow-rgb), 0.14);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ppWizardSkipTourButton:hover,
+.ppWizardSkipTourButton:focus-visible {
+  border-color: var(--pp-pulse-blue);
+  color: var(--pp-pulse-blue);
+  outline: none;
+}
+
 .ppWizardBackButton,
 .ppWizardSkipButton {
   border: 1px solid var(--pp-slate-300);
@@ -760,6 +790,14 @@ button.ppWizardSpotlightTarget,
   .ppWizardControlBarInner .ppWizardSkipButton {
     grid-column: 1 / -1;
     grid-row: 2;
+  }
+
+  .ppWizardSkipTourButton {
+    top: 10px;
+    right: 10px;
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 12px;
   }
 
   .ppWizardTooltip,

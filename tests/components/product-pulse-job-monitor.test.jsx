@@ -100,7 +100,7 @@ describe("ProductPulseJobMonitor", () => {
               title: "Product Diagnosis",
               detail: "GEN Aura Ceramic Dinner Set",
               amount: -1,
-              amountLabel: "-1 diagnosis credit",
+              amountLabel: "-1 credit",
               timeLabel: "2m ago",
             },
             {
@@ -109,16 +109,16 @@ describe("ProductPulseJobMonitor", () => {
               title: "Catalog Scan",
               detail: "60-day scan window",
               amount: -1,
-              amountLabel: "-1 diagnosis credit",
+              amountLabel: "-1 credit",
               timeLabel: "28m ago",
             },
             {
               id: "initial-balance",
               icon: "product",
-              title: "Free plan diagnosis credits",
+              title: "Free plan credits",
               detail: "Initial balance",
               amount: 100,
-              amountLabel: "+100 diagnosis credits",
+              amountLabel: "+100 credits",
               timeLabel: "1h ago",
             },
           ],
@@ -127,34 +127,34 @@ describe("ProductPulseJobMonitor", () => {
       { onProductSearch: (query) => productSearchQueries.push(query) },
     );
 
-    const creditsButton = screen.getByRole("button", { name: "95.0 Diagnosis Credits available" });
+    const creditsButton = screen.getByRole("button", { name: "95.0 Credits available" });
     expect(creditsButton).toBeVisible();
 
     fireEvent.click(creditsButton);
-    const creditsDialog = screen.getByRole("dialog", { name: "Diagnosis credit details" });
+    const creditsDialog = screen.getByRole("dialog", { name: "Credit details" });
     expect(within(creditsDialog).getByText("Total remaining")).toBeVisible();
     expect(within(creditsDialog).getByText("95")).toBeVisible();
-    expect(within(creditsDialog).getByText("Diagnosis Credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("Credits")).toBeVisible();
     expect(within(creditsDialog).getByText("Current plan")).toBeVisible();
     expect(within(creditsDialog).getByText("Free plan")).toBeVisible();
     expect(within(creditsDialog).getByText("Does not renew")).toBeVisible();
     expect(within(creditsDialog).getByText("Usage this period")).toBeVisible();
-    expect(creditsDialog).toHaveTextContent("5 / 100 diagnosis credits used");
+    expect(creditsDialog).toHaveTextContent("5 / 100 credits used");
     expect(within(creditsDialog).getByText("5% used")).toBeVisible();
-    expect(within(creditsDialog).getByText("Recent diagnosis credit activity")).toBeVisible();
+    expect(within(creditsDialog).getByText("Recent credit activity")).toBeVisible();
     expect(within(creditsDialog).getByText("Product Diagnosis")).toBeVisible();
     expect(within(creditsDialog).getByText("GEN Aura Ceramic Dinner Set")).toBeVisible();
-    expect(within(creditsDialog).getAllByText("-1 diagnosis credit")).toHaveLength(2);
+    expect(within(creditsDialog).getAllByText("-1 credit")).toHaveLength(2);
     expect(within(creditsDialog).getByText("2m ago")).toBeVisible();
     expect(within(creditsDialog).getByText("Catalog Scan")).toBeVisible();
     expect(within(creditsDialog).getByText("60-day scan window")).toBeVisible();
     expect(within(creditsDialog).getByText("28m ago")).toBeVisible();
-    expect(within(creditsDialog).getByText("Free plan diagnosis credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("Free plan credits")).toBeVisible();
     expect(within(creditsDialog).getByText("Initial balance")).toBeVisible();
-    expect(within(creditsDialog).getByText("+100 diagnosis credits")).toBeVisible();
+    expect(within(creditsDialog).getByText("+100 credits")).toBeVisible();
     expect(within(creditsDialog).getByText("1h ago")).toBeVisible();
-    expect(within(creditsDialog).getByRole("link", { name: "Review diagnosis credits" })).toHaveAttribute("href", "/app/plans-and-credits");
-    expect(within(creditsDialog).getByRole("link", { name: /View diagnosis credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(within(creditsDialog).getByRole("link", { name: "Review credits" })).toHaveAttribute("href", "/app/plans-and-credits");
+    expect(within(creditsDialog).getByRole("link", { name: /View credits/ })).toHaveAttribute("href", "/app/plans-and-credits");
 
     fireEvent.click(screen.getByRole("button", { name: /search products/i }));
     fireEvent.change(screen.getByPlaceholderText("Product title, handle, issue..."), {
@@ -231,9 +231,9 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getByText("Trail Run Vest")).toBeVisible();
     expect(screen.getByText(/Started /)).toBeVisible();
     expect(screen.getByText(/Completed /)).toBeVisible();
-    expect(screen.getAllByText("1.0 diagnosis credit").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1.0 credit").length).toBeGreaterThan(0);
     expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobElapsed")).not.toBeInTheDocument();
-    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1\.0 diagnosis credit.*s/);
+    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1\.0 credit.*s/);
     expect(screen.getByRole("link", { name: /View all background processes/i })).toHaveAttribute("href", "/app/background-processes");
     expect(document.querySelector(".ppGlobalTopbarJobProgress")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");

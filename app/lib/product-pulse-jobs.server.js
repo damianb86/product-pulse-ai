@@ -139,7 +139,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
 
   const pointDebit = await debitStorePointsForShop(shop, {
     amount: 1,
-    reason: `Catalog Scan diagnosis credit debit quick-scan:${job.id}`,
+    reason: `Catalog Scan credit debit quick-scan:${job.id}`,
     idempotencyKey: `quick-scan:${job.id}`,
     metadata: {
       source: "quick_scan",
@@ -148,10 +148,10 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     },
   });
   if (!["success", "already_recorded"].includes(pointDebit.status)) {
-    await markJobFailed(job.id, new Error(pointDebit.message || "Insufficient Diagnosis Credits."), "Catalog Scan not queued");
+    await markJobFailed(job.id, new Error(pointDebit.message || "Insufficient Credits."), "Catalog Scan not queued");
     return {
       status: "validation_error",
-      message: pointDebit.message || "Catalog Scan needs 1.0 diagnosis credit before it can start.",
+      message: pointDebit.message || "Catalog Scan needs 1.0 credit before it can start.",
       pointBalance: pointDebit.balance,
     };
   }
@@ -548,7 +548,7 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
     status: "success",
     suppressBanner: true,
     message: skippedForPoints
-      ? `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because diagnosis credits were no longer available.`
+      ? `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because credits were no longer available.`
       : `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
     queuedCount: jobs.length,
     jobs: jobs.map(formatJob),
@@ -645,8 +645,8 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
       progress: 100,
       source: "Canceled by user",
       errorMessage: cancellationRefund?.refunded
-        ? "Canceled from Background processes. Reserved diagnosis credit was refunded."
-        : "Canceled from Background processes. Any diagnosis credits already consumed by the queued job are not automatically refunded.",
+        ? "Canceled from Background processes. Reserved credit was refunded."
+        : "Canceled from Background processes. Any credits already consumed by the queued job are not automatically refunded.",
       payload: cancellationPayload,
       finishedAt: new Date(),
     },
@@ -684,7 +684,7 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
   const amount = Number(payload.pointCost || payload.pointsConsumed || payload.creditsConsumed || 1);
   const refund = await creditStorePointsForShop(job.shop, {
     amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
-    reason: `Product diagnosis credit refund product-diagnosis-cancel-refund:${job.id} - ${payload.productTitle || "selected product"}`,
+    reason: `Product Diagnosis refund credit product-diagnosis-cancel-refund:${job.id} - ${payload.productTitle || "selected product"}`,
     idempotencyKey: `product-diagnosis-cancel-refund:${job.id}`,
     metadata: {
       source: "product_diagnosis_refund",
@@ -702,7 +702,7 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
       jobId: job.id,
       level: "error",
       event: "product_diagnosis.points_refund_failed",
-      message: refund.message || "Cancelled Product Diagnosis credit refund could not be recorded.",
+      message: refund.message || "Cancelled Product Diagnosis refund credit could not be recorded.",
       data: {
         pointRefundStatus: refund.status,
         pointBalance: refund.balance || null,
@@ -2631,7 +2631,7 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
     const pointDebit = await debitStorePointsForShop(shop, {
       db: tx,
       amount: 1,
-      reason: `Product diagnosis credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+      reason: `Product credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
       idempotencyKey: `product-diagnosis:${jobId}`,
       metadata: {
         source: "product_diagnosis",
@@ -3092,7 +3092,7 @@ async function runProductDiagnosisJob(job) {
     jobId: job.id,
     event: "product_diagnosis.completed",
     message: diagnosis?.skipped && pointCharge.pointsConsumed <= 0
-      ? "Product diagnosis finished from cache because no source changes were detected. No diagnosis credit was consumed."
+      ? "Product diagnosis finished from cache because no source changes were detected. No credit was consumed."
       : "Product diagnosis completed.",
     data: {
       durationMs: Date.now() - startedAt,
@@ -3156,7 +3156,7 @@ async function ensureProductDiagnosisPointDebit(job) {
 
   const pointDebit = await debitStorePointsForShop(job.shop, {
     amount: 1,
-    reason: `Product diagnosis credit debit product-diagnosis:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+    reason: `Product credit debit product-diagnosis:${job.id} - ${job.payload?.productTitle || "selected product"}`,
     idempotencyKey: `product-diagnosis:${job.id}`,
     metadata: {
       source: "product_diagnosis",
@@ -3173,14 +3173,14 @@ async function ensureProductDiagnosisPointDebit(job) {
       jobId: job.id,
       level: "error",
       event: "product_diagnosis.points_not_consumed",
-      message: pointDebit.message || "Product diagnosis credits could not be consumed.",
+      message: pointDebit.message || "Product credits could not be consumed.",
       data: {
         pointsConsumed: 1,
         pointDebitStatus: pointDebit.status,
         pointBalance: pointDebit.balance || null,
       },
     });
-    throw new Error(pointDebit.message || "Product diagnosis needs 1.0 diagnosis credit before it can start.");
+    throw new Error(pointDebit.message || "Product diagnosis needs 1.0 credit before it can start.");
   }
 
   await updateProductDiagnosisJob(job.id, {
@@ -3202,7 +3202,7 @@ async function finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit) {
   if (!Number.isFinite(diagnosisPointsConsumed) || diagnosisPointsConsumed <= 0) {
     const refund = await creditStorePointsForShop(job.shop, {
       amount: normalizedChargedAmount,
-      reason: `Product diagnosis credit refund product-diagnosis-refund:${job.id} - ${job.payload?.productTitle || "selected product"}`,
+      reason: `Product credit refund product-diagnosis-refund:${job.id} - ${job.payload?.productTitle || "selected product"}`,
       idempotencyKey: `product-diagnosis-refund:${job.id}`,
       metadata: {
         source: "product_diagnosis_refund",
@@ -3221,7 +3221,7 @@ async function finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit) {
         jobId: job.id,
         level: "error",
         event: "product_diagnosis.points_refund_failed",
-        message: refund.message || "Product diagnosis credit refund could not be recorded.",
+        message: refund.message || "Product credit refund could not be recorded.",
         data: {
           pointDebitStatus: pointDebit?.status || "unknown",
           pointRefundStatus: refund.status,

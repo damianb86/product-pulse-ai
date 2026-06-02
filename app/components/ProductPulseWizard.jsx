@@ -407,6 +407,9 @@ export function ProductPulseWizard() {
         <div className="ppWizardBlurLayer" />
       </div>
       <div className={`ppWizardRoot ppWizardRoot-${step.kind}`} aria-live="polite">
+        <button className="ppWizardSkipTourButton" type="button" onClick={completeWizard}>
+          Skip tour
+        </button>
         {step.kind === "welcome" ? <WelcomeWizardStep /> : null}
         {step.kind === "connect" ? (
           <ConnectWizardStep

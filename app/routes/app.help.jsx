@@ -21,7 +21,7 @@ const requestCards = [
   {
     icon: "diagnosis",
     title: "Understand diagnosis results",
-    text: "Ask about risk, confidence, Estimated Margin Exposure, Sales Momentum, retention, evidence by source, diagnosis credits, and ProductPulse action records.",
+    text: "Ask about risk, confidence, Estimated Margin Exposure, Sales Momentum, retention, evidence by source, credits, and ProductPulse action records.",
     action: "Ask a question",
     modal: "support",
   },
@@ -85,7 +85,7 @@ const workflowSteps = [
   {
     eyebrow: "03",
     title: "Diagnose one product",
-    text: "Spend 1.0 diagnosis credit to run Product Diagnosis with likely cause, confidence, issue clusters, evidence, and recommended actions.",
+    text: "Spend 1.0 credit to run Product Diagnosis with likely cause, confidence, issue clusters, evidence, and recommended actions.",
     href: "/app/products",
     linkText: "Review products",
   },
@@ -102,7 +102,7 @@ const featureGuideItems = [
   {
     icon: "diagnosis",
     title: "Dashboard and Products",
-    text: "Use Dashboard for priority products, active jobs, diagnosis credits, top issues, latest diagnoses, and recommended actions. Use Products to review diagnosed products, Catalog Scan candidates, resolved items, and Watchlist actions.",
+    text: "Use Dashboard for priority products, active jobs, credits, top issues, latest diagnoses, and recommended actions. Use Products to review diagnosed products, Catalog Scan candidates, resolved items, and Watchlist actions.",
   },
   {
     icon: "evidence",
@@ -148,7 +148,8 @@ const privacyStoredItems = [
   "Product risk snapshots, Product Diagnosis summaries, issue evidence, and recommendations.",
   "Product retention runs, cohort summaries, LTV curves, segment rows, and monthly order activity used in retention views.",
   "Product timeline events, metric score history, Watchlist products, Watchlist settings, and Watchlist activity.",
-  "ProductPulse actions, AI conversation records, AI tool/audit logs, app-owned proposals, usage events, diagnosis credit ledger entries, and contact requests from this page.",
+  "ProductPulse actions, AI conversation records, AI tool/audit logs, app-owned proposals, usage events, and contact requests from this page.",
+  "Credit ledger entries are retained so billing, purchased credits, used credits, and one-time welcome credits are not reset by a data deletion request.",
   "Shopify session tokens required for embedded admin authentication.",
 ];
 
@@ -236,7 +237,7 @@ export const action = async ({ request }) => {
         `- AI usage events: ${counts.aiUsageEvents}`,
         `- AI action proposals: ${counts.aiActionProposals}`,
         `- AI app draft proposals: ${counts.aiAppDraftProposals}`,
-        `- Diagnosis credit ledger entries: ${counts.creditEntries}`,
+        `- Credit ledger entries retained for billing and credit balance: ${counts.creditEntries}`,
         `- Contact requests: ${counts.contacts}`,
         `- Sessions: ${counts.sessions}`,
         "",
@@ -263,7 +264,7 @@ export const action = async ({ request }) => {
         `Shop: ${session.shop}`,
         "",
         "The merchant requested deletion of all ProductPulse AI app data.",
-        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, product actions, retention records, product timeline events, watchlist products, watch settings, watch activity, product score history, AI conversations, AI usage events, AI proposals, diagnosis credit ledger entries, contact requests, and sessions.",
+        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, product actions, retention records, product timeline events, watchlist products, watch settings, watch activity, product score history, AI conversations, AI usage events, AI proposals, contact requests, and sessions. Credit ledger entries were retained so the shop keeps its existing credit balance and does not receive duplicate welcome credits.",
       ].join("\n"),
     });
 
@@ -414,7 +415,7 @@ export default function Help() {
               <p className={styles.heroText}>
                 Use this page when source coverage, Catalog Scan jobs, Product Diagnosis,
                 retention metrics, metric timelines, Watchlist reports, ProductPulse
-                actions, diagnosis credits, or privacy questions block your catalog review workflow.
+                actions, credits, or privacy questions block your catalog review workflow.
               </p>
             </div>
             <div className={styles.heroActions}>
@@ -601,7 +602,7 @@ export default function Help() {
               <p>
                 ProductPulse keeps tokens server-side and stores only the
                 app-owned data needed for traceability, diagnosis, support, and
-                diagnosis credit accounting.
+                credit accounting.
               </p>
             </div>
           </div>
@@ -679,8 +680,9 @@ export default function Help() {
                 This permanently removes ProductPulse app data for this shop,
                 including source records, jobs, risk snapshots, diagnoses,
                 product actions, retention records, timeline events, Watchlist
-                data, score history, AI records, diagnosis credit ledger entries,
-                contact requests, and Shopify sessions.
+                data, score history, AI records, contact requests, and Shopify
+                sessions. Credit ledger entries and the current credit balance
+                are kept so credits are not reset or granted again.
               </p>
               <div className={styles.modalNotice}>
                 <strong>This action cannot be undone.</strong>
@@ -891,7 +893,6 @@ async function deleteProductPulseData(shop) {
     db.productPulseJobLog.deleteMany({ where: { shop } }),
     db.catalogSignalJob.deleteMany({ where: { shop } }),
     db.productPulseSource.deleteMany({ where: { shop } }),
-    db.creditLedgerEntry.deleteMany({ where: { shop } }),
     db.contactRequest.deleteMany({ where: { shop } }),
     db.session.deleteMany({ where: { shop } }),
   ]);
