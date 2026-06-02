@@ -332,6 +332,8 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Recommended")).not.toBeInTheDocument();
     expect(screen.queryByText("Best value")).not.toBeInTheDocument();
     expect(screen.getByText("Included")).toBeInTheDocument();
+    expect(screen.getByText("$18")).toBeInTheDocument();
+    expect(screen.getByText("$9")).toBeInTheDocument();
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Shopify Billing not enabled")).not.toBeInTheDocument();
     expect(screen.getByText("Metric timeline")).toBeInTheDocument();
@@ -361,6 +363,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Extra diagnosis credit packs")).toBeInTheDocument();
     expect(screen.getByText(/Buy extra credits when your plan allowance/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Buy .* diagnosis credits/ })).toHaveLength(5);
+    expect(screen.getByText("$22")).toBeInTheDocument();
+    expect(screen.getByText("$11")).toBeInTheDocument();
     screen.getAllByRole("button", { name: /Buy .* diagnosis credits/ }).forEach((button) => {
       expect(button).toBeDisabled();
     });

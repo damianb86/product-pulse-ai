@@ -74,8 +74,10 @@ describe("ProductPulse Shopify Billing", () => {
     expect(view.creditPacks.map((pack) => pack.credits)).toEqual([10, 25, 50, 100, 250]);
     expect(view.creditPacks[1]).toMatchObject({
       id: "pack_25",
-      amountCents: 750,
-      priceLabel: "$7.50",
+      amountCents: 650,
+      compareAtPriceCents: 1300,
+      priceLabel: "$6.50",
+      compareAtPriceLabel: "$13",
     });
   });
 });

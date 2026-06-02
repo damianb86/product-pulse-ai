@@ -49,6 +49,7 @@ export const PRODUCT_PULSE_FREE_PLAN = {
   name: "Free",
   monthlyCredits: 10,
   priceCents: 0,
+  compareAtPriceCents: 0,
   currencyCode: "USD",
 };
 
@@ -57,16 +58,17 @@ export const PRODUCT_PULSE_STARTER_PLAN_CONFIG = {
   name: "Starter",
   shopifyPlanName: PRODUCT_PULSE_STARTER_PLAN,
   monthlyCredits: 50,
-  priceCents: configuredCents("PRODUCT_PULSE_STARTER_PLAN_PRICE_CENTS", 1900),
+  priceCents: configuredCents("PRODUCT_PULSE_STARTER_PLAN_PRICE_CENTS", 900),
+  compareAtPriceCents: configuredCents("PRODUCT_PULSE_STARTER_PLAN_COMPARE_AT_PRICE_CENTS", 1800),
   currencyCode: "USD",
 };
 
 export const PRODUCT_PULSE_CREDIT_PACKAGES = [
-  buildCreditPackage("pack_10", 10, "Small top-up", "PRODUCT_PULSE_CREDIT_PACK_10_PRICE_CENTS", 400),
-  buildCreditPackage("pack_25", 25, "Most common setup pack", "PRODUCT_PULSE_CREDIT_PACK_25_PRICE_CENTS", 750),
-  buildCreditPackage("pack_50", 50, "Monthly working buffer", "PRODUCT_PULSE_CREDIT_PACK_50_PRICE_CENTS", 1400),
-  buildCreditPackage("pack_100", 100, "Frequent diagnosis pack", "PRODUCT_PULSE_CREDIT_PACK_100_PRICE_CENTS", 2500),
-  buildCreditPackage("pack_250", 250, "High-volume diagnosis pack", "PRODUCT_PULSE_CREDIT_PACK_250_PRICE_CENTS", 5500),
+  buildCreditPackage("pack_10", 10, "Small top-up", "PRODUCT_PULSE_CREDIT_PACK_10_PRICE_CENTS", 300, "PRODUCT_PULSE_CREDIT_PACK_10_COMPARE_AT_PRICE_CENTS", 600),
+  buildCreditPackage("pack_25", 25, "Most common setup pack", "PRODUCT_PULSE_CREDIT_PACK_25_PRICE_CENTS", 650, "PRODUCT_PULSE_CREDIT_PACK_25_COMPARE_AT_PRICE_CENTS", 1300),
+  buildCreditPackage("pack_50", 50, "Monthly working buffer", "PRODUCT_PULSE_CREDIT_PACK_50_PRICE_CENTS", 1100, "PRODUCT_PULSE_CREDIT_PACK_50_COMPARE_AT_PRICE_CENTS", 2200),
+  buildCreditPackage("pack_100", 100, "Frequent diagnosis pack", "PRODUCT_PULSE_CREDIT_PACK_100_PRICE_CENTS", 2100, "PRODUCT_PULSE_CREDIT_PACK_100_COMPARE_AT_PRICE_CENTS", 4200),
+  buildCreditPackage("pack_250", 250, "High-volume diagnosis pack", "PRODUCT_PULSE_CREDIT_PACK_250_PRICE_CENTS", 5000, "PRODUCT_PULSE_CREDIT_PACK_250_COMPARE_AT_PRICE_CENTS", 10000),
 ];
 
 export class ProductPulseBillingError extends Error {
@@ -327,11 +329,12 @@ function normalizeSubscriptions(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function buildCreditPackage(id, credits, description, envKey, fallbackCents) {
+function buildCreditPackage(id, credits, description, envKey, fallbackCents, compareAtEnvKey, fallbackCompareAtCents) {
   return {
     id,
     credits,
     amountCents: configuredCents(envKey, fallbackCents),
+    compareAtPriceCents: configuredCents(compareAtEnvKey, fallbackCompareAtCents),
     currencyCode: "USD",
     description,
   };
@@ -342,6 +345,9 @@ function creditPackageView(pkg) {
     ...pkg,
     price: pkg.amountCents / 100,
     priceLabel: formatCurrency(pkg.amountCents, pkg.currencyCode),
+    compareAtPriceLabel: pkg.compareAtPriceCents > pkg.amountCents
+      ? formatCurrency(pkg.compareAtPriceCents, pkg.currencyCode)
+      : "",
     creditsLabel: `${formatWholeNumber(pkg.credits)} credits`,
   };
 }
@@ -351,6 +357,9 @@ function planView(plan) {
     ...plan,
     price: plan.priceCents / 100,
     priceLabel: formatCurrency(plan.priceCents, plan.currencyCode),
+    compareAtPriceLabel: plan.compareAtPriceCents > plan.priceCents
+      ? formatCurrency(plan.compareAtPriceCents, plan.currencyCode)
+      : "",
   };
 }
 

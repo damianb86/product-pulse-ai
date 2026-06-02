@@ -5893,7 +5893,8 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "starter",
     name: "Starter",
-    basePriceCents: 1900,
+    basePriceCents: 900,
+    compareAtPriceCents: 1800,
     credits: "50 diagnosis credits /mo",
     monthlyCredits: 50,
     limits: {
@@ -5976,11 +5977,11 @@ const PLANS_CREDIT_FEATURES = [
 ];
 
 const EXTRA_CREDIT_PACKS = [
-  { id: "pack_10", credits: 10, amountCents: 400, priceLabel: "$4", description: "Small top-up" },
-  { id: "pack_25", credits: 25, amountCents: 750, priceLabel: "$7.50", description: "Most common setup pack" },
-  { id: "pack_50", credits: 50, amountCents: 1400, priceLabel: "$14", description: "Monthly working buffer" },
-  { id: "pack_100", credits: 100, amountCents: 2500, priceLabel: "$25", description: "Frequent diagnosis pack" },
-  { id: "pack_250", credits: 250, amountCents: 5500, priceLabel: "$55", description: "High-volume diagnosis pack" },
+  { id: "pack_10", credits: 10, amountCents: 300, compareAtPriceCents: 600, priceLabel: "$3", compareAtPriceLabel: "$6", description: "Small top-up" },
+  { id: "pack_25", credits: 25, amountCents: 650, compareAtPriceCents: 1300, priceLabel: "$6.50", compareAtPriceLabel: "$13", description: "Most common setup pack" },
+  { id: "pack_50", credits: 50, amountCents: 1100, compareAtPriceCents: 2200, priceLabel: "$11", compareAtPriceLabel: "$22", description: "Monthly working buffer" },
+  { id: "pack_100", credits: 100, amountCents: 2100, compareAtPriceCents: 4200, priceLabel: "$21", compareAtPriceLabel: "$42", description: "Frequent diagnosis pack" },
+  { id: "pack_250", credits: 250, amountCents: 5000, compareAtPriceCents: 10000, priceLabel: "$50", compareAtPriceLabel: "$100", description: "High-volume diagnosis pack" },
 ];
 
 const PLAN_USAGE_OPTIONS = [
@@ -6049,17 +6050,34 @@ function getPlansCreditPackViews(data = {}) {
     id: pack.id || `pack_${pack.credits}`,
     credits: Number(pack.credits || 0),
     amountCents: Number(pack.amountCents || 0),
+    compareAtPriceCents: Number(pack.compareAtPriceCents || 0),
     priceLabel: pack.priceLabel || formatPlansCurrency(pack.amountCents || 0, pack.currencyCode || "USD"),
+    compareAtPriceLabel: pack.compareAtPriceLabel || (
+      Number(pack.compareAtPriceCents || 0) > Number(pack.amountCents || 0)
+        ? formatPlansCurrency(pack.compareAtPriceCents || 0, pack.currencyCode || "USD")
+        : ""
+    ),
     description: pack.description || "Extra diagnosis credits",
   }));
 }
 
-function getPlansCreditPlanPriceLabel(plan, data = {}) {
-  if (plan.key === "free") return "$0";
+function getPlansCreditPlanPricing(plan, data = {}) {
+  if (plan.key === "free") {
+    return { priceLabel: "$0", compareAtPriceLabel: "" };
+  }
   const configuredPlan = Array.isArray(data?.billing?.plans)
     ? data.billing.plans.find((candidate) => candidate.key === plan.key)
     : null;
-  return configuredPlan?.priceLabel || formatPlansCurrency(configuredPlan?.priceCents ?? plan.basePriceCents ?? 0, configuredPlan?.currencyCode || "USD");
+  const priceCents = configuredPlan?.priceCents ?? plan.basePriceCents ?? 0;
+  const compareAtPriceCents = configuredPlan?.compareAtPriceCents ?? plan.compareAtPriceCents ?? 0;
+  return {
+    priceLabel: configuredPlan?.priceLabel || formatPlansCurrency(priceCents, configuredPlan?.currencyCode || "USD"),
+    compareAtPriceLabel: configuredPlan?.compareAtPriceLabel || (
+      compareAtPriceCents > priceCents
+        ? formatPlansCurrency(compareAtPriceCents, configuredPlan?.currencyCode || "USD")
+        : ""
+    ),
+  };
 }
 
 function formatPlansCurrency(amountCents, currencyCode = "USD") {
@@ -6216,21 +6234,26 @@ export function PlansCreditsScreen({ data = {} }) {
           </div>
           <div className="ppPlansMatrix" style={{ "--pp-plans-visible-count": visiblePlans.length }}>
             <div className="ppPlansFeatureHeading">Features</div>
-            {visiblePlans.map((plan) => (
-              <div
-                className={`ppPlansPlanHead ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedTop" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
-                key={plan.key}
-              >
-                {plan.badge && <span className={`ppPlansPlanBadge ppPlansPlanBadge-${plan.premium ? "green" : "purple"}`}>{plan.badge}</span>}
-                {plan.key === currentPlanKey && <span className="ppPlansCurrentBadge">Current</span>}
-                <h2>{plan.name}</h2>
-                <div className="ppPlansPriceBlock">
-                  <strong>{plan.key === currentPlanKey && plan.key === "free" ? "Included" : getPlansCreditPlanPriceLabel(plan, data)}</strong>
-                  <em>{plan.key === "free" ? "forever" : "/ month"}</em>
+            {visiblePlans.map((plan) => {
+              const pricing = getPlansCreditPlanPricing(plan, data);
+              const priceLabel = plan.key === currentPlanKey && plan.key === "free" ? "Included" : pricing.priceLabel;
+              return (
+                <div
+                  className={`ppPlansPlanHead ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedTop" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
+                  key={plan.key}
+                >
+                  {plan.badge && <span className={`ppPlansPlanBadge ppPlansPlanBadge-${plan.premium ? "green" : "purple"}`}>{plan.badge}</span>}
+                  {plan.key === currentPlanKey && <span className="ppPlansCurrentBadge">Current</span>}
+                  <h2>{plan.name}</h2>
+                  <div className="ppPlansPriceBlock">
+                    {pricing.compareAtPriceLabel ? <span className="ppPlansOriginalPrice">{pricing.compareAtPriceLabel}</span> : null}
+                    <strong>{priceLabel}</strong>
+                    <em>{plan.key === "free" ? "forever" : "beta price / month"}</em>
+                  </div>
+                  <p>{plan.credits}</p>
                 </div>
-                <p>{plan.credits}</p>
-              </div>
-            ))}
+              );
+            })}
 
             {PLANS_CREDIT_FEATURES.map((feature) => (
               <PlanFeatureRow feature={feature} plans={visiblePlans} key={feature.label} />
@@ -6277,6 +6300,7 @@ export function PlansCreditsScreen({ data = {} }) {
                   <span className="ppPlansPackIcon" aria-hidden="true"><PlansCreditsIcon type="wallet" /></span>
                   <strong>{formatInteger(pack.credits)}</strong>
                   <small>Diagnosis credits</small>
+                  {pack.compareAtPriceLabel ? <span className="ppPlansPackOriginalPrice">{pack.compareAtPriceLabel}</span> : null}
                   <b>{pack.priceLabel}</b>
                   <em>{pack.description}</em>
                   <creditPurchaseFetcher.Form method="post">
