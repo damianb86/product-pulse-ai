@@ -82,6 +82,8 @@ Pricing lives in `app/ai/observability/pricing.ts`. Defaults are based on OpenAI
 - `AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES`: caps format repair calls.
 - `AI_CHAT_MAX_ACTION_PROPOSALS_PER_TURN`: caps action proposal cards in one answer.
 - `AI_CHAT_OPENAI_TIMEOUT_MS`: caps backend wait time for OpenAI responses.
+- `AI_SCOPE_GUARD_ENABLED` and `AI_OUTPUT_GUARD_ENABLED`: keep chat inside ProductPulse scope before and after the main model call.
+- `AI_SCOPE_GUARD_MODEL`: low-cost model used by semantic scope guards.
 
 ## Trace Storage
 

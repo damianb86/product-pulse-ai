@@ -22,7 +22,7 @@ describe("ProductPulseWizard", () => {
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
     expect(await screen.findByRole("dialog", { name: "Connect Judge.me Reviews" })).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Connect Yotpo Reviews" })).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Connect Loox Reviews" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Connect Loox Reviews" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Upload reviews by CSV" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Judge.me CSV export documentation" })).toHaveAttribute("href", "https://judge.me/help/en/articles/8236266-exporting-reviews");
     expect(screen.getByRole("link", { name: "Open Yotpo CSV export documentation" })).toHaveAttribute("href", "https://support.yotpo.com/docs/exporting-reviews-from-yotpo");
@@ -68,20 +68,6 @@ describe("ProductPulseWizard", () => {
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
   });
 
-  it("keeps the wizard open when the Loox Connect modal opens", async () => {
-    renderWizard();
-
-    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
-    await screen.findByRole("dialog", { name: "Connect Loox Reviews" });
-
-    fireEvent.click(screen.getByRole("button", { name: "Manage Loox" }));
-
-    expect(await screen.findByRole("heading", { name: "Loox Reviews" })).toBeInTheDocument();
-    expect(screen.getByText("Connect Loox reviews")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Wizard controls" })).toBeInTheDocument();
-    expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
-  });
-
   it("keeps the wizard open when a Connect modal opens", async () => {
     renderWizard();
 
@@ -110,6 +96,27 @@ describe("ProductPulseWizard", () => {
 
     await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
     expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
+  });
+
+  it("returns to Connect when Catalog Scan asks for CSV first", async () => {
+    renderWizard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
+    expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail: { type: "quick-scan-upload-csv-first" } }));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
+    expect(await screen.findByRole("dialog", { name: "Upload reviews by CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Connect Judge.me Reviews" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Connect Yotpo Reviews" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Connect Loox Reviews" })).not.toBeInTheDocument();
   });
 
   it("shows the Catalog Scan step even when candidate rows already exist", async () => {

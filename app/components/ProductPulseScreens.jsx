@@ -1089,6 +1089,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     setQuickScanConfirmation(true);
   };
 
+  const handleUploadCsvBeforeQuickScan = () => {
+    setQuickScanCsvWarning(false);
+    dispatchProductPulseWizardEvent({ type: "quick-scan-upload-csv-first" });
+  };
+
   const handleConfirmFastScan = () => {
     if (fastScanRunning) return;
     setQuickScanConfirmation(false);
@@ -1765,6 +1770,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
         <QuickScanCsvReviewsModal
           onCancel={() => setQuickScanCsvWarning(false)}
           onContinue={handleContinueQuickScanWithoutCsv}
+          onUploadCsvFirst={handleUploadCsvBeforeQuickScan}
         />
       )}
     </FullWidthPage>
@@ -5887,6 +5893,7 @@ const PLANS_CREDIT_PLANS = [
   {
     key: "starter",
     name: "Starter",
+    basePriceCents: 1900,
     credits: "50 diagnosis credits /mo",
     monthlyCredits: 50,
     limits: {
@@ -5969,11 +5976,11 @@ const PLANS_CREDIT_FEATURES = [
 ];
 
 const EXTRA_CREDIT_PACKS = [
-  { credits: 10 },
-  { credits: 25 },
-  { credits: 50 },
-  { credits: 100 },
-  { credits: 250 },
+  { id: "pack_10", credits: 10, amountCents: 400, priceLabel: "$4", description: "Small top-up" },
+  { id: "pack_25", credits: 25, amountCents: 750, priceLabel: "$7.50", description: "Most common setup pack" },
+  { id: "pack_50", credits: 50, amountCents: 1400, priceLabel: "$14", description: "Monthly working buffer" },
+  { id: "pack_100", credits: 100, amountCents: 2500, priceLabel: "$25", description: "Frequent diagnosis pack" },
+  { id: "pack_250", credits: 250, amountCents: 5500, priceLabel: "$55", description: "High-volume diagnosis pack" },
 ];
 
 const PLAN_USAGE_OPTIONS = [
@@ -6009,7 +6016,7 @@ function isPlansCreditBillingEnabled(data = {}) {
 }
 
 function getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled) {
-  if (plan.key === currentPlanKey) return "Current free plan";
+  if (plan.key === currentPlanKey) return plan.key === "starter" ? "Current starter plan" : "Current free plan";
   if (!billingEnabled) return "Billing disabled";
   if (plan.unavailable) return "Coming soon";
   return `Choose ${plan.name}`;
@@ -6036,6 +6043,34 @@ function getPlansCreditActivityRows(pointSummary) {
   });
 }
 
+function getPlansCreditPackViews(data = {}) {
+  const configuredPacks = Array.isArray(data?.billing?.creditPacks) ? data.billing.creditPacks : [];
+  return (configuredPacks.length ? configuredPacks : EXTRA_CREDIT_PACKS).map((pack) => ({
+    id: pack.id || `pack_${pack.credits}`,
+    credits: Number(pack.credits || 0),
+    amountCents: Number(pack.amountCents || 0),
+    priceLabel: pack.priceLabel || formatPlansCurrency(pack.amountCents || 0, pack.currencyCode || "USD"),
+    description: pack.description || "Extra diagnosis credits",
+  }));
+}
+
+function getPlansCreditPlanPriceLabel(plan, data = {}) {
+  if (plan.key === "free") return "$0";
+  const configuredPlan = Array.isArray(data?.billing?.plans)
+    ? data.billing.plans.find((candidate) => candidate.key === plan.key)
+    : null;
+  return configuredPlan?.priceLabel || formatPlansCurrency(configuredPlan?.priceCents ?? plan.basePriceCents ?? 0, configuredPlan?.currencyCode || "USD");
+}
+
+function formatPlansCurrency(amountCents, currencyCode = "USD") {
+  const cents = Number(amountCents || 0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currencyCode,
+    maximumFractionDigits: Number.isInteger(cents / 100) ? 0 : 2,
+  }).format(cents / 100);
+}
+
 function formatPlansCreditSignedAmount(value = 0) {
   const number = Number(value || 0);
   const sign = number < 0 ? "-" : "+";
@@ -6043,11 +6078,23 @@ function formatPlansCreditSignedAmount(value = 0) {
 }
 
 export function PlansCreditsScreen({ data = {} }) {
+  const planFetcher = useFetcher();
+  const creditPurchaseFetcher = useFetcher();
   const currentPlanKey = getPlansCreditCurrentPlanKey(data);
   const currentPlan = PLANS_CREDIT_PLANS.find((plan) => plan.key === currentPlanKey) || PLANS_CREDIT_PLANS[0];
   const visiblePlans = PLANS_CREDIT_PLANS.filter((plan) => !plan.unavailable || plan.key === currentPlanKey);
   const billingEnabled = isPlansCreditBillingEnabled(data);
   const pointSummary = getPlansCreditPointSummary(data);
+  const creditPacks = getPlansCreditPackViews(data);
+  const routeBillingMessage = data?.billing?.creditPurchaseResult?.message || data?.billing?.message || "";
+  const routeBillingOk = data?.billing?.creditPurchaseResult?.ok;
+  const planAction = planFetcher.data || null;
+  const creditAction = creditPurchaseFetcher.data || null;
+  const actionMessage = creditAction?.message || planAction?.message || routeBillingMessage;
+  const actionOk = creditAction?.ok ?? planAction?.ok ?? routeBillingOk;
+  const confirmationUrl = creditAction?.confirmationUrl || planAction?.confirmationUrl || "";
+  const isPlanSubmitting = planFetcher.state !== "idle";
+  const isCreditSubmitting = creditPurchaseFetcher.state !== "idle";
   const usedCredits = Number(pointSummary?.usage?.used ?? data?.billing?.usedCredits ?? data?.billing?.creditsUsed ?? data?.credits?.used ?? 0);
   const remainingCredits = Math.max(
     0,
@@ -6100,22 +6147,42 @@ export function PlansCreditsScreen({ data = {} }) {
     },
   });
 
+  useEffect(() => {
+    if (!confirmationUrl) return;
+    try {
+      window.top.location.href = confirmationUrl;
+    } catch {
+      window.location.href = confirmationUrl;
+    }
+  }, [confirmationUrl]);
+
   return (
     <FullWidthPage label="Plans & Diagnosis Credits" className="ppPlansPage">
       <ScreenShell className="ppDashboard ppPlansScreen">
         <div className="ppPlansTopbar">
           <div>
             <h1>Plans &amp; Diagnosis Credits</h1>
-            <p>Track Diagnosis Credits for Product Diagnosis usage. Paid upgrades are disabled until Shopify Billing is configured.</p>
+            <p>Track Diagnosis Credits for Product Diagnosis usage. Plans and extra credit packs are billed through Shopify.</p>
           </div>
         </div>
 
+        {actionMessage ? (
+          <section className={`ppPlansNotice ${actionOk === false ? "isError" : "isSuccess"}`} role="status">
+            <strong>{actionOk === false ? "Billing action needs attention" : "Billing update"}</strong>
+            <p>{actionMessage}</p>
+          </section>
+        ) : null}
+
         <section className="ppPlansStatusGrid">
           <aside className="ppPlansBetaBanner" aria-label="Billing status">
-            <span>Free</span>
+            <span>{currentPlan.name}</span>
             <div>
-              <strong>ProductPulse is running without paid billing in this build.</strong>
-              <p>Plan changes and diagnosis credit-pack purchases remain unavailable until they are implemented through Shopify Billing or Shopify App Pricing.</p>
+              <strong>{billingEnabled ? "Shopify Billing is active for ProductPulse." : "ProductPulse is running without paid billing in this build."}</strong>
+              <p>
+                {billingEnabled
+                  ? "Starter subscriptions and extra Diagnosis Credit packs are approved through Shopify Billing. ProductPulse never collects payment details directly."
+                  : "Plan changes and diagnosis credit-pack purchases remain unavailable until they are implemented through Shopify Billing."}
+              </p>
             </div>
           </aside>
 
@@ -6158,8 +6225,8 @@ export function PlansCreditsScreen({ data = {} }) {
                 {plan.key === currentPlanKey && <span className="ppPlansCurrentBadge">Current</span>}
                 <h2>{plan.name}</h2>
                 <div className="ppPlansPriceBlock">
-                  <strong>{plan.key === currentPlanKey ? "Included" : "Unavailable"}</strong>
-                  {plan.key !== currentPlanKey && <em>Shopify Billing not enabled</em>}
+                  <strong>{plan.key === currentPlanKey && plan.key === "free" ? "Included" : getPlansCreditPlanPriceLabel(plan, data)}</strong>
+                  <em>{plan.key === "free" ? "forever" : "/ month"}</em>
                 </div>
                 <p>{plan.credits}</p>
               </div>
@@ -6175,13 +6242,14 @@ export function PlansCreditsScreen({ data = {} }) {
                 className={`ppPlansActionCell ppPlansColumn-${plan.key}${plan.featured ? " isFeatured isFeaturedBottom" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
                 key={`${plan.key}-action`}
               >
-                <button
-                  className={`ppPlansChooseButton${plan.featured ? " isPrimary" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`}
-                  disabled={plan.key === currentPlanKey || plan.unavailable || !billingEnabled ? true : undefined}
-                  type="button"
-                >
-                  {getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled)}
-                </button>
+                <PlanActionButton
+                  billingEnabled={billingEnabled}
+                  currentPlanKey={currentPlanKey}
+                  isSubmitting={isPlanSubmitting}
+                  plan={plan}
+                  planFetcher={planFetcher}
+                  subscriptionId={data?.billing?.subscriptionId}
+                />
               </div>
             ))}
           </div>
@@ -6190,7 +6258,7 @@ export function PlansCreditsScreen({ data = {} }) {
 
       <p className="ppPlansSecureNote">
         <PlansCreditsIcon type="shield" />
-        Paid upgrades and purchasable diagnosis credit packs will be enabled only through Shopify Billing.
+        Paid upgrades and purchasable diagnosis credit packs are approved through Shopify Billing.
       </p>
 
       <section className="ppPlansLowerGrid">
@@ -6199,17 +6267,38 @@ export function PlansCreditsScreen({ data = {} }) {
             <header>
               <div>
                 <h2>Extra diagnosis credit packs</h2>
-                <p>Diagnosis credit-pack purchases are not available in this build.</p>
+                <p>Buy extra credits when your plan allowance is not enough for Product Diagnosis work.</p>
               </div>
               <BetaFeedbackPanelControls panel={creditPacksFeedbackPanel} allowHide={false} />
             </header>
+            <div className="ppPlansPackGrid">
+              {creditPacks.map((pack) => (
+                <article className="ppPlansPackCard" key={pack.id}>
+                  <span className="ppPlansPackIcon" aria-hidden="true"><PlansCreditsIcon type="wallet" /></span>
+                  <strong>{formatInteger(pack.credits)}</strong>
+                  <small>Diagnosis credits</small>
+                  <b>{pack.priceLabel}</b>
+                  <em>{pack.description}</em>
+                  <creditPurchaseFetcher.Form method="post">
+                    <input type="hidden" name="intent" value="buy-credit-pack" />
+                    <input type="hidden" name="packageId" value={pack.id} />
+                    <button
+                      type="submit"
+                      disabled={!billingEnabled || isCreditSubmitting ? true : undefined}
+                    >
+                      {isCreditSubmitting ? "Opening..." : `Buy ${formatInteger(pack.credits)} diagnosis credits`}
+                    </button>
+                  </creditPurchaseFetcher.Form>
+                </article>
+              ))}
+            </div>
             <p className="ppPlansPackFootnote">
               <PlansCreditsIcon type="info" />
-              Extra diagnosis credits can be added here after Shopify Billing or Shopify App Pricing is configured for the app.
+              Extra diagnosis credits are one-time Shopify app purchases and are added after Shopify confirms approval.
             </p>
             <p className="ppPlansPackFootnote">
               <PlansCreditsIcon type="info" />
-              The current free diagnosis credit balance is managed inside ProductPulse and is not a merchant charge.
+              Unused purchased credits stay in your ProductPulse balance until they are consumed by Product Diagnosis.
             </p>
           </div>
         </BetaFeedbackPanelFrame>
@@ -6256,14 +6345,14 @@ export function PlansCreditsScreen({ data = {} }) {
               <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="card" /></span>
               <div>
                 <strong>Shopify Billing required</strong>
-                <p>No payment method is collected by ProductPulse. Any future charges must be approved through Shopify.</p>
+                <p>No payment method is collected by ProductPulse. Starter and credit packs must be approved through Shopify.</p>
               </div>
             </article>
             <article>
               <span className="ppPlansBillingIcon ppPlansBillingIcon-purple" aria-hidden="true"><PlansCreditsIcon type="gear" /></span>
               <div>
                 <strong>Manage diagnosis credits</strong>
-                <p>Plan changes, invoices and cancellation flows are disabled until Shopify Billing is connected.</p>
+                <p>Plan changes, invoices and cancellation are handled through Shopify app billing.</p>
                 <Link to="/app/plans-and-credits">View diagnosis credits <span aria-hidden="true">-&gt;</span></Link>
               </div>
             </article>
@@ -6320,6 +6409,55 @@ export function PlansCreditsScreen({ data = {} }) {
       </footer>
       </ScreenShell>
     </FullWidthPage>
+  );
+}
+
+function PlanActionButton({ billingEnabled, currentPlanKey, isSubmitting, plan, planFetcher, subscriptionId }) {
+  const classes = `ppPlansChooseButton${plan.featured ? " isPrimary" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`;
+  const label = getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled);
+
+  if (plan.key === currentPlanKey && plan.key === "starter") {
+    return (
+      <planFetcher.Form className="ppPlansPlanActionForm" method="post">
+        <input type="hidden" name="intent" value="cancel-starter" />
+        <input type="hidden" name="subscriptionId" value={subscriptionId || ""} />
+        <button className={classes} disabled type="button">
+          {label}
+        </button>
+        <button
+          className="ppPlansCancelButton"
+          disabled={isSubmitting || !subscriptionId ? true : undefined}
+          type="submit"
+        >
+          Cancel subscription
+        </button>
+      </planFetcher.Form>
+    );
+  }
+
+  if (plan.key === currentPlanKey || plan.unavailable || !billingEnabled || plan.key !== "starter") {
+    return (
+      <button
+        className={classes}
+        disabled
+        type="button"
+      >
+        {label}
+      </button>
+    );
+  }
+
+  return (
+    <planFetcher.Form className="ppPlansPlanActionForm" method="post">
+      <input type="hidden" name="intent" value="subscribe-starter" />
+      <button
+        className={classes}
+        disabled={isSubmitting ? true : undefined}
+        type="submit"
+      >
+        {isSubmitting ? "Opening..." : label}
+      </button>
+    </planFetcher.Form>
   );
 }
 
@@ -6783,7 +6921,7 @@ function clampClientInteger(value, min, max, fallback) {
   return Math.min(max, Math.max(min, number));
 }
 
-function QuickScanCsvReviewsModal({ onCancel, onContinue }) {
+function QuickScanCsvReviewsModal({ onCancel, onContinue, onUploadCsvFirst }) {
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
       <section className="ppAnalysisConfirmModal ppQuickScanCsvModal" role="dialog" aria-modal="true" aria-labelledby="quick-scan-csv-title">
@@ -6818,7 +6956,7 @@ function QuickScanCsvReviewsModal({ onCancel, onContinue }) {
 
         <div className="ppAnalysisConfirmFooter ppQuickScanCsvFooter">
           <button className="ppSecondaryButton" type="button" onClick={onCancel}>Cancel</button>
-          <Link className="ppSecondaryButton" to="/app/connect">Upload CSV first</Link>
+          <Link className="ppSecondaryButton" to="/app/connect" onClick={onUploadCsvFirst}>Upload CSV first</Link>
           <button className="ppPrimaryButton" type="button" onClick={onContinue}>Continue without CSV</button>
         </div>
       </section>

@@ -702,6 +702,95 @@ describe("ProductPulse AI chat orchestrator", () => {
     }));
     expect(store.toolCalls.find((call) => call.toolName === AI_SUPPORT_CONTACT_TOOL_NAME && call.status === "success")).toBeTruthy();
   });
+
+  it("blocks out-of-scope turns with the semantic input guard before tools or main response", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn().mockResolvedValueOnce(openAiTextResponse(inputScopeResponse({
+      allowed: false,
+      route: "out_of_scope",
+      response_mode: "refuse_and_redirect",
+      safe_response: "I can only help with ProductPulse data, app workflows, actions, or support.",
+      reason: "The user is asking for unrelated assistance.",
+      confidence: 0.97,
+    })));
+    const orchestrator = createTestOrchestrator({
+      store,
+      openAiCreate,
+      config: {
+        scopeGuardEnabled: true,
+        outputGuardEnabled: true,
+        scopeGuardModel: "gpt-test-scope",
+      },
+    });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Do something unrelated for me.",
+    });
+
+    expect(openAiCreate).toHaveBeenCalledTimes(1);
+    expect(openAiCreate.mock.calls[0][0]).toMatchObject({
+      model: "gpt-test-scope",
+      text: { format: expect.objectContaining({ name: "productpulse_input_scope", strict: true }) },
+    });
+    expect(result.assistantText).toContain("ProductPulse");
+    expect(result.metadata.toolCallCount).toBe(0);
+    expect(result.metadata.trace.guardrails).toMatchObject({
+      inputScopeRoute: "out_of_scope",
+      inputScopeAllowed: false,
+      scopeBlocked: true,
+    });
+    expect(store.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("replaces assistant output when the semantic output guard rejects the draft", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn()
+      .mockResolvedValueOnce(openAiTextResponse(inputScopeResponse({
+        allowed: true,
+        route: "productpulse_data",
+        response_mode: "continue",
+        safe_response: "",
+        reason: "The user asks about ProductPulse product data.",
+        confidence: 0.96,
+      })))
+      .mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+        assistantText: "Here is a broad answer outside ProductPulse.",
+      })))
+      .mockResolvedValueOnce(openAiTextResponse(outputScopeResponse({
+        allowed: false,
+        route: "redirect_to_productpulse",
+        safe_response: "I can help if we keep this inside ProductPulse product data or app workflows.",
+        reason: "The draft broadened beyond ProductPulse scope.",
+        confidence: 0.94,
+      })));
+    const orchestrator = createTestOrchestrator({
+      store,
+      openAiCreate,
+      config: {
+        scopeGuardEnabled: true,
+        outputGuardEnabled: true,
+        scopeGuardModel: "gpt-test-cheap",
+      },
+    });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "Explain the product risk data.",
+    });
+
+    expect(openAiCreate).toHaveBeenCalledTimes(3);
+    expect(openAiCreate.mock.calls[2][0]).toMatchObject({
+      model: "gpt-test-cheap",
+      text: { format: expect.objectContaining({ name: "productpulse_output_scope", strict: true }) },
+    });
+    expect(result.assistantText).toBe("I can help if we keep this inside ProductPulse product data or app workflows.");
+    expect(result.metadata.estimatedCost.totalUsd).toBe(0.00006);
+    expect(result.metadata.trace.guardrails).toMatchObject({
+      inputScopeRoute: "productpulse_data",
+      outputScopeRoute: "redirect_to_productpulse",
+      outputScopeAllowed: false,
+      scopeBlocked: true,
+    });
+  });
 });
 
 function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry, store, openAiCreate, config = {}, supportContactExecutor, chatQuotaResolver } = {}) {
@@ -721,6 +810,7 @@ function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry,
       OPENAI_API_KEY: "test-key",
       AI_MODEL_PRICING_JSON: JSON.stringify({
         "gpt-test": { input: 1, cachedInput: 0.1, output: 2 },
+        "gpt-test-cheap": { input: 0.1, cachedInput: 0.01, output: 0.2 },
       }),
     },
     config: {
@@ -736,6 +826,10 @@ function createTestOrchestrator({ registry, actionRegistry, appMutationRegistry,
       maxStructuredResponseRetries: 1,
       maxActionProposalsPerTurn: 1,
       openAiTimeoutMs: 30000,
+      scopeGuardEnabled: false,
+      outputGuardEnabled: false,
+      scopeGuardModel: "gpt-test-cheap",
+      scopeGuardMaxOutputTokens: 700,
       costTrackingEnabled: true,
       debugCosts: false,
       responseTemperature: 0.2,
@@ -854,6 +948,29 @@ function validAssistantResponse(overrides = {}) {
     referencedEntities: [],
     followUpQuestions: [],
     warnings: [],
+    ...overrides,
+  };
+}
+
+function inputScopeResponse(overrides = {}) {
+  return {
+    allowed: true,
+    route: "productpulse_data",
+    response_mode: "continue",
+    safe_response: "",
+    reason: "The request is inside ProductPulse scope.",
+    confidence: 0.95,
+    ...overrides,
+  };
+}
+
+function outputScopeResponse(overrides = {}) {
+  return {
+    allowed: true,
+    route: "allow",
+    safe_response: "",
+    reason: "The response is inside ProductPulse scope.",
+    confidence: 0.95,
     ...overrides,
   };
 }

@@ -124,11 +124,6 @@ const modalCopy = {
     title: "Connect Yotpo reviews",
     body: "Paste the Yotpo Store ID/App Key and API secret here. ProductPulse tests review access before saving the connection.",
   },
-  loox: {
-    eyebrow: "Loox connection",
-    title: "Connect Loox reviews",
-    body: "Paste the Loox publicStoreId and API secret key here. ProductPulse tests Merchant API review access before saving the connection.",
-  },
   csv: {
     eyebrow: "CSV upload",
     title: "Import review data",
@@ -275,6 +270,14 @@ export function ProductPulseWizard() {
         setQuickScanStarted(false);
         setQuickScanJobActive(false);
         setQuickScanStepCompleted(true);
+      }
+      if (detail.type === "quick-scan-upload-csv-first") {
+        setQuickScanStarted(false);
+        setQuickScanJobActive(false);
+        setQuickScanStepCompleted(false);
+        const connectStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "connect");
+        if (connectStepIndex >= 0) setStepIndex(connectStepIndex);
+        navigate(CONNECT_ROUTE);
       }
       if (detail.type === "deep-scan-started") {
         setQuickScanStarted(false);
@@ -485,11 +488,10 @@ function ConnectWizardStep({ targetRects, openModal, completion }) {
   if (openModal) return null;
   const judgeAnchor = targetRects.judgemeAction || targetRects.judgemeRow;
   const yotpoAnchor = targetRects.yotpoAction || targetRects.yotpoRow;
-  const looxAnchor = targetRects.looxAction || targetRects.looxRow;
   const csvAnchor = targetRects.csvAction || targetRects.csvRow;
 
-  if (!judgeAnchor || !yotpoAnchor || !looxAnchor || !csvAnchor) {
-    return <WizardLoadingCard title="Opening Connect" body="We are locating the Judge.me, Yotpo, Loox, and CSV review source rows." />;
+  if (!judgeAnchor || !yotpoAnchor || !csvAnchor) {
+    return <WizardLoadingCard title="Opening Connect" body="We are locating the Judge.me, Yotpo, and CSV review source rows." />;
   }
 
   return (
@@ -505,21 +507,6 @@ function ConnectWizardStep({ targetRects, openModal, completion }) {
         <p>
           Click <strong>Manage</strong> on Judge.me Reviews to connect your account with a private API
           token. The wizard stays open while you add credentials.
-        </p>
-      </WizardTooltip>
-
-      <WizardTooltip
-        anchorRect={looxAnchor}
-        className="ppWizardTooltip-loox"
-        title="Connect Loox Reviews"
-        eyebrow="Direct connector"
-        estimatedHeight={166}
-        forceSide="right"
-        offsetY={12}
-      >
-        <p>
-          Click <strong>Connect</strong> or <strong>Manage</strong> on Loox Reviews to add your
-          publicStoreId and API secret key from Settings &gt; API Keys.
         </p>
       </WizardTooltip>
 
@@ -1072,7 +1059,6 @@ function getOpenWizardModal() {
   const candidates = [
     { kind: "judgeme", selector: "#judgeme-connect-title" },
     { kind: "yotpo", selector: "#yotpo-connect-title" },
-    { kind: "loox", selector: "#loox-connect-title" },
     { kind: "csv", selector: "#csv-upload-title" },
     { kind: "csvPreview", selector: "#csv-preview-title" },
     { kind: "quickScanCsv", selector: "#quick-scan-csv-title" },

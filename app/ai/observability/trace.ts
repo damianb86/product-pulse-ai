@@ -32,6 +32,13 @@ export interface AiChatTrace {
     maxToolResultCharacters: number;
     maxOutputTokens: number | null;
     maxActionProposalsPerTurn: number;
+    inputScopeRoute?: string | null;
+    inputScopeAllowed?: boolean | null;
+    inputScopeConfidence?: number | null;
+    outputScopeRoute?: string | null;
+    outputScopeAllowed?: boolean | null;
+    outputScopeConfidence?: number | null;
+    scopeBlocked?: boolean;
   };
   chatQuota?: {
     tier: string;

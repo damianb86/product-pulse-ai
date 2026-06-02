@@ -48,6 +48,15 @@ import {
   type OpenAiResponsesClient,
 } from "./openAiClient.server";
 import {
+  buildScopeRuntimeInstructions,
+  classifyProductPulseChatScope,
+  fallbackOutputRefusal,
+  fallbackScopeRefusal,
+  validateProductPulseAssistantScope,
+  type AiOutputScopeValidation,
+  type AiScopeClassification,
+} from "./scopeGuard.server";
+import {
   AI_SUPPORT_CONTACT_TOOL_NAME,
   buildSupportContactOpenAiToolDefinition,
   executeAiSupportContactTool,
@@ -121,6 +130,16 @@ interface StructuredResponseValidationSummary {
   valid: boolean;
   retryCount: number;
   fallbackUsed: boolean;
+}
+
+interface ScopeGuardSummary {
+  inputRoute: string | null;
+  inputAllowed: boolean | null;
+  inputConfidence: number | null;
+  outputRoute: string | null;
+  outputAllowed: boolean | null;
+  outputConfidence: number | null;
+  blocked: boolean;
 }
 
 export class AiChatOrchestrator {
@@ -351,7 +370,7 @@ export class AiChatOrchestrator {
       ? this.appMutationRegistry.listAiAppMutations()
       : [];
     const appMutationProposalTool = buildAppMutationProposalOpenAiToolDefinition(sanitizeJsonSchemaForOpenAi);
-    const instructions = buildAiChatInstructions({
+    const baseInstructions = buildAiChatInstructions({
       pageContext,
       toolNames: adapter.tools.map((tool) => tool.name),
       actionNames: actionDefinitions.map((definition) => definition.actionName),
@@ -364,6 +383,46 @@ export class AiChatOrchestrator {
       currentUserMessageId: userMessage.id,
       supportContactSignal,
     });
+    const scopeGuardResponses: OpenAiResponseLike[] = [];
+    let scopeClassification: AiScopeClassification | null = null;
+    let instructions = baseInstructions;
+
+    if (this.config.scopeGuardEnabled) {
+      try {
+        scopeClassification = await classifyProductPulseChatScope({
+          client,
+          model: this.config.scopeGuardModel,
+          timeoutMs: this.config.openAiTimeoutMs,
+          maxOutputTokens: this.config.scopeGuardMaxOutputTokens,
+          userMessage: message,
+          recentMessages: toScopeGuardMessages(recentMessages),
+          pageContext,
+        });
+      } catch (error) {
+        scopeClassification = fallbackScopeRefusal(message, getSafeOpenAiErrorCode(error));
+      }
+      if (scopeClassification.response) scopeGuardResponses.push(scopeClassification.response);
+
+      if (!scopeClassification.allowed) {
+        return this.persistAndReturnGuardedResponse({
+          chatContext,
+          conversationId: conversation.id,
+          userMessageId: userMessage.id,
+          response: createFallbackAssistantResponse(scopeClassification.safeResponse),
+          openAiResponses: scopeGuardResponses,
+          model: this.config.scopeGuardModel,
+          selectedModel,
+          pageContext,
+          chatQuota,
+          recentMessagesSent: recentMessages.length,
+          startedAt: turnStartedAt,
+          scopeGuard: toScopeGuardSummary(scopeClassification, null, true),
+          errorStatus: `scope_guard_${scopeClassification.route}`,
+        });
+      }
+
+      instructions = `${baseInstructions}\n\n${buildScopeRuntimeInstructions(scopeClassification)}`;
+    }
 
     try {
       const runResult = await this.runOpenAiToolLoop({
@@ -390,10 +449,48 @@ export class AiChatOrchestrator {
         rawResponse: runResult.response,
         model: selectedModel,
       });
-      const openAiResponses = [...runResult.responses, ...parseResult.extraOpenAiResponses];
+      const outputGuardResponses: OpenAiResponseLike[] = [];
+      let outputValidation: AiOutputScopeValidation | null = null;
+      let finalAssistantResponse = parseResult.response;
+
+      if (this.config.outputGuardEnabled) {
+        try {
+          outputValidation = await validateProductPulseAssistantScope({
+            client,
+            model: this.config.scopeGuardModel,
+            timeoutMs: this.config.openAiTimeoutMs,
+            maxOutputTokens: this.config.scopeGuardMaxOutputTokens,
+            userMessage: message,
+            recentMessages: toScopeGuardMessages(recentMessages),
+            pageContext,
+            scopeClassification,
+            assistantResponse: parseResult.response,
+          });
+        } catch (error) {
+          outputValidation = fallbackOutputRefusal(message, getSafeOpenAiErrorCode(error));
+        }
+        if (outputValidation.response) outputGuardResponses.push(outputValidation.response);
+        if (!outputValidation.allowed) {
+          finalAssistantResponse = createFallbackAssistantResponse(outputValidation.safeResponse);
+        }
+      }
+
+      const primaryOpenAiResponses = [...runResult.responses, ...parseResult.extraOpenAiResponses];
+      const guardOpenAiResponses = [...scopeGuardResponses, ...outputGuardResponses];
+      const openAiResponses = [
+        ...scopeGuardResponses,
+        ...primaryOpenAiResponses,
+        ...outputGuardResponses,
+      ];
       const usage = combineOpenAiTokenUsage(openAiResponses.map((response) => response.usage));
       const estimatedCost = this.config.costTrackingEnabled
-        ? estimateAiTurnCost({ model: selectedModel, usage, env: this.env })
+        ? estimateAiTurnCostForResponseGroups({
+            primaryModel: selectedModel,
+            primaryResponses: primaryOpenAiResponses,
+            guardModel: this.config.scopeGuardModel,
+            guardResponses: guardOpenAiResponses,
+            env: this.env,
+          })
         : null;
       const actionProposalCount = runResult.toolCallSummaries
         .filter((summary) => summary.internalToolName === AI_ACTION_PROPOSAL_TOOL_NAME && summary.status === "success")
@@ -417,14 +514,19 @@ export class AiChatOrchestrator {
         config: this.config,
         chatQuota,
         recentMessagesSent: recentMessages.length,
+        scopeGuard: toScopeGuardSummary(
+          scopeClassification,
+          outputValidation,
+          Boolean(scopeClassification && !scopeClassification.allowed) || Boolean(outputValidation && !outputValidation.allowed),
+        ),
         durationMs: Date.now() - turnStartedAt,
-        errorStatus: null,
+        errorStatus: outputValidation && !outputValidation.allowed ? `output_scope_guard_${outputValidation.route}` : null,
         now: this.now,
       });
       const assistantMessage = await this.persistAssistantMessage(
         chatContext,
         conversation.id,
-        parseResult.response,
+        finalAssistantResponse,
         runResult.response.id || null,
         trace,
       );
@@ -447,7 +549,7 @@ export class AiChatOrchestrator {
       });
 
       return buildTurnResult({
-        response: parseResult.response,
+        response: finalAssistantResponse,
         conversationId: conversation.id,
         userMessageId: userMessage.id,
         assistantMessageId: assistantMessage.id,
@@ -849,6 +951,91 @@ export class AiChatOrchestrator {
     };
   }
 
+  private async persistAndReturnGuardedResponse(input: {
+    chatContext: AiToolContext;
+    conversationId: string;
+    userMessageId: string;
+    response: AiAssistantResponse;
+    openAiResponses: OpenAiResponseLike[];
+    model: string;
+    selectedModel: string;
+    pageContext: AiPageContext;
+    chatQuota: AiChatMonthlyQuota | null;
+    recentMessagesSent: number;
+    startedAt: number;
+    scopeGuard: ScopeGuardSummary;
+    errorStatus: string;
+  }): Promise<AiChatTurnResult> {
+    const usage = combineOpenAiTokenUsage(input.openAiResponses.map((response) => response.usage));
+    const estimatedCost = this.config.costTrackingEnabled
+      ? estimateAiTurnCost({ model: input.model, usage, env: this.env })
+      : null;
+    const assistantMessageId = createMessageId("ai_msg", this.now);
+    const trace = buildAiChatTrace({
+      context: input.chatContext,
+      conversationId: input.conversationId,
+      messageId: assistantMessageId,
+      userMessageId: input.userMessageId,
+      model: input.model,
+      openAiResponseIds: input.openAiResponses.map((response) => String(response.id || "")).filter(Boolean),
+      openAiCallCount: input.openAiResponses.length,
+      usage,
+      estimatedCost,
+      toolCallCount: 0,
+      blockedToolCallCount: 0,
+      actionProposalCount: 0,
+      validation: { valid: true, retryCount: 0, fallbackUsed: true },
+      pageContext: input.pageContext,
+      config: this.config,
+      chatQuota: input.chatQuota,
+      recentMessagesSent: input.recentMessagesSent,
+      scopeGuard: input.scopeGuard,
+      durationMs: Date.now() - input.startedAt,
+      errorStatus: input.errorStatus,
+      now: this.now,
+    });
+    const assistantMessage = await this.persistAssistantMessage(
+      input.chatContext,
+      input.conversationId,
+      input.response,
+      input.openAiResponses[0]?.id || null,
+      trace,
+    );
+    const usageEntity = getUsageEntityFromPageContext(input.pageContext);
+    await recordAiUsageEvent({
+      shop: input.chatContext.shop,
+      userId: input.chatContext.userId,
+      source: "chat",
+      operation: "chat_turn",
+      provider: "openai",
+      model: input.model,
+      task: "chat_scope_guard",
+      requestContext: input.chatQuota?.requestContext,
+      conversationId: input.conversationId,
+      messageId: assistantMessage.id,
+      entityType: usageEntity.entityType,
+      entityId: usageEntity.entityId,
+      status: "blocked",
+      usage,
+      estimatedCost,
+    });
+
+    return buildTurnResult({
+      response: input.response,
+      conversationId: input.conversationId,
+      userMessageId: input.userMessageId,
+      assistantMessageId: assistantMessage.id,
+      model: input.selectedModel,
+      pageContext: input.pageContext,
+      toolCallCount: 0,
+      blockedToolCallCount: 0,
+      openAiResponseId: input.openAiResponses[0]?.id || null,
+      usage,
+      estimatedCost,
+      trace: compactAiChatTraceForMetadata(trace),
+    });
+  }
+
   private async persistAssistantMessage(
     context: AiToolContext,
     conversationId: string,
@@ -902,6 +1089,81 @@ function buildOpenAiInputItems(input: {
     });
   });
   return items;
+}
+
+function toScopeGuardMessages(messages: StoredAiConversationMessage[]): Array<{ role: string; content: string }> {
+  return messages
+    .filter((message) => ["user", "assistant"].includes(message.role))
+    .map((message) => ({
+      role: message.role,
+      content: truncateText(message.content, 1600),
+    }));
+}
+
+function estimateAiTurnCostForResponseGroups(input: {
+  primaryModel: string;
+  primaryResponses: OpenAiResponseLike[];
+  guardModel: string;
+  guardResponses: OpenAiResponseLike[];
+  env: NodeJS.ProcessEnv;
+}): AiEstimatedCost {
+  const allResponses = [...input.primaryResponses, ...input.guardResponses];
+  const allUsage = combineOpenAiTokenUsage(allResponses.map((response) => response.usage));
+  if (!input.guardResponses.length || input.primaryModel === input.guardModel) {
+    return estimateAiTurnCost({ model: input.primaryModel, usage: allUsage, env: input.env });
+  }
+
+  const estimates = [
+    estimateAiTurnCost({
+      model: input.primaryModel,
+      usage: combineOpenAiTokenUsage(input.primaryResponses.map((response) => response.usage)),
+      env: input.env,
+    }),
+    estimateAiTurnCost({
+      model: input.guardModel,
+      usage: combineOpenAiTokenUsage(input.guardResponses.map((response) => response.usage)),
+      env: input.env,
+    }),
+  ];
+
+  return combineEstimatedCosts(input.primaryModel, estimates);
+}
+
+function combineEstimatedCosts(model: string, estimates: AiEstimatedCost[]): AiEstimatedCost {
+  if (estimates.length === 1) return estimates[0];
+  return {
+    model,
+    estimated: true,
+    currency: "USD",
+    inputUsd: sumUsd(estimates.map((estimate) => estimate.inputUsd)),
+    cachedInputUsd: sumUsd(estimates.map((estimate) => estimate.cachedInputUsd)),
+    outputUsd: sumUsd(estimates.map((estimate) => estimate.outputUsd)),
+    totalUsd: sumUsd(estimates.map((estimate) => estimate.totalUsd)),
+    pricing: null,
+    missingUsage: estimates.some((estimate) => estimate.missingUsage),
+    missingPricing: estimates.some((estimate) => estimate.missingPricing),
+  };
+}
+
+function sumUsd(values: Array<number | null>): number | null {
+  if (values.some((value) => typeof value !== "number")) return null;
+  return Math.round((values as number[]).reduce((sum, value) => sum + value, 0) * 100_000_000) / 100_000_000;
+}
+
+function toScopeGuardSummary(
+  inputScope: AiScopeClassification | null,
+  outputScope: AiOutputScopeValidation | null,
+  blocked: boolean,
+): ScopeGuardSummary {
+  return {
+    inputRoute: inputScope?.route || null,
+    inputAllowed: inputScope ? inputScope.allowed : null,
+    inputConfidence: inputScope ? inputScope.confidence : null,
+    outputRoute: outputScope?.route || null,
+    outputAllowed: outputScope ? outputScope.allowed : null,
+    outputConfidence: outputScope ? outputScope.confidence : null,
+    blocked,
+  };
 }
 
 interface SupportContactSignal {
@@ -1115,6 +1377,7 @@ function buildAiChatTrace(input: {
   config: AiChatConfig;
   chatQuota?: AiChatMonthlyQuota | null;
   recentMessagesSent: number;
+  scopeGuard?: ScopeGuardSummary | null;
   durationMs: number;
   errorStatus: string | null;
   now: () => Date;
@@ -1147,6 +1410,13 @@ function buildAiChatTrace(input: {
       maxToolResultCharacters: input.config.maxToolResultCharacters,
       maxOutputTokens: input.config.maxOutputTokens || null,
       maxActionProposalsPerTurn: input.config.maxActionProposalsPerTurn,
+      inputScopeRoute: input.scopeGuard?.inputRoute || null,
+      inputScopeAllowed: input.scopeGuard?.inputAllowed ?? null,
+      inputScopeConfidence: input.scopeGuard?.inputConfidence ?? null,
+      outputScopeRoute: input.scopeGuard?.outputRoute || null,
+      outputScopeAllowed: input.scopeGuard?.outputAllowed ?? null,
+      outputScopeConfidence: input.scopeGuard?.outputConfidence ?? null,
+      scopeBlocked: Boolean(input.scopeGuard?.blocked),
     },
     chatQuota: input.chatQuota ? {
       tier: input.chatQuota.tier,

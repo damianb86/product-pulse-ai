@@ -17,6 +17,10 @@ export interface AiChatConfig {
   maxStructuredResponseRetries: number;
   maxActionProposalsPerTurn: number;
   openAiTimeoutMs: number;
+  scopeGuardEnabled: boolean;
+  outputGuardEnabled: boolean;
+  scopeGuardModel: string;
+  scopeGuardMaxOutputTokens: number;
   costTrackingEnabled: boolean;
   debugCosts: boolean;
   responseTemperature: number;
@@ -42,6 +46,10 @@ export function getAiChatConfig(env: NodeJS.ProcessEnv = process.env): AiChatCon
     maxStructuredResponseRetries: integerEnv(env.AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES, 0, 2, 1),
     maxActionProposalsPerTurn: integerEnv(env.AI_CHAT_MAX_ACTION_PROPOSALS_PER_TURN, 0, 3, 1),
     openAiTimeoutMs: integerEnv(env.AI_CHAT_OPENAI_TIMEOUT_MS, 1000, 120000, 30000),
+    scopeGuardEnabled: booleanEnv(env.AI_SCOPE_GUARD_ENABLED, true),
+    outputGuardEnabled: booleanEnv(env.AI_OUTPUT_GUARD_ENABLED, true),
+    scopeGuardModel: stringEnv(env.AI_SCOPE_GUARD_MODEL) || stringEnv(env.AI_CHAT_SCOPE_GUARD_MODEL) || stringEnv(env.AI_CHAT_CHEAP_MODEL) || stringEnv(env.OPENAI_BASIC_MODEL) || defaultModel,
+    scopeGuardMaxOutputTokens: integerEnv(env.AI_SCOPE_GUARD_MAX_OUTPUT_TOKENS, 200, 2000, 700),
     costTrackingEnabled: booleanEnv(env.AI_COST_TRACKING_ENABLED, true),
     debugCosts: booleanEnv(env.AI_DEBUG_COSTS, false),
     responseTemperature: decimalEnv(env.AI_CHAT_TEMPERATURE, 0, 1, 0.2),

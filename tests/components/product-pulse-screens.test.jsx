@@ -326,43 +326,46 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Left\s*10/);
     expect(screen.getByRole("heading", { name: "Free" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Starter" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Growth" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Premium" })).toBeInTheDocument();
-    expect(screen.getByText("Recommended")).toBeInTheDocument();
-    expect(screen.getByText("Best value")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Growth" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Pro" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Premium" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Recommended")).not.toBeInTheDocument();
+    expect(screen.queryByText("Best value")).not.toBeInTheDocument();
     expect(screen.getByText("Included")).toBeInTheDocument();
-    expect(screen.getAllByText("Unavailable")).toHaveLength(4);
-    expect(screen.getAllByText("Shopify Billing not enabled")).toHaveLength(4);
+    expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText("Shopify Billing not enabled")).not.toBeInTheDocument();
     expect(screen.getByText("Metric timeline")).toBeInTheDocument();
     expect(screen.getByText("30 days")).toBeInTheDocument();
     expect(screen.getByText("90 days")).toBeInTheDocument();
-    expect(screen.getAllByText("360 days")).toHaveLength(5);
+    expect(screen.getAllByText("360 days")).toHaveLength(2);
     expect(screen.getByText("Products monitored in Watchlist")).toBeInTheDocument();
     expect(screen.getByText("1 product")).toBeInTheDocument();
     expect(screen.getAllByText("5 products")).toHaveLength(2);
     expect(screen.getByText("10 products")).toBeInTheDocument();
-    expect(screen.getByText("25 products")).toBeInTheDocument();
-    expect(screen.getByText("50 products")).toBeInTheDocument();
-    expect(screen.getByText("99 products")).toBeInTheDocument();
+    expect(screen.queryByText("25 products")).not.toBeInTheDocument();
+    expect(screen.queryByText("50 products")).not.toBeInTheDocument();
+    expect(screen.queryByText("99 products")).not.toBeInTheDocument();
     expect(screen.getByText("Product Diagnosis").closest(".ppPlansFeatureCell").querySelector(".ppPlansIcon")).not.toBeInTheDocument();
     expect(screen.getByText("Exports")).toBeInTheDocument();
-    expect(screen.getByText("CSV")).toBeInTheDocument();
-    expect(screen.getByText("CSV, PDF")).toBeInTheDocument();
-    expect(screen.getByText("CSV, PDF, Excel")).toBeInTheDocument();
+    expect(screen.queryByText("CSV")).not.toBeInTheDocument();
+    expect(screen.queryByText("CSV, PDF")).not.toBeInTheDocument();
+    expect(screen.queryByText("CSV, PDF, Excel")).not.toBeInTheDocument();
     expect(screen.getByText("Email")).toBeInTheDocument();
     expect(screen.getByText("Priority email")).toBeInTheDocument();
-    expect(screen.getAllByText("Priority + Chat")).toHaveLength(2);
-    expect(screen.getByText("Dedicated")).toBeInTheDocument();
+    expect(screen.queryByText("Priority + Chat")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dedicated")).not.toBeInTheDocument();
     expect(screen.queryByText("Community")).not.toBeInTheDocument();
     expect(screen.queryByText("API access")).not.toBeInTheDocument();
     expect(screen.queryByText("Seats")).not.toBeInTheDocument();
     expect(screen.queryByText("Watched products")).not.toBeInTheDocument();
     expect(screen.getByText("Extra diagnosis credit packs")).toBeInTheDocument();
-    expect(screen.getByText(/Diagnosis credit-pack purchases are not available/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Buy .* diagnosis credits/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Buy extra credits when your plan allowance/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Buy .* diagnosis credits/ })).toHaveLength(5);
+    screen.getAllByRole("button", { name: /Buy .* diagnosis credits/ }).forEach((button) => {
+      expect(button).toBeDisabled();
+    });
     expect(screen.getByRole("button", { name: "Current free plan" })).toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Billing disabled" })).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: "Billing disabled" })).toHaveLength(1);
     screen.getAllByRole("button", { name: "Billing disabled" }).forEach((button) => {
       expect(button).toBeDisabled();
     });
@@ -376,6 +379,25 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Diagnosis credit activity")).toBeInTheDocument();
     expect(screen.getByText(/Latest Diagnosis Credits earned and spent/)).toBeInTheDocument();
     expect(screen.getByText("No diagnosis credit activity yet.")).toBeInTheDocument();
+  });
+
+  it("enables Starter subscription and credit pack purchases when Shopify Billing is available", () => {
+    renderWithRouter(<PlansCreditsScreen data={{
+      billing: {
+        shopifyBillingEnabled: true,
+        currentPlanKey: "free",
+        creditPacks: [
+          { id: "pack_10", credits: 10, amountCents: 400, priceLabel: "$4", description: "Small top-up" },
+          { id: "pack_25", credits: 25, amountCents: 750, priceLabel: "$7.50", description: "Most common setup pack" },
+        ],
+      },
+    }} />);
+
+    expect(screen.getByText("Shopify Billing is active for ProductPulse.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose Starter" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Buy 10 diagnosis credits" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Buy 25 diagnosis credits" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Buy 50 diagnosis credits" })).not.toBeInTheDocument();
   });
 
   it("renders Plans & Diagnosis Credits ledger activity from point history", () => {

@@ -354,7 +354,9 @@ function buildPointBalance(shop, value, entry) {
 
 function buildPointSummary(balance, entries = [], options = {}) {
   const env = options.env || process.env;
-  const allowance = getConfiguredInitialStorePoints(env);
+  const allowance = normalizePointAmount(options.planAllowance ?? getConfiguredInitialStorePoints(env));
+  const planName = String(options.planName || "Free plan").trim();
+  const planRenewalLabel = String(options.planRenewalLabel || (options.planKey === "starter" ? "Renews every 30 days" : "Does not renew")).trim();
   const allEntries = Array.isArray(entries) ? entries : [];
   const debits = Array.isArray(options.debitEntries)
     ? options.debitEntries
@@ -368,8 +370,9 @@ function buildPointSummary(balance, entries = [], options = {}) {
   return {
     balance,
     plan: {
-      name: "Free plan",
-      renewalLabel: "Does not renew",
+      key: options.planKey || "free",
+      name: planName,
+      renewalLabel: planRenewalLabel,
       allowance,
       allowanceLabel: formatCompactPointAmount(allowance),
     },

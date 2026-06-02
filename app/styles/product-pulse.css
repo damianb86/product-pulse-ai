@@ -35676,6 +35676,37 @@ s-page[inline-size="large-500"] {
   color: #16945a !important;
 }
 
+.ppPlansNotice {
+  width: 100%;
+  max-width: 1480px;
+  margin: 0 auto 18px;
+  padding: 14px 18px;
+  border: 1px solid #bdd7c9;
+  border-radius: 10px;
+  background: #effbf4;
+  color: #174c34;
+}
+
+.ppPlansNotice.isError {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #9f1239;
+}
+
+.ppPlansNotice strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ppPlansNotice p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
 .ppPlansMatrixCard {
   overflow: hidden;
   border: 1px solid #dae4f0;
@@ -35943,6 +35974,33 @@ s-page[inline-size="large-500"] {
   max-width: 178px;
 }
 
+.ppPlansPlanActionForm {
+  display: grid;
+  width: 100%;
+  max-width: 178px;
+  gap: 8px;
+  justify-items: center;
+}
+
+.ppPlansPlanActionForm .ppPlansChooseButton {
+  max-width: none;
+}
+
+.ppPlansCancelButton {
+  border: 0;
+  background: transparent;
+  color: #b42318;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ppPlansCancelButton:disabled {
+  color: #a4adbc;
+  cursor: not-allowed;
+}
+
 .ppPlansChooseButton:hover,
 .ppPlansChooseButton:focus-visible,
 .ppPlansPackCard button:hover,
@@ -36092,6 +36150,10 @@ s-page[inline-size="large-500"] {
   margin-top: 24px;
   border-color: rgba(var(--pp-insight-violet-rgb), 0.42);
   color: var(--pp-insight-violet);
+}
+
+.ppPlansPackCard form {
+  width: 100%;
 }
 
 .ppPlansPackFootnote {
@@ -36798,6 +36860,12 @@ s-page[inline-size="large-500"] {
   font-weight: 800;
 }
 
+.ppPlansNotice {
+  max-width: none;
+  margin: 0;
+  border-radius: 12px;
+}
+
 .ppPlansMatrixCard {
   width: max-content;
   max-width: 100%;
@@ -37012,6 +37080,14 @@ s-page[inline-size="large-500"] {
   font-size: 12px;
 }
 
+.ppPlansPlanActionForm {
+  max-width: 168px;
+}
+
+.ppPlansCancelButton {
+  font-size: 11px;
+}
+
 .ppPlansChooseButton.isCurrent:disabled {
   border-color: rgba(var(--pp-pulse-blue-rgb), 0.22);
   background: rgba(var(--pp-pulse-blue-rgb), 0.08);
@@ -37106,6 +37182,10 @@ s-page[inline-size="large-500"] {
 .ppPlansPackCard button {
   min-height: 36px;
   margin-top: 16px;
+}
+
+.ppPlansPackCard form {
+  width: 100%;
 }
 
 .ppPlansBillingGrid article {
