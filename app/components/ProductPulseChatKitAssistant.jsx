@@ -118,11 +118,6 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     return session;
   }, []);
 
-  const chatKitBackendFetch = useCallback(async (input, init = {}) => {
-    const session = await ensureBackendSession();
-    return fetch(input, attachChatKitMetadata(init, session));
-  }, [ensureBackendSession]);
-
   const markConversationStarted = useCallback(() => {
     startScreenDismissedRef.current = true;
     setStartScreenDismissed(true);
@@ -130,6 +125,14 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
       writeStoredConversationState(conversationIdRef.current, true);
     }
   }, []);
+
+  const chatKitBackendFetch = useCallback(async (input, init = {}) => {
+    if (isChatKitUserMessageRequest(init?.body)) {
+      markConversationStarted();
+    }
+    const session = await ensureBackendSession();
+    return fetch(input, attachChatKitMetadata(init, session));
+  }, [ensureBackendSession, markConversationStarted]);
 
   const handleWidgetAction = useCallback(async (action, widgetItem) => {
     const response = await fetch("/api/ai/chatkit/action", {
@@ -651,6 +654,11 @@ function parseJsonBody(body) {
   } catch {
     return {};
   }
+}
+
+function isChatKitUserMessageRequest(body) {
+  const parsed = parseJsonBody(body);
+  return parsed.type === "threads.create" || parsed.type === "threads.add_user_message";
 }
 
 function getStarterContent(pageContext) {

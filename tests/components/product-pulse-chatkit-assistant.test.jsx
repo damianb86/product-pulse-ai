@@ -25,6 +25,7 @@ vi.mock("@openai/chatkit-react", async () => {
 
 describe("ProductPulseChatKitAssistant", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
     window.sessionStorage.clear();
     window.localStorage.clear();
@@ -147,6 +148,61 @@ describe("ProductPulseChatKitAssistant", () => {
       expect(methods.sendUserMessage).toHaveBeenCalledWith({ text: "Which unresolved products should I review first and why?" });
     });
     expect(screen.queryByRole("heading", { name: "Ask what to review, why it matters, and what to do next" })).not.toBeInTheDocument();
+  });
+
+  it("hides the custom start screen when the user sends a typed ChatKit message", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes("/api/ai/chatkit/session")) {
+        return new Response(JSON.stringify({
+          enabled: true,
+          conversationId: "conversation-typed-message",
+          pageContext: { type: "dashboard" },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("ok", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithRouter(
+      <ProductPulseChatKitAssistant
+        config={{
+          enabled: true,
+          apiUrl: "/api/ai/chatkit/message",
+          domainKey: "domain_pk_test",
+          disabledReason: null,
+        }}
+        pageContext={{ type: "dashboard" }}
+      />,
+    );
+
+    const script = document.querySelector("script[src='https://cdn.platform.openai.com/deployments/chatkit/chatkit.js']");
+    fireEvent.load(script);
+    fireEvent.click(screen.getByRole("button", { name: "Open Pulse Guide" }));
+    await screen.findByTestId("chatkit");
+
+    expect(screen.getByRole("heading", { name: "Ask what to review, why it matters, and what to do next" })).toBeVisible();
+
+    await act(async () => {
+      await useChatKit.mock.calls.at(-1)[0].api.fetch("/api/ai/chatkit/message", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "threads.create",
+          params: {
+            input: {
+              content: [{ type: "input_text", text: "Analizame este producto" }],
+              attachments: [],
+              inference_options: {},
+            },
+          },
+        }),
+      });
+    });
+
+    expect(screen.queryByRole("heading", { name: "Ask what to review, why it matters, and what to do next" })).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem("productPulse.chatkit.conversationState.v1")).toContain("\"started\":true");
   });
 
   it("lets the assistant header switch between light and dark themes", async () => {
