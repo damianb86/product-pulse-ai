@@ -742,6 +742,43 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(store.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
   });
 
+  it("allows lightly related adjacent ecommerce questions through the semantic input guard", async () => {
+    const store = new InMemoryConversationStore();
+    const openAiCreate = vi.fn()
+      .mockResolvedValueOnce(openAiTextResponse(inputScopeResponse({
+        allowed: true,
+        route: "productpulse_adjacent_redirect",
+        response_mode: "continue",
+        safe_response: "",
+        reason: "The user asks for a marketing interpretation related to ecommerce and ProductPulse catalog analysis.",
+        confidence: 0.7,
+      })))
+      .mockResolvedValueOnce(openAiTextResponse(validAssistantResponse({
+        assistantText: "Podemos interpretarlo como una señal de marketing relacionada al catálogo.",
+      })));
+    const orchestrator = createTestOrchestrator({
+      store,
+      openAiCreate,
+      config: {
+        scopeGuardEnabled: true,
+        outputGuardEnabled: false,
+        scopeGuardModel: "gpt-test-scope",
+      },
+    });
+
+    const result = await orchestrator.runAiChatTurnWithContext(baseContext, {
+      message: "¿Cómo interpreto estos datos para el equipo de marketing?",
+    });
+
+    expect(openAiCreate).toHaveBeenCalledTimes(2);
+    expect(result.assistantText).toContain("marketing");
+    expect(result.metadata.trace.guardrails).toMatchObject({
+      inputScopeRoute: "productpulse_adjacent_redirect",
+      inputScopeAllowed: true,
+      scopeBlocked: false,
+    });
+  });
+
   it("replaces assistant output when the semantic output guard rejects the draft", async () => {
     const store = new InMemoryConversationStore();
     const openAiCreate = vi.fn()
@@ -758,9 +795,9 @@ describe("ProductPulse AI chat orchestrator", () => {
       })))
       .mockResolvedValueOnce(openAiTextResponse(outputScopeResponse({
         allowed: false,
-        route: "redirect_to_productpulse",
+        route: "out_of_scope",
         safe_response: "I can help if we keep this inside ProductPulse product data or app workflows.",
-        reason: "The draft broadened beyond ProductPulse scope.",
+        reason: "The draft answered an unrelated external topic.",
         confidence: 0.94,
       })));
     const orchestrator = createTestOrchestrator({
@@ -786,7 +823,7 @@ describe("ProductPulse AI chat orchestrator", () => {
     expect(result.metadata.estimatedCost.totalUsd).toBe(0.00006);
     expect(result.metadata.trace.guardrails).toMatchObject({
       inputScopeRoute: "productpulse_data",
-      outputScopeRoute: "redirect_to_productpulse",
+      outputScopeRoute: "out_of_scope",
       outputScopeAllowed: false,
       scopeBlocked: true,
     });

@@ -81,6 +81,29 @@ describe("ProductPulse AI production hardening", () => {
     });
   });
 
+  it("keeps the ChatScopeWard disabled by default and enables output validation only with the scope guard", () => {
+    const defaultConfig = getAiChatConfig({
+      OPENAI_API_KEY: "server-key",
+    });
+    expect(defaultConfig.scopeGuardEnabled).toBe(false);
+    expect(defaultConfig.outputGuardEnabled).toBe(false);
+
+    const enabledConfig = getAiChatConfig({
+      OPENAI_API_KEY: "server-key",
+      AI_SCOPE_GUARD_ENABLED: "true",
+    });
+    expect(enabledConfig.scopeGuardEnabled).toBe(true);
+    expect(enabledConfig.outputGuardEnabled).toBe(true);
+
+    const inputOnlyConfig = getAiChatConfig({
+      OPENAI_API_KEY: "server-key",
+      AI_SCOPE_GUARD_ENABLED: "true",
+      AI_OUTPUT_GUARD_ENABLED: "false",
+    });
+    expect(inputOnlyConfig.scopeGuardEnabled).toBe(true);
+    expect(inputOnlyConfig.outputGuardEnabled).toBe(false);
+  });
+
   it("rate limits by shop and user bucket", () => {
     resetAiRateLimitForTests();
     const env = {

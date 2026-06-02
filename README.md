@@ -18,6 +18,12 @@ npm run setup
 npm run dev
 ```
 
+`npm run dev` uses `shopify.app.local.toml`, which omits declarative webhook subscriptions because Shopify cannot call localhost webhook URLs. To test app webhooks locally, start a public tunnel and run:
+
+```bash
+SHOPIFY_TUNNEL_URL=https://your-tunnel-url:3000 npm run dev:tunnel
+```
+
 Set real local values in `.env`:
 ```bash
 SHOPIFY_API_KEY=
@@ -37,7 +43,7 @@ GEMINI_API_KEY=
 GEMINI_MODEL=
 AI_CHAT_MODEL=gpt-5.4-mini
 AI_CHAT_CHEAP_MODEL=gpt-5.4-nano
-AI_SCOPE_GUARD_ENABLED=true
+AI_SCOPE_GUARD_ENABLED=false
 AI_OUTPUT_GUARD_ENABLED=true
 AI_SCOPE_GUARD_MODEL=gpt-5.4-nano
 AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT=30
@@ -140,7 +146,7 @@ OPENAI_API_KEY=
 AI_ASSISTANT_ENABLED=true
 AI_CHAT_MODEL=gpt-5.4-mini
 AI_CHAT_CHEAP_MODEL=gpt-5.4-nano
-AI_SCOPE_GUARD_ENABLED=true
+AI_SCOPE_GUARD_ENABLED=false
 AI_OUTPUT_GUARD_ENABLED=true
 AI_SCOPE_GUARD_MODEL=gpt-5.4-nano
 AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT=30

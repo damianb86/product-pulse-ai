@@ -87,8 +87,8 @@ Environment variables:
 - `AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES`: default 1.
 - `AI_CHAT_MAX_ACTION_PROPOSALS_PER_TURN`: default 1.
 - `AI_CHAT_OPENAI_TIMEOUT_MS`: default 30000.
-- `AI_SCOPE_GUARD_ENABLED`: default true. Runs the semantic input scope classifier.
-- `AI_OUTPUT_GUARD_ENABLED`: default true. Validates the assistant draft before persistence.
+- `AI_SCOPE_GUARD_ENABLED`: default false. When enabled, runs the lenient semantic input scope classifier for extreme out-of-scope requests.
+- `AI_OUTPUT_GUARD_ENABLED`: default true only when `AI_SCOPE_GUARD_ENABLED=true`. Validates the assistant draft before persistence.
 - `AI_SCOPE_GUARD_MODEL`: default `AI_CHAT_CHEAP_MODEL`, then `OPENAI_BASIC_MODEL`, then the chat model.
 - `AI_SCOPE_GUARD_MAX_OUTPUT_TOKENS`: default 700.
 - `AI_COST_TRACKING_ENABLED`: default true.

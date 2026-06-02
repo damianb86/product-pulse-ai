@@ -57,7 +57,7 @@ AI_CHAT_MAX_OUTPUT_TOKENS=1600
 AI_CHAT_MAX_STRUCTURED_RESPONSE_RETRIES=1
 AI_CHAT_MAX_ACTION_PROPOSALS_PER_TURN=1
 AI_CHAT_OPENAI_TIMEOUT_MS=30000
-AI_SCOPE_GUARD_ENABLED=true
+AI_SCOPE_GUARD_ENABLED=false
 AI_OUTPUT_GUARD_ENABLED=true
 AI_SCOPE_GUARD_MODEL=gpt-5.4-nano
 AI_SCOPE_GUARD_MAX_OUTPUT_TOKENS=700
@@ -67,11 +67,15 @@ AI_ALLOWED_METAFIELD_DRAFTS='[{"namespace":"productpulse","key":"faq_html","type
 
 These limits bound normal chat cost and prevent unbounded tool loops/history growth.
 
-The scope guards run before the main assistant and after the assistant drafts a
-response. They use Structured Outputs to keep chat inside ProductPulse data,
-app guidance, ProductPulse-owned proposals, supported internal actions, and
-support reporting. `AI_SCOPE_GUARD_MODEL` defaults to the cheap chat model when
-empty; production should keep it on a low-cost model such as `gpt-5.4-nano`.
+The scope guard is optional and defaults to disabled. When
+`AI_SCOPE_GUARD_ENABLED=true`, ProductPulse runs a lenient semantic guard before
+the main assistant and, unless `AI_OUTPUT_GUARD_ENABLED=false`, after the
+assistant drafts a response. The guard should allow lightly related ProductPulse,
+Shopify, ecommerce, catalog, analytics, marketing, and support questions. It is
+intended to block only extreme out-of-scope requests such as code help,
+arbitrary external research, or unrelated general assistance.
+`AI_SCOPE_GUARD_MODEL` defaults to the cheap chat model when empty; production
+should keep it on a low-cost model such as `gpt-5.4-nano`.
 
 `PRODUCT_PULSE_AI_LEVEL` controls the ProductPulse diagnosis AI provider/model routing:
 - `1`: development Gemini mode. Diagnosis tasks use Gemini first and keep the existing OpenAI Basic fallback when the Gemini pool is exhausted.
