@@ -557,6 +557,121 @@ s-page[inline-size="large-500"] {
   --pp-icon-badge-glyph-size: 16px;
 }
 
+.ppIconCatalogPage {
+  min-height: 100vh;
+  padding: 28px;
+  background: var(--pp-slate-50);
+  color: var(--pp-slate-900);
+}
+
+.ppIconCatalogHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.ppIconCatalogHeader p,
+.ppIconCatalogHeader h1 {
+  margin: 0;
+}
+
+.ppIconCatalogHeader p {
+  color: var(--pp-insight-violet);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.ppIconCatalogHeader h1 {
+  margin-top: 4px;
+  font-size: 32px;
+  line-height: 1.1;
+}
+
+.ppIconCatalogHeader > span {
+  padding: 8px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ppIconCatalogGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+  gap: 12px;
+}
+
+.ppIconCatalogTile {
+  min-height: 144px;
+  display: grid;
+  grid-template-rows: 58px auto auto;
+  justify-items: center;
+  align-content: center;
+  gap: 9px;
+  padding: 16px 12px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: var(--pp-cloud-white);
+  text-align: center;
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppIconCatalogGlyph {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--pp-blue-soft);
+  color: var(--pp-pulse-blue);
+}
+
+.ppIconCatalogGlyph svg,
+.ppIconCatalogGlyph s-icon,
+.ppIconCatalogGlyph img {
+  width: 34px;
+  height: 34px;
+  display: block;
+  object-fit: contain;
+}
+
+.ppIconCatalogGlyph .ppBinocularsIcon {
+  width: 38px;
+  height: 38px;
+}
+
+.ppIconCatalogTextGlyph {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ppIconCatalogTile strong,
+.ppIconCatalogTile small {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.ppIconCatalogTile strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ppIconCatalogTile small {
+  color: var(--pp-slate-500);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .ppStartPanel,
 .ppDashboardPanel,
 .ppNextStepPanel {
@@ -4915,16 +5030,16 @@ s-page[inline-size="large-500"] {
   padding: 12px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 8px;
-  background: var(--pp-midnight-ink);
-  color: var(--pp-cloud-white);
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-900);
   font-size: 11.5px;
-  font-weight: 550;
+  font-weight: 400;
   line-height: 1.45;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: normal;
   text-align: left;
-  box-shadow: 0 16px 38px rgba(var(--pp-shadow-rgb), 0.24);
+  box-shadow: 0 16px 38px rgba(var(--pp-shadow-rgb), 0.14);
 }
 
 .ppInsightTooltip.isVisible,
@@ -4942,9 +5057,9 @@ s-page[inline-size="large-500"] {
 
 .ppInsightTooltipLabel {
   display: block;
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--pp-slate-900);
   font-size: 9.5px;
-  font-weight: 760;
+  font-weight: 400;
   letter-spacing: 0.02em;
   line-height: 1.2;
   text-transform: uppercase;
@@ -4952,9 +5067,9 @@ s-page[inline-size="large-500"] {
 
 .ppInsightTooltipText {
   display: block;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--pp-slate-900);
   font-size: 11.5px;
-  font-weight: 560;
+  font-weight: 400;
   line-height: 1.45;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -26523,6 +26638,15 @@ s-page[inline-size="large-500"] {
   transform: none;
 }
 
+.ppWatchlistStatCard .ppWatchlistStatIcon:is(.ppWatchlistStatIcon-2, .ppWatchlistStatIcon-3, .ppWatchlistStatIcon-4, .ppWatchlistStatIcon-6) .ppProductPulseIconBadgeGlyph {
+  transform: translate(calc(-50% - 1px), calc(-50% + 1px));
+}
+
+.ppWatchlistStatCard .ppWatchlistStatIcon:is(.ppWatchlistStatIcon-2, .ppWatchlistStatIcon-3, .ppWatchlistStatIcon-4, .ppWatchlistStatIcon-6) .ppProductPulseIconBadgeGlyph > s-icon {
+  transform: scale(2);
+  transform-origin: center;
+}
+
 .ppWatchlistStatCard .ppDashboardIcon .ppBinocularsIcon {
   font-size: 21px;
 }
@@ -31839,17 +31963,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppShopifyTinyIcon {
-  width: 17px;
-  height: 17px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 5px;
-  background: var(--pp-primary-green);
-  color: var(--pp-cloud-white);
-  font-size: 10px;
-  font-weight: 900;
-  line-height: 1;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 1px 2px rgba(var(--pp-shadow-rgb), 0.12);
+  width: 18px;
+  height: 20px;
+  display: inline-block;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 1px 2px rgba(var(--pp-shadow-rgb), 0.14));
 }
 
 .ppTableFindProductButton:hover {

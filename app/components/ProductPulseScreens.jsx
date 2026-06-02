@@ -1400,7 +1400,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                   type="button"
                   onClick={() => setShopifyProductSearchOpen(true)}
                 >
-                  <span className="ppShopifyTinyIcon" aria-hidden="true">S</span>
+                  <svg className="ppShopifyTinyIcon" viewBox="0 0 108.44 122.88" aria-hidden="true" focusable="false">
+                    <path fill="#95BF47" fillRule="evenodd" clipRule="evenodd" d="M94.98 23.66c-.09-.62-.63-.96-1.08-1-.45-.04-9.19-.17-9.19-.17s-7.32-7.1-8.04-7.83c-.72-.72-2.13-.5-2.68-.34-.01 0-1.37.43-3.68 1.14-.38-1.25-.95-2.78-1.76-4.32-2.6-4.97-6.42-7.6-11.03-7.61h-.02c-.32 0-.64.03-.96.06-.14-.16-.27-.32-.42-.48C54.11.96 51.54-.08 48.45.01c-5.95.17-11.88 4.47-16.69 12.11-3.38 5.37-5.96 12.12-6.69 17.35-6.83 2.12-11.61 3.6-11.72 3.63-3.45 1.08-3.56 1.19-4.01 4.44C9.03 39.99 0 109.8 0 109.8l75.65 13.08 32.79-8.15S95.06 24.28 94.98 23.66ZM66.52 16.63c-1.74.54-3.72 1.15-5.87 1.82-.04-3.01-.4-7.21-1.81-10.83 4.52.85 6.74 5.96 7.68 9.01ZM56.69 19.68c-3.96 1.23-8.29 2.57-12.63 3.91 1.22-4.67 3.54-9.33 6.38-12.38 1.06-1.14 2.54-2.4 4.29-3.12 1.65 3.43 2 8.3 1.96 11.59ZM48.58 3.97c1.4-.03 2.57.28 3.58.94-1.61.83-3.16 2.03-4.62 3.59-3.78 4.06-6.68 10.35-7.83 16.43-3.6 1.11-7.13 2.21-10.37 3.21 2.04-9.56 10.06-23.91 19.24-24.17Z" />
+                    <path fill="#5E8E3E" fillRule="evenodd" clipRule="evenodd" d="M93.9 22.66c-.45-.04-9.19-.17-9.19-.17s-7.32-7.1-8.04-7.83c-.27-.27-.63-.41-1.02-.47v108.68l32.78-8.15s-13.38-90.44-13.46-91.06c-.07-.62-.62-.96-1.07-1Z" />
+                    <path fill="#FFFFFF" fillRule="evenodd" clipRule="evenodd" d="m57.48 39.52-3.81 14.25s-4.25-1.93-9.28-1.62c-7.38.47-7.46 5.12-7.39 6.29.4 6.37 17.16 7.76 18.11 22.69.74 11.74-6.23 19.77-16.27 20.41-12.05.76-18.69-6.35-18.69-6.35l2.55-10.86s6.68 5.04 12.02 4.7c3.49-.22 4.74-3.06 4.61-5.07-.52-8.31-14.18-7.82-15.04-21.48-.73-11.49 6.82-23.14 23.48-24.19 6.43-.41 9.71 1.23 9.71 1.23Z" />
+                  </svg>
                   Find Shopify product
                 </button>
               )}
@@ -1921,12 +1925,12 @@ export function WatchlistScreen({ data = {}, actionData }) {
         <ProductPulseToast actionData={actionData} />
 
         <div className="ppWatchlistStats" aria-label="Watchlist overview">
-          <WatchlistStatCard icon="binoculars" tone="watch" label="Watched products" value={`${watchedCount} / ${maxProducts}`} detail={`${slotsAvailable} slot${slotsAvailable === 1 ? "" : "s"} available`} />
-          <WatchlistStatCard icon="calendar" tone="blue" label="Scan cadence" value={mock.scanCadence || "Every 3 days"} detail={mock.scanCadenceDetail || "Automatic rescans"} />
-          <WatchlistStatCard icon="refresh" tone="green" label="Last watch run" value={mock.lastRun || "6h ago"} detail={mock.lastRunDetail || "All active products scanned"} />
-          <WatchlistStatCard icon="clock" tone="blue" label="Next watch run" value={mock.nextRun || "In 2d 18h"} detail={mock.nextRunDetail || "May 21, 9:00 AM"} />
-          <WatchlistStatCard icon="alert-triangle" tone="orange" label="New issues detected" value={mock.newIssues || "2 this week"} detail={mock.newIssuesDetail || "2 vs last week"} trend="up" />
-          <WatchlistStatCard icon="email" tone="green" label="Alert status" value={mock.alertStatus || "Email alerts on"} detail={mock.alertStatusDetail || "2 recipients"} />
+          <WatchlistStatCard icon="binoculars" tone="watch" label="Watched products" value={`${watchedCount} / ${maxProducts}`} detail={`${slotsAvailable} slot${slotsAvailable === 1 ? "" : "s"} available`} iconIndex={1} />
+          <WatchlistStatCard icon="calendar" tone="blue" label="Scan cadence" value={mock.scanCadence || "Every 3 days"} detail={mock.scanCadenceDetail || "Automatic rescans"} iconIndex={2} />
+          <WatchlistStatCard icon="refresh" tone="green" label="Last watch run" value={mock.lastRun || "6h ago"} detail={mock.lastRunDetail || "All active products scanned"} iconIndex={3} />
+          <WatchlistStatCard icon="clock" tone="blue" label="Next watch run" value={mock.nextRun || "In 2d 18h"} detail={mock.nextRunDetail || "May 21, 9:00 AM"} iconIndex={4} />
+          <WatchlistStatCard icon="alert-triangle" tone="orange" label="New issues detected" value={mock.newIssues || "2 this week"} detail={mock.newIssuesDetail || "2 vs last week"} trend="up" iconIndex={5} />
+          <WatchlistStatCard icon="email" tone="green" label="Alert status" value={mock.alertStatus || "Email alerts on"} detail={mock.alertStatusDetail || "2 recipients"} iconIndex={6} />
         </div>
 
         <WatchlistOverviewDashboard
@@ -2019,10 +2023,11 @@ export function WatchlistScreen({ data = {}, actionData }) {
   );
 }
 
-function WatchlistStatCard({ icon, tone, label, value, detail, trend = "" }) {
+function WatchlistStatCard({ icon, tone, label, value, detail, trend = "", iconIndex = 0 }) {
+  const indexedClass = iconIndex ? ` ppWatchlistStatCard-${iconIndex}` : "";
   return (
-    <article className="ppWatchlistStatCard">
-      <DashboardIcon type={icon} tone={tone} />
+    <article className={`ppWatchlistStatCard${indexedClass}`}>
+      <DashboardIcon type={icon} tone={tone} className={iconIndex ? `ppWatchlistStatIcon ppWatchlistStatIcon-${iconIndex}` : "ppWatchlistStatIcon"} />
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
@@ -6548,7 +6553,7 @@ function PlansCreditsIcon({ type }) {
     return <svg {...common}><circle cx="12" cy="12" r="8.2" /><path d="M12 16v-4" /><path d="M12 8.2h.01" /></svg>;
   }
   if (type === "tag") {
-    return <svg {...common}><path d="M4.5 12.2 12 4.7h5.2l2.1 2.1V12l-7.5 7.5-7.3-7.3Z" /><circle cx="15.7" cy="8.3" r="1.2" /></svg>;
+    return <svg {...common}><path d="M4.6 12.1 11.7 4.8h5.1l2.6 2.6v5.1l-7.2 7.2-7.6-7.6Z" /><circle cx="15.7" cy="8.8" r="1.15" /><path d="m8.7 12.2 1.7 1.7 3.8-4" /></svg>;
   }
   if (type === "users") {
     return <svg {...common}><circle cx="9" cy="8.4" r="2.4" /><path d="M4.8 18c.8-2.7 2.2-4 4.2-4s3.5 1.3 4.2 4" /><circle cx="16.3" cy="9.5" r="1.9" /><path d="M14.4 14.2c2.2 0 3.7 1.1 4.4 3.3" /></svg>;
@@ -6590,7 +6595,7 @@ function PlansCreditsIcon({ type }) {
     return <svg {...common}><rect x="4" y="6.5" width="16" height="11" rx="2" /><path d="M4 10h16" /><path d="M7.2 14.3h4.5" /></svg>;
   }
   if (type === "gear") {
-    return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 4.5v2M12 17.5v2M4.5 12h2M17.5 12h2M6.7 6.7l1.4 1.4M15.9 15.9l1.4 1.4M17.3 6.7l-1.4 1.4M8.1 15.9l-1.4 1.4" /></svg>;
+    return <svg {...common}><path d="M10.5 4.6h3l.6 2.1c.5.2 1 .5 1.4.8l2.1-.6 1.5 2.6-1.5 1.5c.1.5.1 1.1 0 1.6l1.5 1.5-1.5 2.6-2.1-.6c-.4.3-.9.6-1.4.8l-.6 2.1h-3l-.6-2.1c-.5-.2-1-.5-1.4-.8l-2.1.6-1.5-2.6 1.5-1.5c-.1-.5-.1-1.1 0-1.6L4.9 9.5l1.5-2.6 2.1.6c.4-.3.9-.6 1.4-.8l.6-2.1Z" /><circle cx="12" cy="12" r="2.6" /></svg>;
   }
   if (type === "lock") {
     return <svg {...common}><rect x="5.5" y="10" width="13" height="9" rx="2" /><path d="M8.2 10V7.8a3.8 3.8 0 0 1 7.6 0V10" /></svg>;
@@ -10823,15 +10828,17 @@ function getProductEvidenceSources(product) {
     const title = getCanonicalEvidenceSourceTitle(item.source);
     const points = getEvidencePoints(item, product);
     const persistedPoints = getStoredEvidencePoints(item);
-    const current = groups.get(title) || {
-      title,
-      points: [],
-      persistedPoints: [],
-      persistedRecords: [],
-      sourceTitles: [],
-    };
+	    const current = groups.get(title) || {
+	      title,
+	      points: [],
+	      persistedPoints: [],
+	      persistedRecords: [],
+	      sourceTitles: [],
+	      countHints: [],
+	    };
 
-    current.sourceTitles.push(item.source);
+	    current.sourceTitles.push(item.source);
+	    [item.weight, item.quote, item.summary].filter(Boolean).forEach((hint) => current.countHints.push(hint));
     points.forEach((point) => {
       if (point && !current.points.includes(point)) current.points.push(point);
     });
@@ -10853,6 +10860,7 @@ function getProductEvidenceSources(product) {
       summary: getEvidenceSourceSummary(group.title, group.points, product),
       tone: getEvidenceSourceTone(group.title, group.points),
       cards: getEvidenceSourceCards(group.title, group.points, product),
+      signalCount: getEvidenceSourceSignalCount({ title: group.title, points: group.points, countHints: group.countHints }, product),
       points: group.points,
       persistedPoints: group.persistedPoints,
       persistedRecords: group.persistedRecords,
@@ -10905,6 +10913,57 @@ function getEvidenceSourceTone(source, points = []) {
   if (normalized.includes("emotion") || normalized.includes("sentiment") || normalized.includes("ai ")) return "insight";
   if (normalized.includes("positive") || normalized.includes("healthy")) return "success";
   return "neutral";
+}
+
+function getEvidenceSourceSignalCount(source = {}, product = {}) {
+  const title = typeof source === "string" ? source : source.title || "";
+  const pointCount = Array.isArray(source.points) ? source.points.length : 0;
+  const metrics = product.metrics || {};
+  const textInsights = metrics.textInsights || {};
+  if (isReviewEvidenceSource(title)) {
+    return getReviewEvidenceStats(source, product).reviewCount || pointCount;
+  }
+  if (isCustomerLanguageEvidenceSource(title)) {
+    return getCombinedCustomerLanguageSentiment(metrics).total
+      || getEvidenceSourceHintCount(source, ["text signal", "customer text"])
+      || pointCount;
+  }
+  if (isShopifyReturnsEvidenceSource(title)) {
+    return Number(metrics.returnUnits || 0)
+      || Number(textInsights.returns?.sentiment?.total || 0)
+      || getEvidenceSourceHintCount(source, ["return unit", "return"])
+      || pointCount;
+  }
+  if (isShopifyRefundsEvidenceSource(title)) {
+    return Number(metrics.refundUnits || metrics.refundInsights?.total || 0)
+      || getEvidenceSourceHintCount(source, ["refunded unit", "refund unit", "refund"])
+      || pointCount;
+  }
+  if (isShopifyOrdersEvidenceSource(title)) {
+    const activity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
+    const orderCount = Number(activity.summary?.totalOrders || metrics.orderCount || metrics.ordersLast30Days || metrics.productPurchaseContextSummary?.totalOrdersContainingProduct || 0);
+    return orderCount
+      || getEvidenceSourceHintCount(source, ["order"])
+      || pointCount;
+  }
+  return pointCount;
+}
+
+function getEvidenceSourceHintCount(source = {}, labels = []) {
+  const hints = Array.isArray(source.countHints) ? source.countHints : [];
+  const normalizedLabels = labels.map((label) => String(label || "").toLowerCase()).filter(Boolean);
+  const patterns = [];
+  if (normalizedLabels.some((label) => label.includes("text"))) patterns.push(/\b(\d+(?:\.\d+)?)\s+(?:customer\s+)?text signals?\b/);
+  if (normalizedLabels.some((label) => label.includes("return"))) patterns.push(/\b(\d+(?:\.\d+)?)\s+(?:return units?|returned units?|returns?)\b/);
+  if (normalizedLabels.some((label) => label.includes("refund"))) patterns.push(/\b(\d+(?:\.\d+)?)\s+(?:refund units?|refunded units?|refunds?)\b/);
+  if (normalizedLabels.some((label) => label.includes("order"))) patterns.push(/\b(\d+(?:\.\d+)?)\s+orders?\b/);
+
+  for (const hint of hints) {
+    const text = String(hint || "").toLowerCase();
+    const match = patterns.map((pattern) => text.match(pattern)).find(Boolean);
+    if (match) return Number(match[1]);
+  }
+  return 0;
 }
 
 function getStoredEvidencePoints(item = {}) {
@@ -22455,8 +22514,8 @@ export function AnalyticsScreen({ data }) {
         </div>
 
         <div className="ppAnalyticsKpis" aria-label="Analytics overview">
-          {kpis.map((kpi) => (
-            <AnalyticsKpiCard key={kpi.label} kpi={kpi} />
+          {kpis.map((kpi, index) => (
+            <AnalyticsKpiCard key={kpi.label} kpi={kpi} index={index} />
           ))}
         </div>
 
@@ -22816,7 +22875,7 @@ function getProductPulseIconBadgeGlyph(icon) {
   return aliases[normalized] || normalized;
 }
 
-function ProductPulseGlyph({ type }) {
+export function ProductPulseGlyph({ type }) {
   if (type === "judgeme-reviews" || type === "yotpo-reviews" || type === "loox-reviews") {
     const provider = type === "yotpo-reviews"
       ? { domain: "yotpo.com", label: "Yotpo" }
@@ -22882,13 +22941,12 @@ function ProductPulseGlyph({ type }) {
   if (type === "financial-exposure") {
     return (
       <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-financialExposure" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-        <circle cx="10.5" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.9" />
-        <path d="M12.7 8.8C12.25 8.15 11.45 7.75 10.55 7.75C9.35 7.75 8.55 8.35 8.55 9.3C8.55 10.25 9.4 10.65 10.75 10.95C12.15 11.25 13 11.75 13 12.85C13 13.95 12.1 14.75 10.6 14.75C9.45 14.75 8.45 14.3 7.8 13.55" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M10.6 6.8V7.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M10.6 14.75V15.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M16.8 12.6L21 19.5H12.6L16.8 12.6Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
-        <path d="M16.8 15.4V17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M16.8 18.35H16.81" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+        <path d="M4.6 7.5C4.6 6.25 5.6 5.25 6.85 5.25H17.15C18.4 5.25 19.4 6.25 19.4 7.5V17.2C19.4 18.45 18.4 19.45 17.15 19.45H6.85C5.6 19.45 4.6 18.45 4.6 17.2V7.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M4.9 9.45H19.1" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" />
+        <circle cx="8.55" cy="14.65" r="2.45" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M9.45 13.65C9.2 13.28 8.78 13.08 8.35 13.08C7.78 13.08 7.4 13.35 7.4 13.78C7.4 14.22 7.78 14.42 8.45 14.55C9.1 14.68 9.52 14.95 9.52 15.45C9.52 15.95 9.05 16.25 8.42 16.25C7.92 16.25 7.45 16.05 7.18 15.7" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+        <path d="M12.65 16.45 14.95 13.95 16.25 15.15 18.15 12.15" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M16.55 12.05H18.25V13.75" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
@@ -22927,12 +22985,13 @@ function ProductPulseGlyph({ type }) {
   if (type === "negative-review-pressure") {
     return (
       <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-negativeReviewPressure" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-        <path d="M6 15.5C7.4 13.9 8.9 13.2 10.6 13.6C12.1 14 12.65 15.1 14 15.1C15.1 15.1 16 14.45 17 13.4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
-        <path d="M8.4 9.7C8.4 9.7 9.4 8.8 10.6 8.8C11.8 8.8 12.8 9.7 12.8 9.7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M6.5 7.5C6.5 5.85 7.85 4.5 9.5 4.5H14.5C16.15 4.5 17.5 5.85 17.5 7.5V11.5C17.5 13.15 16.15 14.5 14.5 14.5H11L7.5 17.5V14.5C6.95 14.5 6.5 14.05 6.5 13.5V7.5Z" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" />
-        <circle cx="17.5" cy="16.5" r="3" stroke="currentColor" strokeWidth="1.9" />
-        <path d="M17.5 15V18" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-        <path d="M16 16.5H19" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M5 6.9C5 5.55 6.1 4.5 7.45 4.5H15.55C16.9 4.5 18 5.55 18 6.9V12.35C18 13.7 16.9 14.75 15.55 14.75H11.15L7.4 18.05V14.75H7.45C6.1 14.75 5 13.7 5 12.35V6.9Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+        <path d="M8.35 8.35 9.25 10.15 11.25 10.45 9.8 11.85 10.15 13.8 8.35 12.85 6.6 13.8 6.95 11.85 5.5 10.45 7.5 10.15 8.35 8.35Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+        <path d="M11.8 8.45H15.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M12.15 11.25H14.45" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="17.5" cy="16.8" r="2.85" stroke="currentColor" strokeWidth="1.75" />
+        <path d="M17.5 15.35V17.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M17.5 18.45H17.51" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       </svg>
     );
   }
@@ -23032,6 +23091,151 @@ function ProductPulseGlyph({ type }) {
       </svg>
     );
   }
+  if (type === "tag") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-tag" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M4.6 12.15 11.85 4.8H16.95L19.4 7.25V12.35L12.25 19.45 4.6 12.15Z" stroke="currentColor" strokeWidth="1.85" strokeLinejoin="round" />
+        <circle cx="15.85" cy="8.85" r="1.15" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M8.55 12.25 10.45 14.05 14.55 9.9" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "gear") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-gear" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M10.45 4.55H13.55L14.15 6.65C14.65 6.82 15.12 7.08 15.55 7.42L17.65 6.85L19.2 9.55L17.65 11.05C17.72 11.58 17.72 12.12 17.65 12.95L19.2 14.45L17.65 17.15L15.55 16.58C15.12 16.92 14.65 17.18 14.15 17.35L13.55 19.45H10.45L9.85 17.35C9.35 17.18 8.88 16.92 8.45 16.58L6.35 17.15L4.8 14.45L6.35 12.95C6.28 12.42 6.28 11.88 6.35 11.05L4.8 9.55L6.35 6.85L8.45 7.42C8.88 7.08 9.35 6.82 9.85 6.65L10.45 4.55Z" stroke="currentColor" strokeWidth="1.65" strokeLinejoin="round" />
+        <circle cx="12" cy="12" r="2.65" stroke="currentColor" strokeWidth="1.7" />
+      </svg>
+    );
+  }
+  if (type === "coverage") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-coverage" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M12 4.5V12L17.6 15.1" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.1 15.8H8.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M6.25 18.25H10.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "chart") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-chart" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M4.8 19.1H19.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <rect x="6.5" y="11.2" width="2.6" height="5.6" rx="0.8" stroke="currentColor" strokeWidth="1.65" />
+        <rect x="10.7" y="7.4" width="2.6" height="9.4" rx="0.8" stroke="currentColor" strokeWidth="1.65" />
+        <rect x="14.9" y="9.1" width="2.6" height="7.7" rx="0.8" stroke="currentColor" strokeWidth="1.65" />
+        <path d="M6.5 8.1 10.3 5.4 13.1 6.9 17.8 4.4" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "card") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-card" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <rect x="4.3" y="6.4" width="15.4" height="11.2" rx="2.1" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M4.5 10H19.5" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
+        <path d="M7.2 14.2H11.6" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
+        <path d="M15.4 14.2H17.1" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "spark") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-spark" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M12 4.1 14.15 9.15 19.9 12 14.15 14.85 12 19.9 9.85 14.85 4.1 12 9.85 9.15 12 4.1Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+        <path d="M18.3 4.4 18.9 6.05 20.6 6.7 18.9 7.35 18.3 9 17.65 7.35 16 6.7 17.65 6.05 18.3 4.4Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "support") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-support" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M5.1 13.1A6.9 6.9 0 0 1 18.9 13.1V16.4C18.9 17.6 17.95 18.55 16.75 18.55H14.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M5.1 13.2H7.9V18H6.75C5.8 18 5.1 17.25 5.1 16.35V13.2Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M18.9 13.2H16.1V18H17.25C18.2 18 18.9 17.25 18.9 16.35V13.2Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M10.2 19.1H13.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M9.8 10.6H14.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "evidence") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-evidence" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M7 4.7H14.2L18 8.5V19.3H7V4.7Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M14.1 4.8V8.6H18" stroke="currentColor" strokeWidth="1.65" strokeLinejoin="round" />
+        <path d="M9.6 11.1H15.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M9.6 14H15.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M9.6 16.9H13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "method") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-method" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7.3" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M12 7.5V12.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M12 15.8H12.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M6.9 6.9 8.4 8.4" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" />
+        <path d="M17.1 6.9 15.6 8.4" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "velocity") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-velocity" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M4.5 16.5C5.65 12.45 8.85 9.5 12.9 9.5C15.5 9.5 17.85 10.7 19.4 12.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M12 16.2 15.2 10.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="12" cy="16.2" r="1.45" stroke="currentColor" strokeWidth="1.65" />
+        <path d="M5.7 18.9H18.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "trophy") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-trophy" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M8.1 4.8H15.9V9.7C15.9 12.1 14.2 13.8 12 13.8C9.8 13.8 8.1 12.1 8.1 9.7V4.8Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M8.1 6.4H5.1V8.25C5.1 10.1 6.35 11.4 8.1 11.45" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M15.9 6.4H18.9V8.25C18.9 10.1 17.65 11.4 15.9 11.45" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        <path d="M12 13.8V17.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        <path d="M8.6 19.2H15.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (type === "rollover") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-rollover" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M18.35 10.2A6.5 6.5 0 1 0 18.8 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M18.35 5.5V10.2H13.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M10.2 9.2V14L14.1 16.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "pulse") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-pulse" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M4.3 12.6H7.2L9.1 7.7 13.05 17.3 15.2 12.6H19.7" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5.2 17.9H18.8" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" opacity="0.75" />
+      </svg>
+    );
+  }
+  if (type === "shield") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-shield" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <path d="M12 4.3 18.7 7.1V12.1C18.7 16.25 16.15 18.8 12 19.9C7.85 18.8 5.3 16.25 5.3 12.1V7.1L12 4.3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M9.1 12.1 11.25 14.15 15.2 9.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "users") {
+    return (
+      <svg className="ppProductPulseSvgIcon ppProductPulseSvgIcon-users" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+        <circle cx="9.4" cy="8.55" r="2.45" stroke="currentColor" strokeWidth="1.75" />
+        <path d="M4.8 18.2C5.65 15.45 7.15 14.1 9.4 14.1C11.65 14.1 13.15 15.45 14 18.2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <circle cx="16.3" cy="9.55" r="1.85" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M14.85 14.25C16.9 14.35 18.35 15.55 19.2 17.6" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
+      </svg>
+    );
+  }
   if (type === "thumb-up" || type === "thumb-down") {
     return (
       <svg className={`ppThumbGlyph ppThumbGlyph-${type === "thumb-down" ? "down" : "up"}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -23044,14 +23248,13 @@ function ProductPulseGlyph({ type }) {
   if (type === "binoculars") {
     return (
       <svg className="ppBinocularsIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <circle cx="12" cy="12" r="8.2" />
-        <circle cx="12" cy="12" r="2.4" />
-        <path d="M12 2.8v3.1" />
-        <path d="M12 18.1v3.1" />
-        <path d="M2.8 12h3.1" />
-        <path d="M18.1 12h3.1" />
-        <path d="M12 12l5.2-5.2" />
-        <path d="M7.7 8.7a6.2 6.2 0 0 1 8.6 0" />
+        <path d="M7.2 9.6 8.65 5.8C8.9 5.15 9.5 4.75 10.2 4.75H11.1L11.75 9.7" />
+        <path d="M16.8 9.6 15.35 5.8C15.1 5.15 14.5 4.75 13.8 4.75H12.9L12.25 9.7" />
+        <path d="M10.4 9.8H13.6" />
+        <circle cx="8.1" cy="14.6" r="4.05" />
+        <circle cx="15.9" cy="14.6" r="4.05" />
+        <circle cx="8.1" cy="14.6" r="1.35" />
+        <circle cx="15.9" cy="14.6" r="1.35" />
       </svg>
     );
   }
@@ -23072,11 +23275,11 @@ function ProductPulseGlyph({ type }) {
   return <s-icon type={type || "info"}></s-icon>;
 }
 
-function DashboardIcon({ type, tone = "blue", size = "base" }) {
+function DashboardIcon({ type, tone = "blue", size = "base", className = "" }) {
   const badgeSize = size === "small" ? "dashboardSmall" : size === "metric" ? "metric" : "dashboard";
   return (
     <ProductPulseIconBadge
-      className={`ppDashboardIcon ppDashboardIcon-${tone} ppDashboardIcon-${size}`}
+      className={`ppDashboardIcon ppDashboardIcon-${tone} ppDashboardIcon-${size}${className ? ` ${className}` : ""}`}
       icon={type}
       size={badgeSize}
       tone={tone}
@@ -24675,7 +24878,7 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
         sources: sources.slice(0, 10).map((source) => ({
           title: source.title,
           key: source.key,
-          signalCount: source.points?.length || 0,
+          signalCount: source.signalCount ?? source.points?.length ?? 0,
           summary: source.summary,
         })),
       },
@@ -24720,7 +24923,7 @@ function EvidenceObservabilityPanel({ detail, product, selectedEvidence, selecte
                 <ProductPulseGlyph type={source.icon} />
               </span>
               <span>{source.title}</span>
-              <strong>{source.points.length}</strong>
+              <strong>{formatInteger(source.signalCount ?? source.points.length)}</strong>
             </button>
           ))}
         </div>
@@ -26419,7 +26622,7 @@ function EvidenceSourceReportHeader({ source, title, summary, eyebrow = "" }) {
           <p>{summary}</p>
         </div>
       </div>
-      <span className="ppEvidenceSignalCount">{source.points.length} signals</span>
+      <span className="ppEvidenceSignalCount">{formatInteger(source.signalCount ?? source.points.length)} signals</span>
     </div>
   );
 }
@@ -29237,12 +29440,14 @@ function getEvidenceSourceCards(source, points = [], product = {}) {
     add("Estimated Margin Exposure", formatMoney(metrics.marginAtRisk || 0), `${formatMoney(metrics.revenueAtRisk || 0)} revenue at risk`, "financial-exposure", "teal");
     add("Last signal captured", metrics.lastSignalAt ? formatProductAnalysisDate(metrics.lastSignalAt) : detailLastAnalysis(product), `${formatInteger(metrics.signalCount)} total signals`, "calendar", "blue");
   } else if (normalized.includes("review") || normalized.includes("judge") || normalized.includes("yotpo") || normalized.includes("loox")) {
-    add("Total reviews", formatInteger(metrics.reviewCount || metrics.csvReviewCount || metrics.judgeMeReviewCount || metrics.yotpoReviewCount || metrics.looxReviewCount), `${formatInteger(metrics.negativeReviewCount)} negative reviews`, "star", "blue");
-    add("Average rating", metrics.avgRating || metrics.reviewRating || "0", "Product-level review rating", "star", "teal");
-    add("Negative reviews", formatInteger(metrics.negativeReviewCount), `${formatPercent(metrics.negativeReviewRate)} negative review rate`, "negative-review-pressure", Number(metrics.negativeReviewRate || 0) > 25 ? "red" : "amber");
-    add("Recent negatives", formatInteger(metrics.recentNegativeReviewCount), "Recent negative review signals", "clock", "violet");
-    add("Review sentiment", formatSentimentSummary(textInsights.reviews?.sentiment), "AI-readable review language", "note", "violet");
-    add("Review emotions", getTopEmotionLabel(textInsights.reviews?.emotions), "Dominant detected review emotion", "lightbulb", "violet");
+    const reviewStats = getReviewEvidenceStats({ title: source, points }, product);
+    const sourceSummary = getReviewSourceSummary(textInsights, source);
+    add("Total reviews", formatInteger(reviewStats.reviewCount), `${formatInteger(reviewStats.negativeCount)} negative reviews`, "star", "blue");
+    add("Average rating", reviewStats.averageRatingLabel, "Source-level rating", "star", "teal");
+    add("Negative reviews", formatInteger(reviewStats.negativeCount), `${reviewStats.negativeRateLabel} negative review rate`, "negative-review-pressure", Number(reviewStats.negativeRate || 0) > 25 ? "red" : "amber");
+    add("Recent negatives", formatInteger(reviewStats.recentNegativeCount), reviewStats.recentNegativeWindowLabel, "clock", "violet");
+    add("Review sentiment", formatSentimentSummary(reviewStats.sentiment), "AI-readable review language", "note", "violet");
+    add("Review emotions", getTopEmotionLabel(sourceSummary?.emotions || (!isSpecificReviewSource(source) ? textInsights.reviews?.emotions : [])), "Dominant detected review emotion", "lightbulb", "violet");
   } else if (normalized.includes("csv")) {
     add("CSV reviews", formatInteger(metrics.csvReviewCount || metrics.csvReviewRatingCount), "Normalized external review rows", "file", "blue");
     add("CSV rating", metrics.csvAverageRating || metrics.csvReviewRating || metrics.avgRating || "0", "Average rating from uploaded CSV", "star", "teal");
@@ -33232,10 +33437,12 @@ function getBetaFeedbackPanelId(prefix, value) {
   return `${prefix}.${String(value || "panel").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "panel"}`;
 }
 
-function AnalyticsKpiCard({ kpi }) {
+function AnalyticsKpiCard({ kpi, index = 0 }) {
+  const position = index + 1;
+  const iconType = position === 2 && kpi.icon === "shield-check-mark" ? "diagnostic-confidence" : kpi.icon;
   return (
-    <article className="ppAnalyticsKpi">
-      <DashboardIcon type={kpi.icon} tone={kpi.tone} />
+    <article className={`ppAnalyticsKpi ppAnalyticsKpi-${position}`}>
+      <DashboardIcon type={iconType} tone={kpi.tone} className={`ppAnalyticsKpiIcon ppAnalyticsKpiIcon-${position}`} />
       <div>
         <h2>{kpi.label}</h2>
         <strong>{kpi.value}</strong>

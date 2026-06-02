@@ -5453,10 +5453,11 @@ describe("ProductPulse screens", () => {
           "Return-note sentiment: 2 negative, 1 neutral, 0 positive",
           "\"Other\" notes classified as Fit & sizing 2 times",
         ],
-      }],
-      metrics: {
-        ...defaultView.startHere.metrics,
-        textInsights: {
+	      }],
+	      metrics: {
+	        ...defaultView.startHere.metrics,
+	        returnUnits: 4,
+	        textInsights: {
           sentiment: { total: 4, negative: 3, neutral: 1, positive: 0 },
           returns: {
             sentiment: { total: 3, negative: 2, neutral: 1, positive: 0 },
@@ -5493,10 +5494,14 @@ describe("ProductPulse screens", () => {
     expect(issueEvidenceTrigger).toHaveClass("hasEvidence");
     expect(within(issueEvidenceTrigger).getByRole("tooltip")).toHaveTextContent("4 generic return reasons reclassified from customer text as Fear or safety concern.");
     expect(issueRow.querySelector(".ppIssueNameCell small")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Fear or safety concern").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
-    expect(screen.getByRole("tab", { name: /Customer language analysis/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Text signals")).toBeInTheDocument();
+	    expect(screen.getAllByText("Fear or safety concern").length).toBeGreaterThan(0);
+	    expect(screen.getAllByText(/Scares me more than nothing/).length).toBeGreaterThan(0);
+	    const customerLanguageTab = screen.getByRole("tab", { name: "Customer language analysis" });
+	    const returnsTab = screen.getByRole("tab", { name: "Shopify returns" });
+	    expect(customerLanguageTab).toHaveAttribute("aria-selected", "true");
+	    expect(customerLanguageTab.querySelector("strong")).toHaveTextContent("4");
+	    expect(returnsTab.querySelector("strong")).toHaveTextContent("4");
+	    expect(screen.getByText("Text signals")).toBeInTheDocument();
     expect(screen.getByText("Negative language")).toBeInTheDocument();
     expect(screen.getAllByText("Primary emotion").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Fear").length).toBeGreaterThan(0);
@@ -5551,10 +5556,12 @@ describe("ProductPulse screens", () => {
           { label: "Canada", count: 4, share: 33.3, detail: "4 orders · 33.3%" },
         ],
       },
-    };
+	    };
 
-    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    expect(screen.getByRole("tab", { name: "Shopify orders" })).toHaveAttribute("aria-selected", "true");
+	    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+	    const ordersTab = screen.getByRole("tab", { name: "Shopify orders" });
+	    expect(ordersTab).toHaveAttribute("aria-selected", "true");
+	    expect(ordersTab.querySelector("strong")).toHaveTextContent("12");
     expect(screen.getByText("Units sold over time")).toBeInTheDocument();
     expect(screen.getByText("Units/order")).toBeInTheDocument();
     expect(screen.getByText("Product share")).toBeInTheDocument();
@@ -5878,6 +5885,10 @@ describe("ProductPulse screens", () => {
     const judgeMeTab = screen.getByRole("tab", { name: "Judge.me reviews" });
     const yotpoTab = screen.getByRole("tab", { name: "Yotpo reviews" });
     const looxTab = screen.getByRole("tab", { name: "Loox reviews" });
+    expect(screen.getByRole("tab", { name: "CSV reviews" }).querySelector("strong")).toHaveTextContent("3");
+    expect(judgeMeTab.querySelector("strong")).toHaveTextContent("4");
+    expect(yotpoTab.querySelector("strong")).toHaveTextContent("2");
+    expect(looxTab.querySelector("strong")).toHaveTextContent("2");
     expect(judgeMeTab.querySelector(".ppProductPulseSourceLogoGlyph-judgeme-reviews")).toHaveAttribute("src", expect.stringContaining("judge.me"));
     expect(yotpoTab.querySelector(".ppProductPulseSourceLogoGlyph-yotpo-reviews")).toHaveAttribute("src", expect.stringContaining("yotpo.com"));
     expect(looxTab.querySelector(".ppProductPulseSourceLogoGlyph-loox-reviews")).toHaveAttribute("src", expect.stringContaining("loox.io"));
