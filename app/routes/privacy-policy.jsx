@@ -236,7 +236,7 @@ export default function PrivacyPolicy() {
           <PolicySection id="international" eyebrow="Transfers" title="International Processing">
             <p>
               ProductPulse AI and its service providers may process data in
-              countries other than the merchant's or customer's country. Where
+              countries other than the merchant&apos;s or customer&apos;s country. Where
               required, we rely on appropriate contractual, organizational, and
               technical safeguards for cross-border processing.
             </p>
