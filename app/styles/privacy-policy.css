@@ -1,0 +1,289 @@
+.ppLegalPage {
+  --pp-legal-ink: #172126;
+  --pp-legal-muted: #5f6f76;
+  --pp-legal-line: #dbe5e8;
+  --pp-legal-bg: #f7faf9;
+  --pp-legal-panel: #ffffff;
+  --pp-legal-teal: #137c72;
+  --pp-legal-coral: #b94b3a;
+  --pp-legal-amber: #8a6515;
+  background: var(--pp-legal-bg);
+  color: var(--pp-legal-ink);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+
+.ppLegalPage a {
+  color: var(--pp-legal-teal);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.ppLegalHero {
+  background: #172126;
+  color: #ffffff;
+  padding: 56px 24px 40px;
+}
+
+.ppLegalHeroInner {
+  margin: 0 auto;
+  max-width: 1120px;
+}
+
+.ppLegalEyebrow,
+.ppLegalSectionEyebrow {
+  color: var(--pp-legal-teal);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.ppLegalHero .ppLegalEyebrow {
+  color: #7dd6c7;
+}
+
+.ppLegalHero h1 {
+  font-size: clamp(2.35rem, 6vw, 4.25rem);
+  line-height: 1;
+  margin: 0;
+  max-width: 760px;
+}
+
+.ppLegalHero p {
+  color: #d8e5e7;
+  font-size: 1.08rem;
+  line-height: 1.65;
+  margin: 18px 0 0;
+  max-width: 760px;
+}
+
+.ppLegalHeroMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.ppLegalHeroMeta span {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #eef7f6;
+  display: inline-flex;
+  font-size: 0.92rem;
+  gap: 6px;
+  padding: 9px 12px;
+}
+
+.ppLegalHeroMeta a {
+  color: #ffffff;
+}
+
+.ppLegalShell {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 28px 24px 72px;
+}
+
+.ppLegalNav {
+  align-self: start;
+  background: var(--pp-legal-panel);
+  border: 1px solid var(--pp-legal-line);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  position: sticky;
+  top: 20px;
+}
+
+.ppLegalNav a {
+  border-radius: 6px;
+  color: #314147;
+  font-size: 0.92rem;
+  font-weight: 650;
+  padding: 9px 10px;
+  text-decoration: none;
+}
+
+.ppLegalNav a:hover,
+.ppLegalNav a:focus-visible {
+  background: #eaf5f2;
+  color: var(--pp-legal-teal);
+  outline: none;
+}
+
+.ppLegalContent {
+  display: grid;
+  gap: 18px;
+}
+
+.ppLegalSection {
+  background: var(--pp-legal-panel);
+  border: 1px solid var(--pp-legal-line);
+  border-radius: 8px;
+  padding: 28px;
+}
+
+.ppLegalSection h2 {
+  color: var(--pp-legal-ink);
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  line-height: 1.18;
+  margin: 0;
+}
+
+.ppLegalSectionBody {
+  color: var(--pp-legal-muted);
+  display: grid;
+  gap: 16px;
+  line-height: 1.65;
+  margin-top: 16px;
+}
+
+.ppLegalSectionBody p,
+.ppLegalSectionBody ul {
+  margin: 0;
+}
+
+.ppLegalSummaryGrid,
+.ppLegalTwoColumn,
+.ppLegalProcessorList,
+.ppLegalResourceGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.ppLegalSummaryGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ppLegalTwoColumn {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ppLegalSummaryCard,
+.ppLegalInfoBlock,
+.ppLegalProcessorItem,
+.ppLegalResource {
+  border: 1px solid var(--pp-legal-line);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.ppLegalSummaryCard {
+  background: #fbfdfc;
+}
+
+.ppLegalInfoBlock {
+  background: #ffffff;
+}
+
+.ppLegalProcessorItem {
+  background: #fbf6f4;
+  border-color: #ead4ce;
+}
+
+.ppLegalSummaryCard h3,
+.ppLegalInfoBlock h3,
+.ppLegalProcessorItem h3 {
+  color: var(--pp-legal-ink);
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.ppLegalSummaryCard p,
+.ppLegalProcessorItem p {
+  margin: 0;
+}
+
+.ppLegalInfoBlock ul,
+.ppLegalChecklist {
+  padding-left: 20px;
+}
+
+.ppLegalInfoBlock li,
+.ppLegalChecklist li {
+  margin: 0 0 9px;
+}
+
+.ppLegalInfoBlock li:last-child,
+.ppLegalChecklist li:last-child {
+  margin-bottom: 0;
+}
+
+.ppLegalNotice {
+  align-items: start;
+  background: #fff8e6;
+  border: 1px solid #ead99f;
+  border-radius: 8px;
+  color: #4b3b16;
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+}
+
+.ppLegalNotice strong {
+  color: var(--pp-legal-amber);
+}
+
+.ppLegalResourceGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ppLegalResource {
+  background: #f9fcfb;
+  color: var(--pp-legal-muted);
+  display: grid;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.ppLegalResource strong {
+  color: var(--pp-legal-ink);
+}
+
+.ppLegalResource span {
+  color: var(--pp-legal-muted);
+  font-size: 0.94rem;
+}
+
+.ppLegalResource:hover,
+.ppLegalResource:focus-visible {
+  border-color: #95cbc3;
+  outline: none;
+}
+
+@media (max-width: 860px) {
+  .ppLegalShell {
+    grid-template-columns: 1fr;
+  }
+
+  .ppLegalNav {
+    position: static;
+  }
+
+  .ppLegalSummaryGrid,
+  .ppLegalTwoColumn,
+  .ppLegalResourceGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .ppLegalHero {
+    padding: 40px 18px 30px;
+  }
+
+  .ppLegalShell {
+    padding: 18px 18px 48px;
+  }
+
+  .ppLegalSection {
+    padding: 20px;
+  }
+}
