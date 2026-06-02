@@ -10828,17 +10828,17 @@ function getProductEvidenceSources(product) {
     const title = getCanonicalEvidenceSourceTitle(item.source);
     const points = getEvidencePoints(item, product);
     const persistedPoints = getStoredEvidencePoints(item);
-	    const current = groups.get(title) || {
-	      title,
-	      points: [],
-	      persistedPoints: [],
-	      persistedRecords: [],
-	      sourceTitles: [],
-	      countHints: [],
-	    };
+    const current = groups.get(title) || {
+      title,
+      points: [],
+      persistedPoints: [],
+      persistedRecords: [],
+      sourceTitles: [],
+      countHints: [],
+    };
 
-	    current.sourceTitles.push(item.source);
-	    [item.weight, item.quote, item.summary].filter(Boolean).forEach((hint) => current.countHints.push(hint));
+    current.sourceTitles.push(item.source);
+    [item.weight, item.quote, item.summary].filter(Boolean).forEach((hint) => current.countHints.push(hint));
     points.forEach((point) => {
       if (point && !current.points.includes(point)) current.points.push(point);
     });

@@ -29,6 +29,8 @@
 ## Webhooks
 - `app/uninstalled` registered.
 - `app/scopes_update` registered.
+- Mandatory privacy compliance webhooks registered: `customers/data_request`, `customers/redact`, `shop/redact`.
+- Webhook handlers use Shopify SDK webhook authentication, which validates HMAC before processing payloads.
 - Future source refresh webhooks documented.
 
 ## Error Handling
