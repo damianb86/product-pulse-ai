@@ -13948,10 +13948,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const productResolvedAt = product?.resolvedAt || "";
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
-  const pendingIssueKey = navigation.state === "submitting" && ["ignore-issue", "unignore-issue"].includes(String(navigation.formData?.get("_action") || ""))
-    ? normalizeIssueIgnoreKey(navigation.formData?.get("issueKey"))
-    : "";
-  const pendingIssueAction = pendingIssueKey ? String(navigation.formData?.get("_action") || "") : "";
 
   useEffect(() => {
     productRef.current = product;
@@ -14253,40 +14249,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setDeleteAnalysisConfirmation({ product: detail });
   };
 
-  const handleIgnoreIssue = (issue) => {
-    const ignorePayload = buildIssueIgnorePayload(issue);
-    setIgnoredIssues((current) => {
-      const next = new Set(current);
-      if (ignorePayload.issueKey) next.add(ignorePayload.issueKey);
-      return next;
-    });
-    const formData = new FormData();
-    formData.set("_action", "ignore-issue");
-    formData.set("productId", product.slug || product.handle || "");
-    formData.set("issue", ignorePayload.issue);
-    formData.set("issueCode", ignorePayload.issueCode);
-    formData.set("issueKey", ignorePayload.issueKey);
-    formData.set("suggestedAction", ignorePayload.suggestedAction);
-    submit(formData, { method: "post" });
-  };
-
-  const handleUnignoreIssue = (issue) => {
-    const ignorePayload = buildIssueIgnorePayload(issue);
-    setIgnoredIssues((current) => {
-      const next = new Set(current);
-      if (ignorePayload.issueKey) next.delete(ignorePayload.issueKey);
-      return next;
-    });
-    const formData = new FormData();
-    formData.set("_action", "unignore-issue");
-    formData.set("productId", product.slug || product.handle || "");
-    formData.set("issue", ignorePayload.issue);
-    formData.set("issueCode", ignorePayload.issueCode);
-    formData.set("issueKey", ignorePayload.issueKey);
-    formData.set("suggestedAction", ignorePayload.suggestedAction);
-    submit(formData, { method: "post" });
-  };
-
   const handleEditAction = (action) => {
     setEditingAction(action);
     setDraftText(action.payload?.draftText || action.detail);
@@ -14443,7 +14405,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         <div className="ppBetaFeedbackCardCorner">
           <BetaFeedbackPanelControls panel={overviewFeedbackPanel} />
         </div>
-        <DashboardIcon type="ai-evidence-synthesis" tone={detail.findingTone} />
         <div>
           <span>AI interpretation</span>
           <h2>{detail.mainFindingTitle}</h2>
@@ -14754,24 +14715,19 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                             <th>Impact</th>
                             <th>Confidence</th>
                             <th>Signals</th>
-                            <th>Trend</th>
                             <th>Suggested action</th>
-                            <th aria-label="More actions"></th>
                           </tr>
                         </thead>
                         <tbody>
                           {detail.detectedIssues.length === 0 && (
                             <tr className="ppIssuesEmptyRow">
-                              <td colSpan="7">
+                              <td colSpan="5">
                                 <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
                               </td>
                             </tr>
                           )}
-                          {detail.detectedIssues.map((issue, index) => {
-                            const ignorePayload = buildIssueIgnorePayload(issue);
+                          {detail.detectedIssues.map((issue) => {
                             const ignored = isIssueIgnored(issue, ignoredIssues);
-                            const ignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "ignore-issue";
-                            const unignorePending = pendingIssueKey === ignorePayload.issueKey && pendingIssueAction === "unignore-issue";
                             const issueEvidenceText = issue.evidence?.length > 0 ? issue.evidence.slice(0, 2).join(" ") : "";
 
                             return (
@@ -14790,18 +14746,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                 <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
                                 <td>{issue.confidence}</td>
                                 <td>{issue.signals}</td>
-                                <td><MiniTrend tone={issue.trendTone} values={issue.trend} /></td>
                                 <td title={issue.action}>{issue.action}</td>
-                                <td>
-                                  <IssueInlineActions
-                                    issue={issue}
-                                    onReview={() => handleReviewEvidence(detail.evidenceSources.length ? index % detail.evidenceSources.length : 0)}
-                                    onIgnore={() => handleIgnoreIssue(issue)}
-                                    onUnignore={() => handleUnignoreIssue(issue)}
-                                    ignored={ignored}
-                                    pending={ignorePending || unignorePending}
-                                  />
-                                </td>
                               </tr>
                             );
                           })}
@@ -29931,30 +29876,6 @@ function getPermissionToastData(permissionState) {
     status: "validation_error",
     message: `Missing Shopify permissions: ${permissionState.missingScopes.join(", ")}. ProductPulse needs these permissions to calculate complete product quality signals.`,
   };
-}
-
-function IssueInlineActions({ issue, onReview, onIgnore, onUnignore, ignored, pending = false }) {
-  return (
-    <span className="ppIssueInlineActions" aria-label={`Actions for ${issue.issue}`}>
-      <button
-        type="button"
-        aria-label={`Review evidence for ${issue.issue}`}
-        onClick={onReview}
-      >
-        <s-icon type="view" size="small"></s-icon>
-        <span role="tooltip">Review evidence</span>
-      </button>
-      <button
-        type="button"
-        aria-label={`${ignored ? "Unignore" : pending ? "Saving" : "Ignore"} ${issue.issue}`}
-        disabled={pending}
-        onClick={ignored ? onUnignore : onIgnore}
-      >
-        {pending ? <span className="ppMiniSpinner" aria-hidden="true" /> : <s-icon type={ignored ? "plus-circle" : "x"} size="small"></s-icon>}
-        <span role="tooltip">{ignored ? "Unignore issue" : pending ? "Saving issue state" : "Ignore for now"}</span>
-      </button>
-    </span>
-  );
 }
 
 function IssueTitleWithEvidence({ title, evidence = "" }) {

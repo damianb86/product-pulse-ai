@@ -3114,6 +3114,7 @@ s-page[inline-size="large-500"] {
   width: 28px;
   height: 28px;
   display: inline-block;
+  margin: 0;
   overflow: hidden;
   border: 1px solid var(--pp-slate-300);
   border-radius: 6px;
@@ -3128,9 +3129,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductArt-hero {
-  width: clamp(150px, 15vw, 224px);
-  height: auto;
-  aspect-ratio: 1.72 / 1;
+  width: 100%;
+  height: 130px;
+  aspect-ratio: auto;
   border-radius: 10px;
 }
 
@@ -3139,6 +3140,7 @@ s-page[inline-size="large-500"] {
   height: 100%;
   display: block;
   object-fit: cover;
+  object-position: center;
 }
 
 .ppProductShape,
@@ -3609,8 +3611,8 @@ s-page[inline-size="large-500"] {
 
 .ppProductDetailHeroPanel {
   display: grid;
-  grid-template-columns: minmax(150px, 224px) minmax(0, 1fr) auto;
-  gap: 22px;
+  grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr) auto;
+  gap: 18px;
   align-items: center;
   width: 100%;
   padding: 8px 0 2px;
@@ -3836,7 +3838,7 @@ s-page[inline-size="large-500"] {
 .ppProductDetailHeroCopy h1 {
   margin: 0;
   color: var(--pp-slate-900);
-  font-size: 26px;
+  font-size: 23px;
   font-weight: 760;
   letter-spacing: 0;
   line-height: 1.15;
@@ -3949,7 +3951,7 @@ s-page[inline-size="large-500"] {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 12px;
+  gap: 7px;
   flex-wrap: wrap;
 }
 
@@ -3972,24 +3974,28 @@ s-page[inline-size="large-500"] {
   align-self: start;
   padding-top: 8px;
   flex-wrap: nowrap;
+  min-width: max-content;
 }
 
 .ppProductAnalyzeButton {
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 0 17px;
+  gap: 5px;
+  padding: 0 11px;
   border: 1px solid var(--pp-dark-cta);
   border-color: var(--pp-dark-cta);
   border-radius: 7px;
   background: var(--pp-dark-cta);
   color: var(--pp-cloud-white);
   font: inherit;
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 750;
   line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset, 0 8px 18px rgba(var(--pp-shadow-rgb), 0.14);
 }
@@ -4021,16 +4027,16 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDiagnosisRunning {
-  min-height: 36px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 7px 10px;
   border: 1px solid rgba(var(--pp-info-cyan-rgb), 0.28);
   border-radius: 8px;
   background: var(--pp-cyan-soft);
   color: var(--pp-slate-900);
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 750;
   white-space: nowrap;
 }
@@ -4102,7 +4108,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductOverflowButton {
-  min-height: 38px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4111,29 +4117,36 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
   color: var(--pp-slate-900);
   font: inherit;
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 750;
   line-height: 1;
   text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.06);
 }
 
 .ppProductMetricTimelineButton {
-  min-height: 38px;
-  gap: 7px;
+  min-height: 34px;
+  gap: 5px;
+  padding-inline: 10px;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   text-decoration: none;
 }
 
 .ppProductMetricTimelineIcon {
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   object-fit: contain;
 }
 
 .ppProductOverflowButton {
-  width: 42px;
+  width: 36px;
   padding: 0;
   cursor: pointer;
 }
@@ -4247,7 +4260,8 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   flex: 0 0 auto;
   overflow: visible;
-  width: max-content;
+  width: 100%;
+  min-width: 0;
 }
 
 .ppProductHeroImageWrap .ppAnalysisStatusWrap-titleIcon {
@@ -4434,10 +4448,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailOverviewFinding {
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
   align-items: start;
-  padding: 18px 20px;
+  padding: 16px 56px 16px 18px;
   border-color: rgba(var(--pp-insight-violet-rgb), 0.18);
   background:
     linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.095), rgba(var(--pp-pulse-blue-rgb), 0.055)),
@@ -4452,13 +4466,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailOverviewFinding > .ppDashboardIcon {
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: center;
+  display: none;
 }
 
 .ppProductDetailOverviewFinding > div:not(.ppBetaFeedbackCardCorner) {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
   min-width: 0;
   width: 100%;
@@ -4490,12 +4502,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDetailOverviewFinding h2 {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.22;
 }
 
 .ppProductDetailOverviewFinding .ppMainFindingText p {
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -4607,9 +4619,9 @@ s-page[inline-size="large-500"] {
   display: grid;
   align-content: start;
   gap: 7px;
-  min-height: 118px;
+  min-height: 108px;
   height: 100%;
-  padding: 18px;
+  padding: 15px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 8px;
   background: var(--pp-cloud-white);
@@ -4625,8 +4637,8 @@ s-page[inline-size="large-500"] {
   --pp-insight-icon-color: var(--pp-pulse-blue);
   grid-template-columns: 1fr;
   align-items: stretch;
-  gap: 12px;
-  padding: 20px;
+  gap: 10px;
+  padding: 16px;
 }
 
 .ppProductInsight-chartTone-red {
@@ -5079,7 +5091,7 @@ s-page[inline-size="large-500"] {
   color: var(--pp-slate-900);
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 21px;
+  font-size: 19px;
   font-weight: 700;
   line-height: 1.08;
 }
@@ -5087,7 +5099,7 @@ s-page[inline-size="large-500"] {
 .ppProductInsight small,
 .ppProductInsight em {
   color: var(--pp-slate-700);
-  font-size: 11px;
+  font-size: 10.5px;
   font-style: normal;
   line-height: 1.35;
 }
@@ -6898,18 +6910,49 @@ s-page[inline-size="large-500"] {
 
   .ppProductRiskHistoryStats,
   .ppProductRiskHistoryMeta {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    overflow: visible;
   }
 
   .ppProductRiskHistoryMetaCard,
   .ppProductRiskHistoryMetaCard + .ppProductRiskHistoryMetaCard,
   .ppProductRiskHistoryMetaCard:nth-child(n + 3) {
-    border-left: 0;
-    border-top: 1px solid var(--pp-slate-200);
+    border: 1px solid var(--pp-slate-200);
+    border-radius: 8px;
+    background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
   }
 
   .ppProductRiskHistoryMetaCard:first-child {
-    border-top: 0;
+    border-top: 1px solid var(--pp-slate-200);
+  }
+
+  .ppProductRiskHistoryStat {
+    gap: 10px;
+    min-height: 64px;
+    padding: 7px 8px;
+  }
+
+  .ppProductRiskHistoryMetaCard {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 10px;
+    padding: 7px 8px;
+  }
+
+  .ppProductRiskHistoryMetaCard > span:first-child {
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+  }
+
+  .ppProductRiskHistoryMetaCard strong {
+    font-size: 12px;
+  }
+
+  .ppProductRiskHistoryMetaCard small {
+    font-size: 10px;
   }
 
   .ppProductRiskHistoryChart {
@@ -10703,8 +10746,8 @@ s-page[inline-size="large-500"] {
 
 .ppProductOrderActivityPanel {
   display: grid;
-  gap: 16px;
-  padding: 18px;
+  gap: 13px;
+  padding: 16px;
   overflow: hidden;
 }
 
@@ -10820,17 +10863,17 @@ s-page[inline-size="large-500"] {
 .ppOrderActivitySummary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .ppOrderActivityStat {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 13px;
   min-width: 0;
-  min-height: 86px;
-  padding: 11px 12px;
+  min-height: 78px;
+  padding: 9px 10px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 11px;
   background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
@@ -10870,7 +10913,7 @@ s-page[inline-size="large-500"] {
 
 .ppOrderActivityStatBody strong {
   color: var(--pp-slate-900);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 950;
   line-height: 1.05;
 }
@@ -10878,7 +10921,7 @@ s-page[inline-size="large-500"] {
 .ppOrderActivityStatBody small {
   overflow: hidden;
   color: var(--pp-slate-600);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -11577,7 +11620,22 @@ s-page[inline-size="large-500"] {
 .ppReturnPredictionStats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+
+.ppReturnPredictionStats .ppOrderActivityStat {
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 13px;
+  min-height: 78px;
+  padding: 9px 10px;
+}
+
+.ppReturnPredictionStats .ppOrderActivityStatBody strong {
+  font-size: 20px;
+}
+
+.ppReturnPredictionStats .ppOrderActivityStatBody small {
+  font-size: 11px;
 }
 
 .ppReturnPredictionChartWrap {
@@ -11973,11 +12031,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppProductDeepResearchGrid .ppOrderActivityStat {
-  gap: 2px;
+  gap: 11px;
   height: 64px;
   grid-template-columns: 30px minmax(0, 1fr);
   overflow: hidden;
-  padding: 8px 9px;
+  padding: 6px 8px;
   border-radius: 8px;
 }
 
@@ -12459,23 +12517,24 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRetentionLtvBreakdownCard {
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 16px;
   background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-subcard-bg));
 }
 
 .ppRetentionBreakdownHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
   min-width: 0;
 }
 
 .ppRetentionBreakdownTitle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -12504,17 +12563,17 @@ s-page[inline-size="large-500"] {
 .ppRetentionBreakdownHeader h3 {
   margin: 0;
   color: var(--pp-slate-900);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 950;
-  line-height: 1.08;
+  line-height: 1.15;
 }
 
 .ppRetentionBreakdownHeader p {
   margin: 0;
   color: var(--pp-slate-600);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .ppRetentionBreakdownMetric {
@@ -14185,9 +14244,20 @@ s-page[inline-size="large-500"] {
   }
 
   .ppRetentionBreakdownHeader,
-  .ppRetentionBreakdownTitle,
   .ppRetentionLtvDonutWrap {
     display: grid;
+  }
+
+  .ppRetentionBreakdownHeader {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .ppRetentionBreakdownTitle {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
   }
 
   .ppRetentionBreakdownMetric {
@@ -14214,14 +14284,20 @@ s-page[inline-size="large-500"] {
     max-width: 190px;
   }
 
-  .ppRetentionMetricGrid,
   .ppRetentionActionCardGrid,
   .ppRetentionCampaignPlan {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .ppRetentionMetricGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
   .ppRetentionMetricCard {
     min-height: 64px;
+    gap: 10px;
+    padding: 7px 8px;
   }
 
   .ppRetentionOutcomeRow {
@@ -18011,46 +18087,36 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(1),
 .ppIssuesTable td:nth-child(1) {
-  width: 36%;
+  width: 39%;
 }
 
 .ppIssuesTable th:nth-child(2),
 .ppIssuesTable td:nth-child(2) {
-  width: 12%;
+  width: 13%;
 }
 
 .ppIssuesTable th:nth-child(3),
 .ppIssuesTable td:nth-child(3) {
-  width: 9%;
+  width: 10%;
 }
 
 .ppIssuesTable th:nth-child(4),
 .ppIssuesTable td:nth-child(4) {
-  width: 7%;
+  width: 8%;
 }
 
 .ppIssuesTable th:nth-child(5),
 .ppIssuesTable td:nth-child(5) {
-  width: 10%;
-}
-
-.ppIssuesTable th:nth-child(6),
-.ppIssuesTable td:nth-child(6) {
-  width: 20%;
-}
-
-.ppIssuesTable th:nth-child(7),
-.ppIssuesTable td:nth-child(7) {
-  width: 9%;
+  width: 30%;
 }
 
 .ppIssuesTable th,
 .ppIssuesTable td {
-  padding: 8px 9px;
+  padding: 7px 8px;
   border-bottom: 1px solid var(--pp-slate-200);
   color: var(--pp-slate-700);
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 11.5px;
+  line-height: 1.32;
   text-align: left;
   vertical-align: middle;
 }
@@ -18083,13 +18149,13 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable td:last-child {
   position: relative;
-  min-width: 88px;
-  text-align: right;
+  min-width: 0;
+  text-align: left;
 }
 
 .ppIssueNameCell {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -18120,7 +18186,7 @@ s-page[inline-size="large-500"] {
 .ppIssueTitleWithEvidence strong {
   display: block;
   color: var(--pp-slate-900);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 750;
   line-height: 1.2;
 }
@@ -18168,8 +18234,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppIssueIcon {
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
   display: inline-grid;
   place-items: center;
   border-radius: 6px;
@@ -18310,11 +18376,20 @@ s-page[inline-size="large-500"] {
 }
 
 .ppRecommendedActionsHeader {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
+  padding-right: 92px;
+}
+
+.ppRecommendedActionsHeader > .ppBetaFeedbackHeaderActions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin-left: 0;
 }
 
 .ppRecommendedActionsTitle {
@@ -18428,14 +18503,14 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 10px;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 8px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
   border-radius: 8px;
   background: var(--pp-cloud-white);
   color: var(--pp-slate-700);
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 8px 18px rgba(var(--pp-shadow-rgb), 0.08);
@@ -21576,63 +21651,6 @@ s-page[inline-size="large-500"] {
   }
 }
 
-.ppIssueInlineActions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
-  overflow: visible;
-}
-
-.ppIssueInlineActions button {
-  position: relative;
-  width: 24px;
-  height: 24px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 6px;
-  background: var(--pp-cloud-white);
-  color: var(--pp-slate-700);
-  cursor: pointer;
-}
-
-.ppIssueInlineActions button:hover:not(:disabled) {
-  border-color: var(--pp-pulse-blue);
-  color: var(--pp-pulse-blue);
-  background: var(--pp-blue-soft);
-}
-
-.ppIssueInlineActions button:disabled {
-  cursor: default;
-  opacity: 0.56;
-}
-
-.ppIssueInlineActions [role="tooltip"] {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 95;
-  min-width: 136px;
-  display: none;
-  padding: 7px 8px;
-  border: 1px solid var(--pp-slate-200);
-  border-radius: 7px;
-  background: var(--pp-midnight-ink);
-  color: var(--pp-cloud-white);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.2;
-  text-align: center;
-  box-shadow: 0 14px 28px rgba(var(--pp-shadow-rgb), 0.22);
-}
-
-.ppIssueInlineActions button:hover [role="tooltip"],
-.ppIssueInlineActions button:focus-visible [role="tooltip"] {
-  display: block;
-}
-
 .ppActionDraftEditor {
   display: grid;
   gap: 8px;
@@ -21930,6 +21948,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsPanelRiskMarginTrend .ppAnalyticsPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   padding: 12px 14px 10px;
 }
 
@@ -22184,8 +22205,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalyticsRiskMarginTrendChart {
+  position: relative;
   display: grid;
   gap: 5px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -22214,8 +22237,8 @@ s-page[inline-size="large-500"] {
 .ppAnalyticsRiskMarginTrendSvg {
   display: block;
   width: 100%;
-  height: 230px;
-  min-height: 0;
+  height: auto;
+  min-height: 230px;
   overflow: visible;
 }
 
@@ -27773,17 +27796,19 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchlistProductHeroPanel {
-  gap: 20px;
+  gap: 18px;
 }
 
 .ppWatchlistProductHeroImageWrap .ppProductArt-hero {
-  width: clamp(132px, 13vw, 178px);
+  width: 100%;
+  height: 130px;
+  border-radius: 10px;
 }
 
 .ppWatchlistProductHeroPanel .ppWatchChangeReportEyebrow {
-  margin-bottom: -2px;
-  font-size: 11px;
-  letter-spacing: 0.03em;
+  margin-bottom: 0;
+  font-size: 10px;
+  letter-spacing: 0.02em;
 }
 
 .ppWatchlistProductHeroActions {
@@ -27798,10 +27823,13 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchlistProductDetailButton {
-  min-height: 34px;
-  padding: 0 13px;
-  font-size: 12px;
+  min-height: 32px;
+  padding: 0 10px;
+  overflow: hidden;
+  font-size: 11.5px;
   font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ppWatchlistProductEmpty {
@@ -27867,10 +27895,10 @@ s-page[inline-size="large-500"] {
 
 .ppWatchlistInsightReport {
   display: grid;
-  grid-template-columns: minmax(0, 1.75fr) minmax(360px, 0.9fr);
-  gap: 22px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(390px, 0.95fr);
+  gap: 16px;
   align-items: stretch;
-  padding: 16px 18px;
+  padding: 14px 16px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
   border-radius: 16px;
   background:
@@ -27882,17 +27910,17 @@ s-page[inline-size="large-500"] {
 
 .ppWatchlistInsightNarrative {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
   min-width: 0;
-  padding-right: 22px;
+  padding-right: 16px;
   border-right: 1px solid var(--pp-slate-200);
 }
 
 .ppWatchlistInsightIcon {
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
@@ -27902,7 +27930,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchlistInsightIcon s-icon {
-  transform: scale(1.55);
+  transform: scale(1.38);
 }
 
 .ppWatchlistInsightTitleRow {
@@ -27922,7 +27950,7 @@ s-page[inline-size="large-500"] {
 .ppWatchlistInsightTitleRow h3,
 .ppWatchlistBiggestChanges h4 {
   color: var(--pp-slate-950);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 950;
   line-height: 1.2;
 }
@@ -27938,11 +27966,11 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchlistInsightNarrative p {
-  margin-top: 8px;
+  margin-top: 6px;
   color: var(--pp-slate-600);
-  font-size: 13.5px;
+  font-size: 12.5px;
   font-weight: 650;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .ppWatchlistInsightNarrative p strong {
@@ -27954,12 +27982,12 @@ s-page[inline-size="large-500"] {
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .ppWatchlistBiggestChanges ul {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -27967,18 +27995,18 @@ s-page[inline-size="large-500"] {
 
 .ppWatchlistBiggestChanges li {
   display: grid;
-  grid-template-columns: 22px minmax(116px, 0.72fr) minmax(120px, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 20px minmax(92px, 0.72fr) minmax(86px, 1fr) max-content;
+  gap: 7px;
   align-items: center;
   min-width: 0;
   color: var(--pp-slate-700);
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
 .ppWatchBigChangeIcon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
@@ -28024,9 +28052,9 @@ s-page[inline-size="large-500"] {
 
 .ppWatchBigChangeDelta {
   justify-self: end;
-  padding: 5px 8px;
+  padding: 4px 7px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 900;
 }
@@ -28048,7 +28076,7 @@ s-page[inline-size="large-500"] {
 
 .ppWatchlistBiggestChanges > p {
   color: var(--pp-slate-500);
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 650;
   line-height: 1.45;
 }
@@ -28302,11 +28330,11 @@ s-page[inline-size="large-500"] {
 
 .ppWatchCategoryChangesHeader {
   display: grid;
-  grid-template-columns: 38px auto 1fr;
-  gap: 10px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 9px;
   align-items: center;
-  min-height: 56px;
-  padding: 12px 18px;
+  min-height: 50px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--pp-slate-200);
 }
 
@@ -28316,27 +28344,28 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchCategoryChangesHeader .ppDashboardIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
 }
 
 .ppWatchCategoryChangesHeader h3 {
   color: var(--pp-slate-950);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 950;
   line-height: 1.1;
 }
 
 .ppWatchCategoryChangesHeader span {
-  justify-self: start;
-  padding: 5px 9px;
+  justify-self: end;
+  padding: 5px 8px;
   border-radius: 8px;
   background: var(--pp-slate-100);
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 850;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .ppWatchCategoryChangesList {
@@ -28346,10 +28375,10 @@ s-page[inline-size="large-500"] {
 .ppWatchCategoryCard {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(210px, 1.2fr) minmax(250px, 2.4fr) minmax(110px, auto) minmax(150px, 0.8fr);
-  gap: 16px;
+  grid-template-columns: minmax(190px, 1.15fr) minmax(220px, 2fr) minmax(96px, auto) minmax(130px, 0.75fr);
+  gap: 12px;
   align-items: center;
-  padding: 18px;
+  padding: 14px;
   background: var(--pp-cloud-white);
 }
 
@@ -28366,15 +28395,15 @@ s-page[inline-size="large-500"] {
 
 .ppWatchCategoryCardSummary {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
 }
 
 .ppWatchCategoryCardSummary .ppDashboardIcon {
-  width: 64px;
-  height: 64px;
-  border-radius: 11px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
 }
 
 .ppWatchCategoryCardSummary h4,
@@ -28391,7 +28420,7 @@ s-page[inline-size="large-500"] {
   min-width: 0;
   overflow: hidden;
   color: var(--pp-slate-950);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 950;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -28399,10 +28428,10 @@ s-page[inline-size="large-500"] {
 }
 
 .ppWatchCategoryCardSummary p {
-  margin-top: 5px;
+  margin-top: 4px;
   overflow: hidden;
   color: var(--pp-slate-500);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 750;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -28411,15 +28440,15 @@ s-page[inline-size="large-500"] {
 
 .ppWatchCategoryCardFocus {
   display: grid;
-  gap: 5px;
-  padding-left: 18px;
+  gap: 4px;
+  padding-left: 12px;
   border-left: 1px solid var(--pp-slate-200);
 }
 
 .ppWatchCategoryCardFocus span {
   overflow: hidden;
   color: var(--pp-slate-500);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 950;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -28431,7 +28460,7 @@ s-page[inline-size="large-500"] {
 .ppWatchCategoryCardFocus strong {
   overflow: hidden;
   color: var(--pp-slate-950);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 950;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -28441,7 +28470,7 @@ s-page[inline-size="large-500"] {
 .ppWatchCategoryCardFocus p {
   overflow: hidden;
   color: var(--pp-slate-500);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -28451,18 +28480,18 @@ s-page[inline-size="large-500"] {
 .ppWatchCategoryCardBadges {
   display: grid;
   justify-items: start;
-  gap: 7px;
+  gap: 5px;
 }
 
 .ppWatchCategoryBadge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
   max-width: 100%;
-  padding: 6px 9px;
+  padding: 5px 7px;
   border-radius: 9px;
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-weight: 950;
   line-height: 1;
   white-space: nowrap;
@@ -28494,14 +28523,14 @@ s-page[inline-size="large-500"] {
 
 .ppWatchCategoryCardUpdated {
   display: grid;
-  gap: 5px;
-  padding-left: 18px;
+  gap: 4px;
+  padding-left: 12px;
   border-left: 1px solid var(--pp-slate-200);
 }
 
 .ppWatchCategoryCardUpdated span {
   color: var(--pp-slate-500);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 850;
   line-height: 1.1;
 }
@@ -28509,7 +28538,7 @@ s-page[inline-size="large-500"] {
 .ppWatchCategoryCardUpdated strong {
   overflow: hidden;
   color: var(--pp-slate-800);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 850;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -29073,12 +29102,12 @@ s-page[inline-size="large-500"] {
 
   .ppWatchlistInsightReport {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: 12px;
   }
 
   .ppWatchlistInsightNarrative {
     padding-right: 0;
-    padding-bottom: 16px;
+    padding-bottom: 12px;
     border-right: 0;
     border-bottom: 1px solid var(--pp-slate-200);
   }
@@ -29130,27 +29159,28 @@ s-page[inline-size="large-500"] {
 
 @media (max-width: 720px) {
   .ppWatchlistProductHero {
-    grid-template-columns: 64px minmax(0, 1fr);
-    padding: 18px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
   }
 
   .ppWatchlistProductHeroImage {
-    width: 64px;
-    height: 64px;
+    width: 100%;
+    height: 130px;
   }
 
   .ppWatchlistProductHeroPanel {
-    grid-template-columns: 72px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
 
   .ppWatchlistProductHeroImageWrap .ppProductArt-hero {
-    width: 72px;
-    border-radius: 8px;
+    width: 100%;
+    height: 130px;
+    border-radius: 10px;
   }
 
   .ppWatchlistProductHeroPanel .ppProductTitleHeading h1 {
-    font-size: 20px;
+    font-size: 23px;
   }
 
   .ppWatchlistProductHeroPanel .ppProductMetaLine {
@@ -29162,22 +29192,22 @@ s-page[inline-size="large-500"] {
   }
 
   .ppWatchChangeReportHeaderStatus {
-    padding: 7px 10px;
-    font-size: 12px;
+    padding: 6px 9px;
+    font-size: 11px;
   }
 
   .ppWatchlistInsightReport {
-    padding: 14px;
+    padding: 12px;
   }
 
   .ppWatchlistInsightNarrative {
-    grid-template-columns: 44px minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 10px;
   }
 
   .ppWatchlistInsightIcon {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
   }
 
   .ppWatchCustomerLanguagePanel {
@@ -29202,13 +29232,19 @@ s-page[inline-size="large-500"] {
   }
 
   .ppWatchlistBiggestChanges li {
-    grid-template-columns: 22px minmax(0, 1fr) auto;
-    gap: 8px;
+    grid-template-columns: 20px minmax(72px, 0.72fr) minmax(64px, 1fr) max-content;
+    gap: 6px;
+    font-size: 10.5px;
   }
 
   .ppWatchlistBiggestChanges li > span:not(.ppWatchBigChangeIcon) {
-    grid-column: 2 / -1;
-    text-align: left;
+    grid-column: auto;
+    text-align: right;
+  }
+
+  .ppWatchBigChangeDelta {
+    padding: 4px 6px;
+    font-size: 10px;
   }
 
   .ppWatchSnapshotCompareHeader {
@@ -29240,32 +29276,32 @@ s-page[inline-size="large-500"] {
   }
 
   .ppWatchCategoryChangesHeader {
-    grid-template-columns: 36px minmax(0, auto);
-    gap: 10px;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 8px;
     min-height: 0;
-    padding: 12px;
+    padding: 10px;
   }
 
   .ppWatchCategoryChangesHeader span {
     grid-column: 2;
     justify-self: start;
-    font-size: 12px;
+    font-size: 10px;
   }
 
   .ppWatchCategoryCard {
     grid-template-columns: minmax(0, 1fr);
-    gap: 14px;
-    padding: 14px;
+    gap: 10px;
+    padding: 12px;
   }
 
   .ppWatchCategoryCardSummary {
-    grid-template-columns: 48px minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px;
   }
 
   .ppWatchCategoryCardSummary .ppDashboardIcon {
-    width: 48px;
-    height: 48px;
+    width: 38px;
+    height: 38px;
   }
 
   .ppWatchCategoryCardFocus,
@@ -29277,7 +29313,7 @@ s-page[inline-size="large-500"] {
   .ppWatchCategoryCardBadges {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
   }
 
   .ppWatchCategoryBadge {
@@ -34996,7 +35032,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppProductDetailHeroPanel {
-    grid-template-columns: minmax(150px, 224px) minmax(0, 1fr);
+    grid-template-columns: minmax(240px, 0.36fr) minmax(0, 1fr);
   }
 
   .ppProductDetailHeroPanel > .ppProductHeaderActions {
@@ -36935,10 +36971,18 @@ s-page[inline-size="large-500"] {
     margin-left: 98px;
   }
 
+  .ppAnalyticsPanelRiskMarginTrend .ppAnalyticsPanel {
+    min-height: 0;
+  }
+
+  .ppAnalyticsRiskMarginTrendChart {
+    align-content: center;
+  }
+
   .ppAnalyticsRiskMarginTrendSvg {
     height: 190px;
-    margin-top: -26px;
-    margin-bottom: -12px;
+    min-height: 0;
+    margin-block: auto;
   }
 
   .ppAnalyticsTrendSummary,
@@ -36982,16 +37026,23 @@ s-page[inline-size="large-500"] {
     grid-row: auto;
     justify-content: flex-start;
     width: 100%;
+    min-width: 0;
     flex-wrap: wrap;
+  }
+
+  .ppProductDetailHeroPanel > .ppProductHeaderActions {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .ppProductHeaderActions .ppProductAnalyzeButton,
   .ppProductMetricTimelineButton {
-    flex: 1 1 160px;
+    flex: 1 1 132px;
+    min-width: 0;
   }
 
   .ppProductOverflowButton {
-    flex: 0 0 42px;
+    flex: 0 0 36px;
   }
 
   .ppProductMetaLine dd {
@@ -37000,7 +37051,21 @@ s-page[inline-size="large-500"] {
 
   .ppProductHeroImageWrap,
   .ppProductArt-hero {
-    width: min(100%, 240px);
+    width: 100%;
+  }
+
+  .ppProductArt-hero {
+    height: 130px;
+  }
+
+  .ppIssuesTableWrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ppIssuesTable {
+    min-width: 520px;
   }
 
   .ppEvidenceSourceCard,
@@ -39379,5 +39444,585 @@ s-page[inline-size="large-500"] {
   .ppPlansMobilePrice {
     justify-items: start;
     text-align: left;
+  }
+}
+
+@media (min-width: 821px) {
+  :root {
+    --pp-desktop-page-title-size: 24px;
+    --pp-desktop-page-subtitle-size: 13px;
+    --pp-desktop-panel-title-size: 15px;
+    --pp-desktop-panel-subtitle-size: 12px;
+    --pp-desktop-eyebrow-size: 10px;
+    --pp-desktop-panel-padding: 16px;
+    --pp-desktop-panel-radius: 12px;
+  }
+
+  .ppPageTitle,
+  .ppConnectHeader h1,
+  .ppProductsHeader h1,
+  .ppWatchlistHeader h1,
+  .ppAnalyticsTopbar h1,
+  .ppMetricTimelinesTitleBlock h1,
+  .ppSettingsHero h2,
+  .ppPlansTopbar h1 {
+    margin: 0;
+    color: var(--pp-slate-950);
+    font-size: var(--pp-desktop-page-title-size);
+    font-weight: 880;
+    letter-spacing: 0;
+    line-height: 1.12;
+  }
+
+  .ppDashboardSubtitle,
+  .ppConnectHeader p,
+  .ppProductsHeader p,
+  .ppWatchlistHeader p,
+  .ppAnalyticsTopbar p,
+  .ppMetricTimelinesTitleBlock p,
+  .ppSettingsHero p,
+  .ppPlansHero p,
+  .ppPlansTopbar p {
+    margin: 0;
+    max-width: 780px;
+    color: var(--pp-slate-600);
+    font-size: var(--pp-desktop-page-subtitle-size);
+    font-weight: 650;
+    letter-spacing: 0;
+    line-height: 1.45;
+  }
+
+  .ppStartPanel,
+  .ppDashboardPanel,
+  .ppNextStepPanel,
+  .ppProductsTableSection,
+  .ppWatchlistPanel,
+  .ppWatchOverviewPanel,
+  .ppWatchCategoryChanges,
+  .ppWatchlistInsightReport,
+  .ppWatchCustomerLanguagePanel,
+  .ppWatchRecentRuns,
+  .ppWatchRunTrendCard,
+  .ppWatchSnapshotCompare,
+  .ppProductPanel:not(.ppIssuesOverviewPanel),
+  .ppCheckedPanel,
+  .ppProductDetailOverviewCard,
+  .ppProductEvidenceSummaryPanel,
+  .ppProductOrderActivityPanel,
+  .ppProductReturnPredictionPanel,
+  .ppProductRetentionPanel,
+  .ppProductMomentumPanel,
+  .ppProductRiskHistoryPanel,
+  .ppPurchaseContextPanel,
+  .ppBasketContextPanel,
+  .ppProductRelationshipsPanel,
+  .ppAnalyticsPanel,
+  .ppConnectCategory,
+  .ppConnectCoverageCard,
+  .ppConnectInfoCard,
+  .ppSettingsStepCard,
+  .ppSettingsCard,
+  .ppPlansPanel,
+  .ppPlansMatrixCard,
+  .ppPlansBillingPanel,
+  .ppPlansLedgerPanel {
+    border-radius: var(--pp-desktop-panel-radius);
+  }
+
+  .ppStartPanel,
+  .ppDashboardPanel,
+  .ppNextStepPanel,
+  .ppProductsTableSection,
+  .ppWatchlistPanel,
+  .ppWatchOverviewPanel,
+  .ppWatchCategoryChanges,
+  .ppWatchlistInsightReport,
+  .ppWatchCustomerLanguagePanel,
+  .ppWatchRecentRuns,
+  .ppWatchRunTrendCard,
+  .ppWatchSnapshotCompare,
+  .ppProductPanel:not(.ppIssuesOverviewPanel),
+  .ppCheckedPanel,
+  .ppProductDetailOverviewCard,
+  .ppProductEvidenceSummaryPanel,
+  .ppProductOrderActivityPanel,
+  .ppProductReturnPredictionPanel,
+  .ppProductRetentionPanel,
+  .ppProductMomentumPanel,
+  .ppProductRiskHistoryPanel,
+  .ppPurchaseContextPanel,
+  .ppBasketContextPanel,
+  .ppProductRelationshipsPanel,
+  .ppAnalyticsPanel,
+  .ppConnectCategory,
+  .ppConnectCoverageCard,
+  .ppConnectInfoCard,
+  .ppSettingsStepCard,
+  .ppSettingsCard,
+  .ppPlansPanel,
+  .ppPlansBillingPanel,
+  .ppPlansLedgerPanel {
+    padding: var(--pp-desktop-panel-padding);
+  }
+
+  .ppStartHeading h2,
+  .ppDashboardSectionHeader h2,
+  .ppDashboardPanel h2,
+  .ppNextStepPanel h2,
+  .ppProductsTableHeading h2,
+  .ppWatchlistPanelHeader h2,
+  .ppWatchOverviewPanelHeader h3,
+  .ppWatchlistInsightTitleRow h3,
+  .ppWatchlistBiggestChanges h4,
+  .ppWatchCustomerLanguageHeader h3,
+  .ppWatchRecentRuns h3,
+  .ppWatchRunTrendCard h3,
+  .ppWatchCategoryChangesHeader h3,
+  .ppWatchCategoryCardSummary h4,
+  .ppRecommendedActionsHeader h2,
+  .ppIssuesOverviewPanel h2,
+  .ppProductPanel h2,
+  .ppCheckedPanel h2,
+  .ppProductDetailOverviewFinding h2,
+  .ppOrderActivityHeader h2,
+  .ppReturnPredictionHeader h2,
+  .ppProductRetentionHeader h2,
+  .ppProductMomentumHeader h2,
+  .ppProductRiskHistoryTitleBlock h2,
+  .ppPurchaseContextHeader h2,
+  .ppBasketContextHeader h2,
+  .ppProductRelationshipsHeader h2,
+  .ppProductRelationshipTimelineHeader h2,
+  .ppEvidenceObservabilityHeader h2,
+  .ppReturnRefundResolutionHeader h2,
+  .ppRetentionChartHeader h3,
+  .ppRetentionBreakdownHeader h3,
+  .ppRetentionActionReadoutHeader h3,
+  .ppAnalyticsPanelHeader h2,
+  .ppConnectCategoryHeader h2,
+  .ppConnectInfoCard h2,
+  .ppSettingsStepHeader h2,
+  .ppSettingsCardHeader h2,
+  .ppPlansPanel h2,
+  .ppPlansBillingHeader h2,
+  .ppPlansMatrixCard h2 {
+    margin: 0;
+    color: var(--pp-slate-950);
+    font-size: var(--pp-desktop-panel-title-size);
+    font-weight: 900;
+    letter-spacing: 0;
+    line-height: 1.18;
+  }
+
+  .ppStartCopy p,
+  .ppNextStepPanel p,
+  .ppProductsTableHeading p,
+  .ppWatchOverviewPanelHeader h3 span,
+  .ppWatchOverviewCategoryRow p,
+  .ppWatchlistInsightNarrative p,
+  .ppWatchlistBiggestChanges > p,
+  .ppWatchCustomerLanguageHeader p,
+  .ppWatchCategoryCardSummary p,
+  .ppWatchCategoryCardFocus p,
+  .ppRecommendedActionsHeader p,
+  .ppProductDetailOverviewFinding .ppMainFindingText p,
+  .ppOrderActivityHeader p,
+  .ppReturnPredictionHeader p,
+  .ppProductRetentionHeader p,
+  .ppProductMomentumHeader p,
+  .ppProductRiskHistoryTitleBlock p,
+  .ppPurchaseContextHeader p,
+  .ppBasketContextHeader p,
+  .ppProductRelationshipsHeader p,
+  .ppProductRelationshipTimelineHeader p,
+  .ppEvidenceObservabilityHeader p,
+  .ppReturnRefundResolutionHeader p,
+  .ppRetentionChartHeader p,
+  .ppRetentionBreakdownHeader p,
+  .ppRetentionActionReadoutHeader p,
+  .ppAnalyticsPanelHeader p,
+  .ppConnectCategoryHeader p,
+  .ppConnectInfoCard p,
+  .ppSettingsStepHeader p,
+  .ppSettingsCardHeader p,
+  .ppPlansPanel p,
+  .ppPlansBillingPanel p {
+    color: var(--pp-slate-600);
+    font-size: var(--pp-desktop-panel-subtitle-size);
+    font-weight: 650;
+    letter-spacing: 0;
+    line-height: 1.42;
+  }
+
+  .ppNextBestActionPanel .ppStartCopy > span,
+  .ppProductDetailOverviewFinding > div:first-child > span,
+  .ppOrderActivityHeader > div:first-child > span,
+  .ppReturnPredictionHeader > div:first-child > span,
+  .ppProductRetentionHeader > div:first-child > span,
+  .ppProductMomentumHeader > div:first-child > span,
+  .ppProductRiskHistoryTitleBlock > div > span,
+  .ppPurchaseContextEyebrow,
+  .ppBasketContextHeader > div:first-child > span,
+  .ppProductRelationshipsEyebrow,
+  .ppProductRelationshipTimelineHeader > div:first-child > span,
+  .ppEvidenceObservabilityHeader > div:first-child > span,
+  .ppReturnRefundResolutionEyebrow,
+  .ppProductChartAiInterpretationHeader > span,
+  .ppWatchChangeReportEyebrow,
+  .ppPlansFeatureHeading,
+  .ppPlansMobileCardEyebrow {
+    color: var(--pp-insight-violet);
+    font-size: var(--pp-desktop-eyebrow-size);
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .ppAnalyticsPanelHeader,
+  .ppProductsTableHeading,
+  .ppWatchlistPanelHeader,
+  .ppWatchOverviewPanelHeader,
+  .ppOrderActivityHeader,
+  .ppReturnPredictionHeader,
+  .ppProductRetentionHeader,
+  .ppProductMomentumHeader,
+  .ppProductRiskHistoryHeader,
+  .ppPurchaseContextHeader,
+  .ppBasketContextHeader,
+  .ppProductRelationshipsHeader,
+  .ppProductRelationshipTimelineHeader,
+  .ppSettingsStepHeader,
+  .ppSettingsCardHeader,
+  .ppConnectCategoryHeader,
+  .ppPlansBillingHeader {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 820px) {
+  :root {
+    --pp-mobile-page-title-size: 22px;
+    --pp-mobile-page-subtitle-size: 12px;
+    --pp-mobile-panel-title-size: 14px;
+    --pp-mobile-panel-subtitle-size: 11px;
+    --pp-mobile-eyebrow-size: 9.5px;
+    --pp-mobile-panel-padding: 12px;
+    --pp-mobile-panel-radius: 10px;
+    --pp-mobile-panel-gap: 10px;
+    --pp-mobile-control-height: 32px;
+    --pp-mobile-control-font-size: 11px;
+  }
+
+  .ppDashboard {
+    gap: 12px;
+  }
+
+  .ppPageTitle,
+  .ppConnectHeader h1,
+  .ppProductsHeader h1,
+  .ppWatchlistHeader h1,
+  .ppAnalyticsTopbar h1,
+  .ppMetricTimelinesTitleBlock h1,
+  .ppSettingsHero h2,
+  .ppPlansTopbar h1,
+  .ppProductDetailHeroPanel .ppProductTitleHeading h1,
+  .ppWatchlistProductHeroPanel .ppProductTitleHeading h1 {
+    margin: 0;
+    color: var(--pp-slate-950);
+    font-size: var(--pp-mobile-page-title-size);
+    font-weight: 860;
+    letter-spacing: 0;
+    line-height: 1.12;
+  }
+
+  .ppDashboardSubtitle,
+  .ppConnectHeader p,
+  .ppProductsHeader p,
+  .ppWatchlistHeader p,
+  .ppAnalyticsTopbar p,
+  .ppMetricTimelinesTitleBlock p,
+  .ppSettingsHero p,
+  .ppPlansHero p,
+  .ppPlansTopbar p,
+  .ppProductMetaLine {
+    margin: 0;
+    max-width: none;
+    color: var(--pp-slate-600);
+    font-size: var(--pp-mobile-page-subtitle-size);
+    font-weight: 650;
+    letter-spacing: 0;
+    line-height: 1.42;
+  }
+
+  .ppStartPanel,
+  .ppDashboardPanel,
+  .ppNextStepPanel,
+  .ppProductsTableSection,
+  .ppWatchlistPanel,
+  .ppWatchOverviewPanel,
+  .ppWatchCategoryChanges,
+  .ppWatchlistInsightReport,
+  .ppWatchCustomerLanguagePanel,
+  .ppWatchRecentRuns,
+  .ppWatchRunTrendCard,
+  .ppWatchSnapshotCompare,
+  .ppProductPanel:not(.ppIssuesOverviewPanel),
+  .ppCheckedPanel,
+  .ppProductDetailOverviewCard,
+  .ppProductEvidenceSummaryPanel,
+  .ppProductOrderActivityPanel,
+  .ppProductReturnPredictionPanel,
+  .ppProductRetentionPanel,
+  .ppProductMomentumPanel,
+  .ppProductRiskHistoryPanel,
+  .ppPurchaseContextPanel,
+  .ppBasketContextPanel,
+  .ppProductRelationshipsPanel,
+  .ppAnalyticsPanel,
+  .ppConnectCategory,
+  .ppConnectCoverageCard,
+  .ppConnectInfoCard,
+  .ppSettingsStepCard,
+  .ppSettingsCard,
+  .ppPlansPanel,
+  .ppPlansMatrixCard,
+  .ppPlansBillingPanel,
+  .ppPlansLedgerPanel,
+  .ppPlansMobileCard {
+    border-radius: var(--pp-mobile-panel-radius);
+  }
+
+  .ppStartPanel,
+  .ppDashboardPanel,
+  .ppNextStepPanel,
+  .ppProductsTableSection,
+  .ppWatchlistPanel,
+  .ppWatchOverviewPanel,
+  .ppWatchCategoryChanges,
+  .ppWatchlistInsightReport,
+  .ppWatchCustomerLanguagePanel,
+  .ppWatchRecentRuns,
+  .ppWatchRunTrendCard,
+  .ppWatchSnapshotCompare,
+  .ppProductPanel:not(.ppIssuesOverviewPanel),
+  .ppCheckedPanel,
+  .ppProductDetailOverviewCard,
+  .ppProductEvidenceSummaryPanel,
+  .ppProductOrderActivityPanel,
+  .ppProductReturnPredictionPanel,
+  .ppProductRetentionPanel,
+  .ppProductMomentumPanel,
+  .ppProductRiskHistoryPanel,
+  .ppPurchaseContextPanel,
+  .ppBasketContextPanel,
+  .ppProductRelationshipsPanel,
+  .ppAnalyticsPanel,
+  .ppConnectCategory,
+  .ppConnectCoverageCard,
+  .ppConnectInfoCard,
+  .ppSettingsStepCard,
+  .ppSettingsCard,
+  .ppPlansPanel,
+  .ppPlansBillingPanel,
+  .ppPlansLedgerPanel,
+  .ppPlansMobileCard {
+    padding: var(--pp-mobile-panel-padding);
+  }
+
+  .ppStartPanel,
+  .ppDashboardPanel,
+  .ppNextStepPanel,
+  .ppProductsTableSection,
+  .ppWatchlistPanel,
+  .ppWatchOverviewPanel,
+  .ppWatchlistInsightReport,
+  .ppWatchCustomerLanguagePanel,
+  .ppWatchRecentRuns,
+  .ppWatchRunTrendCard,
+  .ppProductPanel:not(.ppIssuesOverviewPanel),
+  .ppCheckedPanel,
+  .ppProductDetailOverviewCard,
+  .ppProductEvidenceSummaryPanel,
+  .ppProductOrderActivityPanel,
+  .ppProductReturnPredictionPanel,
+  .ppProductRetentionPanel,
+  .ppProductMomentumPanel,
+  .ppProductRiskHistoryPanel,
+  .ppPurchaseContextPanel,
+  .ppBasketContextPanel,
+  .ppProductRelationshipsPanel,
+  .ppAnalyticsPanel,
+  .ppConnectCategory,
+  .ppConnectCoverageCard,
+  .ppConnectInfoCard,
+  .ppSettingsStepCard,
+  .ppSettingsCard,
+  .ppPlansPanel,
+  .ppPlansBillingPanel,
+  .ppPlansLedgerPanel,
+  .ppPlansMobileCard {
+    gap: var(--pp-mobile-panel-gap);
+  }
+
+  .ppStartHeading h2,
+  .ppDashboardSectionHeader h2,
+  .ppDashboardPanel h2,
+  .ppNextStepPanel h2,
+  .ppProductsTableHeading h2,
+  .ppWatchlistPanelHeader h2,
+  .ppWatchOverviewPanelHeader h3,
+  .ppWatchlistInsightTitleRow h3,
+  .ppWatchlistBiggestChanges h4,
+  .ppWatchCustomerLanguageHeader h3,
+  .ppWatchRecentRuns h3,
+  .ppWatchRunTrendCard h3,
+  .ppWatchCategoryChangesHeader h3,
+  .ppWatchCategoryCardSummary h4,
+  .ppRecommendedActionsHeader h2,
+  .ppIssuesOverviewPanel h2,
+  .ppProductPanel h2,
+  .ppCheckedPanel h2,
+  .ppProductDetailOverviewFinding h2,
+  .ppOrderActivityHeader h2,
+  .ppReturnPredictionHeader h2,
+  .ppProductRetentionHeader h2,
+  .ppProductMomentumHeader h2,
+  .ppProductRiskHistoryTitleBlock h2,
+  .ppPurchaseContextHeader h2,
+  .ppBasketContextHeader h2,
+  .ppProductRelationshipsHeader h2,
+  .ppProductRelationshipTimelineHeader h2,
+  .ppEvidenceObservabilityHeader h2,
+  .ppReturnRefundResolutionHeader h2,
+  .ppRetentionChartHeader h3,
+  .ppRetentionBreakdownHeader h3,
+  .ppRetentionActionReadoutHeader h3,
+  .ppAnalyticsPanelHeader h2,
+  .ppConnectCategoryHeader h2,
+  .ppConnectInfoCard h2,
+  .ppSettingsStepHeader h2,
+  .ppSettingsCardHeader h2,
+  .ppPlansPanel h2,
+  .ppPlansBillingHeader h2,
+  .ppPlansMobileCard h2 {
+    margin: 0;
+    color: var(--pp-slate-950);
+    font-size: var(--pp-mobile-panel-title-size);
+    font-weight: 880;
+    letter-spacing: 0;
+    line-height: 1.18;
+  }
+
+  .ppStartCopy p,
+  .ppNextStepPanel p,
+  .ppProductsTableHeading p,
+  .ppWatchOverviewPanelHeader h3 span,
+  .ppWatchOverviewCategoryRow p,
+  .ppWatchlistInsightNarrative p,
+  .ppWatchlistBiggestChanges > p,
+  .ppWatchCustomerLanguageHeader p,
+  .ppWatchCategoryCardSummary p,
+  .ppWatchCategoryCardFocus p,
+  .ppRecommendedActionsHeader p,
+  .ppProductDetailOverviewFinding .ppMainFindingText p,
+  .ppOrderActivityHeader p,
+  .ppReturnPredictionHeader p,
+  .ppProductRetentionHeader p,
+  .ppProductMomentumHeader p,
+  .ppProductRiskHistoryTitleBlock p,
+  .ppPurchaseContextHeader p,
+  .ppBasketContextHeader p,
+  .ppProductRelationshipsHeader p,
+  .ppProductRelationshipTimelineHeader p,
+  .ppEvidenceObservabilityHeader p,
+  .ppReturnRefundResolutionHeader p,
+  .ppRetentionChartHeader p,
+  .ppRetentionBreakdownHeader p,
+  .ppRetentionActionReadoutHeader p,
+  .ppAnalyticsPanelHeader p,
+  .ppConnectCategoryHeader p,
+  .ppConnectInfoCard p,
+  .ppSettingsStepHeader p,
+  .ppSettingsCardHeader p,
+  .ppPlansPanel p,
+  .ppPlansBillingPanel p,
+  .ppPlansMobileCard > p {
+    color: var(--pp-slate-600);
+    font-size: var(--pp-mobile-panel-subtitle-size);
+    font-weight: 650;
+    letter-spacing: 0;
+    line-height: 1.38;
+  }
+
+  .ppNextBestActionPanel .ppStartCopy > span,
+  .ppProductDetailOverviewFinding > div:first-child > span,
+  .ppOrderActivityHeader > div:first-child > span,
+  .ppReturnPredictionHeader > div:first-child > span,
+  .ppProductRetentionHeader > div:first-child > span,
+  .ppProductMomentumHeader > div:first-child > span,
+  .ppProductRiskHistoryTitleBlock > div > span,
+  .ppPurchaseContextEyebrow,
+  .ppBasketContextHeader > div:first-child > span,
+  .ppProductRelationshipsEyebrow,
+  .ppProductRelationshipTimelineHeader > div:first-child > span,
+  .ppEvidenceObservabilityHeader > div:first-child > span,
+  .ppReturnRefundResolutionEyebrow,
+  .ppProductChartAiInterpretationHeader > span,
+  .ppWatchChangeReportEyebrow,
+  .ppPlansFeatureHeading,
+  .ppPlansMobileCardEyebrow {
+    color: var(--pp-insight-violet);
+    font-size: var(--pp-mobile-eyebrow-size);
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .ppAnalyticsPanelHeader,
+  .ppProductsTableHeading,
+  .ppWatchlistPanelHeader,
+  .ppWatchOverviewPanelHeader,
+  .ppOrderActivityHeader,
+  .ppReturnPredictionHeader,
+  .ppProductRetentionHeader,
+  .ppProductMomentumHeader,
+  .ppProductRiskHistoryHeader,
+  .ppPurchaseContextHeader,
+  .ppBasketContextHeader,
+  .ppProductRelationshipsHeader,
+  .ppProductRelationshipTimelineHeader,
+  .ppSettingsStepHeader,
+  .ppSettingsCardHeader,
+  .ppConnectCategoryHeader,
+  .ppPlansBillingHeader {
+    gap: 8px;
+  }
+
+  .ppPrimaryButton,
+  .ppSecondaryButton,
+  .ppAnalyzeLinkButton,
+  .ppSecondaryActionButton,
+  .ppProductAnalyzeButton,
+  .ppProductMetricTimelineButton,
+  .ppWatchlistAddButton,
+  .ppWatchActionsButton,
+  .ppConnectSmallButton,
+  .ppSettingsWizardDevButton,
+  .ppPlansChooseButton,
+  .ppPanelCollapseButton {
+    min-height: var(--pp-mobile-control-height);
+    padding-right: 9px;
+    padding-left: 9px;
+    font-size: var(--pp-mobile-control-font-size);
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .ppProductOverflowButton {
+    min-height: var(--pp-mobile-control-height);
+    width: var(--pp-mobile-control-height);
+    font-size: var(--pp-mobile-control-font-size);
   }
 }

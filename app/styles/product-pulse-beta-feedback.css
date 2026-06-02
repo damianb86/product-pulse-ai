@@ -69,14 +69,20 @@
 .ppProductMomentumHeader:has(.ppBetaFeedbackHeaderActions),
 .ppProductRiskHistoryHeader:has(.ppBetaFeedbackHeaderActions),
 .ppProductRelationshipTimelineHeader:has(.ppBetaFeedbackHeaderActions) {
-  padding-right: 0;
+  position: relative;
+  padding-right: 74px;
 }
 
 .ppProductMomentumHeader:has(.ppBetaFeedbackHeaderActions) {
-  padding-right: 86px;
+  padding-right: 74px;
 }
 
-.ppProductMomentumHeader .ppBetaFeedbackHeaderActions {
+.ppOrderActivityHeader .ppBetaFeedbackHeaderActions,
+.ppReturnPredictionHeader .ppBetaFeedbackHeaderActions,
+.ppProductRetentionHeader .ppBetaFeedbackHeaderActions,
+.ppProductMomentumHeader .ppBetaFeedbackHeaderActions,
+.ppProductRiskHistoryHeader .ppBetaFeedbackHeaderActions,
+.ppProductRelationshipTimelineHeader .ppBetaFeedbackHeaderActions {
   position: absolute;
   top: 0;
   right: 0;
@@ -98,10 +104,15 @@
 }
 
 .ppBetaFeedbackPanelHeaderLine {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  position: relative;
+  display: block;
+  padding-right: 34px;
+}
+
+.ppBetaFeedbackPanelHeaderLine > .ppBetaFeedbackPanelControls {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 .ppBetaFeedbackCardCorner {
