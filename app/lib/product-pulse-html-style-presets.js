@@ -159,7 +159,7 @@ export function buildProductPulseHtmlStylePreviewHtml(input = {}, options = {}) 
   const body = rendered.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes)
     ? rendered.replaceAll(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes, attributes)
     : rendered;
-  return `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:18px;background:#f6f8fa;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;} *{box-sizing:border-box;}</style></head><body>${sanitizePreviewHtml(body)}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;padding:18px;background:#f6f8fa;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;} *{box-sizing:border-box;} @media (max-width:520px){body{padding:12px;font-size:12px;line-height:1.45;} p,li{font-size:12px!important;line-height:1.42!important;} [data-productpulse-action="preview"]{max-width:100%;}}</style></head><body>${sanitizePreviewHtml(body)}</body></html>`;
 }
 
 function sanitizePreviewHtml(value = "") {

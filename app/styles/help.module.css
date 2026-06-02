@@ -351,9 +351,10 @@
 
 .workflowSection {
   display: grid;
-  grid-template-columns: minmax(260px, 0.58fr) minmax(0, 1fr);
-  gap: 24px;
-  padding: 22px;
+  grid-template-columns: minmax(240px, 0.46fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 18px;
 }
 
 .sectionIntro {
@@ -381,21 +382,22 @@
 }
 
 .workflowStep {
-  min-height: 210px;
+  min-height: 152px;
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   align-content: start;
-  gap: 9px;
-  padding: 16px;
+  gap: 7px;
+  padding: 12px 12px 11px;
   background: linear-gradient(180deg, var(--pp-cloud-white), var(--pp-mist-gray));
 }
 
 .workflowStep > span {
   width: max-content;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 999px;
   background: var(--pp-teal-soft);
   color: color-mix(in srgb, var(--pp-signal-teal) 68%, var(--pp-midnight-ink));
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   line-height: 1;
 }
@@ -410,16 +412,39 @@
   line-height: 1.25;
 }
 
+.workflowStep h3 {
+  font-size: 13.5px;
+}
+
+.workflowStep p {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .workflowStep a {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  width: max-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
   align-self: end;
   color: var(--pp-pulse-blue);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 720;
+  line-height: 1.2;
   text-decoration: none;
 }
 
-.workflowStep a:hover {
-  text-decoration: underline;
+.workflowStep a:hover,
+.workflowStep a:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.32);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.1);
+  outline: none;
 }
 
 .supportGrid {
@@ -892,6 +917,11 @@
 
   .workflowGrid {
     grid-template-columns: 1fr;
+  }
+
+  .workflowStep {
+    min-height: 0;
+    padding: 11px;
   }
 
   .heroActions,

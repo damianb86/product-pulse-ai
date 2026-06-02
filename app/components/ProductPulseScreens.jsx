@@ -1388,7 +1388,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 </button>
               </div>
             )}
-            <span>
+            <span className="ppProductsTableCount">
               {rows.length > 0
                 ? `${rows.length} of ${count} ${productLabel}${totalAll !== count ? ` (${totalAll} stored)` : ""}`
                 : table === "candidates" ? "No candidates in this view" : "No Product Diagnosis results in this view"}
@@ -2139,8 +2139,13 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
             imageAlt={row.imageAlt || row.title}
           />
         </span>
-        <span>
-          <strong>{row.title}</strong>
+        <span className="ppWatchOverviewProductCopy">
+          <span className="ppWatchOverviewProductTitleRow">
+            <strong>{row.title}</strong>
+            <span className="ppWatchOverviewProductButton ppWatchOverviewProductButtonMobile" aria-hidden="true">
+              <s-icon type="external" size="small"></s-icon>
+            </span>
+          </span>
           <small>{row.variantLabel || row.sku || row.handle || "Shopify product"}</small>
           <em className={`ppWatchOverviewRiskPill ppWatchOverviewRiskPill-${row.tone || "neutral"}`}>{row.riskLabel || "Tracked"}</em>
         </span>
@@ -2220,7 +2225,7 @@ function WatchlistOverviewWhatChanged({ rows = [], total = 0 }) {
         </header>
         <div className="ppWatchOverviewCategoryRows">
           {rows.map((row) => (
-            <details className="ppWatchOverviewCategoryRow" key={row.id}>
+            <details className={`ppWatchOverviewCategoryRow ppWatchOverviewCategoryRow-${row.id || "change"}`} key={row.id}>
               <summary>
                 <span>
                   <DashboardIcon type={row.icon} tone={row.tone || "blue"} size="small" />
@@ -6280,6 +6285,56 @@ export function PlansCreditsScreen({ data = {} }) {
                 />
               </div>
             ))}
+          </div>
+          <div className="ppPlansMobileCards" aria-label="Plan options">
+            {visiblePlans.map((plan) => {
+              const pricing = getPlansCreditPlanPricing(plan, data);
+              const priceLabel = plan.key === currentPlanKey && plan.key === "free" ? "Included" : pricing.priceLabel;
+              return (
+                <article
+                  className={`ppPlansMobileCard ppPlansColumn-${plan.key}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`.trim()}
+                  key={`${plan.key}-mobile`}
+                >
+                  <header>
+                    <div>
+                      <span className="ppPlansMobileCardEyebrow">
+                        {plan.key === currentPlanKey ? "Current plan" : plan.badge || "Plan"}
+                      </span>
+                      <h2>{plan.name}</h2>
+                    </div>
+                    <div className="ppPlansMobilePrice">
+                      {pricing.compareAtPriceLabel ? <span className="ppPlansOriginalPrice">{pricing.compareAtPriceLabel}</span> : null}
+                      <strong>{priceLabel}</strong>
+                      <em>{plan.key === "free" ? "forever" : "beta price / month"}</em>
+                    </div>
+                  </header>
+                  <p>{plan.credits}</p>
+                  <dl>
+                    {PLANS_CREDIT_FEATURES.map((feature) => (
+                      <div key={`${plan.key}-${feature.label}`}>
+                        <dt>
+                          {feature.icon ? <PlansCreditsIcon type={feature.icon} /> : null}
+                          <span>{feature.label}</span>
+                        </dt>
+                        <dd>
+                          <PlanFeatureValue value={feature.getValue(plan)} />
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <div className="ppPlansMobileAction">
+                    <PlanActionButton
+                      billingEnabled={billingEnabled}
+                      currentPlanKey={currentPlanKey}
+                      isSubmitting={isPlanSubmitting}
+                      plan={plan}
+                      planFetcher={planFetcher}
+                      subscriptionId={data?.billing?.subscriptionId}
+                    />
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       </BetaFeedbackPanelFrame>
@@ -22506,11 +22561,6 @@ export function AnalyticsScreen({ data }) {
             <h1>Analytics</h1>
             <p>Visualize product quality risk, issue trends and estimated margin exposure.</p>
           </div>
-          <div className="ppAnalyticsActions">
-            <span><s-icon type="calendar" size="small"></s-icon>{analyticsView.windowLabel || "Stored scan window"}</span>
-            <span><s-icon type="product" size="small"></s-icon>{analyticsView.productCountLabel || "0 stored products"}</span>
-            <span><s-icon type="clock" size="small"></s-icon>{analyticsView.lastUpdatedLabel || "No scan data yet"}</span>
-          </div>
         </div>
 
         <div className="ppAnalyticsKpis" aria-label="Analytics overview">
@@ -24292,6 +24342,8 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
   const triggerRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const handle = product.handle || product.href?.split("/").filter(Boolean).pop() || product.title;
+  const storefrontUrl = product.shopifyStorefrontUrl || getStorefrontUrlFromAdminUrl(product.shopifyAdminUrl, product.handle || handle);
+  const shopifyAdminUrl = product.shopifyAdminUrl || "";
   const canAddToWatchlist = canAddProductToWatchlist(product);
   const watchlistProductGid = getWatchlistProductGid(product);
   const watchlistDisabled = !watchlistProductGid || (!product.isWatched && !canAddToWatchlist);
@@ -24341,11 +24393,23 @@ function ProductActionMenu({ product, open, onToggle, onClose, onWatchlistToggle
         <s-icon type="menu-horizontal" size="small"></s-icon>
       </button>
       {open && (
-        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={232} estimatedHeight={248} placement="bottom-end" role="menu">
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu" width={236} estimatedHeight={320} placement="bottom-end" role="menu">
           <Link role="menuitem" to={product.href} onClick={onClose}>
             <s-icon type="view" size="small"></s-icon>
             View Product Diagnosis
           </Link>
+          {storefrontUrl && (
+            <a role="menuitem" href={storefrontUrl} target="_blank" rel="noreferrer" onClick={onClose}>
+              <s-icon type="external" size="small"></s-icon>
+              View in Store
+            </a>
+          )}
+          {shopifyAdminUrl && (
+            <a role="menuitem" href={shopifyAdminUrl} target="_blank" rel="noreferrer" onClick={onClose}>
+              <s-icon type="external" size="small"></s-icon>
+              View in Shopify admin
+            </a>
+          )}
           <button role="menuitem" type="button" onClick={handleCopy}>
             <s-icon type="duplicate" size="small"></s-icon>
             {copied ? "Copied handle" : "Copy handle"}
@@ -32712,6 +32776,10 @@ function ConnectCategoryCard({
                       <span>
                         {source.name}
                         {!source.available && !source.locked && <small>{source.detail}</small>}
+                        <span className={`ppConnectMobileStatus ppConnectMobileStatus-${getConnectStatusTone(source.status)}`}>
+                          <i aria-hidden="true" />
+                          <strong>{source.status}</strong>
+                        </span>
                       </span>
                     </div>
                   </td>

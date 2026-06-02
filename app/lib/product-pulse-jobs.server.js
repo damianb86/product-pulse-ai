@@ -288,6 +288,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
     { take: 80 },
   );
   const rows = pageSnapshots.map((snapshot) => formatProductRow(
+    shop,
     snapshot,
     latestDiagnosisByProductGid.get(snapshot.productGid),
     resolvedActionsByProductGid.get(snapshot.productGid),
@@ -3313,7 +3314,7 @@ function isActiveStatus(status) {
   return status === "Queued" || status === "Running";
 }
 
-function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null, scoreHistory = []) {
+function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null, scoreHistory = []) {
   const metrics = snapshot.metrics || {};
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
@@ -3355,6 +3356,8 @@ function formatProductRow(snapshot, latestDiagnosis = null, resolvedAction = nul
     lastAnalysisAt: toIso(snapshot.updatedAt),
     credits: 1,
     href: `/app/products/${snapshot.handle}`,
+    shopifyAdminUrl: getShopifyProductAdminUrl(shop, snapshot.productGid),
+    shopifyStorefrontUrl: getShopifyProductStorefrontUrl(shop, snapshot.handle),
   };
 }
 
@@ -4253,7 +4256,8 @@ function withShopifyAdminUrl(product, shop) {
 function getShopifyProductAdminUrl(shop, productGid) {
   const numericId = String(productGid || "").split("/").pop();
   if (!shop || !numericId) return null;
-  return `https://${shop}/admin/products/${numericId}`;
+  const storeHandle = String(shop || "").replace(/\.myshopify\.com$/i, "");
+  return `https://admin.shopify.com/store/${encodeURIComponent(storeHandle)}/products/${encodeURIComponent(numericId)}`;
 }
 
 function getShopifyProductStorefrontUrl(shop, handle) {
@@ -5836,10 +5840,13 @@ export const __productPulseJobsTestHooks = {
   buildUpdatedProductDescriptionHtml,
   buildUpdatedProductDescriptionHtmlFromChanges,
   formatSnapshotForDiagnosis,
+  formatProductRow,
   formatBackgroundProcess,
   buildBackgroundProcessStats,
   filterProductSnapshots,
   getProductTableFilterOptions,
+  getShopifyProductAdminUrl,
+  getShopifyProductStorefrontUrl,
   getSignalLifecycleBars,
   mergeFaqItemsIntoExistingDescriptionHtml,
   normalizeFaqItemsForApply,

@@ -519,10 +519,11 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
       </section>
 
       <footer className="ppCreditsFooter">
-        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">Review credits</Link>
-        <Link to="/app/plans-and-credits">
-          View credits
-          <s-icon type="chevron-right" size="small"></s-icon>
+        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">
+          <span className="ppCreditsBuyIcon" aria-hidden="true">
+            <s-icon type="product" size="small"></s-icon>
+          </span>
+          Review credits
         </Link>
       </footer>
     </div>

@@ -2017,6 +2017,79 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("menuitem", { name: "Remove from Watchlist" })).toBeInTheDocument();
   });
 
+  it("shows storefront and Shopify admin links in product row actions across table tabs", () => {
+    const diagnosedProduct = makeTableProduct({
+      title: "Diagnostics Linked Product",
+      handle: "diagnostics-linked-product",
+      href: "/app/products/diagnostics-linked-product",
+      productGid: "gid://shopify/Product/diagnostics-linked",
+      shopifyAdminUrl: "https://admin.shopify.com/store/zuam/products/101",
+      shopifyStorefrontUrl: "https://zuam.example.com/products/diagnostics-linked-product",
+    });
+    const candidateProduct = makeTableProduct({
+      title: "Candidate Linked Product",
+      handle: "candidate-linked-product",
+      href: "/app/products/candidate-linked-product",
+      productGid: "gid://shopify/Product/candidate-linked",
+      analysisDepth: "quickscan",
+      analysisLabel: "Catalog Scan only",
+      shopifyAdminUrl: "https://admin.shopify.com/store/zuam/products/102",
+      shopifyStorefrontUrl: "https://zuam.example.com/products/candidate-linked-product",
+    });
+    const resolvedProduct = makeTableProduct({
+      title: "Resolved Linked Product",
+      handle: "resolved-linked-product",
+      href: "/app/products/resolved-linked-product",
+      productGid: "gid://shopify/Product/resolved-linked",
+      resolvedAt: "2026-05-23T12:00:00.000Z",
+      resolvedLabel: "Resolved May 23",
+      shopifyAdminUrl: "https://admin.shopify.com/store/zuam/products/103",
+      shopifyStorefrontUrl: "https://zuam.example.com/products/resolved-linked-product",
+    });
+    const data = {
+      ...defaultView,
+      productTable: {
+        ...(defaultView.productTable || {}),
+        rows: [diagnosedProduct],
+        total: 1,
+        totalAll: 1,
+        totalPages: 1,
+      },
+      candidateProductTable: {
+        ...(defaultView.candidateProductTable || {}),
+        rows: [candidateProduct],
+        total: 1,
+        totalAll: 1,
+        totalPages: 1,
+        page: 1,
+        rowsPerPage: 25,
+      },
+      resolvedProductTable: {
+        ...(defaultView.resolvedProductTable || {}),
+        rows: [resolvedProduct],
+        total: 1,
+        totalAll: 1,
+        totalPages: 1,
+        page: 1,
+        rowsPerPage: 25,
+      },
+    };
+    const expectActionLinks = (product) => {
+      fireEvent.click(screen.getByRole("button", { name: `More actions for ${product.title}` }));
+      expect(screen.getByRole("menuitem", { name: "View in Store" })).toHaveAttribute("href", product.shopifyStorefrontUrl);
+      expect(screen.getByRole("menuitem", { name: "View in Shopify admin" })).toHaveAttribute("href", product.shopifyAdminUrl);
+      fireEvent.pointerDown(document.body);
+    };
+
+    renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
+
+    expectActionLinks(diagnosedProduct);
+    fireEvent.click(screen.getByRole("tab", { name: /Candidates/ }));
+    expectActionLinks(candidateProduct);
+    fireEvent.click(screen.getByRole("tab", { name: /Resolved/ }));
+    expectActionLinks(resolvedProduct);
+  });
+
   it("submits product row resolution actions and reflects the resolved state", async () => {
     const product = makeTableProduct();
     const data = makeProductsData(product);

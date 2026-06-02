@@ -12,6 +12,23 @@ beforeAll(async () => {
 });
 
 describe("ProductPulse product job helpers", () => {
+  it("adds storefront and Shopify admin URLs to product table rows", () => {
+    const row = productPulseJobsTestHooks.formatProductRow("damian-xdcxxupp.myshopify.com", {
+      productGid: "gid://shopify/Product/1234567890",
+      handle: "gen-voice-lock-safe-26a108d0",
+      productTitle: "GEN Voice Lock Safe",
+      primaryIssue: "Product content",
+      riskScore: 64,
+      confidence: 82,
+      updatedAt: "2026-05-18T12:00:00.000Z",
+      sourceCoverage: ["Shopify products"],
+      metrics: { signalCount: 3 },
+    });
+
+    expect(row.shopifyStorefrontUrl).toBe("https://damian-xdcxxupp.myshopify.com/products/gen-voice-lock-safe-26a108d0");
+    expect(row.shopifyAdminUrl).toBe("https://admin.shopify.com/store/damian-xdcxxupp/products/1234567890");
+  });
+
   it("keeps resolved products out of unresolved table views and out of the status filter", () => {
     const snapshots = [
       {
