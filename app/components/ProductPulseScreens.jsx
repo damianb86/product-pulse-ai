@@ -12589,6 +12589,48 @@ function getFaqApplicationVariants(payload = {}) {
   return defaults.map((item) => ({ ...item, ...(configuredById.get(item.id) || {}) }));
 }
 
+function getGenericMetafieldActionApplication(payload = {}, action = {}) {
+  if (!hasGenericMetafieldApplyPayload(payload)) return null;
+  const fieldParts = parseGenericMetafieldField(payload.field || payload.shopifyField);
+  const namespace = normalizeFaqMetafieldPart(payload.metafieldNamespace || fieldParts.namespace || "", "", true);
+  const key = normalizeFaqMetafieldPart(payload.metafieldKey || fieldParts.key || "", "", false);
+  const type = String(payload.metafieldType || payload.type || "single_line_text_field").trim();
+  const value = String(payload.draftText || payload.value || payload.note || "").trim();
+  if (!namespace || !key || !type || !value) return null;
+  return {
+    kind: "shopify_product",
+    field: payload.field || `product.metafield.${namespace}.${key}`,
+    editable: true,
+    target: "Product metafield",
+    operation: "Set product metafield",
+    intro: `This saves the reviewed value in the Shopify product metafield ${namespace}.${key}. If the metafield definition is not present, ProductPulse will create it before saving the value.`,
+    confirmationTitle: "Confirm product metafield update",
+    confirmationDetail: `ProductPulse will create or verify the product metafield definition and then save ${namespace}.${key} in Shopify.`,
+    applyLabel: "Save metafield",
+    valueLabel: action.payload?.metafieldLabel || payload.metafieldLabel || "Metafield value",
+    value,
+    isMetafield: true,
+    metafieldNamespace: namespace,
+    metafieldKey: key,
+    metafieldType: type,
+  };
+}
+
+function hasGenericMetafieldApplyPayload(payload = {}) {
+  if (Array.isArray(payload.metafields) && payload.metafields.length) return false;
+  const fieldParts = parseGenericMetafieldField(payload.field || payload.shopifyField);
+  const namespace = normalizeFaqMetafieldPart(payload.metafieldNamespace || fieldParts.namespace || "", "", true);
+  const key = normalizeFaqMetafieldPart(payload.metafieldKey || fieldParts.key || "", "", false);
+  const value = String(payload.draftText || payload.value || payload.note || "").trim();
+  return Boolean(namespace && key && value);
+}
+
+function parseGenericMetafieldField(field = "") {
+  const match = String(field || "").trim().match(/^product\.metafield\.([^.\s]+)\.([^.\s]+)$/i);
+  if (!match) return { namespace: "", key: "" };
+  return { namespace: match[1], key: match[2] };
+}
+
 function getFaqApplicationIntro(variantId, payload = {}, metafield = null) {
   const reasons = Array.isArray(payload.faqNeed?.reasons) ? payload.faqNeed.reasons : [];
   const reasonText = reasons.length ? ` ProductPulse is suggesting FAQ coverage because ${reasons[0].toLowerCase()}` : "";
@@ -12990,6 +13032,11 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       currentValueLabel: "Current template suffix",
       currentValue: payload.currentTemplateSuffix || product?.metrics?.templateSuffix || "default",
     });
+  }
+
+  const metafieldApplication = getGenericMetafieldActionApplication(payload, action);
+  if (metafieldApplication) {
+    return withRecipeApplicationFields(action, metafieldApplication);
   }
 
   if (Array.isArray(payload.metafields) && payload.metafields.length) {
@@ -13874,6 +13921,7 @@ function getRecommendedActionMode(action, index) {
   const normalizedType = String(action.type || "").toLowerCase();
   const normalizedId = String(action.id || "").toLowerCase();
   const payload = action.payload || {};
+  const hasMetafieldApplyPayload = hasGenericMetafieldApplyPayload(payload);
   const hasShopifyApplyPayload = Boolean(
     payload.draftText
     || payload.tag
@@ -13882,6 +13930,7 @@ function getRecommendedActionMode(action, index) {
     || payload.productStatus
     || payload.templateSuffix
     || payload.field === "classification"
+    || hasMetafieldApplyPayload
     || (Array.isArray(payload.tags) && payload.tags.length)
     || (Array.isArray(payload.metafields) && payload.metafields.length)
     || (Array.isArray(payload.descriptionChanges) && payload.descriptionChanges.length)
@@ -13894,6 +13943,7 @@ function getRecommendedActionMode(action, index) {
   if (Array.isArray(payload.mediaUpdates) && payload.mediaUpdates.length) return "apply-product";
   if (hasDirectVariantOptionUpdates(payload)) return "apply-product";
   if (payload.draftTitle || payload.productStatus || payload.draftHandle || payload.templateSuffix || payload.field === "classification" || payload.field === "seo.title" || payload.field === "seo.description" || (Array.isArray(payload.metafields) && payload.metafields.length)) return "apply-product";
+  if (hasMetafieldApplyPayload) return "apply-product";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
   if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
@@ -30687,13 +30737,19 @@ function RecommendedActionReviewBody({
 }
 
 function RecommendedActionMetafieldConfig({ application, onNamespaceChange, onKeyChange }) {
+  const isFaqMetafield = Array.isArray(application.faqItems);
+  const namespaceLabel = isFaqMetafield ? "FAQ metafield namespace" : "Product metafield namespace";
+  const keyLabel = isFaqMetafield ? "FAQ metafield key" : "Product metafield key";
+  const helpText = isFaqMetafield
+    ? "ProductPulse will save this FAQ as HTML in a Shopify long text metafield. Shopify creates the product metafield when it does not already exist."
+    : "ProductPulse will create or verify the Shopify product metafield definition before saving this value.";
   return (
     <div className="ppFaqMetafieldFields">
       <div className="ppFaqMetafieldFieldsGrid">
         <label>
           <span>Namespace</span>
           <input
-            aria-label="FAQ metafield namespace"
+            aria-label={namespaceLabel}
             type="text"
             value={application.metafieldNamespace || ""}
             onChange={(event) => onNamespaceChange?.(event.target.value)}
@@ -30703,7 +30759,7 @@ function RecommendedActionMetafieldConfig({ application, onNamespaceChange, onKe
         <label>
           <span>Key</span>
           <input
-            aria-label="FAQ metafield key"
+            aria-label={keyLabel}
             type="text"
             value={application.metafieldKey || ""}
             onChange={(event) => onKeyChange?.(event.target.value)}
@@ -30711,7 +30767,7 @@ function RecommendedActionMetafieldConfig({ application, onNamespaceChange, onKe
           />
         </label>
       </div>
-      <p>ProductPulse will save this FAQ as HTML in a Shopify long text metafield. Shopify creates the product metafield when it does not already exist.</p>
+      <p>{helpText}</p>
     </div>
   );
 }
@@ -32474,6 +32530,7 @@ function getRecommendedActionKind(mode = "", application = {}) {
     || target.includes("url handle")
     || target.includes("product classification")
     || target.includes("product template")
+    || target.includes("product metafield")
     || target.includes("product metafields")
     || target.includes("productpulse watchlist")
   ) return "applyable";

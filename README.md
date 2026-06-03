@@ -58,6 +58,40 @@ AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 
 When `PRODUCT_PULSE_AI_LEVEL` is not set, local development defaults to `1` and non-development runtime defaults to `3`.
 
+## Observability
+
+Sentry is wired for client errors, React Router route errors, SSR/server errors, low-sample performance traces and masked session replay on error.
+
+Runtime reporting is enabled by setting the DSNs:
+
+```bash
+SENTRY_DSN=
+VITE_SENTRY_DSN=
+SENTRY_ENVIRONMENT=production
+VITE_SENTRY_ENVIRONMENT=production
+SENTRY_RELEASE=
+VITE_SENTRY_RELEASE=
+```
+
+Default sampling is intentionally conservative:
+
+```bash
+SENTRY_TRACES_SAMPLE_RATE=0.02
+VITE_SENTRY_TRACES_SAMPLE_RATE=0.02
+VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE=0
+VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE=1
+SENTRY_ENABLE_LOGS=false
+VITE_SENTRY_ENABLE_LOGS=false
+```
+
+For production source maps, set these only in CI/deploy. The build uploads hidden source maps to Sentry and deletes `build/**/*.map` after upload:
+
+```bash
+SENTRY_AUTH_TOKEN=
+SENTRY_ORG=
+SENTRY_PROJECT=
+```
+
 ## Docker Deploy
 
 ProductPulse AI is configured to deploy like Reply Pilot on the shared Zuam Docker stack:

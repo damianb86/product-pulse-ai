@@ -39633,7 +39633,7 @@ s-page[inline-size="large-500"] {
   .ppPlansPanel,
   .ppPlansBillingPanel,
   .ppPlansLedgerPanel {
-    padding: var(--pp-desktop-panel-padding);
+    /*padding: var(--pp-desktop-panel-padding);*/
   }
 
   .ppStartHeading h2,

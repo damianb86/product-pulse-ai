@@ -1659,15 +1659,16 @@ async function applyProductRecommendationAction({ admin, snapshot, action, paylo
     };
   }
 
-  if (Array.isArray(payload.metafields) && payload.metafields.length) {
-    const result = await setProductMetafields(admin, snapshot.productGid, payload.metafields);
+  const productMetafields = getProductMetafieldsForApply(payload);
+  if (productMetafields.length) {
+    const result = await setProductMetafields(admin, snapshot.productGid, productMetafields);
     if (result.status === "validation_error") return result;
     return {
-      message: `${payload.metafields.length === 1 ? "Product metafield was saved" : "Product metafields were saved"} for ${snapshot.productTitle}.`,
+      message: `${productMetafields.length === 1 ? "Product metafield was saved" : "Product metafields were saved"} for ${snapshot.productTitle}.`,
       change: {
         target: "Product metafields",
         operation: "set",
-        value: payload.metafields,
+        value: productMetafields,
       },
     };
   }
@@ -2187,33 +2188,227 @@ function getFaqMetafieldConfig(payload = {}) {
 }
 
 function normalizeShopifyMetafieldNamespace(value) {
+  return normalizeOptionalShopifyMetafieldNamespace(value) || "productpulse";
+}
+
+function normalizeOptionalShopifyMetafieldNamespace(value) {
   const normalized = String(value || "").trim();
-  if (normalized === "$app") return normalized;
-  return normalized.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "productpulse";
+  if (/^\$app(?::[a-zA-Z0-9_-]+)?$/.test(normalized)) return normalized;
+  return normalized.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function normalizeShopifyMetafieldKey(value) {
-  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "faq_html";
+  return normalizeOptionalShopifyMetafieldKey(value) || "faq_html";
+}
+
+function normalizeOptionalShopifyMetafieldKey(value) {
+  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 async function setProductFaqMetafield(admin, productGid, { namespace, key, type, faqItems, sourceActionId, htmlStyle }) {
   try {
-    const value = buildProductPulseFaqHtml({
-      faqItems,
-      variant: "description-section",
-      action: { id: sourceActionId || "product-faq-metafield" },
-      htmlStyle,
+    const normalizedMetafield = {
+      ownerId: productGid,
+      namespace: normalizeShopifyMetafieldNamespace(namespace),
+      key: normalizeShopifyMetafieldKey(key),
+      type: type || "multi_line_text_field",
+      value: buildProductPulseFaqHtml({
+        faqItems,
+        variant: "description-section",
+        action: { id: sourceActionId || "product-faq-metafield" },
+        htmlStyle,
+      }),
+      definitionName: "ProductPulse FAQ HTML",
+      definitionDescription: "Generated ProductPulse FAQ HTML for this product.",
+    };
+    const definitionResult = await ensureProductMetafieldDefinitions(admin, [normalizedMetafield]);
+    if (definitionResult.status === "validation_error") return definitionResult;
+
+    const setResult = await setNormalizedProductMetafields(admin, [normalizedMetafield], {
+      failurePrefix: "Unable to set product FAQ metafield",
     });
+    if (setResult.status === "validation_error") return setResult;
+    return { status: "success", metafields: setResult.metafields, definitions: definitionResult.definitions };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to set product FAQ metafield: ${error.message}` };
+  }
+}
+
+function getProductMetafieldsForApply(payload = {}) {
+  const explicitMetafields = normalizeProductMetafieldsForSet("", payload.metafields);
+  if (explicitMetafields.length) {
+    return explicitMetafields.map((metafield) => {
+      const copy = { ...metafield };
+      delete copy.ownerId;
+      return copy;
+    });
+  }
+
+  const fieldParts = parseProductMetafieldField(payload.field || payload.shopifyField);
+  const namespace = normalizeOptionalShopifyMetafieldNamespace(payload.metafieldNamespace || fieldParts.namespace || "");
+  const key = normalizeOptionalShopifyMetafieldKey(payload.metafieldKey || fieldParts.key || "");
+  const type = String(payload.metafieldType || payload.type || "single_line_text_field").trim();
+  const value = getMetafieldActionValue(payload);
+  if (!namespace || !key || !type || !value) return [];
+  return [{
+    namespace,
+    key,
+    type,
+    value,
+    label: payload.label || payload.metafieldLabel || "",
+    definitionName: payload.metafieldName || payload.metafieldLabel || payload.label || "",
+    definitionDescription: payload.metafieldDescription || payload.description || "",
+  }];
+}
+
+function parseProductMetafieldField(field = "") {
+  const match = String(field || "").trim().match(/^product\.metafield\.([^.\s]+)\.([^.\s]+)$/i);
+  if (!match) return { namespace: "", key: "" };
+  return { namespace: match[1], key: match[2] };
+}
+
+function getMetafieldActionValue(payload = {}) {
+  const value = payload.draftText ?? payload.value ?? payload.metafieldValue ?? payload.note ?? "";
+  return typeof value === "string" ? value.trim() : JSON.stringify(value ?? "");
+}
+
+async function setProductMetafields(admin, productGid, metafields = []) {
+  const normalizedMetafields = normalizeProductMetafieldsForSet(productGid, metafields);
+  if (!normalizedMetafields.length) {
+    return { status: "validation_error", message: "This metafield action does not include valid metafields to save." };
+  }
+
+  try {
+    const definitionResult = await ensureProductMetafieldDefinitions(admin, normalizedMetafields);
+    if (definitionResult.status === "validation_error") return definitionResult;
+    const setResult = await setNormalizedProductMetafields(admin, normalizedMetafields, {
+      failurePrefix: "Unable to set product metafields",
+    });
+    if (setResult.status === "validation_error") return setResult;
+    return { status: "success", metafields: setResult.metafields, definitions: definitionResult.definitions };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to set product metafields: ${error.message}` };
+  }
+}
+
+function normalizeProductMetafieldsForSet(productGid, metafields = []) {
+  return (Array.isArray(metafields) ? metafields : [])
+    .map((metafield) => ({
+      ownerId: productGid || metafield.ownerId || "",
+      namespace: normalizeOptionalShopifyMetafieldNamespace(metafield.namespace || "productpulse"),
+      key: normalizeOptionalShopifyMetafieldKey(metafield.key || ""),
+      type: normalizeShopifyMetafieldType(metafield.type || "single_line_text_field"),
+      value: normalizeShopifyMetafieldValue(metafield.value, metafield.type || "single_line_text_field"),
+      label: String(metafield.label || "").replace(/\s+/g, " ").trim(),
+      definitionName: String(metafield.definitionName || metafield.name || metafield.label || "").replace(/\s+/g, " ").trim(),
+      definitionDescription: String(metafield.definitionDescription || metafield.description || "").replace(/\s+/g, " ").trim(),
+    }))
+    .filter((metafield) => metafield.namespace && metafield.key && metafield.type && metafield.value !== "");
+}
+
+function normalizeShopifyMetafieldType(type = "") {
+  return String(type || "single_line_text_field").trim() || "single_line_text_field";
+}
+
+function normalizeShopifyMetafieldValue(value, type = "") {
+  if (typeof value === "string") return value.trim();
+  if (String(type || "").trim() === "json") return JSON.stringify(value ?? {});
+  return JSON.stringify(value ?? "");
+}
+
+async function ensureProductMetafieldDefinitions(admin, metafields = []) {
+  const definitions = [];
+  const uniqueMetafields = uniqueProductMetafields(metafields);
+  for (const metafield of uniqueMetafields) {
+    const existing = await getProductMetafieldDefinition(admin, metafield);
+    if (existing.status === "validation_error") return existing;
+    if (existing.definition) {
+      const existingType = existing.definition.type?.name || existing.definition.type || "";
+      if (existingType && existingType !== metafield.type) {
+        return {
+          status: "validation_error",
+          message: `Unable to set product metafield ${metafield.namespace}.${metafield.key}: the existing Shopify metafield definition uses type ${existingType}, but this action tried to write ${metafield.type}.`,
+        };
+      }
+      definitions.push({ ...existing.definition, created: false });
+      continue;
+    }
+    const created = await createProductMetafieldDefinition(admin, metafield);
+    if (created.status === "validation_error") return created;
+    if (created.definition) definitions.push({ ...created.definition, created: true });
+  }
+  return { status: "success", definitions };
+}
+
+function uniqueProductMetafields(metafields = []) {
+  const seen = new Set();
+  return (Array.isArray(metafields) ? metafields : []).filter((metafield) => {
+    const key = `${metafield.namespace}.${metafield.key}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function getProductMetafieldDefinition(admin, metafield = {}) {
+  try {
     const response = await admin.graphql(
       `#graphql
-      mutation ProductPulseSetProductFaqMetafield($metafields: [MetafieldsSetInput!]!) {
-        metafieldsSet(metafields: $metafields) {
-          metafields {
+      query ProductPulseFindProductMetafieldDefinition($namespace: String!, $key: String!) {
+        metafieldDefinitions(first: 1, ownerType: PRODUCT, namespace: $namespace, key: $key) {
+          edges {
+            node {
+              id
+              namespace
+              key
+              name
+              type {
+                name
+              }
+            }
+          }
+        }
+      }`,
+      { variables: { namespace: metafield.namespace, key: metafield.key } },
+    );
+    const json = await response.json();
+    const errors = getShopifyGraphqlErrors(json, "metafieldDefinitions");
+    if (errors.length) return { status: "validation_error", message: formatShopifyMetafieldErrorMessage(`Unable to inspect product metafield definition ${metafield.namespace}.${metafield.key}`, errors) };
+    return {
+      status: "success",
+      definition: json.data?.metafieldDefinitions?.edges?.[0]?.node || null,
+    };
+  } catch (error) {
+    return { status: "validation_error", message: `Unable to inspect product metafield definition ${metafield.namespace}.${metafield.key}: ${error.message}` };
+  }
+}
+
+async function createProductMetafieldDefinition(admin, metafield = {}) {
+  const definition = {
+    namespace: metafield.namespace,
+    key: metafield.key,
+    name: getProductMetafieldDefinitionName(metafield),
+    description: metafield.definitionDescription || `ProductPulse managed field for ${metafield.namespace}.${metafield.key}.`,
+    type: metafield.type,
+    ownerType: "PRODUCT",
+  };
+  if (String(metafield.namespace || "").startsWith("$app")) {
+    definition.access = { admin: "MERCHANT_READ_WRITE" };
+  }
+
+  try {
+    const response = await admin.graphql(
+      `#graphql
+      mutation ProductPulseCreateProductMetafieldDefinition($definition: MetafieldDefinitionInput!) {
+        metafieldDefinitionCreate(definition: $definition) {
+          createdDefinition {
             id
             namespace
             key
-            type
-            value
+            name
+            type {
+              name
+            }
           }
           userErrors {
             field
@@ -2222,39 +2417,55 @@ async function setProductFaqMetafield(admin, productGid, { namespace, key, type,
           }
         }
       }`,
-      {
-        variables: {
-          metafields: [{
-            ownerId: productGid,
-            namespace: normalizeShopifyMetafieldNamespace(namespace),
-            key: normalizeShopifyMetafieldKey(key),
-            type: type || "multi_line_text_field",
-            value,
-          }],
-        },
-      },
+      { variables: { definition } },
     );
     const json = await response.json();
-    const errors = json.errors || json.data?.metafieldsSet?.userErrors || [];
-    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
-    return { status: "success" };
+    const errors = getShopifyGraphqlErrors(json, "metafieldDefinitionCreate");
+    if (errors.length) {
+      if (errors.some((error) => String(error.code || "").toUpperCase() === "TAKEN")) {
+        const existing = await getProductMetafieldDefinition(admin, metafield);
+        if (existing.status === "validation_error" || !existing.definition) {
+          return { status: "validation_error", message: formatShopifyMetafieldErrorMessage(`Unable to create product metafield definition ${metafield.namespace}.${metafield.key}`, errors) };
+        }
+        return { status: "success", definition: existing.definition };
+      }
+      return { status: "validation_error", message: formatShopifyMetafieldErrorMessage(`Unable to create product metafield definition ${metafield.namespace}.${metafield.key}`, errors) };
+    }
+    const definitionNode = json.data?.metafieldDefinitionCreate?.createdDefinition || null;
+    if (!definitionNode) {
+      return { status: "validation_error", message: `Shopify did not confirm creation of product metafield definition ${metafield.namespace}.${metafield.key}. The metafield value was not saved.` };
+    }
+    return { status: "success", definition: definitionNode };
   } catch (error) {
-    return { status: "validation_error", message: `Unable to set product FAQ metafield: ${error.message}` };
+    return { status: "validation_error", message: `Unable to create product metafield definition ${metafield.namespace}.${metafield.key}: ${error.message}` };
   }
 }
 
-async function setProductMetafields(admin, productGid, metafields = []) {
-  const normalizedMetafields = (Array.isArray(metafields) ? metafields : [])
-    .map((metafield) => ({
-      ownerId: productGid,
-      namespace: String(metafield.namespace || "productpulse").trim(),
-      key: String(metafield.key || "").trim(),
-      type: String(metafield.type || "single_line_text_field").trim(),
-      value: typeof metafield.value === "string" ? metafield.value : JSON.stringify(metafield.value ?? ""),
-    }))
-    .filter((metafield) => metafield.namespace && metafield.key && metafield.type);
-  if (!normalizedMetafields.length) {
-    return { status: "validation_error", message: "This metafield action does not include valid metafields to save." };
+function getProductMetafieldDefinitionName(metafield = {}) {
+  const explicit = String(metafield.definitionName || metafield.label || "").replace(/\s+/g, " ").trim();
+  if (explicit) return explicit.slice(0, 255);
+  return humanizeMetafieldKey(`${metafield.namespace || "productpulse"} ${metafield.key || "field"}`).slice(0, 255);
+}
+
+function humanizeMetafieldKey(value = "") {
+  return String(value || "")
+    .replace(/^\$app(?::)?/i, "App ")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+async function setNormalizedProductMetafields(admin, normalizedMetafields = [], { failurePrefix = "Unable to set product metafields" } = {}) {
+  const mutationMetafields = normalizedMetafields.map((metafield) => ({
+    ownerId: metafield.ownerId,
+    namespace: metafield.namespace,
+    key: metafield.key,
+    type: metafield.type,
+    value: metafield.value,
+  }));
+  if (!mutationMetafields.every((metafield) => metafield.ownerId)) {
+    return { status: "validation_error", message: `${failurePrefix}: missing Shopify product ID for metafield write.` };
   }
 
   try {
@@ -2276,15 +2487,43 @@ async function setProductMetafields(admin, productGid, metafields = []) {
           }
         }
       }`,
-      { variables: { metafields: normalizedMetafields } },
+      { variables: { metafields: mutationMetafields } },
     );
     const json = await response.json();
-    const errors = json.errors || json.data?.metafieldsSet?.userErrors || [];
-    if (errors.length) return { status: "validation_error", message: errors.map((error) => error.message).join(" ") };
-    return { status: "success" };
+    const errors = getShopifyGraphqlErrors(json, "metafieldsSet");
+    if (errors.length) return { status: "validation_error", message: formatShopifyMetafieldErrorMessage(failurePrefix, errors) };
+    const savedMetafields = Array.isArray(json.data?.metafieldsSet?.metafields)
+      ? json.data.metafieldsSet.metafields.filter(Boolean)
+      : [];
+    if (savedMetafields.length < mutationMetafields.length) {
+      return {
+        status: "validation_error",
+        message: `${failurePrefix}: Shopify did not confirm that all product metafields were saved. No success state was recorded.`,
+      };
+    }
+    return { status: "success", metafields: savedMetafields };
   } catch (error) {
-    return { status: "validation_error", message: `Unable to set product metafields: ${error.message}` };
+    return { status: "validation_error", message: `${failurePrefix}: ${error.message}` };
   }
+}
+
+function getShopifyGraphqlErrors(json = {}, payloadKey = "") {
+  return [
+    ...(Array.isArray(json.errors) ? json.errors : []),
+    ...(Array.isArray(json.data?.[payloadKey]?.userErrors) ? json.data[payloadKey].userErrors : []),
+  ].filter(Boolean);
+}
+
+function formatShopifyMetafieldErrorMessage(prefix = "Unable to set product metafields", errors = []) {
+  const details = (Array.isArray(errors) ? errors : [])
+    .map((error) => {
+      const code = error.code ? ` (${error.code})` : "";
+      const field = Array.isArray(error.field) && error.field.length ? ` [${error.field.join(".")}]` : "";
+      return `${error.message || "Unknown Shopify error"}${code}${field}`;
+    })
+    .filter(Boolean)
+    .join(" ");
+  return `${prefix}: ${details || "Shopify returned an unknown error."}`;
 }
 
 function getDescriptionOperationForAction(action) {
@@ -6096,8 +6335,11 @@ export const __productPulseJobsTestHooks = {
   getShopifyProductAdminUrl,
   getShopifyProductStorefrontUrl,
   getSignalLifecycleBars,
+  getProductMetafieldsForApply,
   mergeFaqItemsIntoExistingDescriptionHtml,
   normalizeFaqItemsForApply,
+  setProductFaqMetafield,
+  setProductMetafields,
   getFaqApplyVariant,
 };
 

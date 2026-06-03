@@ -4405,6 +4405,41 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText(/productpulse\.buyer_faq_html/).length).toBeGreaterThan(0);
   });
 
+  it("treats editable product metafield drafts as applyable Shopify changes", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "update-buyer-note-metafield",
+        label: "Update buyer note metafield",
+        type: "Product metafield",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          field: "product.metafield.productpulse.buyer_note",
+          metafieldType: "multi_line_text_field",
+          draftText: "Confirm compatibility before ordering.",
+          impact: "Medium",
+          visibility: "Internal",
+          confidence: "High",
+          evidenceStrength: "Medium",
+          applicationRisk: "Low",
+          actionTier: 1,
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Update buyer note metafield" }));
+    const dialog = screen.getByRole("dialog", { name: "Update buyer note metafield" });
+    expect(within(dialog).getByText(/ProductPulse will create or verify the Shopify product metafield definition/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Apply change" })).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
+    expect(screen.getByRole("heading", { name: "Confirm product metafield update" })).toBeInTheDocument();
+    expect(screen.getAllByText(/productpulse\.buyer_note/).length).toBeGreaterThan(0);
+  });
+
   it("minimizes and expands the recommended actions panel", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={defaultView.startHere} />);
     expect(container.querySelector(".ppProductDetailSidebar .ppRecommendedActionsPanel")).toBeInTheDocument();

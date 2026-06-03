@@ -1,4 +1,6 @@
-import { Outlet, useLoaderData, useLocation, useRouteError } from "react-router";
+import { useEffect } from "react";
+import * as Sentry from "@sentry/react-router";
+import { isRouteErrorResponse, Outlet, useLoaderData, useLocation, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
@@ -17,6 +19,7 @@ import { getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
+  setSentrySessionContext(session);
   const developmentMode = isProductPulseDevelopment();
   const aiChatConfig = getAiChatConfig();
   const chatQuota = await getAiChatMonthlyQuotaForShop(session.shop, {
@@ -28,6 +31,8 @@ export const loader = async ({ request }) => {
   });
   // eslint-disable-next-line no-undef
   const apiKey = process.env.SHOPIFY_API_KEY || "";
+  // eslint-disable-next-line no-undef
+  const env = process.env;
 
   return {
     apiKey,
@@ -37,11 +42,14 @@ export const loader = async ({ request }) => {
     chatQuota: serializeChatQuotaForClient(chatQuota),
     jobMonitor: await getJobMonitorForShop(session.shop),
     betaFeedback: getBetaFeedbackClientConfig({ session }),
+    observability: {
+      sentry: getSentryClientRuntimeConfig(session, env),
+    },
   };
 };
 
 export default function App() {
-  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, chatQuota, jobMonitor, betaFeedback } = useLoaderData();
+  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, chatQuota, jobMonitor, betaFeedback, observability } = useLoaderData();
   const location = useLocation();
   const activeSection = getActiveNavSection(location.pathname);
   const aiPageContext = getAiPageContext(location);
@@ -49,6 +57,7 @@ export default function App() {
 
   return (
     <AppProvider embedded apiKey={apiKey}>
+      <ProductPulseSentryContext config={observability?.sentry} activeSection={activeSection} />
       <BetaFeedbackProvider config={betaFeedback}>
         <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
         <s-app-nav>
@@ -71,6 +80,50 @@ export default function App() {
       </BetaFeedbackProvider>
     </AppProvider>
   );
+}
+
+function ProductPulseSentryContext({ config, activeSection }) {
+  const location = useLocation();
+  const pathname = location.pathname || "/";
+
+  useEffect(() => {
+    if (!config?.enabled) return;
+
+    const shop = String(config.shop || "").trim();
+    const userId = String(config.userId || "").trim();
+    const userKey = buildSentryUserKey(shop, userId);
+
+    Sentry.setUser(userKey ? { id: userKey } : null);
+    if (shop) Sentry.setTag("shop", shop);
+    if (config.environment) Sentry.setTag("app.environment", config.environment);
+    if (config.appVersion) Sentry.setTag("app.version", config.appVersion);
+    Sentry.setTag("product_pulse.embedded", "true");
+
+    return () => {
+      Sentry.setUser(null);
+    };
+  }, [config]);
+
+  useEffect(() => {
+    if (!config?.enabled) return;
+
+    Sentry.setTag("product_pulse.section", activeSection || "unknown");
+    Sentry.setContext("product_pulse.route", {
+      pathname,
+      section: activeSection || "unknown",
+    });
+    Sentry.addBreadcrumb({
+      category: "navigation",
+      type: "navigation",
+      level: "info",
+      message: pathname,
+      data: {
+        section: activeSection || "unknown",
+      },
+    });
+  }, [activeSection, config?.enabled, pathname]);
+
+  return null;
 }
 
 function serializeChatQuotaForClient(quota) {
@@ -143,11 +196,56 @@ function safeDecodePathSegment(value) {
   }
 }
 
+function setSentrySessionContext(session = {}) {
+  const shop = String(session.shop || "").trim();
+  const userId = session.userId == null ? "" : String(session.userId);
+  const userKey = buildSentryUserKey(shop, userId);
+
+  if (userKey) Sentry.setUser({ id: userKey });
+  if (shop) Sentry.setTag("shop", shop);
+  Sentry.setTag("product_pulse.embedded", "true");
+}
+
+function getSentryClientRuntimeConfig(session = {}, env = {}) {
+  return {
+    enabled: Boolean(getConfiguredEnvValue(env.VITE_SENTRY_DSN, env.SENTRY_DSN)),
+    shop: String(session.shop || ""),
+    userId: session.userId == null ? "" : String(session.userId),
+    environment: getConfiguredEnvValue(env.SENTRY_ENVIRONMENT, env.APP_ENV, env.NODE_ENV) || "",
+    appVersion: getConfiguredEnvValue(env.SENTRY_RELEASE, env.APP_VERSION, env.SOURCE_VERSION, env.COMMIT_SHA) || "",
+  };
+}
+
+function buildSentryUserKey(shop, userId) {
+  const safeShop = String(shop || "").trim();
+  const safeUserId = String(userId || "").trim();
+  if (safeShop && safeUserId) return `${safeShop}:${safeUserId}`;
+  return safeShop || safeUserId;
+}
+
+function getConfiguredEnvValue(...values) {
+  return values.find((value) => value != null && String(value).trim() !== "");
+}
+
 // Shopify needs React Router to catch some thrown responses, so that their headers are included in the response.
 export function ErrorBoundary() {
-  return boundary.error(useRouteError());
+  const error = useRouteError();
+
+  useEffect(() => {
+    if (shouldCaptureRouteBoundaryError(error)) {
+      Sentry.captureException(error);
+    }
+  }, [error]);
+
+  return boundary.error(error);
 }
 
 export const headers = (headersArgs) => {
   return boundary.headers(headersArgs);
 };
+
+function shouldCaptureRouteBoundaryError(error) {
+  if (!error) return false;
+  if (!isRouteErrorResponse(error)) return true;
+  return error.status >= 500;
+}

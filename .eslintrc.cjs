@@ -81,6 +81,8 @@ module.exports = {
     {
       files: [
         ".eslintrc.cjs",
+        "instrument.server.mjs",
+        "react-router.config.{js,ts}",
         "vite.config.{js,ts}",
         "vitest.config.{js,ts}",
         "playwright.config.{js,ts}",

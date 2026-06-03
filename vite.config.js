@@ -1,4 +1,5 @@
 import { reactRouter } from "@react-router/dev/vite";
+import { sentryReactRouter } from "@sentry/react-router";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
@@ -38,7 +39,9 @@ if (host === "localhost") {
   };
 }
 
-export default defineConfig({
+const sentryBuildConfig = getSentryBuildConfig(process.env);
+
+export default defineConfig((config) => ({
   server: {
     allowedHosts,
     cors: {
@@ -51,11 +54,51 @@ export default defineConfig({
       allow: ["app", "node_modules"],
     },
   },
-  plugins: [reactRouter(), tsconfigPaths()],
+  plugins: [
+    reactRouter(),
+    ...(sentryBuildConfig ? [sentryReactRouter(sentryBuildConfig, config)] : []),
+    tsconfigPaths(),
+  ],
   build: {
     assetsInlineLimit: 0,
   },
   optimizeDeps: {
     include: ["@shopify/app-bridge-react"],
   },
-});
+  ...(sentryBuildConfig ? { sentryConfig: sentryBuildConfig } : {}),
+}));
+
+function getSentryBuildConfig(env) {
+  const authToken = stringEnv(env.SENTRY_AUTH_TOKEN);
+  const org = stringEnv(env.SENTRY_ORG);
+  const project = stringEnv(env.SENTRY_PROJECT);
+
+  if (!authToken || !org || !project) return null;
+
+  const releaseName = getSentryRelease(env);
+
+  return {
+    authToken,
+    org,
+    project,
+    telemetry: false,
+    release: releaseName ? { name: releaseName } : undefined,
+    bundleSizeOptimizations: {
+      excludeDebugStatements: true,
+    },
+    sourcemaps: {
+      filesToDeleteAfterUpload: ["./build/**/*.map"],
+    },
+  };
+}
+
+function getSentryRelease(env) {
+  return stringEnv(env.SENTRY_RELEASE)
+    || stringEnv(env.APP_VERSION)
+    || stringEnv(env.SOURCE_VERSION)
+    || stringEnv(env.COMMIT_SHA);
+}
+
+function stringEnv(value) {
+  return typeof value === "string" ? value.trim() : "";
+}

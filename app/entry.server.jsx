@@ -1,4 +1,5 @@
 import { PassThrough } from "stream";
+import * as Sentry from "@sentry/react-router";
 import { renderToPipeableStream } from "react-dom/server";
 import { ServerRouter } from "react-router";
 import { createReadableStreamFromReadable } from "@react-router/node";
@@ -7,7 +8,13 @@ import { addDocumentResponseHeaders } from "./shopify.server";
 
 export const streamTimeout = 5000;
 
-export default async function handleRequest(
+export const handleError = (error, { request }) => {
+  if (request.signal.aborted) return;
+  Sentry.captureException(error);
+  console.error(error);
+};
+
+async function handleRequest(
   request,
   responseStatusCode,
   responseHeaders,
@@ -35,10 +42,12 @@ export default async function handleRequest(
           pipe(body);
         },
         onShellError(error) {
+          Sentry.captureException(error);
           reject(error);
         },
         onError(error) {
           responseStatusCode = 500;
+          Sentry.captureException(error);
           console.error(error);
         },
       },
@@ -49,3 +58,5 @@ export default async function handleRequest(
     setTimeout(abort, streamTimeout + 1000);
   });
 }
+
+export default Sentry.wrapSentryHandleRequest(handleRequest);

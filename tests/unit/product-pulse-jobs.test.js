@@ -229,6 +229,202 @@ describe("ProductPulse product job helpers", () => {
     }]);
   });
 
+  it("infers a product metafield write from editable metafield action fields", () => {
+    const metafields = productPulseJobsTestHooks.getProductMetafieldsForApply({
+      field: "product.metafield.productpulse.faq_html",
+      metafieldType: "multi_line_text_field",
+      draftText: "<section>FAQ HTML</section>",
+      label: "FAQ HTML",
+    });
+
+    expect(metafields).toEqual([{
+      namespace: "productpulse",
+      key: "faq_html",
+      type: "multi_line_text_field",
+      value: "<section>FAQ HTML</section>",
+      label: "FAQ HTML",
+      definitionName: "FAQ HTML",
+      definitionDescription: "",
+    }]);
+  });
+
+  it("creates the product metafield definition before saving a missing product metafield", async () => {
+    const calls = [];
+    const admin = {
+      graphql: async (query, options = {}) => {
+        calls.push({ query, variables: options.variables });
+        if (query.includes("ProductPulseFindProductMetafieldDefinition")) {
+          return { json: async () => ({ data: { metafieldDefinitions: { edges: [] } } }) };
+        }
+        if (query.includes("ProductPulseCreateProductMetafieldDefinition")) {
+          return {
+            json: async () => ({
+              data: {
+                metafieldDefinitionCreate: {
+                  createdDefinition: {
+                    id: "gid://shopify/MetafieldDefinition/1",
+                    namespace: "productpulse",
+                    key: "faq_html",
+                    name: "FAQ HTML",
+                    type: { name: "multi_line_text_field" },
+                  },
+                  userErrors: [],
+                },
+              },
+            }),
+          };
+        }
+        return {
+          json: async () => ({
+            data: {
+              metafieldsSet: {
+                metafields: [{
+                  id: "gid://shopify/Metafield/1",
+                  namespace: "productpulse",
+                  key: "faq_html",
+                  type: "multi_line_text_field",
+                  value: "<section>FAQ HTML</section>",
+                }],
+                userErrors: [],
+              },
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await productPulseJobsTestHooks.setProductMetafields(admin, "gid://shopify/Product/123", [{
+      namespace: "productpulse",
+      key: "faq_html",
+      type: "multi_line_text_field",
+      value: "<section>FAQ HTML</section>",
+      label: "FAQ HTML",
+    }]);
+
+    expect(result.status).toBe("success");
+    expect(calls.map((call) => (
+      call.query.includes("ProductPulseFindProductMetafieldDefinition") ? "find"
+        : call.query.includes("ProductPulseCreateProductMetafieldDefinition") ? "create"
+        : "set"
+    ))).toEqual(["find", "create", "set"]);
+    expect(calls[1].variables.definition).toMatchObject({
+      namespace: "productpulse",
+      key: "faq_html",
+      type: "multi_line_text_field",
+      ownerType: "PRODUCT",
+      name: "FAQ HTML",
+    });
+    expect(calls[2].variables.metafields[0]).toMatchObject({
+      ownerId: "gid://shopify/Product/123",
+      namespace: "productpulse",
+      key: "faq_html",
+      type: "multi_line_text_field",
+      value: "<section>FAQ HTML</section>",
+    });
+  });
+
+  it("creates and saves the FAQ HTML product metafield", async () => {
+    const calls = [];
+    const admin = {
+      graphql: async (query, options = {}) => {
+        calls.push({ query, variables: options.variables });
+        if (query.includes("ProductPulseFindProductMetafieldDefinition")) {
+          return { json: async () => ({ data: { metafieldDefinitions: { edges: [] } } }) };
+        }
+        if (query.includes("ProductPulseCreateProductMetafieldDefinition")) {
+          return {
+            json: async () => ({
+              data: {
+                metafieldDefinitionCreate: {
+                  createdDefinition: {
+                    id: "gid://shopify/MetafieldDefinition/faq",
+                    namespace: "productpulse",
+                    key: "buyer_faq_html",
+                    name: "ProductPulse FAQ HTML",
+                    type: { name: "multi_line_text_field" },
+                  },
+                  userErrors: [],
+                },
+              },
+            }),
+          };
+        }
+        return {
+          json: async () => ({
+            data: {
+              metafieldsSet: {
+                metafields: [{
+                  id: "gid://shopify/Metafield/faq",
+                  namespace: "productpulse",
+                  key: "buyer_faq_html",
+                  type: "multi_line_text_field",
+                  value: options.variables.metafields[0].value,
+                }],
+                userErrors: [],
+              },
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await productPulseJobsTestHooks.setProductFaqMetafield(admin, "gid://shopify/Product/123", {
+      namespace: "productpulse",
+      key: "buyer_faq_html",
+      type: "multi_line_text_field",
+      faqItems: [{ question: "Can I use it with thick cases?", answer: "Use a verified magnetic-compatible case." }],
+      sourceActionId: "create-product-faq",
+    });
+
+    expect(result.status).toBe("success");
+    expect(calls[1].variables.definition).toMatchObject({
+      namespace: "productpulse",
+      key: "buyer_faq_html",
+      name: "ProductPulse FAQ HTML",
+      type: "multi_line_text_field",
+      ownerType: "PRODUCT",
+    });
+    expect(calls[2].variables.metafields[0].value).toContain("Frequently asked questions");
+    expect(calls[2].variables.metafields[0].value).toContain("Can I use it with thick cases?");
+  });
+
+  it("does not report success when Shopify does not confirm the saved metafield", async () => {
+    const admin = {
+      graphql: async (query) => {
+        if (query.includes("ProductPulseFindProductMetafieldDefinition")) {
+          return {
+            json: async () => ({
+              data: {
+                metafieldDefinitions: {
+                  edges: [{
+                    node: {
+                      id: "gid://shopify/MetafieldDefinition/1",
+                      namespace: "productpulse",
+                      key: "faq_html",
+                      name: "FAQ HTML",
+                      type: { name: "multi_line_text_field" },
+                    },
+                  }],
+                },
+              },
+            }),
+          };
+        }
+        return { json: async () => ({ data: { metafieldsSet: { metafields: [], userErrors: [] } } }) };
+      },
+    };
+
+    const result = await productPulseJobsTestHooks.setProductMetafields(admin, "gid://shopify/Product/123", [{
+      namespace: "productpulse",
+      key: "faq_html",
+      type: "multi_line_text_field",
+      value: "<section>FAQ HTML</section>",
+    }]);
+
+    expect(result.status).toBe("validation_error");
+    expect(result.message).toMatch(/did not confirm/i);
+  });
+
   it("preserves description HTML when applying targeted description replacements", () => {
     const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
       currentHtml: "<div><p>The Vans SK8-Hi in <strong>True White</strong> is a classic high-top.</p></div>",
