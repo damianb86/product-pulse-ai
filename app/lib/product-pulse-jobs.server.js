@@ -68,7 +68,7 @@ const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const BACKGROUND_PROCESS_PAGE_SIZE = 10;
-const BACKGROUND_PROCESS_ACTIVE_LIMIT = 10;
+const BACKGROUND_PROCESS_ACTIVE_LIMIT = 50;
 const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
 const ANALYTICS_SCORE_HISTORY_TAKE = 520;
 const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
@@ -513,19 +513,13 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
     return { status: "validation_error", message: "Select at least one product to analyze." };
   }
 
-  const pointCheck = await validateStorePointsForShop(shop, uniqueProductIds.length);
-  if (!pointCheck.valid) {
-    return {
-      status: "validation_error",
-      message: pointCheck.message,
-      pointBalance: pointCheck.balance,
-    };
-  }
+  const snapshotBatch = await getProductDiagnosisSnapshotsForProductIds(shop, uniqueProductIds);
+  const batchResult = await createProductDiagnosisJobsForSnapshots(shop, snapshotBatch.snapshots);
+  const jobs = [...batchResult.jobs];
+  const pointFailures = [...batchResult.pointFailures];
 
-  const jobs = [];
-  const pointFailures = [];
-  for (const productId of uniqueProductIds) {
-    const job = await createProductDiagnosisJob(shop, productId, { ...options, skipPointBalanceCheck: true });
+  for (const productId of snapshotBatch.unmatchedProductIds) {
+    const job = await createProductDiagnosisJob(shop, productId, options);
     if (job?.pointValidationError) {
       pointFailures.push(job.pointValidationError);
       continue;
@@ -544,14 +538,24 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
 
   ensureProductDiagnosisQueueWorker(shop);
   const skippedForPoints = pointFailures.length;
+  const batchJobIds = new Set(batchResult.jobs.map((job) => job.id).filter(Boolean));
+  const fallbackCount = jobs.filter((job) => !batchJobIds.has(job.id)).length;
+  const createdCount = batchResult.createdCount + fallbackCount;
+  const reusedCount = batchResult.reusedCount;
+  const messageParts = [];
+  if (createdCount) messageParts.push(`${createdCount} Product Diagnosis job${createdCount === 1 ? "" : "s"} queued`);
+  if (reusedCount) messageParts.push(`${reusedCount} already in queue or running`);
+  if (skippedForPoints) messageParts.push(`${skippedForPoints} skipped because credits were no longer available`);
 
   return {
     status: "success",
     suppressBanner: true,
-    message: skippedForPoints
-      ? `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because credits were no longer available.`
-      : `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
+    message: `${messageParts.join(". ")}. They will run one at a time.`,
+    requestedCount: uniqueProductIds.length,
     queuedCount: jobs.length,
+    createdCount,
+    reusedCount,
+    skippedCount: skippedForPoints,
     jobs: jobs.map(formatJob),
   };
 }
@@ -3082,6 +3086,174 @@ async function findProductRiskSnapshot(shop, productId) {
       ],
     },
   });
+}
+
+async function getProductDiagnosisSnapshotsForProductIds(shop, productIds = []) {
+  const requestedIds = [...new Set(productIds.map((value) => String(value || "").trim()).filter(Boolean))];
+  if (!requestedIds.length) return { snapshots: [], matchedProductIds: new Set(), unmatchedProductIds: [] };
+
+  const snapshots = await prisma.productRiskSnapshot.findMany({
+    where: {
+      shop,
+      OR: [
+        { productGid: { in: requestedIds } },
+        { handle: { in: requestedIds } },
+      ],
+    },
+  });
+
+  const snapshotByRequestedId = new Map();
+  snapshots.forEach((snapshot) => {
+    if (snapshot.productGid) snapshotByRequestedId.set(String(snapshot.productGid), snapshot);
+    if (snapshot.handle) snapshotByRequestedId.set(String(snapshot.handle), snapshot);
+  });
+
+  const matchedProductIds = new Set();
+  const seenProductGids = new Set();
+  const orderedSnapshots = [];
+  requestedIds.forEach((productId) => {
+    const snapshot = snapshotByRequestedId.get(productId);
+    if (!snapshot) return;
+    matchedProductIds.add(productId);
+    const snapshotKey = String(snapshot.productGid || snapshot.handle || productId);
+    if (seenProductGids.has(snapshotKey)) return;
+    seenProductGids.add(snapshotKey);
+    orderedSnapshots.push(snapshot);
+  });
+
+  return {
+    snapshots: orderedSnapshots,
+    matchedProductIds,
+    unmatchedProductIds: requestedIds.filter((productId) => !matchedProductIds.has(productId)),
+  };
+}
+
+async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
+  const uniqueSnapshots = [];
+  const seenProductGids = new Set();
+  snapshots.forEach((snapshot) => {
+    const key = String(snapshot?.productGid || snapshot?.handle || "");
+    if (!key || seenProductGids.has(key)) return;
+    seenProductGids.add(key);
+    uniqueSnapshots.push(snapshot);
+  });
+  if (!uniqueSnapshots.length) {
+    return { jobs: [], createdCount: 0, reusedCount: 0, pointFailures: [] };
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await lockStorePointLedgerForShop(tx, shop);
+
+    const activeJobs = await tx.catalogSignalJob.findMany({
+      where: {
+        shop,
+        kind: PRODUCT_DIAGNOSIS_KIND,
+        status: { in: ["Queued", "Running"] },
+      },
+      orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
+    });
+
+    const jobs = [];
+    const snapshotsToCreate = [];
+    uniqueSnapshots.forEach((snapshot) => {
+      const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeJobs);
+      if (activeJob) {
+        jobs.push(activeJob);
+      } else {
+        snapshotsToCreate.push(snapshot);
+      }
+    });
+
+    if (snapshotsToCreate.length) {
+      const pointCheck = await validateStorePointsForShop(shop, snapshotsToCreate.length, { db: tx });
+      if (!pointCheck.valid) {
+        return {
+          jobs,
+          createdJobs: [],
+          pointFailures: snapshotsToCreate.map(() => pointCheck),
+        };
+      }
+    }
+
+    const createdJobs = [];
+    const pointFailures = [];
+    for (const snapshot of snapshotsToCreate) {
+      const snapshotMetrics = snapshot.metrics || {};
+      const snapshotImage = getSnapshotProductImage(snapshot);
+      const jobId = randomUUID();
+      const pointDebit = await debitStorePointsForShop(shop, {
+        db: tx,
+        amount: 1,
+        reason: `Product credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+        idempotencyKey: `product-diagnosis:${jobId}`,
+        metadata: {
+          source: "product_diagnosis",
+          jobId,
+          productGid: snapshot.productGid || null,
+          productTitle: snapshot.productTitle || null,
+          queued: true,
+        },
+      });
+      if (!isPointDebitRecorded(pointDebit)) {
+        pointFailures.push(pointDebit);
+        continue;
+      }
+
+      const job = await tx.catalogSignalJob.create({
+        data: {
+          id: jobId,
+          shop,
+          kind: PRODUCT_DIAGNOSIS_KIND,
+          source: `Queued Product Diagnosis - ${snapshot.productTitle}`,
+          status: "Queued",
+          progress: 0,
+          payload: {
+            productId: snapshot.productGid || snapshot.handle,
+            productGid: snapshot.productGid,
+            handle: snapshot.handle,
+            productTitle: snapshot.productTitle,
+            imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+            productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
+            imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
+            productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
+            riskScore: snapshot.riskScore,
+            pointCost: 1,
+            pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+            pointDebitStatus: pointDebit.status,
+            queuedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      jobs.push(job);
+      createdJobs.push({ job, snapshot, pointDebit });
+    }
+
+    return { jobs, createdJobs, pointFailures };
+  });
+
+  await Promise.all(result.createdJobs.map(({ job, snapshot, pointDebit }) => recordJobLog({
+    shop,
+    jobId: job.id,
+    event: "product_diagnosis.queued",
+    message: "Product diagnosis queued as a persistent background job.",
+    data: {
+      productGid: snapshot.productGid,
+      handle: snapshot.handle,
+      title: snapshot.productTitle,
+      riskScore: snapshot.riskScore,
+      pointsConsumed: 1,
+      pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+      bulkQueued: true,
+    },
+  })));
+
+  return {
+    jobs: result.jobs,
+    createdCount: result.createdJobs.length,
+    reusedCount: Math.max(0, result.jobs.length - result.createdJobs.length),
+    pointFailures: result.pointFailures,
+  };
 }
 
 async function createProductDiagnosisJob(shop, productId, options = {}) {

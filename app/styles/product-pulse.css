@@ -32392,7 +32392,7 @@ s-page[inline-size="large-500"] {
 .ppProductsScanOverlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 130;
   display: grid;
   place-items: center;
   padding: 32px;
@@ -32430,6 +32430,34 @@ s-page[inline-size="large-500"] {
 .ppProductsScanOverlay small {
   color: var(--pp-slate-500);
   font-size: 12px;
+}
+
+.ppProductsQueueOverlay {
+  background: rgba(var(--pp-slate-100-rgb), 0.26);
+  backdrop-filter: blur(3px);
+}
+
+.ppProductsQueueOverlay > div {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  box-shadow: 0 24px 68px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
+.ppProductsQueueOverlay .ppSecondaryButton {
+  margin-top: 2px;
+}
+
+.ppQueueNoticeIcon {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: var(--pp-warning-amber);
+}
+
+.ppQueueNoticeIcon s-icon {
+  transform: scale(1.18);
 }
 
 .ppScanSpinner {

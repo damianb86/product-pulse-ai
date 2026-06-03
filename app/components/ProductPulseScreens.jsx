@@ -751,6 +751,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [analysisConfirmation, setAnalysisConfirmation] = useState(null);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
+  const [diagnosisQueueOverlayTimedOut, setDiagnosisQueueOverlayTimedOut] = useState(false);
+  const [diagnosisQueueOverlayDismissed, setDiagnosisQueueOverlayDismissed] = useState(false);
   const requestedProductsTab = normalizeProductsTab(filters.activeTab);
   const [activeProductsTab, setActiveProductsTab] = useState(() => {
     if (requestedProductsTab) return requestedProductsTab;
@@ -801,12 +803,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   ];
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
-  const pendingBulkAnalyze = navigation.state === "submitting" && navigation.formData?.get("_action") === "bulk-diagnose";
+  const pendingBulkAnalyze = navigation.state !== "idle" && navigation.formData?.get("_action") === "bulk-diagnose";
   const pendingCandidateAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-shopify-product-candidate";
   const pendingWatchlistAction = navigation.state === "submitting" && ["add-to-watchlist", "add-selected-to-watchlist", "remove-from-watchlist"].includes(String(navigation.formData?.get("_action") || ""));
   const pendingBulkWatchlistAdd = navigation.state === "submitting" && navigation.formData?.get("_action") === "add-selected-to-watchlist";
   const pendingDeleteAnalysis = navigation.state === "submitting" && navigation.formData?.get("_action") === "delete-product-analysis";
   const pendingAnalyzeIds = pendingBulkAnalyze ? Array.from(navigation.formData?.getAll("productId") || []).map(String) : [];
+  const showDiagnosisQueueOverlay = pendingBulkAnalyze && !diagnosisQueueOverlayDismissed;
   const fastScanRunning = Boolean(activeScanJob) || pendingFastScan || localFastScan;
   const fastScanJobActive = Boolean(activeScanJob) || localFastScan;
   const quickScanCsvAvailable = isQuickScanCsvReviewSourceAvailable(data);
@@ -857,6 +860,19 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     const interval = window.setInterval(() => revalidator.revalidate(), PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
   }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, revalidator]);
+
+  useEffect(() => {
+    if (!pendingBulkAnalyze) {
+      setDiagnosisQueueOverlayTimedOut(false);
+      setDiagnosisQueueOverlayDismissed(false);
+      return undefined;
+    }
+
+    setDiagnosisQueueOverlayTimedOut(false);
+    setDiagnosisQueueOverlayDismissed(false);
+    const timeout = window.setTimeout(() => setDiagnosisQueueOverlayTimedOut(true), 60_000);
+    return () => window.clearTimeout(timeout);
+  }, [pendingBulkAnalyze, pendingAnalyzeIds.length]);
 
   useEffect(() => {
     const wasActive = fastScanJobActiveRef.current;
@@ -1750,6 +1766,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
           pendingIds={pendingAnalyzeIds}
           onCancel={() => setAnalysisConfirmation(null)}
           onConfirm={handleConfirmAnalysis}
+        />
+      )}
+      {showDiagnosisQueueOverlay && (
+        <ProductDiagnosisQueueOverlay
+          count={pendingAnalyzeIds.length}
+          timedOut={diagnosisQueueOverlayTimedOut}
+          onDismiss={() => setDiagnosisQueueOverlayDismissed(true)}
         />
       )}
       {watchlistConfirmation && (
@@ -7319,6 +7342,31 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
           </button>
         </div>
       </section>
+    </div>
+  );
+}
+
+function ProductDiagnosisQueueOverlay({ count = 0, timedOut = false, onDismiss }) {
+  const productCount = Math.max(1, Number(count) || 1);
+  const productLabel = `${formatInteger(productCount)} product${productCount === 1 ? "" : "s"}`;
+
+  return (
+    <div className="ppProductsScanOverlay ppProductsQueueOverlay" role="status" aria-live="polite">
+      <div>
+        {!timedOut ? <span className="ppScanSpinner" aria-hidden="true" /> : <span className="ppQueueNoticeIcon" aria-hidden="true"><s-icon type="clock" size="small"></s-icon></span>}
+        <h2>{timedOut ? "Queueing is taking longer than expected" : "Adding products to queue"}</h2>
+        <p>
+          {timedOut
+            ? "ProductPulse is still waiting for the backend response. The jobs may appear in Background processes in a moment."
+            : "ProductPulse is reserving credits and creating Product Diagnosis background jobs. Large batches can take a short moment before they appear in Background processes."}
+        </p>
+        <small>{timedOut ? `Still preparing ${productLabel}.` : `Preparing ${productLabel} for Product Diagnosis.`}</small>
+        {timedOut ? (
+          <button className="ppSecondaryButton" type="button" onClick={onDismiss}>
+            Continue waiting in the background
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
