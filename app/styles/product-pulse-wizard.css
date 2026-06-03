@@ -29,7 +29,8 @@
 .ppWizardModalCoach,
 .ppWizardControlBar,
 .ppWizardLoadingCard,
-.ppWizardSuccessToast {
+.ppWizardSuccessToast,
+.ppWizardSkipTourButton {
   pointer-events: auto;
 }
 

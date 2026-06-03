@@ -166,7 +166,7 @@ export async function getWatchlistForShop(shop, options = {}) {
     getWatchActivityRowsForShop(shop, { take: 120, eventTypes: ["watch_scan_queued", "watch_manual_scan_queued"] }),
     productGids.length ? getProductScoreHistoryForProductsForShop(shop, productGids, { take: 0 }) : new Map(),
     getWatchActivityStatsForShop(shop, productPulseSettings),
-    getWatchSettingsForShop(shop),
+    getWatchSettingsForShop(shop, options),
   ]);
 
   return {

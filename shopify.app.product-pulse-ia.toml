@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "803894d3814cf8d9c9c99a345287b472"
-name = "Product Pulse IA"
+name = "Product Pulse: Quality Monitor"
 application_url = "https://app-ppa.zuam.dev"
 embedded = true
 

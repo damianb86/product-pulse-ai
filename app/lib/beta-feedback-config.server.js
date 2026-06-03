@@ -1,7 +1,9 @@
 /* eslint-env node */
 
+export const PRODUCT_PULSE_BETA_FEEDBACK_ENABLED_ENV = "PRODUCT_PULSE_BETA_FEEDBACK_ENABLED";
+
 export function isBetaFeedbackEnabled(env = process.env) {
-  return booleanEnv(env.BETA_FEEDBACK_ENABLED, String(env.NODE_ENV || "").toLowerCase() === "development");
+  return booleanEnv(getConfiguredEnvValue(env[PRODUCT_PULSE_BETA_FEEDBACK_ENABLED_ENV], env.BETA_FEEDBACK_ENABLED), true);
 }
 
 export function getBetaFeedbackClientConfig({ session } = {}, env = process.env) {
@@ -38,4 +40,8 @@ function booleanEnv(value, defaultValue = false) {
   if (["1", "true", "yes", "on", "enabled"].includes(normalized)) return true;
   if (["0", "false", "no", "off", "disabled"].includes(normalized)) return false;
   return defaultValue;
+}
+
+function getConfiguredEnvValue(...values) {
+  return values.find((value) => value != null && String(value).trim() !== "");
 }

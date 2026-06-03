@@ -27,15 +27,17 @@ import {
   maybeSendWatchlistRunAlertForQueuedActivity,
   sendWatchlistCreditExhaustedEmailForShop,
 } from "../lib/product-pulse-watchlist-alerts.server";
+import { getWatchlistDefaultAlertRecipients } from "../lib/product-pulse-watchlist-defaults.server";
 import { authenticate } from "../shopify.server";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const url = new URL(request.url);
   const selectedRunId = String(url.searchParams.get("runId") || "");
+  const defaultAlertRecipients = await getWatchlistDefaultAlertRecipients(admin, session);
   return {
     data: {
-      watchlist: await getWatchlistForShop(session.shop, { selectedRunId, defaultAlertRecipients: [session.email] }),
+      watchlist: await getWatchlistForShop(session.shop, { selectedRunId, defaultAlertRecipients }),
     },
   };
 };
@@ -77,11 +79,13 @@ export const action = async ({ request }) => {
   }
 
   if (actionType === "update-watch-settings") {
-    return updateWatchSettingsForShop(session.shop, formData, { defaultAlertRecipients: [session.email] });
+    const defaultAlertRecipients = await getWatchlistDefaultAlertRecipients(admin, session);
+    return updateWatchSettingsForShop(session.shop, formData, { defaultAlertRecipients });
   }
 
   if (actionType === "toggle-watch-alerts") {
-    return toggleWatchAlertsForShop(session.shop, { defaultAlertRecipients: [session.email] });
+    const defaultAlertRecipients = await getWatchlistDefaultAlertRecipients(admin, session);
+    return toggleWatchAlertsForShop(session.shop, { defaultAlertRecipients });
   }
 
   if (actionType === "pause-all-watches") {
