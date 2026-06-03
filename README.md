@@ -100,7 +100,7 @@ ProductPulse AI is configured to deploy like Reply Pilot on the shared Zuam Dock
 - The app joins the external Docker network `shared_apps`.
 - `deploy.sh` loads both the app `.env` and the shared `shared-docker/.env`, validates `docker-compose.yml`, then runs `docker compose up -d --build --remove-orphans`.
 - Docker publishes `SHOPIFY_APP_URL` from `PROD_SHOPIFY_APP_URL`; keep local `SHOPIFY_APP_URL` for development.
-- In Docker, use the shared PostgreSQL hostname in `DATABASE_URL`, for example `postgresql://zuam_dev:replace-with-app-db-password@postgres:5432/product_pulse_ai?schema=public&connection_limit=3`.
+- In Docker, use the shared PostgreSQL hostname in `DATABASE_URL`, for example `postgresql://zuam_dev:replace-with-app-db-password@postgres:5432/product_pulse_ai?schema=public&connection_limit=10&pool_timeout=30`.
 
 ```bash
 cd ../shared-docker

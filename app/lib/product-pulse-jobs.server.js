@@ -575,15 +575,13 @@ export async function getRecentJobsForShop(shop) {
 
 export async function getJobMonitorForShop(shop) {
   await failStaleFastProductScans(shop);
-  const [jobs, logs, pointSummary] = await Promise.all([
-    prisma.catalogSignalJob.findMany({
-      where: { shop },
-      orderBy: [{ updatedAt: "desc" }],
-      take: JOB_MONITOR_RECENT_JOB_LIMIT,
-    }),
-    getJobLogsForShop(shop, 100),
-    getStorePointSummaryForShop(shop),
-  ]);
+  const jobs = await prisma.catalogSignalJob.findMany({
+    where: { shop },
+    orderBy: [{ updatedAt: "desc" }],
+    take: JOB_MONITOR_RECENT_JOB_LIMIT,
+  });
+  const logs = await getJobLogsForShop(shop, 100);
+  const pointSummary = await getStorePointSummaryForShop(shop);
 
   jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
     if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);

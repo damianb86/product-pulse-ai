@@ -115,10 +115,8 @@ export async function getAiChatMonthlyQuotaForShop(shop: string, input: AiChatMo
   let totalMessageCount = 0;
   let cheapMessageCount = 0;
   try {
-    [totalMessageCount, cheapMessageCount] = await Promise.all([
-      countChatUsageEvents(db, baseUsage, {}),
-      countChatUsageEvents(db, baseUsage, { requestContext: AI_CHAT_CHEAP_REQUEST_CONTEXT }),
-    ]);
+    totalMessageCount = await countChatUsageEvents(db, baseUsage, {});
+    cheapMessageCount = await countChatUsageEvents(db, baseUsage, { requestContext: AI_CHAT_CHEAP_REQUEST_CONTEXT });
   } catch (error) {
     console.warn("[ProductPulse AI] Could not resolve monthly chat quota.", {
       shop: normalizedShop,

@@ -71,21 +71,13 @@ export async function getStorePointSummaryForShop(shop, options = {}) {
     return buildPointSummary(balance, [], options);
   }
 
-  const [recentEntries, debitEntries] = await Promise.all([
-    db.creditLedgerEntry.findMany({
-      where: { shop: normalizedShop },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: Math.max(1, Math.min(10, Number(options.limit || 3))),
-    }),
-    db.creditLedgerEntry.findMany({
-      where: {
-        shop: normalizedShop,
-        direction: "debit",
-      },
-      select: { amount: true },
-    }),
-  ]);
-  return buildPointSummary(balance, recentEntries, { ...options, debitEntries });
+  const recentEntries = await db.creditLedgerEntry.findMany({
+    where: { shop: normalizedShop },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: Math.max(1, Math.min(10, Number(options.limit || 3))),
+  });
+  const debitTotal = await getStorePointDebitTotalForShop(db, normalizedShop);
+  return buildPointSummary(balance, recentEntries, { ...options, debitTotal });
 }
 
 export async function validateStorePointsForShop(shop, amount, options = {}) {
@@ -368,6 +360,30 @@ async function findLedgerEntryByIdempotencyKey(db, shop, idempotencyKey) {
   });
 }
 
+async function getStorePointDebitTotalForShop(db, shop) {
+  if (typeof db.creditLedgerEntry?.aggregate === "function") {
+    const aggregate = await db.creditLedgerEntry.aggregate({
+      where: {
+        shop,
+        direction: "debit",
+      },
+      _sum: { amount: true },
+    });
+    return normalizePointAmount(aggregate?._sum?.amount || 0);
+  }
+
+  const debitEntries = await db.creditLedgerEntry.findMany({
+    where: {
+      shop,
+      direction: "debit",
+    },
+    select: { amount: true },
+  });
+  return roundPointAmount(
+    debitEntries.reduce((total, entry) => total + normalizePointAmount(entry.amount), 0),
+  );
+}
+
 function buildPointBalance(shop, value, entry) {
   const available = roundPointAmount(value);
   return {
@@ -385,12 +401,14 @@ function buildPointSummary(balance, entries = [], options = {}) {
   const planName = String(options.planName || "Free plan").trim();
   const planRenewalLabel = String(options.planRenewalLabel || (options.planKey === "starter" ? "Renews every 30 days" : "Does not renew")).trim();
   const allEntries = Array.isArray(entries) ? entries : [];
-  const debits = Array.isArray(options.debitEntries)
-    ? options.debitEntries
-    : allEntries.filter((entry) => entry.direction === "debit");
+  const debitTotal = Number.isFinite(Number(options.debitTotal))
+    ? normalizePointAmount(options.debitTotal)
+    : null;
   const visibleEntries = allEntries.slice(0, Math.max(1, Math.min(10, Number(options.limit || 3))));
-  const used = roundPointAmount(
-    debits.reduce((total, entry) => total + normalizePointAmount(entry.amount), 0),
+  const used = debitTotal ?? roundPointAmount(
+    allEntries
+      .filter((entry) => entry.direction === "debit")
+      .reduce((total, entry) => total + normalizePointAmount(entry.amount), 0),
   );
   const percent = allowance > 0 ? Math.round((used / allowance) * 100) : 0;
 
