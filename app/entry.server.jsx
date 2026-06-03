@@ -1,4 +1,4 @@
-import { PassThrough } from "stream";
+import { PassThrough, Transform } from "stream";
 import * as Sentry from "@sentry/react-router";
 import { renderToPipeableStream } from "react-dom/server";
 import { ServerRouter } from "react-router";
@@ -30,6 +30,7 @@ async function handleRequest(
       {
         [callbackName]: () => {
           const body = new PassThrough();
+          const cleanedBody = createProductPulseHtmlCleanupStream();
           const stream = createReadableStreamFromReadable(body);
 
           responseHeaders.set("Content-Type", "text/html");
@@ -39,7 +40,8 @@ async function handleRequest(
               status: responseStatusCode,
             }),
           );
-          pipe(body);
+          cleanedBody.pipe(body);
+          pipe(cleanedBody);
         },
         onShellError(error) {
           Sentry.captureException(error);
@@ -60,3 +62,35 @@ async function handleRequest(
 }
 
 export default Sentry.wrapSentryHandleRequest(handleRequest);
+
+function createProductPulseHtmlCleanupStream() {
+  let pending = "";
+  const tailLength = 2048;
+
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      pending += chunk.toString("utf8");
+      if (pending.length <= tailLength) {
+        callback();
+        return;
+      }
+
+      const readyLength = pending.length - tailLength;
+      const ready = pending.slice(0, readyLength);
+      pending = pending.slice(readyLength);
+      this.push(removeStrayReactRouterDollarText(ready));
+      callback();
+    },
+    flush(callback) {
+      this.push(removeStrayReactRouterDollarText(pending));
+      callback();
+    },
+  });
+}
+
+function removeStrayReactRouterDollarText(html) {
+  return html.replace(
+    /(^|>)(\s*)\$(\s*)(?=<script(?:\s[^>]*)?>\s*window\.__reactRouterContext\.streamController\.close\(\);\s*<\/script>)/g,
+    "$1$2",
+  );
+}
