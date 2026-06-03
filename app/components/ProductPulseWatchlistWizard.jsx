@@ -75,13 +75,14 @@ export function ProductPulseWatchlistWizard() {
   const waitingForScanReportRef = useRef(false);
   const scanJobIdsRef = useRef(new Set());
   const step = watchlistWizardSteps[stepIndex] || watchlistWizardSteps[0];
-  const addModalOpen = useSelectorPresent('[data-pp-watchlist-add-modal="true"]', active && step.kind === "addProduct");
-  const reportReady = useSelectorPresent('[data-pp-watchlist-ready-row="true"] [data-pp-watchlist-view-report="true"]', active);
+  const visible = active && isWatchlistRoute(location.pathname);
+  const addModalOpen = useSelectorPresent('[data-pp-watchlist-add-modal="true"]', visible && step.kind === "addProduct");
+  const reportReady = useSelectorPresent('[data-pp-watchlist-ready-row="true"] [data-pp-watchlist-view-report="true"]', visible);
   const targets = useMemo(
     () => getWatchlistWizardTargets(step, addModalOpen),
     [addModalOpen, step],
   );
-  const targetRects = useWatchlistWizardTargets(targets, active);
+  const targetRects = useWatchlistWizardTargets(targets, visible);
   const nextDisabled = getWatchlistWizardNextDisabled(step, { productAdded, scanStarted, reportReady, scanJobCompleted, scanReportReady });
   const labels = getWatchlistWizardControlLabels(step, { productAdded, scanStarted, reportReady, scanJobCompleted, scanReportReady });
 
@@ -123,13 +124,6 @@ export function ProductPulseWatchlistWizard() {
   }, [active, hydrated, location.pathname]);
 
   useEffect(() => {
-    if (!active) return;
-    if (!location.pathname.startsWith(WATCHLIST_ROUTE)) {
-      setActive(false);
-    }
-  }, [active, location.pathname]);
-
-  useEffect(() => {
     const handleStartWatchlistWizard = () => {
       resetWatchlistWizardState(true);
       if (!isWatchlistIndexRoute(location.pathname)) {
@@ -149,15 +143,15 @@ export function ProductPulseWatchlistWizard() {
   }, [resetWatchlistWizardState]);
 
   useEffect(() => {
-    document.body.classList.toggle("ppWatchlistWizardActive", active);
-    document.body.classList.toggle("ppWatchlistWizardAddProductActive", active && step.kind === "addProduct");
-    document.body.classList.toggle("ppWatchlistWizardTableActive", active && step.kind === "table");
-    document.body.classList.toggle("ppWatchlistWizardSettingsOverviewActive", active && step.kind === "settingsOverview");
-    document.body.classList.toggle("ppWatchlistWizardSettingsActive", active && step.kind === "settings");
-    document.body.classList.toggle("ppWatchlistWizardBackgroundProcessesActive", active && step.kind === "backgroundProcesses");
-    document.body.classList.toggle("ppWatchlistWizardReportActive", active && step.kind === "reportRow");
-    document.body.classList.toggle("ppWatchlistWizardProductHeroActive", active && step.kind === "productHero");
-    document.body.classList.toggle("ppWatchlistWizardRecentRunsActive", active && step.kind === "recentRuns");
+    document.body.classList.toggle("ppWatchlistWizardActive", visible);
+    document.body.classList.toggle("ppWatchlistWizardAddProductActive", visible && step.kind === "addProduct");
+    document.body.classList.toggle("ppWatchlistWizardTableActive", visible && step.kind === "table");
+    document.body.classList.toggle("ppWatchlistWizardSettingsOverviewActive", visible && step.kind === "settingsOverview");
+    document.body.classList.toggle("ppWatchlistWizardSettingsActive", visible && step.kind === "settings");
+    document.body.classList.toggle("ppWatchlistWizardBackgroundProcessesActive", visible && step.kind === "backgroundProcesses");
+    document.body.classList.toggle("ppWatchlistWizardReportActive", visible && step.kind === "reportRow");
+    document.body.classList.toggle("ppWatchlistWizardProductHeroActive", visible && step.kind === "productHero");
+    document.body.classList.toggle("ppWatchlistWizardRecentRunsActive", visible && step.kind === "recentRuns");
     return () => {
       document.body.classList.remove("ppWatchlistWizardActive");
       document.body.classList.remove("ppWatchlistWizardAddProductActive");
@@ -169,23 +163,35 @@ export function ProductPulseWatchlistWizard() {
       document.body.classList.remove("ppWatchlistWizardProductHeroActive");
       document.body.classList.remove("ppWatchlistWizardRecentRunsActive");
     };
-  }, [active, step.kind]);
+  }, [step.kind, visible]);
 
   useEffect(() => {
-    if (!active || !step.route || isCurrentWatchlistWizardRoute(location.pathname, step)) return;
+    if (!visible || !step.route || isCurrentWatchlistWizardRoute(location.pathname, step)) return;
     navigate(step.route);
-  }, [active, location.pathname, navigate, step]);
+  }, [location.pathname, navigate, step, visible]);
 
   useEffect(() => {
-    if (!active) return undefined;
-    const timeouts = [80, 360].map((delay) => (
-      window.setTimeout(() => scrollWatchlistWizardTargetIntoView(step, addModalOpen), delay)
-    ));
-    return () => timeouts.forEach((timeout) => window.clearTimeout(timeout));
-  }, [active, addModalOpen, step]);
+    if (!visible) return undefined;
+    const scrollTargetIntoView = () => scrollWatchlistWizardTargetIntoView(step, addModalOpen);
+    const timeouts = [80, 360].map((delay) => window.setTimeout(scrollTargetIntoView, delay));
+    let observer = null;
+    let observerTimeout = null;
+
+    if (step.kind === "table") {
+      observer = new MutationObserver(scrollTargetIntoView);
+      observer.observe(document.body, { childList: true, subtree: true });
+      observerTimeout = window.setTimeout(() => observer?.disconnect(), 1600);
+    }
+
+    return () => {
+      timeouts.forEach((timeout) => window.clearTimeout(timeout));
+      if (observerTimeout) window.clearTimeout(observerTimeout);
+      observer?.disconnect();
+    };
+  }, [addModalOpen, step, visible]);
 
   useEffect(() => {
-    if (!active) return undefined;
+    if (!visible) return undefined;
 
     const blockInteraction = (event) => {
       if (!shouldBlockWatchlistWizardInteraction(event.target, step.kind)) return;
@@ -201,7 +207,7 @@ export function ProductPulseWatchlistWizard() {
       window.removeEventListener("click", blockInteraction, true);
       window.removeEventListener("submit", blockInteraction, true);
     };
-  }, [active, step.kind]);
+  }, [step.kind, visible]);
 
   useEffect(() => {
     if (!active || step.kind !== "backgroundProcesses" || !scanStarted || !scanJobCompleted || !scanReportReady) return undefined;
@@ -215,14 +221,14 @@ export function ProductPulseWatchlistWizard() {
   }, [active, scanJobCompleted, scanReportReady, scanStarted, step.kind]);
 
   useEffect(() => {
-    if (!active || step.kind !== "backgroundProcesses") return undefined;
+    if (!visible || step.kind !== "backgroundProcesses") return undefined;
     const timeout = window.setTimeout(() => openBackgroundProcessesPopover(), 80);
     const interval = window.setInterval(() => openBackgroundProcessesPopover(), 1000);
     return () => {
       window.clearTimeout(timeout);
       window.clearInterval(interval);
     };
-  }, [active, step.kind]);
+  }, [step.kind, visible]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -282,7 +288,9 @@ export function ProductPulseWatchlistWizard() {
         scanJobIdsRef.current = new Set(getWatchlistWizardJobIds(detail.jobs));
         const backgroundStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "backgroundProcesses");
         if (backgroundStepIndex >= 0) setStepIndex(backgroundStepIndex);
-        window.setTimeout(() => openBackgroundProcessesPopover(), 80);
+        if (isWatchlistRoute(location.pathname)) {
+          window.setTimeout(() => openBackgroundProcessesPopover(), 80);
+        }
       }
       if (detail.type === "report-ready") {
         setReportedProduct({
@@ -340,7 +348,7 @@ export function ProductPulseWatchlistWizard() {
     }
   }, [location.pathname, navigate, stepIndex]);
 
-  if (!hydrated || !active) return null;
+  if (!hydrated || !visible) return null;
 
   return createPortal(
     <>
@@ -938,6 +946,10 @@ function isWatchlistIndexRoute(pathname) {
 
 function isWatchlistProductRoute(pathname) {
   return pathname.startsWith(`${WATCHLIST_ROUTE}/`) && !isWatchlistIndexRoute(pathname);
+}
+
+function isWatchlistRoute(pathname) {
+  return isWatchlistIndexRoute(pathname) || isWatchlistProductRoute(pathname);
 }
 
 function getUnionRect(elements) {

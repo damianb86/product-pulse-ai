@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { createMemoryRouter, Link, RouterProvider, useLocation } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProductPulseWatchlistWizard } from "../../app/components/ProductPulseWatchlistWizard";
 
 const WATCHLIST_WIZARD_STORAGE_KEY = "productPulse.watchlistWizard.completed.v1";
@@ -103,6 +103,53 @@ describe("ProductPulseWatchlistWizard", () => {
     expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBe("true");
   });
 
+  it("pauses when the user leaves Watchlist and resumes the same step on return", async () => {
+    renderWatchlistWizard();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add watched product" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add to watchlist" }));
+
+    expect(await screen.findByRole("dialog", { name: "Watched products" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Dashboard" }));
+
+    await waitFor(() => expect(screen.getByTestId("watchlist-path")).toHaveTextContent("/app/dashboard"));
+    expect(screen.queryByRole("dialog", { name: "Watched products" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skip tour" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBeNull();
+
+    fireEvent.click(screen.getByRole("link", { name: "Watchlist" }));
+
+    await waitFor(() => expect(screen.getByTestId("watchlist-path")).toHaveTextContent("/app/watchlist"));
+    expect(await screen.findByRole("dialog", { name: "Watched products" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Monitor product changes automatically" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the Watchlist table in view if it re-renders after adding a product", async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      renderWatchlistWizard();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Add watched product" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Add to watchlist" }));
+      expect(await screen.findByRole("dialog", { name: "Watched products" })).toBeInTheDocument();
+
+      scrollIntoView.mockClear();
+      act(() => {
+        const table = document.querySelector("[data-pp-watchlist-table]");
+        table?.appendChild(document.createElement("span"));
+      });
+
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+      expect(scrollIntoView.mock.calls.at(-1)?.[0]).toMatchObject({ block: "end", inline: "nearest" });
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
   it("restarts from Settings when the development start event is fired", async () => {
     window.localStorage.setItem(WATCHLIST_WIZARD_STORAGE_KEY, "true");
     renderWatchlistWizard("/app/settings");
@@ -183,6 +230,8 @@ function WatchlistWizardHarness() {
     <>
       <ProductPulseWatchlistWizard />
       <div className="ppGlobalTopbar">
+        <Link to="/app/dashboard">Dashboard</Link>
+        <Link to="/app/watchlist">Watchlist</Link>
         <button
           type="button"
           data-pp-background-process-button
