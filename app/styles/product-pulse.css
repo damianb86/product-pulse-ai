@@ -37782,6 +37782,54 @@ s-page[inline-size="large-500"] {
   line-height: 1.4;
 }
 
+.ppPlansCancellationNotice {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  max-width: 680px;
+  margin: -4px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--pp-warning-amber-rgb), 0.28);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-warning-amber-rgb), 0.12), rgba(255, 255, 255, 0.92)),
+    var(--pp-cloud-white);
+  box-shadow: 0 10px 24px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppPlansCancellationNotice > span {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: var(--pp-warning-amber);
+}
+
+.ppPlansCancellationNotice .ppPlansIcon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.5;
+}
+
+.ppPlansCancellationNotice strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.ppPlansCancellationNotice p {
+  margin: 2px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .ppPlansMatrixCard {
   overflow: hidden;
   border: 1px solid #dae4f0;
@@ -39090,6 +39138,11 @@ s-page[inline-size="large-500"] {
   color: var(--pp-pulse-blue);
 }
 
+.ppPlansCurrentBadge.isCancelled {
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: #b45309;
+}
+
 .ppPlansFeatureCell {
   min-height: 46px;
   padding: 0 18px;
@@ -39165,6 +39218,34 @@ s-page[inline-size="large-500"] {
 
 .ppPlansCancelButton {
   font-size: 11px;
+}
+
+.ppPlansRestoreButton {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid rgba(var(--pp-success-green-rgb), 0.28);
+  border-radius: 999px;
+  background: rgba(var(--pp-success-green-rgb), 0.08);
+  color: var(--pp-success-green);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.ppPlansRestoreButton:hover,
+.ppPlansRestoreButton:focus-visible {
+  border-color: rgba(var(--pp-success-green-rgb), 0.48);
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--pp-success-green-rgb), 0.10);
+}
+
+.ppPlansRestoreButton:disabled {
+  border-color: var(--pp-slate-200);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-400);
+  cursor: not-allowed;
 }
 
 .ppPlansChooseButton.isCurrent:disabled {

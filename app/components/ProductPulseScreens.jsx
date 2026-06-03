@@ -6036,6 +6036,20 @@ function getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled) {
   return `Choose ${plan.name}`;
 }
 
+function getPlansCreditCancellationState(data = {}) {
+  const billing = data?.billing || {};
+  const active = Boolean(billing.cancellationKeepsAccess && (billing.planKey || billing.currentPlanKey) === "starter");
+  const endsAt = billing.accessEndsAt || billing.currentPeriodEnd || "";
+  const endsAtLabel = formatPlansDate(endsAt);
+  return {
+    active,
+    planName: billing.planName || "Starter",
+    endsAt,
+    endsAtLabel,
+    cancelledAtLabel: formatPlansDate(billing.cancelledAt),
+  };
+}
+
 function getPlansCreditPointSummary(data = {}) {
   return data?.billing?.pointSummary || data?.pointSummary || null;
 }
@@ -6102,6 +6116,16 @@ function formatPlansCurrency(amountCents, currencyCode = "USD") {
   }).format(cents / 100);
 }
 
+function formatPlansDate(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
 function formatPlansCreditSignedAmount(value = 0) {
   const number = Number(value || 0);
   const sign = number < 0 ? "-" : "+";
@@ -6115,6 +6139,7 @@ export function PlansCreditsScreen({ data = {} }) {
   const currentPlan = PLANS_CREDIT_PLANS.find((plan) => plan.key === currentPlanKey) || PLANS_CREDIT_PLANS[0];
   const visiblePlans = PLANS_CREDIT_PLANS.filter((plan) => !plan.unavailable || plan.key === currentPlanKey);
   const billingEnabled = isPlansCreditBillingEnabled(data);
+  const cancellationState = getPlansCreditCancellationState(data);
   const pointSummary = getPlansCreditPointSummary(data);
   const creditPacks = getPlansCreditPackViews(data);
   const routeBillingMessage = data?.billing?.creditPurchaseResult?.message || data?.billing?.message || "";
@@ -6140,6 +6165,8 @@ export function PlansCreditsScreen({ data = {} }) {
       usedCredits,
       remainingCredits,
       billingEnabled,
+      subscriptionCancelled: cancellationState.active,
+      subscriptionEndsAt: cancellationState.endsAtLabel,
     },
   };
   const planComparisonFeedbackPanel = buildBetaFeedbackPanel("plans.planComparison", "Plan comparison", {
@@ -6240,6 +6267,18 @@ export function PlansCreditsScreen({ data = {} }) {
           </aside>
         </section>
 
+        {cancellationState.active ? (
+          <section className="ppPlansCancellationNotice" aria-label="Cancelled subscription status">
+            <span aria-hidden="true"><PlansCreditsIcon type="clock" /></span>
+            <div>
+              <strong>{cancellationState.planName} subscription cancelled</strong>
+              <p>
+                Your {cancellationState.planName} benefits remain active until {cancellationState.endsAtLabel || "the end of the paid period"}. Restore the subscription before then to resume renewal.
+              </p>
+            </div>
+          </section>
+        ) : null}
+
       <BetaFeedbackPanelFrame panel={planComparisonFeedbackPanel}>
         <section className="ppPlansMatrixCard" id="plans-comparison" aria-label="Plan comparison">
           <div className="ppPlansBetaFeedbackCorner">
@@ -6256,7 +6295,7 @@ export function PlansCreditsScreen({ data = {} }) {
                   key={plan.key}
                 >
                   {plan.badge && <span className={`ppPlansPlanBadge ppPlansPlanBadge-${plan.premium ? "green" : "purple"}`}>{plan.badge}</span>}
-                  {plan.key === currentPlanKey && <span className="ppPlansCurrentBadge">Current</span>}
+                  {plan.key === currentPlanKey && <span className={`ppPlansCurrentBadge${cancellationState.active && plan.key === "starter" ? " isCancelled" : ""}`}>{cancellationState.active && plan.key === "starter" ? "Cancelled" : "Current"}</span>}
                   <h2>{plan.name}</h2>
                   <div className="ppPlansPriceBlock">
                     {pricing.compareAtPriceLabel ? <span className="ppPlansOriginalPrice">{pricing.compareAtPriceLabel}</span> : null}
@@ -6284,6 +6323,7 @@ export function PlansCreditsScreen({ data = {} }) {
                   isSubmitting={isPlanSubmitting}
                   plan={plan}
                   planFetcher={planFetcher}
+                  cancellationState={cancellationState}
                   subscriptionId={data?.billing?.subscriptionId}
                 />
               </div>
@@ -6302,6 +6342,7 @@ export function PlansCreditsScreen({ data = {} }) {
                     <div>
                       <span className="ppPlansMobileCardEyebrow">
                         {plan.key === currentPlanKey ? "Current plan" : plan.badge || "Plan"}
+                        {plan.key === currentPlanKey && cancellationState.active && plan.key === "starter" ? " · Cancelled" : ""}
                       </span>
                       <h2>{plan.name}</h2>
                     </div>
@@ -6332,6 +6373,7 @@ export function PlansCreditsScreen({ data = {} }) {
                       isSubmitting={isPlanSubmitting}
                       plan={plan}
                       planFetcher={planFetcher}
+                      cancellationState={cancellationState}
                       subscriptionId={data?.billing?.subscriptionId}
                     />
                   </div>
@@ -6499,11 +6541,29 @@ export function PlansCreditsScreen({ data = {} }) {
   );
 }
 
-function PlanActionButton({ billingEnabled, currentPlanKey, isSubmitting, plan, planFetcher, subscriptionId }) {
+function PlanActionButton({ billingEnabled, cancellationState = {}, currentPlanKey, isSubmitting, plan, planFetcher, subscriptionId }) {
   const classes = `ppPlansChooseButton${plan.featured ? " isPrimary" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`;
   const label = getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled);
 
   if (plan.key === currentPlanKey && plan.key === "starter") {
+    if (cancellationState.active) {
+      return (
+        <planFetcher.Form className="ppPlansPlanActionForm" method="post">
+          <input type="hidden" name="intent" value="restore-starter" />
+          <button className={classes} disabled type="button">
+            Active until {cancellationState.endsAtLabel || "period end"}
+          </button>
+          <button
+            className="ppPlansRestoreButton"
+            disabled={isSubmitting ? true : undefined}
+            type="submit"
+          >
+            {isSubmitting ? "Opening..." : "Restore subscription"}
+          </button>
+        </planFetcher.Form>
+      );
+    }
+
     return (
       <planFetcher.Form className="ppPlansPlanActionForm" method="post">
         <input type="hidden" name="intent" value="cancel-starter" />

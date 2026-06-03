@@ -406,6 +406,35 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("button", { name: "Buy 50 credits" })).not.toBeInTheDocument();
   });
 
+  it("shows cancelled Starter access and offers restore instead of cancellation", () => {
+    renderWithRouter(<PlansCreditsScreen data={{
+      billing: {
+        shopifyBillingEnabled: true,
+        planKey: "starter",
+        planName: "Starter",
+        monthlyCredits: 50,
+        subscriptionId: "gid://shopify/AppSubscription/123",
+        cancellationKeepsAccess: true,
+        cancelledAt: "2026-06-03T15:00:00.000Z",
+        accessEndsAt: "2026-06-24T15:00:00.000Z",
+        currentPeriodEnd: "2026-06-24T15:00:00.000Z",
+      },
+      pointSummary: {
+        balance: { available: 50 },
+        usage: { used: 0 },
+        activity: [],
+      },
+    }} />);
+    const planMatrix = screen.getByLabelText("Plan comparison").querySelector(".ppPlansMatrix");
+
+    expect(screen.getByLabelText("Cancelled subscription status")).toHaveTextContent("Starter subscription cancelled");
+    expect(screen.getByLabelText("Cancelled subscription status")).toHaveTextContent("Jun 24, 2026");
+    expect(within(planMatrix).getByText("Cancelled")).toBeInTheDocument();
+    expect(within(planMatrix).getByRole("button", { name: "Active until Jun 24, 2026" })).toBeDisabled();
+    expect(within(planMatrix).getByRole("button", { name: "Restore subscription" })).toBeEnabled();
+    expect(within(planMatrix).queryByRole("button", { name: "Cancel subscription" })).not.toBeInTheDocument();
+  });
+
   it("renders Credits ledger activity from point history", () => {
     renderWithRouter(<PlansCreditsScreen data={{
       pointSummary: {

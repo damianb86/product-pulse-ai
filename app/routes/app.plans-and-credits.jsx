@@ -11,6 +11,7 @@ import {
   createProductPulseCreditPurchase,
   finalizeProductPulseCreditPurchase,
   resolveProductPulseBillingPlan,
+  restoreProductPulseStarterSubscription,
   serializeProductPulseBillingError,
 } from "../lib/product-pulse-billing.server";
 import {
@@ -67,6 +68,11 @@ export const loader = async ({ request }) => {
       planName: billingPlan.planName,
       monthlyCredits: billingPlan.monthlyCredits,
       subscriptionId: billingPlan.subscriptionId,
+      subscriptionStatus: billingPlan.subscriptionStatus,
+      cancellationKeepsAccess: billingPlan.cancellationKeepsAccess,
+      cancelledAt: billingPlan.cancelledAt,
+      accessEndsAt: billingPlan.accessEndsAt,
+      currentPeriodEnd: billingPlan.currentPeriodEnd,
       billingReturnStatus: !billingReturn ? "none" : billingPlan.planKey === "starter" ? "confirmed" : "pending",
       billingReturnChargeId: url.searchParams.get("charge_id"),
       creditPurchaseResult,
@@ -133,6 +139,32 @@ export const action = async ({ request }) => {
         ok: false,
         intent,
         message: serialized.message || "Could not cancel the Starter subscription.",
+        error: serialized,
+      };
+    }
+  }
+
+  if (intent === "restore-starter") {
+    try {
+      const restoration = await restoreProductPulseStarterSubscription({
+        shop: session.shop,
+        admin,
+        billing,
+        returnUrl: billingReturnUrl(request, session.shop),
+      });
+      return {
+        ok: true,
+        intent,
+        message: restoration.message,
+        confirmationUrl: restoration.confirmationUrl,
+      };
+    } catch (error) {
+      if (error instanceof Response) throw error;
+      const serialized = serializeProductPulseBillingError(error);
+      return {
+        ok: false,
+        intent,
+        message: serialized.message || "Could not restore the Starter subscription.",
         error: serialized,
       };
     }

@@ -67,12 +67,14 @@ const APP_SUBSCRIPTION_CREATE = `#graphql
     $name: String!
     $returnUrl: URL!
     $test: Boolean
+    $trialDays: Int
     $lineItems: [AppSubscriptionLineItemInput!]!
   ) {
     appSubscriptionCreate(
       name: $name
       returnUrl: $returnUrl
       test: $test
+      trialDays: $trialDays
       lineItems: $lineItems
     ) {
       confirmationUrl
@@ -187,6 +189,9 @@ export async function resolveProductPulseBillingPlan({ admin, billing, session, 
   const localState = await getBillingSubscriptionStateForShop(shop);
   const activeSubscription = snapshot.activeSubscription;
   const activePeriod = getSubscriptionBillingPeriod(activeSubscription, now);
+  const deferredGrantUntil = activeSubscription
+    ? getDeferredStarterGrantUntil(activeSubscription, localState, now)
+    : null;
   if (activeSubscription) {
     await upsertBillingSubscriptionStateForShop(shop, {
       subscriptionId: activeSubscription.id,
@@ -201,6 +206,7 @@ export async function resolveProductPulseBillingPlan({ admin, billing, session, 
         source: snapshot.source,
         shopifyStatus: activeSubscription.status || null,
         test: activeSubscription.test ?? null,
+        deferredGrantUntil: toIso(deferredGrantUntil),
       },
     });
   }
@@ -231,37 +237,42 @@ export async function resolveProductPulseBillingPlan({ admin, billing, session, 
     currencyCode: plan.currencyCode,
     subscriptionId,
     subscriptionStatus: activeSubscription?.status || (paidCancelledAccess ? localState.status : null),
+    cancelledAt: !activeSubscription && paidCancelledAccess ? toIso(localState.cancelledAt) : null,
     currentPeriodStart: toIso(periodStart),
     currentPeriodEnd: toIso(periodEnd),
     periodKey,
-    grantEligible: Boolean(activeSubscription),
+    grantEligible: Boolean(activeSubscription && !deferredGrantUntil),
     accessEndsAt: toIso(periodEnd),
     cancellationKeepsAccess: Boolean(paidCancelledAccess),
     subscriptions: snapshot.appSubscriptions,
   };
 }
 
-export async function createProductPulseStarterSubscription(shop, admin, returnUrl) {
+export async function createProductPulseStarterSubscription(shop, admin, returnUrl, options = {}) {
   const isTestBilling = await shouldUseProductPulseTestBilling(admin, shop);
-  const response = await admin.graphql(APP_SUBSCRIPTION_CREATE, {
-    variables: {
-      name: PRODUCT_PULSE_STARTER_PLAN,
-      returnUrl,
-      test: isTestBilling,
-      lineItems: [
-        {
-          plan: {
-            appRecurringPricingDetails: {
-              interval: "EVERY_30_DAYS",
-              price: {
-                amount: PRODUCT_PULSE_STARTER_PLAN_CONFIG.priceCents / 100,
-                currencyCode: PRODUCT_PULSE_STARTER_PLAN_CONFIG.currencyCode,
-              },
+  const trialDays = normalizeTrialDays(options.trialDays);
+  const variables = {
+    name: PRODUCT_PULSE_STARTER_PLAN,
+    returnUrl,
+    test: isTestBilling,
+    lineItems: [
+      {
+        plan: {
+          appRecurringPricingDetails: {
+            interval: "EVERY_30_DAYS",
+            price: {
+              amount: PRODUCT_PULSE_STARTER_PLAN_CONFIG.priceCents / 100,
+              currencyCode: PRODUCT_PULSE_STARTER_PLAN_CONFIG.currencyCode,
             },
           },
         },
-      ],
-    },
+      },
+    ],
+  };
+  if (trialDays > 0) variables.trialDays = trialDays;
+
+  const response = await admin.graphql(APP_SUBSCRIPTION_CREATE, {
+    variables,
   });
   const body = await readGraphql(response);
   const payload = readObject(readObject(body.data).appSubscriptionCreate);
@@ -284,6 +295,62 @@ export async function createProductPulseStarterSubscription(shop, admin, returnU
     confirmationUrl,
     subscriptionId: String(appSubscription.id || ""),
     status: String(appSubscription.status || "").toLowerCase(),
+    trialDays,
+  };
+}
+
+export async function restoreProductPulseStarterSubscription({ shop, admin, billing, returnUrl }) {
+  const normalizedShop = normalizeShop(shop);
+  if (!normalizedShop) {
+    throw new ProductPulseBillingError("No shop was found for this Starter subscription.");
+  }
+
+  const currentPlan = await resolveProductPulseBillingPlan({
+    admin,
+    billing,
+    session: { shop: normalizedShop },
+  });
+  if (currentPlan.planKey === PRODUCT_PULSE_STARTER_PLAN_CONFIG.key && !currentPlan.cancellationKeepsAccess) {
+    return {
+      ok: true,
+      alreadyActive: true,
+      message: "Starter subscription is already active.",
+    };
+  }
+
+  const localState = await getBillingSubscriptionStateForShop(normalizedShop);
+  const accessEndsAt = coerceDate(currentPlan.accessEndsAt || localState?.accessEndsAt || localState?.currentPeriodEnd);
+  const now = new Date();
+  const trialDays = accessEndsAt && accessEndsAt.getTime() > now.getTime()
+    ? Math.ceil((accessEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
+    : 0;
+  const subscription = await createProductPulseStarterSubscription(normalizedShop, admin, returnUrl, { trialDays });
+
+  await upsertBillingSubscriptionStateForShop(normalizedShop, {
+    subscriptionId: localState?.subscriptionId || currentPlan.subscriptionId,
+    planKey: PRODUCT_PULSE_STARTER_PLAN_CONFIG.key,
+    planName: PRODUCT_PULSE_STARTER_PLAN_CONFIG.name,
+    status: "restore_pending",
+    currentPeriodStart: currentPlan.currentPeriodStart || localState?.currentPeriodStart,
+    currentPeriodEnd: currentPlan.currentPeriodEnd || localState?.currentPeriodEnd,
+    accessEndsAt,
+    cancelledAt: currentPlan.cancelledAt || localState?.cancelledAt,
+    metadata: {
+      source: "merchant_restore",
+      pendingSubscriptionId: subscription.subscriptionId,
+      deferredGrantUntil: toIso(accessEndsAt),
+      trialDays,
+    },
+  });
+
+  return {
+    ok: true,
+    confirmationUrl: subscription.confirmationUrl,
+    subscriptionId: subscription.subscriptionId,
+    trialDays,
+    message: trialDays > 0
+      ? "Opening Shopify approval. Renewal is scheduled after the already-paid Starter period ends."
+      : "Opening Shopify billing approval...",
   };
 }
 
@@ -802,6 +869,26 @@ function isBillingSubscriptionStateAccessible(state, now = new Date()) {
   if (state.status === "refunded" || state.status === "free" || state.status === "frozen") return false;
   const accessEndsAt = coerceDate(state.accessEndsAt || state.currentPeriodEnd);
   return Boolean(accessEndsAt && accessEndsAt.getTime() > now.getTime());
+}
+
+function getDeferredStarterGrantUntil(activeSubscription = {}, localState = null, now = new Date()) {
+  const subscriptionId = String(activeSubscription?.id || "");
+  const metadataDeferredUntil = coerceDate(localState?.metadata?.deferredGrantUntil);
+  if (metadataDeferredUntil && metadataDeferredUntil.getTime() > now.getTime()) return metadataDeferredUntil;
+  const localAccessEndsAt = coerceDate(localState?.accessEndsAt || localState?.currentPeriodEnd);
+  const restoredDuringPaidAccess = localState
+    && localState.planKey === PRODUCT_PULSE_STARTER_PLAN_CONFIG.key
+    && ["cancelled", "restore_pending"].includes(String(localState.status || ""))
+    && localAccessEndsAt
+    && localAccessEndsAt.getTime() > now.getTime()
+    && String(localState.subscriptionId || "") !== subscriptionId;
+  return restoredDuringPaidAccess ? localAccessEndsAt : null;
+}
+
+function normalizeTrialDays(value) {
+  const days = Number(value || 0);
+  if (!Number.isFinite(days) || days <= 0) return 0;
+  return Math.max(0, Math.ceil(days));
 }
 
 function getSubscriptionBillingPeriod(subscription = {}, now = new Date()) {

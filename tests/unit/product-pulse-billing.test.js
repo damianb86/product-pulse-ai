@@ -115,6 +115,45 @@ describe("ProductPulse Shopify Billing", () => {
     });
   });
 
+  it("can create a Starter subscription with trial days for restored paid access", async () => {
+    process.env.SHOPIFY_BILLING_TEST = "true";
+    const calls = [];
+    const admin = {
+      graphql: async (_query, options = {}) => {
+        calls.push(options);
+        return {
+          json: async () => ({
+            data: {
+              appSubscriptionCreate: {
+                confirmationUrl: "https://shopify.test/confirm-restored-subscription",
+                userErrors: [],
+                appSubscription: {
+                  id: "gid://shopify/AppSubscription/789",
+                  status: "PENDING",
+                },
+              },
+            },
+          }),
+        };
+      },
+    };
+
+    const result = await createProductPulseStarterSubscription(
+      "starter-shop.myshopify.com",
+      admin,
+      "https://admin.shopify.com/store/starter-shop/apps/product-pulse-ai/app/plans-and-credits?billing=approved",
+      { trialDays: 12 },
+    );
+
+    expect(result).toMatchObject({
+      confirmationUrl: "https://shopify.test/confirm-restored-subscription",
+      trialDays: 12,
+    });
+    expect(calls[0].variables).toMatchObject({
+      trialDays: 12,
+    });
+  });
+
   it("exposes Starter and one-time credit packs for the UI", () => {
     const view = getProductPulseBillingView();
 
