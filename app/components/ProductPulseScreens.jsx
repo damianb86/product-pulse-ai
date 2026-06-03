@@ -14713,15 +14713,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                           <tr>
                             <th>Issue</th>
                             <th>Impact</th>
-                            <th>Confidence</th>
-                            <th>Signals</th>
                             <th>Suggested action</th>
                           </tr>
                         </thead>
                         <tbody>
                           {detail.detectedIssues.length === 0 && (
                             <tr className="ppIssuesEmptyRow">
-                              <td colSpan="5">
+                              <td colSpan="3">
                                 <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
                               </td>
                             </tr>
@@ -14744,8 +14742,6 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                   </span>
                                 </td>
                                 <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
-                                <td>{issue.confidence}</td>
-                                <td>{issue.signals}</td>
                                 <td title={issue.action}>{issue.action}</td>
                               </tr>
                             );

@@ -87,6 +87,10 @@
       transparent 70%
     );
   --pp-highlight-shadow: var(--pp-highlighted-card-shadow);
+  --pp-modal-edge-gap: 10px;
+  --pp-modal-scrollbar-gap: 12px;
+  --pp-modal-right-gap: calc(var(--pp-modal-edge-gap) + var(--pp-modal-scrollbar-gap));
+  --pp-modal-available-width: calc(100dvw - var(--pp-modal-edge-gap) - var(--pp-modal-right-gap));
   --pp-overview-highlight-bg:
     linear-gradient(
       135deg,
@@ -18087,31 +18091,22 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(1),
 .ppIssuesTable td:nth-child(1) {
-  width: 39%;
+  width: 34%;
 }
 
 .ppIssuesTable th:nth-child(2),
 .ppIssuesTable td:nth-child(2) {
-  width: 13%;
+  width: 22%;
 }
 
 .ppIssuesTable th:nth-child(3),
 .ppIssuesTable td:nth-child(3) {
-  width: 10%;
-}
-
-.ppIssuesTable th:nth-child(4),
-.ppIssuesTable td:nth-child(4) {
-  width: 8%;
-}
-
-.ppIssuesTable th:nth-child(5),
-.ppIssuesTable td:nth-child(5) {
-  width: 30%;
+  width: 44%;
 }
 
 .ppIssuesTable th,
 .ppIssuesTable td {
+  min-width: 0;
   padding: 7px 8px;
   border-bottom: 1px solid var(--pp-slate-200);
   color: var(--pp-slate-700);
@@ -18151,6 +18146,7 @@ s-page[inline-size="large-500"] {
   position: relative;
   min-width: 0;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .ppIssueNameCell {
@@ -20870,9 +20866,9 @@ s-page[inline-size="large-500"] {
 
 /* Dense recommended-action modal layout inspired by the product action review mockup. */
 .ppRecommendedActionModal {
-  width: min(1160px, calc(100dvw - 20px));
-  max-height: min(820px, calc(100vh - 20px));
-  max-height: min(820px, calc(100dvh - 20px));
+  width: min(1160px, var(--pp-modal-available-width));
+  max-height: min(820px, calc(100vh - var(--pp-modal-edge-gap) * 2));
+  max-height: min(820px, calc(100dvh - var(--pp-modal-edge-gap) * 2));
   box-sizing: border-box;
   scrollbar-gutter: stable;
   gap: 8px;
@@ -21458,7 +21454,7 @@ s-page[inline-size="large-500"] {
   left: 50%;
   bottom: 15px;
   z-index: 2147483400;
-  width: min(720px, calc(100dvw - 20px));
+  width: min(720px, var(--pp-modal-available-width));
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -21611,7 +21607,7 @@ s-page[inline-size="large-500"] {
 
 @media (max-width: 900px) {
   .ppRecommendedActionModal {
-    width: min(720px, calc(100vw - 16px));
+    width: min(720px, var(--pp-modal-available-width));
     padding: 12px;
   }
 
@@ -21642,7 +21638,7 @@ s-page[inline-size="large-500"] {
   }
 
   .ppRecommendedActionMiniDock {
-    width: calc(100vw - 20px);
+    width: var(--pp-modal-available-width);
     padding: 14px;
   }
 
@@ -24031,9 +24027,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppBusinessImpactModal {
-  width: min(980px, calc(100dvw - 20px));
-  max-height: min(760px, calc(100vh - 20px));
-  max-height: min(760px, calc(100dvh - 20px));
+  width: min(980px, var(--pp-modal-available-width));
+  max-height: min(760px, calc(100vh - var(--pp-modal-edge-gap) * 2));
+  max-height: min(760px, calc(100dvh - var(--pp-modal-edge-gap) * 2));
   box-sizing: border-box;
   overflow: auto;
   scrollbar-gutter: stable;
@@ -24980,14 +24976,16 @@ s-page[inline-size="large-500"] {
   display: grid;
   place-items: center;
   overflow: hidden;
-  padding: 10px;
+  box-sizing: border-box;
+  padding: var(--pp-modal-edge-gap) var(--pp-modal-right-gap) var(--pp-modal-edge-gap) var(--pp-modal-edge-gap);
   background: rgba(var(--pp-shadow-rgb), 0.42);
+  scrollbar-gutter: stable;
 }
 
 .ppConnectionModal {
-  width: min(520px, calc(100dvw - 20px));
-  max-height: calc(100vh - 20px);
-  max-height: calc(100dvh - 20px);
+  width: min(520px, var(--pp-modal-available-width));
+  max-height: calc(100vh - var(--pp-modal-edge-gap) * 2);
+  max-height: calc(100dvh - var(--pp-modal-edge-gap) * 2);
   box-sizing: border-box;
   overflow: auto;
   scrollbar-gutter: stable;
@@ -25448,8 +25446,10 @@ s-page[inline-size="large-500"] {
   display: grid;
   place-items: center;
   overflow: hidden;
-  padding: 10px;
+  box-sizing: border-box;
+  padding: var(--pp-modal-edge-gap) var(--pp-modal-right-gap) var(--pp-modal-edge-gap) var(--pp-modal-edge-gap);
   background: rgba(var(--pp-shadow-rgb), 0.44);
+  scrollbar-gutter: stable;
 }
 
 .ppRouteLoadingOverlay {
@@ -25552,9 +25552,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppAnalysisConfirmModal {
-  width: min(500px, calc(100dvw - 20px));
-  max-height: calc(100vh - 20px);
-  max-height: calc(100dvh - 20px);
+  width: min(500px, var(--pp-modal-available-width));
+  max-height: calc(100vh - var(--pp-modal-edge-gap) * 2);
+  max-height: calc(100dvh - var(--pp-modal-edge-gap) * 2);
   box-sizing: border-box;
   overflow: auto;
   scrollbar-gutter: stable;
@@ -25690,7 +25690,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppCostConfirmModal {
-  width: min(720px, calc(100dvw - 20px));
+  width: min(720px, var(--pp-modal-available-width));
   padding: 0;
   overflow: auto;
   border-color: rgba(var(--pp-slate-500-rgb), 0.22);
@@ -26030,7 +26030,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppShopifyProductSearchModal {
-  width: min(980px, calc(100dvw - 20px));
+  width: min(980px, var(--pp-modal-available-width));
 }
 
 .ppShopifyProductSearchControl {
@@ -26313,7 +26313,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppActionConfirmModal {
-  width: min(620px, calc(100dvw - 20px));
+  width: min(620px, var(--pp-modal-available-width));
 }
 
 .ppWatchlistConfirmIcon-add {
@@ -26619,6 +26619,7 @@ s-page[inline-size="large-500"] {
 .ppProductsTabbedTableGroup > .ppProductsTableSection {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+  padding: 0;
 }
 
 .ppShopifyProductSearchButton {
@@ -33531,8 +33532,10 @@ s-page[inline-size="large-500"] {
   position: absolute;
   top: calc(100% + 12px);
   right: 0;
+  left: auto;
   z-index: 121;
   width: min(528px, calc(100vw - 28px));
+  max-width: calc(100vw - 20px);
   transform: none;
   padding: 16px 16px 0;
   border: 1px solid var(--pp-slate-200);
@@ -36729,7 +36732,7 @@ s-page[inline-size="large-500"] {
 
   .ppAnalysisConfirmOverlay {
     align-items: stretch;
-    padding: 10px;
+    padding: var(--pp-modal-edge-gap) var(--pp-modal-right-gap) var(--pp-modal-edge-gap) var(--pp-modal-edge-gap);
   }
 
   .ppAnalysisConfirmModal,
@@ -36738,8 +36741,8 @@ s-page[inline-size="large-500"] {
   .ppBusinessImpactModal,
   .ppRecommendedActionModal,
   .ppConnectionModal {
-    width: calc(100dvw - 20px);
-    max-height: calc(100dvh - 20px);
+    width: var(--pp-modal-available-width);
+    max-height: calc(100dvh - var(--pp-modal-edge-gap) * 2);
     align-self: center;
     padding: 12px;
     border-radius: 10px;
@@ -36747,7 +36750,7 @@ s-page[inline-size="large-500"] {
 
   .ppCostConfirmModal,
   .ppShopifyProductSearchModal {
-    min-height: min(620px, calc(100dvh - 20px));
+    min-height: min(620px, calc(100dvh - var(--pp-modal-edge-gap) * 2));
   }
 
   .ppAnalysisConfirmHeader {
@@ -37137,15 +37140,15 @@ s-page[inline-size="large-500"] {
   .ppGlobalTopbarPopover {
     position: fixed;
     top: 55px;
-    right: 5px;
-    left: 5px;
+    right: 50vw;
+    left: auto;
     width: calc(100vw - 10px);
     box-sizing: border-box;
     max-height: calc(100dvh - 60px);
     overflow: auto;
     padding: 9px;
     border-radius: 9px;
-    transform: none;
+    transform: translateX(50%);
   }
 
   .ppGlobalTopbarSearchPopover,
@@ -39714,8 +39717,14 @@ s-page[inline-size="large-500"] {
     --pp-mobile-control-font-size: 11px;
   }
 
+  .ppFullWidthPage {
+    padding: 12px 10px 20px;
+  }
+
   .ppDashboard {
     gap: 12px;
+    width: 100%;
+    max-width: 100%;
   }
 
   .ppPageTitle,
@@ -40024,5 +40033,132 @@ s-page[inline-size="large-500"] {
     min-height: var(--pp-mobile-control-height);
     width: var(--pp-mobile-control-height);
     font-size: var(--pp-mobile-control-font-size);
+  }
+
+  .ppProductDetailScreen,
+  .ppProductDetailLayout,
+  .ppProductDetailPrimary,
+  .ppProductDetailSidebar,
+  .ppProductDetailFullWidth,
+  .ppProductDetailOverviewCard,
+  .ppProductDetailOverviewFinding,
+  .ppProductPanel,
+  .ppCheckedPanel,
+  .ppIssuesOverviewPanel,
+  .ppProductEvidenceSummaryPanel,
+  .ppProductOrderActivityPanel,
+  .ppProductReturnPredictionPanel,
+  .ppProductRetentionPanel,
+  .ppProductMomentumPanel,
+  .ppProductRiskHistoryPanel,
+  .ppPurchaseContextPanel,
+  .ppBasketContextPanel,
+  .ppProductRelationshipsPanel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .ppProductDetailOverviewFinding {
+    padding-right: 44px;
+  }
+
+  .ppProductPanel.ppProductRelationshipsPanel {
+    padding: 0;
+  }
+
+  .ppProductRelationshipTimelineCard {
+    padding: 0;
+  }
+
+  .ppMainFindingText,
+  .ppMainFindingText p,
+  .ppProductDetailOverviewFinding h2,
+  .ppProductDetailOverviewFinding .ppMainFindingText p {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .ppProductDetailOverviewFinding .ppInlineQuote,
+  .ppProductDetailOverviewFinding .ppEditablePlaceholder {
+    display: inline;
+    max-width: 100%;
+    margin: 0 1px;
+    padding: 1px 4px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .ppIssuesTableWrap {
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .ppIssuesTable {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .ppIssuesTable th:nth-child(1),
+  .ppIssuesTable td:nth-child(1) {
+    width: 33%;
+  }
+
+  .ppIssuesTable th:nth-child(2),
+  .ppIssuesTable td:nth-child(2) {
+    width: 22%;
+  }
+
+  .ppIssuesTable th:nth-child(3),
+  .ppIssuesTable td:nth-child(3) {
+    width: 45%;
+  }
+
+  .ppIssuesTable th,
+  .ppIssuesTable td {
+    padding: 6px 5px;
+    font-size: 10.5px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .ppIssueNameCell {
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .ppIssueIcon {
+    width: 17px;
+    height: 17px;
+    border-radius: 5px;
+  }
+
+  .ppIssueNameCell s-badge {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .ppIssueNameCell strong,
+  .ppIssueTitleWithEvidence strong {
+    font-size: 10.5px;
+    line-height: 1.16;
+    overflow-wrap: anywhere;
+  }
+
+  .ppImpactLevelIndicator {
+    gap: 4px;
+    font-size: 10.5px;
+  }
+
+  .ppImpactLevelBars {
+    grid-template-columns: repeat(3, 3px);
+    gap: 2px;
+  }
+
+  .ppImpactLevelBars span {
+    width: 3px;
   }
 }

@@ -591,13 +591,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  box-sizing: border-box;
+  padding: 20px 32px 20px 20px;
   background: rgba(var(--pp-shadow-rgb), 0.46);
   backdrop-filter: blur(10px);
+  scrollbar-gutter: stable;
 }
 
 .modal {
-  width: min(calc(100vw - 28px), 620px);
+  width: min(calc(100vw - 44px), 620px);
   max-height: calc(100vh - 40px);
   display: grid;
   gap: 14px;
@@ -932,7 +934,7 @@
   }
 
   .modalBackdrop {
-    padding: 12px;
+    padding: 12px 24px 12px 12px;
   }
 
   .modal {
