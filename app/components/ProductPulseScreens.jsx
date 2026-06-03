@@ -14189,6 +14189,26 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     return true;
   };
 
+  const handleSubmitIssueAction = (issue, actionType) => {
+    const payload = buildIssueIgnorePayload(issue);
+    if (payload.issueKey) {
+      setIgnoredIssues((current) => {
+        const next = new Set(current);
+        if (actionType === "unignore-issue") next.delete(payload.issueKey);
+        else next.add(payload.issueKey);
+        return next;
+      });
+    }
+    const formData = new FormData();
+    formData.set("_action", actionType);
+    formData.set("productId", product.slug || product.handle || product.productGid || product.id || "");
+    formData.set("issue", payload.issue || issue.issue || "");
+    formData.set("issueCode", payload.issueCode || "");
+    formData.set("issueKey", payload.issueKey || "");
+    formData.set("suggestedAction", issue.action || "");
+    submit(formData, { method: "post" });
+  };
+
   const handleReviewActionEvidence = (action) => {
     if (!handleReviewEvidence(action)) return;
     setSelectedRecommendedAction(action);
@@ -14742,7 +14762,37 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                   </span>
                                 </td>
                                 <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
-                                <td title={issue.action}>{issue.action}</td>
+                                <td title={issue.action}>
+                                  <span className="ppIssueActionCell">
+                                    <span>{issue.action}</span>
+                                    <span className="ppIssueActionButtons">
+                                      <button
+                                        className="ppIssueActionButton"
+                                        type="button"
+                                        onClick={() => handleReviewEvidence(issue)}
+                                      >
+                                        Review evidence for {issue.issue}
+                                      </button>
+                                      {ignored ? (
+                                        <button
+                                          className="ppIssueActionButton"
+                                          type="button"
+                                          onClick={() => handleSubmitIssueAction(issue, "unignore-issue")}
+                                        >
+                                          Unignore {issue.issue}
+                                        </button>
+                                      ) : (
+                                        <button
+                                          className="ppIssueActionButton"
+                                          type="button"
+                                          onClick={() => handleSubmitIssueAction(issue, "ignore-issue")}
+                                        >
+                                          Ignore {issue.issue}
+                                        </button>
+                                      )}
+                                    </span>
+                                  </span>
+                                </td>
                               </tr>
                             );
                           })}

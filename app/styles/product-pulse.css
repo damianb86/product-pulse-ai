@@ -18149,6 +18149,41 @@ s-page[inline-size="large-500"] {
   overflow-wrap: anywhere;
 }
 
+.ppIssueActionCell {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.ppIssueActionButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ppIssueActionButton {
+  appearance: none;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.2;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.ppIssueActionButton:hover,
+.ppIssueActionButton:focus-visible {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.35);
+  color: var(--pp-pulse-blue);
+  outline: none;
+}
+
 .ppIssueNameCell {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;

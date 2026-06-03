@@ -315,6 +315,7 @@ function getSmoothPathEndpointYValues(path = "") {
 describe("ProductPulse screens", () => {
   it("renders the Plan & Credits pricing and credit purchase page", () => {
     renderWithRouter(<PlansCreditsScreen />);
+    const planMatrix = screen.getByLabelText("Plan comparison").querySelector(".ppPlansMatrix");
 
     expect(screen.getByRole("heading", { name: "Plan & Credits" })).toBeInTheDocument();
     expect(screen.queryByText("Monthly billing")).not.toBeInTheDocument();
@@ -324,42 +325,42 @@ describe("ProductPulse screens", () => {
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Monthly credits\s*10/);
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Used\s*0/);
     expect(screen.getByLabelText("Current usage")).toHaveTextContent(/Left\s*10/);
-    expect(screen.getByRole("heading", { name: "Free" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Starter" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Growth" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Pro" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Premium" })).not.toBeInTheDocument();
+    expect(within(planMatrix).getByRole("heading", { name: "Free" })).toBeInTheDocument();
+    expect(within(planMatrix).getByRole("heading", { name: "Starter" })).toBeInTheDocument();
+    expect(within(planMatrix).queryByRole("heading", { name: "Growth" })).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByRole("heading", { name: "Pro" })).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByRole("heading", { name: "Premium" })).not.toBeInTheDocument();
     expect(screen.queryByText("Recommended")).not.toBeInTheDocument();
     expect(screen.queryByText("Best value")).not.toBeInTheDocument();
-    expect(screen.getByText("Included")).toBeInTheDocument();
-    expect(screen.getByText("$18")).toBeInTheDocument();
-    expect(screen.getByText("$9")).toBeInTheDocument();
+    expect(within(planMatrix).getByText("Included")).toBeInTheDocument();
+    expect(within(planMatrix).getByText("$18")).toBeInTheDocument();
+    expect(within(planMatrix).getByText("$9")).toBeInTheDocument();
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Shopify Billing not enabled")).not.toBeInTheDocument();
-    expect(screen.getByText("Metric timeline")).toBeInTheDocument();
-    expect(screen.getByText("30 days")).toBeInTheDocument();
-    expect(screen.getByText("90 days")).toBeInTheDocument();
-    expect(screen.getAllByText("360 days")).toHaveLength(2);
-    expect(screen.getByText("Products monitored in Watchlist")).toBeInTheDocument();
-    expect(screen.getByText("1 product")).toBeInTheDocument();
-    expect(screen.getAllByText("5 products")).toHaveLength(2);
-    expect(screen.getByText("10 products")).toBeInTheDocument();
-    expect(screen.queryByText("25 products")).not.toBeInTheDocument();
-    expect(screen.queryByText("50 products")).not.toBeInTheDocument();
-    expect(screen.queryByText("99 products")).not.toBeInTheDocument();
-    expect(screen.getByText("Product Diagnosis").closest(".ppPlansFeatureCell").querySelector(".ppPlansIcon")).not.toBeInTheDocument();
-    expect(screen.getByText("Exports")).toBeInTheDocument();
-    expect(screen.queryByText("CSV")).not.toBeInTheDocument();
-    expect(screen.queryByText("CSV, PDF")).not.toBeInTheDocument();
-    expect(screen.queryByText("CSV, PDF, Excel")).not.toBeInTheDocument();
-    expect(screen.getByText("Email")).toBeInTheDocument();
-    expect(screen.getByText("Priority email")).toBeInTheDocument();
-    expect(screen.queryByText("Priority + Chat")).not.toBeInTheDocument();
-    expect(screen.queryByText("Dedicated")).not.toBeInTheDocument();
-    expect(screen.queryByText("Community")).not.toBeInTheDocument();
-    expect(screen.queryByText("API access")).not.toBeInTheDocument();
-    expect(screen.queryByText("Seats")).not.toBeInTheDocument();
-    expect(screen.queryByText("Watched products")).not.toBeInTheDocument();
+    expect(within(planMatrix).getByText("Metric timeline")).toBeInTheDocument();
+    expect(within(planMatrix).getByText("30 days")).toBeInTheDocument();
+    expect(within(planMatrix).getByText("90 days")).toBeInTheDocument();
+    expect(within(planMatrix).getAllByText("360 days")).toHaveLength(2);
+    expect(within(planMatrix).getByText("Products monitored in Watchlist")).toBeInTheDocument();
+    expect(within(planMatrix).getByText("1 product")).toBeInTheDocument();
+    expect(within(planMatrix).getAllByText("5 products")).toHaveLength(2);
+    expect(within(planMatrix).getByText("10 products")).toBeInTheDocument();
+    expect(within(planMatrix).queryByText("25 products")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("50 products")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("99 products")).not.toBeInTheDocument();
+    expect(within(planMatrix).getByText("Product Diagnosis").closest(".ppPlansFeatureCell").querySelector(".ppPlansIcon")).not.toBeInTheDocument();
+    expect(within(planMatrix).getByText("Exports")).toBeInTheDocument();
+    expect(within(planMatrix).queryByText("CSV")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("CSV, PDF")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("CSV, PDF, Excel")).not.toBeInTheDocument();
+    expect(within(planMatrix).getByText("Email")).toBeInTheDocument();
+    expect(within(planMatrix).getByText("Priority email")).toBeInTheDocument();
+    expect(within(planMatrix).queryByText("Priority + Chat")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("Dedicated")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("Community")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("API access")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("Seats")).not.toBeInTheDocument();
+    expect(within(planMatrix).queryByText("Watched products")).not.toBeInTheDocument();
     expect(screen.getByText("Extra credit packs")).toBeInTheDocument();
     expect(screen.getByText(/Buy extra credits when your plan allowance/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Buy .* credits/ })).toHaveLength(5);
@@ -368,9 +369,9 @@ describe("ProductPulse screens", () => {
     screen.getAllByRole("button", { name: /Buy .* credits/ }).forEach((button) => {
       expect(button).toBeDisabled();
     });
-    expect(screen.getByRole("button", { name: "Current free plan" })).toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Billing disabled" })).toHaveLength(1);
-    screen.getAllByRole("button", { name: "Billing disabled" }).forEach((button) => {
+    expect(within(planMatrix).getByRole("button", { name: "Current free plan" })).toBeDisabled();
+    expect(within(planMatrix).getAllByRole("button", { name: "Billing disabled" })).toHaveLength(1);
+    within(planMatrix).getAllByRole("button", { name: "Billing disabled" }).forEach((button) => {
       expect(button).toBeDisabled();
     });
     expect(screen.getByText("Which option fits best?")).toBeInTheDocument();
@@ -396,9 +397,10 @@ describe("ProductPulse screens", () => {
         ],
       },
     }} />);
+    const planMatrix = screen.getByLabelText("Plan comparison").querySelector(".ppPlansMatrix");
 
     expect(screen.getByText("Shopify Billing is active for ProductPulse.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Choose Starter" })).toBeEnabled();
+    expect(within(planMatrix).getByRole("button", { name: "Choose Starter" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Buy 10 credits" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Buy 25 credits" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Buy 50 credits" })).not.toBeInTheDocument();
@@ -516,7 +518,7 @@ describe("ProductPulse screens", () => {
 
     const csvRow = screen.getByText("CSV Upload").closest("tr");
     expect(csvRow).toHaveClass("isDisabled");
-    expect(within(csvRow).getByText("Disabled")).toBeInTheDocument();
+    expect(within(csvRow.querySelector(".ppConnectStatus")).getByText("Disabled")).toBeInTheDocument();
     expect(within(csvRow).getByText("CSV import disabled; ignored by Catalog Scan and Product Diagnosis.")).toBeInTheDocument();
     expect(within(csvRow).getByRole("button", { name: "Enable" })).toBeInTheDocument();
   });
