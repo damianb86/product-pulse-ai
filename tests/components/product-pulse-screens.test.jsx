@@ -406,6 +406,34 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("button", { name: "Buy 50 credits" })).not.toBeInTheDocument();
   });
 
+  it("asks for confirmation before cancelling an active Starter subscription", () => {
+    renderWithRouter(<PlansCreditsScreen data={{
+      billing: {
+        shopifyBillingEnabled: true,
+        planKey: "starter",
+        planName: "Starter",
+        monthlyCredits: 50,
+        subscriptionId: "gid://shopify/AppSubscription/123",
+        currentPeriodEnd: "2026-06-24T15:00:00.000Z",
+      },
+      pointSummary: {
+        balance: { available: 50 },
+        usage: { used: 0 },
+        activity: [],
+      },
+    }} />);
+    const planMatrix = screen.getByLabelText("Plan comparison").querySelector(".ppPlansMatrix");
+
+    expect(screen.queryByRole("dialog", { name: "Confirm cancellation" })).not.toBeInTheDocument();
+    fireEvent.click(within(planMatrix).getByRole("button", { name: "Cancel subscription" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Confirm cancellation" });
+    expect(dialog).toHaveTextContent("You will keep access to all Starter features until Jun 24, 2026.");
+    expect(dialog).toHaveTextContent("Restore anytime");
+    expect(within(dialog).getByRole("button", { name: "Keep subscription" })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel subscription" })).toBeEnabled();
+  });
+
   it("shows cancelled Starter access and offers restore instead of cancellation", () => {
     renderWithRouter(<PlansCreditsScreen data={{
       billing: {

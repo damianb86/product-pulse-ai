@@ -6325,6 +6325,7 @@ export function PlansCreditsScreen({ data = {} }) {
                   planFetcher={planFetcher}
                   cancellationState={cancellationState}
                   subscriptionId={data?.billing?.subscriptionId}
+                  currentPeriodEndLabel={formatPlansDate(data?.billing?.currentPeriodEnd || data?.billing?.accessEndsAt)}
                 />
               </div>
             ))}
@@ -6375,6 +6376,7 @@ export function PlansCreditsScreen({ data = {} }) {
                       planFetcher={planFetcher}
                       cancellationState={cancellationState}
                       subscriptionId={data?.billing?.subscriptionId}
+                      currentPeriodEndLabel={formatPlansDate(data?.billing?.currentPeriodEnd || data?.billing?.accessEndsAt)}
                     />
                   </div>
                 </article>
@@ -6541,7 +6543,8 @@ export function PlansCreditsScreen({ data = {} }) {
   );
 }
 
-function PlanActionButton({ billingEnabled, cancellationState = {}, currentPlanKey, isSubmitting, plan, planFetcher, subscriptionId }) {
+function PlanActionButton({ billingEnabled, cancellationState = {}, currentPeriodEndLabel = "", currentPlanKey, isSubmitting, plan, planFetcher, subscriptionId }) {
+  const [isCancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const classes = `ppPlansChooseButton${plan.featured ? " isPrimary" : ""}${plan.premium ? " isPremium" : ""}${plan.key === currentPlanKey ? " isCurrent" : ""}${plan.unavailable ? " isUnavailable" : ""}`;
   const label = getPlansCreditPlanCta(plan, currentPlanKey, billingEnabled);
 
@@ -6565,20 +6568,29 @@ function PlanActionButton({ billingEnabled, cancellationState = {}, currentPlanK
     }
 
     return (
-      <planFetcher.Form className="ppPlansPlanActionForm" method="post">
-        <input type="hidden" name="intent" value="cancel-starter" />
-        <input type="hidden" name="subscriptionId" value={subscriptionId || ""} />
+      <div className="ppPlansPlanActionForm">
         <button className={classes} disabled type="button">
           {label}
         </button>
         <button
           className="ppPlansCancelButton"
           disabled={isSubmitting || !subscriptionId ? true : undefined}
-          type="submit"
+          type="button"
+          onClick={() => setCancelConfirmOpen(true)}
         >
           Cancel subscription
         </button>
-      </planFetcher.Form>
+        {isCancelConfirmOpen ? (
+          <PlansCancelSubscriptionModal
+            isSubmitting={isSubmitting}
+            periodEndLabel={currentPeriodEndLabel}
+            planFetcher={planFetcher}
+            planName={plan.name}
+            subscriptionId={subscriptionId}
+            onCancel={() => setCancelConfirmOpen(false)}
+          />
+        ) : null}
+      </div>
     );
   }
 
@@ -6605,6 +6617,51 @@ function PlanActionButton({ billingEnabled, cancellationState = {}, currentPlanK
         {isSubmitting ? "Opening..." : label}
       </button>
     </planFetcher.Form>
+  );
+}
+
+function PlansCancelSubscriptionModal({ isSubmitting, onCancel, periodEndLabel, planFetcher, planName, subscriptionId }) {
+  return (
+    <div className="ppAnalysisConfirmOverlay ppPlansCancelConfirmOverlay" role="presentation">
+      <section className="ppAnalysisConfirmModal ppPlansCancelConfirmModal" role="dialog" aria-modal="true" aria-labelledby="plans-cancel-confirm-title">
+        <div className="ppAnalysisConfirmHeader ppPlansCancelConfirmHeader">
+          <span className="ppAnalysisConfirmIcon ppPlansCancelConfirmIcon" aria-hidden="true">
+            <PlansCreditsIcon type="calendar" />
+          </span>
+          <div>
+            <span>Subscription change</span>
+            <h2 id="plans-cancel-confirm-title">Confirm cancellation</h2>
+            <p>
+              This will cancel your {planName} subscription through Shopify. You will keep access to all {planName} features until {periodEndLabel || "the end of the current billing cycle"}.
+            </p>
+          </div>
+        </div>
+
+        <div className="ppPlansCancelConfirmDetails">
+          <article>
+            <strong>Access stays active</strong>
+            <p>Your plan benefits remain available until the paid billing period ends.</p>
+          </article>
+          <article>
+            <strong>Restore anytime</strong>
+            <p>You can restore the subscription before the period ends to continue renewals.</p>
+          </article>
+        </div>
+
+        <div className="ppAnalysisConfirmFooter ppPlansCancelConfirmFooter">
+          <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={isSubmitting}>
+            Keep subscription
+          </button>
+          <planFetcher.Form method="post">
+            <input type="hidden" name="intent" value="cancel-starter" />
+            <input type="hidden" name="subscriptionId" value={subscriptionId || ""} />
+            <button className="ppPlansCancelConfirmSubmit" disabled={isSubmitting || !subscriptionId ? true : undefined} type="submit">
+              {isSubmitting ? "Cancelling..." : "Cancel subscription"}
+            </button>
+          </planFetcher.Form>
+        </div>
+      </section>
+    </div>
   );
 }
 
