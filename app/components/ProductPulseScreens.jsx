@@ -227,7 +227,6 @@ export function DashboardScreen({ data, actionData }) {
               <DashboardIcon type="next-best-action" tone="purple" size="metric" />
               <h2>Next best action</h2>
               <span className="ppRecommendedFixBadge">Recommended fix</span>
-              <s-icon type="chevron-down" size="small"></s-icon>
             </div>
             <div className="ppStartContent">
               {startProduct ? (
