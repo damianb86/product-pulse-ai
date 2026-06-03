@@ -6,6 +6,7 @@ import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { sendContactEmail } from "../email.server";
 import styles from "../styles/help.module.css";
+import { resetProductPulseWizardCompletions } from "../utils/product-pulse-wizard-reset";
 
 const DEFAULT_CONTACT_EMAIL = "support@example.com";
 
@@ -367,6 +368,9 @@ export default function Help() {
     const data = privacyFetcher.data;
 
     if (data.ok) {
+      if (data.intent === "privacy-data-delete") {
+        resetProductPulseWizardCompletions();
+      }
       const extra = data.counts ? ` ${formatProductPulseCounts(data.counts)}` : "";
       shopify.toast.show(`${data.message}${extra}`, { duration: 7000 });
     } else {

@@ -117,6 +117,20 @@ describe("ProductPulseWatchlistWizard", () => {
     expect(await screen.findByRole("dialog", { name: "Monitor product changes automatically" })).toBeInTheDocument();
     expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBeNull();
   });
+
+  it("clears persisted completion on privacy reset without opening immediately", async () => {
+    window.localStorage.setItem(WATCHLIST_WIZARD_STORAGE_KEY, "true");
+    renderWatchlistWizard("/app/help");
+
+    expect(screen.queryByRole("dialog", { name: "Monitor product changes automatically" })).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("productpulse:watchlist-wizard-reset"));
+    });
+
+    await waitFor(() => expect(window.localStorage.getItem(WATCHLIST_WIZARD_STORAGE_KEY)).toBeNull());
+    expect(screen.queryByRole("dialog", { name: "Monitor product changes automatically" })).not.toBeInTheDocument();
+  });
 });
 
 function renderWatchlistWizard(initialEntry = "/app/watchlist") {

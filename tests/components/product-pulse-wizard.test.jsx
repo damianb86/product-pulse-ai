@@ -54,6 +54,20 @@ describe("ProductPulseWizard", () => {
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull();
   });
 
+  it("clears persisted completion on privacy reset without opening immediately", async () => {
+    window.localStorage.setItem(WIZARD_STORAGE_KEY, "true");
+    renderWizard("/app/help");
+
+    expect(screen.queryByRole("dialog", { name: /welcome to your product signal workspace/i })).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("productpulse:wizard-reset"));
+    });
+
+    await waitFor(() => expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBeNull());
+    expect(screen.queryByRole("dialog", { name: /welcome to your product signal workspace/i })).not.toBeInTheDocument();
+  });
+
   it("keeps the wizard open when the Yotpo Connect modal opens", async () => {
     renderWizard();
 

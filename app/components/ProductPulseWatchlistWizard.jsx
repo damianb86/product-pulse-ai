@@ -90,6 +90,19 @@ export function ProductPulseWatchlistWizard() {
     setActive(false);
   }, []);
 
+  const resetWatchlistWizardState = useCallback((nextActive = false) => {
+    clearWatchlistWizardCompleted();
+    setProductAdded(false);
+    setScanStarted(false);
+    setScanJobCompleted(false);
+    setScanReportReady(false);
+    waitingForScanReportRef.current = false;
+    scanJobIdsRef.current = new Set();
+    setReportedProduct(null);
+    setStepIndex(0);
+    setActive(nextActive);
+  }, []);
+
   useEffect(() => {
     setHydrated(true);
   }, []);
@@ -118,16 +131,7 @@ export function ProductPulseWatchlistWizard() {
 
   useEffect(() => {
     const handleStartWatchlistWizard = () => {
-      clearWatchlistWizardCompleted();
-      setProductAdded(false);
-      setScanStarted(false);
-      setScanJobCompleted(false);
-      setScanReportReady(false);
-      waitingForScanReportRef.current = false;
-      scanJobIdsRef.current = new Set();
-      setReportedProduct(null);
-      setStepIndex(0);
-      setActive(true);
+      resetWatchlistWizardState(true);
       if (!isWatchlistIndexRoute(location.pathname)) {
         navigate(WATCHLIST_ROUTE);
       }
@@ -135,7 +139,14 @@ export function ProductPulseWatchlistWizard() {
 
     window.addEventListener("productpulse:watchlist-wizard-start", handleStartWatchlistWizard);
     return () => window.removeEventListener("productpulse:watchlist-wizard-start", handleStartWatchlistWizard);
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, resetWatchlistWizardState]);
+
+  useEffect(() => {
+    const handleResetWatchlistWizard = () => resetWatchlistWizardState(false);
+
+    window.addEventListener("productpulse:watchlist-wizard-reset", handleResetWatchlistWizard);
+    return () => window.removeEventListener("productpulse:watchlist-wizard-reset", handleResetWatchlistWizard);
+  }, [resetWatchlistWizardState]);
 
   useEffect(() => {
     document.body.classList.toggle("ppWatchlistWizardActive", active);

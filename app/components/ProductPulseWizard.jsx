@@ -182,6 +182,18 @@ export function ProductPulseWizard() {
     setActive(false);
   }, []);
 
+  const resetWizardState = useCallback((nextActive = false) => {
+    clearWizardCompleted();
+    setConnectCompletion(null);
+    setQuickScanStarted(false);
+    setQuickScanJobActive(false);
+    setQuickScanStepCompleted(false);
+    setDeepScanStarted(false);
+    setCompletedDeepScanJob(null);
+    setStepIndex(0);
+    setActive(nextActive);
+  }, []);
+
   useEffect(() => {
     setHydrated(true);
     if (!hasWizardCompleted()) {
@@ -312,15 +324,7 @@ export function ProductPulseWizard() {
 
   useEffect(() => {
     const handleStartWizard = () => {
-      clearWizardCompleted();
-      setConnectCompletion(null);
-      setQuickScanStarted(false);
-      setQuickScanJobActive(false);
-      setQuickScanStepCompleted(false);
-      setDeepScanStarted(false);
-      setCompletedDeepScanJob(null);
-      setStepIndex(0);
-      setActive(true);
+      resetWizardState(true);
       if (!isCurrentWizardRoute(location.pathname, location.search, wizardSteps[0])) {
         navigate(DASHBOARD_ROUTE);
       }
@@ -328,7 +332,14 @@ export function ProductPulseWizard() {
 
     window.addEventListener("productpulse:wizard-start", handleStartWizard);
     return () => window.removeEventListener("productpulse:wizard-start", handleStartWizard);
-  }, [location.pathname, location.search, navigate]);
+  }, [location.pathname, location.search, navigate, resetWizardState]);
+
+  useEffect(() => {
+    const handleResetWizard = () => resetWizardState(false);
+
+    window.addEventListener("productpulse:wizard-reset", handleResetWizard);
+    return () => window.removeEventListener("productpulse:wizard-reset", handleResetWizard);
+  }, [resetWizardState]);
 
   useEffect(() => {
     if (!active || step.kind !== "backgroundProcesses") return undefined;
