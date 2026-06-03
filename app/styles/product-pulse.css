@@ -33103,7 +33103,9 @@ s-page[inline-size="large-500"] {
 
 .ppPreview {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 28px;
+  min-width: 0;
 }
 
 .ppPreviewNav {
@@ -40234,7 +40236,7 @@ s-page[inline-size="large-500"] {
   min-height: 374px;
   display: grid;
   align-content: start;
-  gap: 22px;
+  gap: 0;
   padding: 22px;
   border: 1px solid #d9e3ee;
   border-radius: 8px;
@@ -40261,8 +40263,18 @@ s-page[inline-size="large-500"] {
 }
 
 .ppNextBestActionPanel .ppStartHeading > s-icon:last-child {
+  display: none;
+}
+
+.ppNextBestActionPanel .ppStartHeading::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  display: block;
   margin-left: auto;
-  color: #64748b;
+  border-right: 2px solid #64748b;
+  border-bottom: 2px solid #64748b;
+  transform: rotate(45deg);
 }
 
 .ppNextBestActionPanel .ppDashboardIcon {
@@ -40291,7 +40303,7 @@ s-page[inline-size="large-500"] {
 }
 
 .ppNextBestActionPanel .ppStartContent {
-  grid-template-columns: minmax(470px, 1.1fr) minmax(330px, 0.72fr) minmax(260px, 0.58fr);
+  grid-template-columns: minmax(480px, 1fr) minmax(350px, 0.78fr) minmax(280px, 0.58fr);
   gap: 24px;
   align-items: stretch;
 }
@@ -40417,7 +40429,7 @@ s-page[inline-size="large-500"] {
 .ppNextBestActionPanel .ppNextBestWhy {
   min-height: 100%;
   align-content: start;
-  gap: 14px;
+  gap: 10px;
   padding: 0 24px;
   border-left: 1px solid #e2e8f0;
 }
@@ -40432,16 +40444,16 @@ s-page[inline-size="large-500"] {
 
 .ppNextBestActionPanel .ppNextBestWhy > div {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .ppNextBestActionPanel .ppNextBestWhyMetric {
   position: relative;
-  min-height: 38px;
+  min-height: 36px;
   display: grid;
-  grid-template-columns: 36px auto minmax(0, 1fr);
+  grid-template-columns: 34px auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   padding: 0 15px 0 0;
   border: 1px solid #e2e8f0;
@@ -40455,8 +40467,8 @@ s-page[inline-size="large-500"] {
 
 .ppNextBestActionPanel .ppNextBestWhyMetric::before {
   content: "";
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   display: block;
   border-radius: 999px;
   background: #f1f5f9;
@@ -40512,7 +40524,7 @@ s-page[inline-size="large-500"] {
 .ppNextBestActionPanel .ppNextBestWhyMetric small {
   min-width: 0;
   color: #64748b;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 820;
   letter-spacing: 0;
   line-height: 1.1;
@@ -40524,11 +40536,11 @@ s-page[inline-size="large-500"] {
 
 .ppNextBestActionPanel .ppNextBestWhy p {
   max-width: 355px;
-  margin: 4px 0 0;
+  margin: 0;
   color: #475569;
   font-size: 13px;
   font-weight: 560;
-  line-height: 1.7;
+  line-height: 1.58;
 }
 
 .ppNextBestActionPanel .ppStartActionPanel {
@@ -40538,7 +40550,7 @@ s-page[inline-size="large-500"] {
   align-content: center;
   justify-items: center;
   gap: 18px;
-  padding: 0 0 0 24px;
+  padding: 0 0 0 16px;
   border-left: 1px solid #e2e8f0;
   text-align: center;
 }
@@ -40583,7 +40595,9 @@ s-page[inline-size="large-500"] {
 }
 
 .ppNextBestActionPanel .ppPrimaryButton {
-  min-width: min(100%, 286px);
+  width: 100%;
+  max-width: 286px;
+  min-width: 0;
   min-height: 48px;
   justify-content: space-between;
   gap: 18px;
@@ -40595,17 +40609,25 @@ s-page[inline-size="large-500"] {
   font-size: 15px;
   font-weight: 820;
   line-height: 1;
+  white-space: nowrap;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.32),
     0 8px 18px rgba(22, 163, 74, 0.34);
 }
 
 .ppNextBestActionPanel .ppPrimaryButton s-icon {
-  width: 22px;
-  height: 22px;
-  color: #ffffff;
-  filter: brightness(0) invert(1);
-  transform: none;
+  display: none;
+}
+
+.ppNextBestActionPanel .ppPrimaryButton::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  border-top: 2px solid #ffffff;
+  border-right: 2px solid #ffffff;
+  transform: rotate(45deg);
 }
 
 .ppNextBestActionPanel .ppPrimaryButton:hover {
@@ -40676,8 +40698,15 @@ s-page[inline-size="large-500"] {
   }
 
   .ppNextBestActionPanel .ppStartHeading > s-icon:last-child {
+    display: none;
+  }
+
+  .ppNextBestActionPanel .ppStartHeading::after {
     grid-column: 3;
     grid-row: 1;
+    align-self: center;
+    justify-self: end;
+    margin-left: 0;
   }
 
   .ppNextBestActionPanel .ppStartContent,
