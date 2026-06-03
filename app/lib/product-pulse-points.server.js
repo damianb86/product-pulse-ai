@@ -141,7 +141,7 @@ export async function debitStorePointsForShop(shop, input = {}) {
     }
 
     const currentBalance = await ensureStorePointBalanceForShopInTransaction(tx, normalizedShop, input.env || process.env);
-    if (currentBalance.available + POINT_EPSILON < amount) {
+    if (!input.allowNegativeBalance && currentBalance.available + POINT_EPSILON < amount) {
       return {
         status: "validation_error",
         message: `This action needs ${formatPointAmount(amount)} credit${amount === 1 ? "" : "s"}, but only ${currentBalance.label} are available.`,
@@ -243,18 +243,45 @@ export async function recordPlanMonthlyPointGrantForShop(shop, input = {}) {
   const planKey = String(input.planKey || "free").trim();
   const planName = String(input.planName || "Free plan").trim();
   const periodStart = input.periodStart || new Date();
-  const periodStartKey = formatPointPeriodKey(periodStart);
+  const periodStartKey = String(input.periodKey || formatPointPeriodKey(periodStart)).trim();
+  const subscriptionKey = String(input.subscriptionId || "no-subscription").trim();
   return creditStorePointsForShop(normalizedShop, {
     ...input,
     amount,
     reason: `Monthly plan credits ${planName} ${periodStartKey}`,
-    idempotencyKey: input.idempotencyKey || `plan-monthly:${normalizedShop}:${planKey}:${periodStartKey}`,
+    idempotencyKey: input.idempotencyKey || `plan-monthly:${normalizedShop}:${planKey}:${subscriptionKey}:${periodStartKey}`,
     metadata: {
       ...(input.metadata || {}),
       source: "plan_monthly_allowance",
       planKey,
       planName,
       periodStart: toIso(periodStart),
+      periodEnd: toIso(input.periodEnd),
+      subscriptionId: input.subscriptionId || null,
+    },
+  });
+}
+
+export async function recordPlanMonthlyPointReversalForShop(shop, input = {}) {
+  const normalizedShop = normalizeShop(shop);
+  const amount = normalizePointAmount(input.amount);
+  const planKey = String(input.planKey || "starter").trim();
+  const planName = String(input.planName || "Starter").trim();
+  const periodKey = String(input.periodKey || formatPointPeriodKey(input.periodStart || new Date())).trim();
+  const subscriptionKey = String(input.subscriptionId || "no-subscription").trim();
+  return debitStorePointsForShop(normalizedShop, {
+    ...input,
+    amount,
+    allowNegativeBalance: true,
+    reason: `Reversed monthly plan credits ${planName} ${periodKey}`,
+    idempotencyKey: input.idempotencyKey || `plan-monthly-refund:${normalizedShop}:${planKey}:${subscriptionKey}:${periodKey}`,
+    metadata: {
+      ...(input.metadata || {}),
+      source: "plan_monthly_allowance_refund",
+      planKey,
+      planName,
+      periodKey,
+      periodStart: toIso(input.periodStart),
       periodEnd: toIso(input.periodEnd),
       subscriptionId: input.subscriptionId || null,
     },
@@ -456,11 +483,25 @@ function getPointActivitySpec(entry, metadata = {}) {
       detail: metadata.planName || "Plan allowance",
     };
   }
+  if (source === "plan_monthly_allowance_refund") {
+    return {
+      icon: "clock",
+      title: "Plan credit reversal",
+      detail: metadata.planName || "Refunded plan allowance",
+    };
+  }
   if (source === "extra_credit_pack") {
     return {
       icon: "product",
       title: "Extra credit pack",
       detail: metadata.packLabel || "Purchased credits",
+    };
+  }
+  if (source === "extra_credit_pack_refund") {
+    return {
+      icon: "clock",
+      title: "Credit pack reversal",
+      detail: metadata.purchaseId || "Refunded purchase",
     };
   }
   return {

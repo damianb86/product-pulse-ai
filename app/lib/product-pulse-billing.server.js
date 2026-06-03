@@ -1,9 +1,12 @@
 import prisma from "../db.server";
 import { PRODUCT_PULSE_STARTER_PLAN } from "./product-pulse-billing-config";
 import {
+  debitStorePointsForShop,
   formatPointAmount,
   normalizePointAmount,
   recordExtraCreditPackForShop,
+  recordPlanMonthlyPointGrantForShop,
+  recordPlanMonthlyPointReversalForShop,
 } from "./product-pulse-points.server";
 
 const SHOP_PLAN_QUERY = `#graphql
@@ -44,6 +47,21 @@ const APP_PURCHASE_STATUS = `#graphql
   }
 `;
 
+const APP_INSTALLATION_BILLING_QUERY = `#graphql
+  query ProductPulseCurrentAppInstallationBilling {
+    currentAppInstallation {
+      activeSubscriptions {
+        id
+        name
+        status
+        test
+        createdAt
+        currentPeriodEnd
+      }
+    }
+  }
+`;
+
 const APP_SUBSCRIPTION_CREATE = `#graphql
   mutation ProductPulseStarterSubscriptionCreate(
     $name: String!
@@ -70,6 +88,9 @@ const APP_SUBSCRIPTION_CREATE = `#graphql
     }
   }
 `;
+
+const STARTER_BILLING_INTERVAL_DAYS = 30;
+const BILLING_PERIOD_MS = STARTER_BILLING_INTERVAL_DAYS * 24 * 60 * 60 * 1000;
 
 export const PRODUCT_PULSE_FREE_PLAN = {
   key: "free",
@@ -149,7 +170,7 @@ export async function shouldUseProductPulseTestBilling(admin, shop = "") {
 export async function resolveProductPulseBillingPlan({ admin, billing, session, settleBillingApproval = false }) {
   const shop = session?.shop || "";
   const isTest = await shouldUseProductPulseTestBilling(admin, shop);
-  let snapshot = await resolveBillingSnapshot(billing, isTest);
+  let snapshot = await resolveBillingSnapshot(billing, isTest, admin);
   let attempts = 1;
 
   if (settleBillingApproval && !snapshot.activeSubscription) {
@@ -157,24 +178,65 @@ export async function resolveProductPulseBillingPlan({ admin, billing, session, 
     for (let attempt = 1; attempt < maxAttempts; attempt += 1) {
       await sleep(1500);
       attempts += 1;
-      snapshot = await resolveBillingSnapshot(billing, isTest);
+      snapshot = await resolveBillingSnapshot(billing, isTest, admin);
       if (snapshot.activeSubscription) break;
     }
   }
 
-  const hasStarter = Boolean(snapshot.activeSubscription);
+  const now = new Date();
+  const localState = await getBillingSubscriptionStateForShop(shop);
+  const activeSubscription = snapshot.activeSubscription;
+  const activePeriod = getSubscriptionBillingPeriod(activeSubscription, now);
+  if (activeSubscription) {
+    await upsertBillingSubscriptionStateForShop(shop, {
+      subscriptionId: activeSubscription.id,
+      planKey: PRODUCT_PULSE_STARTER_PLAN_CONFIG.key,
+      planName: PRODUCT_PULSE_STARTER_PLAN_CONFIG.name,
+      status: "active",
+      currentPeriodStart: activePeriod.periodStart,
+      currentPeriodEnd: activePeriod.periodEnd,
+      accessEndsAt: activePeriod.periodEnd,
+      cancelledAt: null,
+      metadata: {
+        source: snapshot.source,
+        shopifyStatus: activeSubscription.status || null,
+        test: activeSubscription.test ?? null,
+      },
+    });
+  }
+
+  const paidCancelledAccess = !activeSubscription && isBillingSubscriptionStateAccessible(localState, now);
+  const hasStarter = Boolean(activeSubscription || paidCancelledAccess);
   const plan = hasStarter ? PRODUCT_PULSE_STARTER_PLAN_CONFIG : PRODUCT_PULSE_FREE_PLAN;
+  const subscriptionId = activeSubscription?.id ?? (paidCancelledAccess ? localState.subscriptionId : null);
+  const periodStart = activeSubscription ? activePeriod.periodStart : coerceDate(localState?.currentPeriodStart);
+  const periodEnd = activeSubscription ? activePeriod.periodEnd : coerceDate(localState?.accessEndsAt || localState?.currentPeriodEnd);
+  const periodKey = activeSubscription
+    ? activePeriod.periodKey
+    : buildSubscriptionPeriodKey({
+      subscriptionId,
+      periodStart,
+      periodEnd,
+      now,
+    });
   return {
     isTest,
     attempts,
-    source: snapshot.source,
+    source: activeSubscription ? snapshot.source : paidCancelledAccess ? "local-cancelled-access" : snapshot.source,
     planKey: plan.key,
     planName: plan.name,
     shopifyPlanName: hasStarter ? PRODUCT_PULSE_STARTER_PLAN : null,
     monthlyCredits: plan.monthlyCredits,
     priceCents: plan.priceCents,
     currencyCode: plan.currencyCode,
-    subscriptionId: snapshot.activeSubscription?.id ?? null,
+    subscriptionId,
+    subscriptionStatus: activeSubscription?.status || (paidCancelledAccess ? localState.status : null),
+    currentPeriodStart: toIso(periodStart),
+    currentPeriodEnd: toIso(periodEnd),
+    periodKey,
+    grantEligible: Boolean(activeSubscription),
+    accessEndsAt: toIso(periodEnd),
+    cancellationKeepsAccess: Boolean(paidCancelledAccess),
     subscriptions: snapshot.appSubscriptions,
   };
 }
@@ -350,6 +412,226 @@ export async function finalizeProductPulseCreditPurchase(shop, purchaseId, admin
   };
 }
 
+export async function applyProductPulseCreditPurchaseStatus(shop, shopifyPurchaseId, status, options = {}) {
+  const normalizedShop = normalizeShop(shop);
+  const normalizedPurchaseId = String(shopifyPurchaseId || "").trim();
+  const normalizedStatus = normalizeBillingStatus(status);
+  if (!normalizedShop || !normalizedPurchaseId) {
+    return { ok: false, message: "A shop and Shopify purchase id are required." };
+  }
+
+  const purchase = await prisma.creditPurchase.findFirst({
+    where: { shop: normalizedShop, shopifyPurchaseId: normalizedPurchaseId },
+  });
+  if (!purchase) {
+    return { ok: false, message: "Credit purchase was not found." };
+  }
+  if (purchase.status === "credited" && !isRefundedPurchaseStatus(normalizedStatus)) {
+    return { ok: true, credited: false, message: `${formatWholeNumber(purchase.credits)} credits were already added.` };
+  }
+
+  if (normalizedStatus === "active") {
+    const result = await recordExtraCreditPackForShop(normalizedShop, {
+      amount: purchase.credits,
+      packLabel: `${formatWholeNumber(purchase.credits)} credits`,
+      purchaseId: purchase.id,
+      orderId: purchase.shopifyPurchaseId,
+      priceCents: purchase.amountCents,
+      idempotencyKey: `credit-purchase:${purchase.id}`,
+      metadata: {
+        sourceEvent: options.sourceEvent || "shopify_purchase_status",
+      },
+    });
+    await prisma.creditPurchase.update({
+      where: { id: purchase.id },
+      data: { status: "credited", lastError: null },
+    });
+    return {
+      ok: true,
+      credited: result.credited,
+      message: `${formatPointAmount(purchase.credits)} credits added to your shop.`,
+    };
+  }
+
+  if (isRefundedPurchaseStatus(normalizedStatus)) {
+    const result = await debitStorePointsForShop(normalizedShop, {
+      amount: purchase.credits,
+      allowNegativeBalance: true,
+      reason: `Reversed extra credit pack ${formatWholeNumber(purchase.credits)} credits`,
+      idempotencyKey: `credit-purchase-refund:${purchase.id}`,
+      metadata: {
+        source: "extra_credit_pack_refund",
+        purchaseId: purchase.id,
+        orderId: purchase.shopifyPurchaseId,
+        status: normalizedStatus,
+        sourceEvent: options.sourceEvent || "shopify_purchase_status",
+      },
+    });
+    await prisma.creditPurchase.update({
+      where: { id: purchase.id },
+      data: { status: normalizedStatus || "refunded", lastError: null },
+    });
+    return {
+      ok: true,
+      reversed: result.charged || result.status === "already_recorded",
+      message: `${formatPointAmount(purchase.credits)} purchased credits were reversed.`,
+    };
+  }
+
+  await prisma.creditPurchase.update({
+    where: { id: purchase.id },
+    data: {
+      status: normalizedStatus || purchase.status,
+      lastError: normalizedStatus && normalizedStatus !== "pending" ? `Shopify purchase status: ${normalizedStatus}` : null,
+    },
+  });
+  return {
+    ok: false,
+    pending: !normalizedStatus || normalizedStatus === "pending",
+    message: normalizedStatus ? `Shopify purchase status: ${normalizedStatus}` : "Shopify purchase status is pending.",
+  };
+}
+
+export async function handleProductPulseAppPurchaseOneTimeUpdate(shop, payload = {}) {
+  const purchase = readWebhookPurchase(payload);
+  return applyProductPulseCreditPurchaseStatus(shop, purchase.id, purchase.status, {
+    sourceEvent: "APP_PURCHASES_ONE_TIME_UPDATE",
+  });
+}
+
+export async function cancelProductPulseStarterSubscription({ shop, admin, billing, subscriptionId, refund = false }) {
+  const normalizedShop = normalizeShop(shop);
+  const normalizedSubscriptionId = String(subscriptionId || "").trim();
+  if (!normalizedShop || !normalizedSubscriptionId) {
+    throw new ProductPulseBillingError("No active Starter subscription was found.");
+  }
+
+  const isTest = await shouldUseProductPulseTestBilling(admin, normalizedShop);
+  const planBeforeCancel = await resolveProductPulseBillingPlan({
+    admin,
+    billing,
+    session: { shop: normalizedShop },
+  });
+  const now = new Date();
+  const periodStart = coerceDate(planBeforeCancel.currentPeriodStart) || now;
+  const periodEnd = coerceDate(planBeforeCancel.currentPeriodEnd) || new Date(now.getTime() + BILLING_PERIOD_MS);
+  const periodKey = planBeforeCancel.periodKey || buildSubscriptionPeriodKey({
+    subscriptionId: normalizedSubscriptionId,
+    periodStart,
+    periodEnd,
+    now,
+  });
+
+  await billing.cancel({
+    subscriptionId: normalizedSubscriptionId,
+    isTest,
+    prorate: Boolean(refund),
+  });
+
+  if (refund) {
+    await recordPlanMonthlyPointReversalForShop(normalizedShop, {
+      amount: PRODUCT_PULSE_STARTER_PLAN_CONFIG.monthlyCredits,
+      planKey: PRODUCT_PULSE_STARTER_PLAN_CONFIG.key,
+      planName: PRODUCT_PULSE_STARTER_PLAN_CONFIG.name,
+      subscriptionId: normalizedSubscriptionId,
+      periodKey,
+      periodStart,
+      periodEnd,
+      metadata: {
+        sourceEvent: "starter_subscription_refund",
+      },
+    });
+  }
+
+  await upsertBillingSubscriptionStateForShop(normalizedShop, {
+    subscriptionId: normalizedSubscriptionId,
+    planKey: PRODUCT_PULSE_STARTER_PLAN_CONFIG.key,
+    planName: PRODUCT_PULSE_STARTER_PLAN_CONFIG.name,
+    status: refund ? "refunded" : "cancelled",
+    currentPeriodStart: periodStart,
+    currentPeriodEnd: periodEnd,
+    accessEndsAt: refund ? now : periodEnd,
+    cancelledAt: now,
+    metadata: {
+      refund: Boolean(refund),
+      source: "merchant_cancel",
+    },
+  });
+
+  return {
+    ok: true,
+    refund: Boolean(refund),
+    accessEndsAt: refund ? now.toISOString() : periodEnd.toISOString(),
+    message: refund
+      ? "Starter subscription cancelled and current-period credits were reversed."
+      : "Starter subscription cancelled. Starter benefits remain active until the paid period ends.",
+  };
+}
+
+export async function handleProductPulseAppSubscriptionUpdate(shop, payload = {}) {
+  const subscription = readWebhookSubscription(payload);
+  if (subscription.name && subscription.name !== PRODUCT_PULSE_STARTER_PLAN) {
+    return { ok: true, ignored: true, message: "Subscription update ignored for a different plan." };
+  }
+  const normalizedShop = normalizeShop(shop);
+  if (!normalizedShop || !subscription.id) {
+    return { ok: false, message: "Subscription update is missing shop or subscription id." };
+  }
+
+  const now = new Date();
+  const period = getSubscriptionBillingPeriod(subscription, now);
+  const status = normalizeBillingStatus(subscription.status);
+  const active = status === "active";
+  const refunded = isRefundedSubscriptionStatus(status) || (!active && !period.periodEnd);
+  const accessEndsAt = active ? period.periodEnd : refunded ? now : period.periodEnd || now;
+
+  await upsertBillingSubscriptionStateForShop(normalizedShop, {
+    subscriptionId: subscription.id,
+    planKey: PRODUCT_PULSE_STARTER_PLAN_CONFIG.key,
+    planName: PRODUCT_PULSE_STARTER_PLAN_CONFIG.name,
+    status: active ? "active" : refunded ? "refunded" : status || "cancelled",
+    currentPeriodStart: period.periodStart,
+    currentPeriodEnd: period.periodEnd,
+    accessEndsAt,
+    cancelledAt: active ? null : now,
+    metadata: {
+      source: "APP_SUBSCRIPTIONS_UPDATE",
+      shopifyStatus: subscription.status || null,
+      test: subscription.test ?? null,
+    },
+  });
+
+  if (active) {
+    await recordPlanMonthlyPointGrantForShop(normalizedShop, {
+      amount: PRODUCT_PULSE_STARTER_PLAN_CONFIG.monthlyCredits,
+      planKey: PRODUCT_PULSE_STARTER_PLAN_CONFIG.key,
+      planName: PRODUCT_PULSE_STARTER_PLAN_CONFIG.name,
+      subscriptionId: subscription.id,
+      periodKey: period.periodKey,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      metadata: {
+        sourceEvent: "APP_SUBSCRIPTIONS_UPDATE",
+      },
+    });
+  } else if (refunded) {
+    await recordPlanMonthlyPointReversalForShop(normalizedShop, {
+      amount: PRODUCT_PULSE_STARTER_PLAN_CONFIG.monthlyCredits,
+      planKey: PRODUCT_PULSE_STARTER_PLAN_CONFIG.key,
+      planName: PRODUCT_PULSE_STARTER_PLAN_CONFIG.name,
+      subscriptionId: subscription.id,
+      periodKey: period.periodKey,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      metadata: {
+        sourceEvent: "APP_SUBSCRIPTIONS_UPDATE",
+      },
+    });
+  }
+
+  return { ok: true, status: active ? "active" : refunded ? "refunded" : status || "cancelled" };
+}
+
 export function getProductPulseBillingView() {
   return {
     shopifyBillingEnabled: true,
@@ -369,12 +651,15 @@ export function serializeProductPulseBillingError(error) {
   };
 }
 
-async function resolveBillingSnapshot(billing, isTest) {
+async function resolveBillingSnapshot(billing, isTest, admin = null) {
   const filtered = await billing.check({
     plans: [PRODUCT_PULSE_STARTER_PLAN],
     isTest,
   });
-  const filteredSubscriptions = normalizeSubscriptions(filtered?.appSubscriptions);
+  const filteredSubscriptions = await enrichSubscriptionsWithCurrentInstallation(
+    normalizeSubscriptions(filtered?.appSubscriptions),
+    admin,
+  );
   const filteredStarter = starterSubscription(filteredSubscriptions);
   if (filteredStarter) {
     return {
@@ -385,7 +670,10 @@ async function resolveBillingSnapshot(billing, isTest) {
   }
 
   const unfiltered = await billing.check();
-  const unfilteredSubscriptions = normalizeSubscriptions(unfiltered?.appSubscriptions);
+  const unfilteredSubscriptions = await enrichSubscriptionsWithCurrentInstallation(
+    normalizeSubscriptions(unfiltered?.appSubscriptions),
+    admin,
+  );
   const unfilteredStarter = starterSubscription(unfilteredSubscriptions);
   return {
     appSubscriptions: unfilteredStarter ? unfilteredSubscriptions : filteredSubscriptions,
@@ -400,6 +688,24 @@ function starterSubscription(subscriptions) {
 
 function normalizeSubscriptions(value) {
   return Array.isArray(value) ? value : [];
+}
+
+async function enrichSubscriptionsWithCurrentInstallation(subscriptions, admin) {
+  if (!subscriptions.length || subscriptions.some((subscription) => subscription.currentPeriodEnd)) return subscriptions;
+  if (!admin || typeof admin.graphql !== "function") return subscriptions;
+
+  const installationSubscriptions = await readCurrentInstallationSubscriptions(admin).catch(() => []);
+  if (!installationSubscriptions.length) return subscriptions;
+  return subscriptions.map((subscription) => {
+    const match = installationSubscriptions.find((candidate) => candidate.id === subscription.id);
+    return match ? { ...subscription, ...match } : subscription;
+  });
+}
+
+async function readCurrentInstallationSubscriptions(admin) {
+  const response = await admin.graphql(APP_INSTALLATION_BILLING_QUERY);
+  const body = await readGraphql(response);
+  return normalizeSubscriptions(readObject(readObject(body.data).currentAppInstallation).activeSubscriptions);
 }
 
 function buildCreditPackage(id, credits, description, envKey, fallbackCents, compareAtEnvKey, fallbackCompareAtCents) {
@@ -454,6 +760,141 @@ function envBillingTestOverride() {
   if (["1", "true", "yes", "on"].includes(value)) return true;
   if (["0", "false", "no", "off"].includes(value)) return false;
   return null;
+}
+
+async function getBillingSubscriptionStateForShop(shop) {
+  const normalizedShop = normalizeShop(shop);
+  if (!normalizedShop || typeof prisma.billingSubscriptionState?.findUnique !== "function") return null;
+  return prisma.billingSubscriptionState.findUnique({ where: { shop: normalizedShop } }).catch(() => null);
+}
+
+async function upsertBillingSubscriptionStateForShop(shop, input = {}) {
+  const normalizedShop = normalizeShop(shop);
+  if (!normalizedShop || typeof prisma.billingSubscriptionState?.upsert !== "function") return null;
+  const now = new Date();
+  const data = {
+    subscriptionId: input.subscriptionId || null,
+    planKey: input.planKey || "free",
+    planName: input.planName || null,
+    status: input.status || "free",
+    currentPeriodStart: coerceDate(input.currentPeriodStart),
+    currentPeriodEnd: coerceDate(input.currentPeriodEnd),
+    accessEndsAt: coerceDate(input.accessEndsAt),
+    cancelledAt: coerceDate(input.cancelledAt),
+    lastSyncedAt: now,
+    metadata: normalizeMetadata(input.metadata),
+  };
+  return prisma.billingSubscriptionState.upsert({
+    where: { shop: normalizedShop },
+    create: {
+      shop: normalizedShop,
+      ...data,
+    },
+    update: data,
+  });
+}
+
+function isBillingSubscriptionStateAccessible(state, now = new Date()) {
+  if (!state || state.planKey !== PRODUCT_PULSE_STARTER_PLAN_CONFIG.key) return false;
+  if (state.status === "refunded" || state.status === "free" || state.status === "frozen") return false;
+  const accessEndsAt = coerceDate(state.accessEndsAt || state.currentPeriodEnd);
+  return Boolean(accessEndsAt && accessEndsAt.getTime() > now.getTime());
+}
+
+function getSubscriptionBillingPeriod(subscription = {}, now = new Date()) {
+  const subscriptionId = String(subscription?.id || "").trim();
+  const periodEnd = coerceDate(subscription?.currentPeriodEnd || subscription?.current_period_end);
+  const createdAt = coerceDate(subscription?.createdAt || subscription?.created_at);
+  const periodStart = periodEnd
+    ? new Date(periodEnd.getTime() - BILLING_PERIOD_MS)
+    : getFallbackBillingPeriodStart(createdAt || now, now);
+  const normalizedPeriodEnd = periodEnd || new Date(periodStart.getTime() + BILLING_PERIOD_MS);
+  return {
+    periodStart,
+    periodEnd: normalizedPeriodEnd,
+    periodKey: buildSubscriptionPeriodKey({
+      subscriptionId,
+      periodStart,
+      periodEnd: normalizedPeriodEnd,
+      now,
+    }),
+  };
+}
+
+function getFallbackBillingPeriodStart(anchor, now = new Date()) {
+  const anchorTime = anchor.getTime();
+  const elapsed = Math.max(0, now.getTime() - anchorTime);
+  const periodIndex = Math.floor(elapsed / BILLING_PERIOD_MS);
+  return new Date(anchorTime + periodIndex * BILLING_PERIOD_MS);
+}
+
+function buildSubscriptionPeriodKey({ periodStart = null, periodEnd = null, now = new Date() } = {}) {
+  const end = coerceDate(periodEnd);
+  const start = coerceDate(periodStart);
+  if (end) return `ends-${formatDateKey(end)}`;
+  if (start) return `starts-${formatDateKey(start)}`;
+  return `fallback-${Math.floor(now.getTime() / BILLING_PERIOD_MS)}`;
+}
+
+function readWebhookPurchase(payload = {}) {
+  const node = readObject(payload.app_purchase_one_time || payload.appPurchaseOneTime || payload);
+  return {
+    id: String(node.admin_graphql_api_id || node.adminGraphqlApiId || node.id || ""),
+    status: node.status,
+  };
+}
+
+function readWebhookSubscription(payload = {}) {
+  const node = readObject(payload.app_subscription || payload.appSubscription || payload);
+  return {
+    id: String(node.admin_graphql_api_id || node.adminGraphqlApiId || node.id || ""),
+    name: String(node.name || ""),
+    status: node.status,
+    test: node.test,
+    createdAt: node.created_at || node.createdAt,
+    currentPeriodEnd: node.current_period_end || node.currentPeriodEnd,
+  };
+}
+
+function normalizeBillingStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isRefundedPurchaseStatus(status) {
+  return ["refunded", "cancelled", "canceled", "revoked"].includes(normalizeBillingStatus(status));
+}
+
+function isRefundedSubscriptionStatus(status) {
+  return normalizeBillingStatus(status) === "refunded";
+}
+
+function normalizeShop(shop) {
+  return String(shop || "").trim();
+}
+
+function normalizeMetadata(metadata = {}) {
+  const normalized = Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => value !== undefined),
+  );
+  return Object.keys(normalized).length ? normalized : undefined;
+}
+
+function coerceDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateKey(value) {
+  const date = coerceDate(value);
+  if (!date) return "unknown";
+  return date.toISOString().slice(0, 10);
+}
+
+function toIso(value) {
+  const date = coerceDate(value);
+  return date ? date.toISOString() : null;
 }
 
 async function readGraphql(response) {

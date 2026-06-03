@@ -6,6 +6,7 @@ import {
   getStorePointSummaryForShop,
   recordExtraCreditPackForShop,
   recordPlanMonthlyPointGrantForShop,
+  recordPlanMonthlyPointReversalForShop,
 } from "../../app/lib/product-pulse-points.server";
 
 describe("Credits", () => {
@@ -156,6 +157,58 @@ describe("Credits", () => {
       amountLabel: "+50 credits",
       balanceAfterLabel: "60",
     });
+  });
+
+  it("reverses refunded monthly plan credits idempotently even after credits were used", async () => {
+    const db = createPointTestDb();
+    await getStorePointBalanceForShop("test-shop.myshopify.com", {
+      db,
+      env: { PRODUCT_PULSE_INITIAL_STORE_POINTS: "10" },
+    });
+    await recordPlanMonthlyPointGrantForShop("test-shop.myshopify.com", {
+      db,
+      amount: 50,
+      planKey: "starter",
+      planName: "Starter",
+      subscriptionId: "gid://shopify/AppSubscription/123",
+      periodKey: "ends-2026-06-30",
+    });
+    await debitStorePointsForShop("test-shop.myshopify.com", {
+      db,
+      amount: 58,
+      reason: "Product diagnosis usage",
+      idempotencyKey: "diagnosis-heavy-use",
+    });
+
+    const reversal = await recordPlanMonthlyPointReversalForShop("test-shop.myshopify.com", {
+      db,
+      amount: 50,
+      planKey: "starter",
+      planName: "Starter",
+      subscriptionId: "gid://shopify/AppSubscription/123",
+      periodKey: "ends-2026-06-30",
+    });
+    const duplicate = await recordPlanMonthlyPointReversalForShop("test-shop.myshopify.com", {
+      db,
+      amount: 50,
+      planKey: "starter",
+      planName: "Starter",
+      subscriptionId: "gid://shopify/AppSubscription/123",
+      periodKey: "ends-2026-06-30",
+    });
+
+    expect(reversal).toMatchObject({
+      status: "success",
+      charged: true,
+      amount: 50,
+      balance: { available: -48 },
+    });
+    expect(duplicate).toMatchObject({
+      status: "already_recorded",
+      charged: false,
+      balance: { available: -48 },
+    });
+    expect(db.state.entries.filter((entry) => entry.metadata?.source === "plan_monthly_allowance_refund")).toHaveLength(1);
   });
 
   it("credits arbitrary credit events once for an idempotency key", async () => {

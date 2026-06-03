@@ -6,12 +6,12 @@ import { PlansCreditsScreen } from "../components/ProductPulseScreens";
 import { getAppViewData } from "../lib/product-pulse-data";
 import {
   getProductPulseBillingView,
+  cancelProductPulseStarterSubscription,
   createProductPulseStarterSubscription,
   createProductPulseCreditPurchase,
   finalizeProductPulseCreditPurchase,
   resolveProductPulseBillingPlan,
   serializeProductPulseBillingError,
-  shouldUseProductPulseTestBilling,
 } from "../lib/product-pulse-billing.server";
 import {
   getStorePointSummaryForShop,
@@ -33,12 +33,15 @@ export const loader = async ({ request }) => {
     ? await finalizeCreditPurchaseForLoader(session.shop, creditPurchaseId, admin, url)
     : null;
 
-  if (billingPlan.planKey === "starter") {
+  if (billingPlan.planKey === "starter" && billingPlan.grantEligible) {
     await recordPlanMonthlyPointGrantForShop(session.shop, {
       amount: billingPlan.monthlyCredits,
       planKey: billingPlan.planKey,
       planName: billingPlan.planName,
       subscriptionId: billingPlan.subscriptionId,
+      periodKey: billingPlan.periodKey,
+      periodStart: billingPlan.currentPeriodStart,
+      periodEnd: billingPlan.currentPeriodEnd,
     });
   }
 
@@ -49,7 +52,7 @@ export const loader = async ({ request }) => {
       planKey: billingPlan.planKey,
       planName: billingPlan.planName,
       planAllowance: billingPlan.monthlyCredits,
-      planRenewalLabel: billingPlan.planKey === "starter" ? "Renews every 30 days" : "Does not renew",
+      planRenewalLabel: getPlanRenewalLabel(billingPlan),
     }),
   ]);
   return {
@@ -110,13 +113,19 @@ export const action = async ({ request }) => {
     if (!subscriptionId) {
       return { ok: false, intent, message: "No active Starter subscription was found." };
     }
-    const isTest = await shouldUseProductPulseTestBilling(admin, session.shop);
     try {
-      await billing.cancel({
+      const cancellation = await cancelProductPulseStarterSubscription({
+        shop: session.shop,
+        admin,
+        billing,
         subscriptionId,
-        isTest,
-        prorate: true,
+        refund: formData.get("refund") === "true",
       });
+      return {
+        ok: true,
+        intent,
+        message: cancellation.message,
+      };
     } catch (error) {
       if (error instanceof Response) throw error;
       const serialized = serializeProductPulseBillingError(error);
@@ -127,11 +136,6 @@ export const action = async ({ request }) => {
         error: serialized,
       };
     }
-    return {
-      ok: true,
-      intent,
-      message: "Starter subscription cancelled. You are now on the Free plan.",
-    };
   }
 
   if (intent === "buy-credit-pack") {
@@ -219,4 +223,21 @@ function shopAdminHandle(shop) {
 function isDevelopmentBillingError(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   return /billing|cannot be charged|development|test/i.test(message);
+}
+
+function getPlanRenewalLabel(billingPlan = {}) {
+  if (billingPlan.planKey !== "starter") return "Does not renew";
+  const accessEndsAt = formatBillingDate(billingPlan.accessEndsAt || billingPlan.currentPeriodEnd);
+  if (billingPlan.cancellationKeepsAccess && accessEndsAt) return `Active until ${accessEndsAt}`;
+  return accessEndsAt ? `Renews ${accessEndsAt}` : "Renews every 30 days";
+}
+
+function formatBillingDate(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
 }

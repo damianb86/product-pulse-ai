@@ -808,3 +808,23 @@ model CreditPurchase {
   @@index([shop, status])
   @@index([shop, createdAt])
 }
+
+model BillingSubscriptionState {
+  id                 String    @id @default(cuid())
+  shop               String    @unique
+  subscriptionId     String?
+  planKey            String    @default("free")
+  planName           String?
+  status             String    @default("free")
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  accessEndsAt       DateTime?
+  cancelledAt        DateTime?
+  lastSyncedAt       DateTime?
+  metadata           Json?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([subscriptionId])
+  @@index([shop, status])
+}
