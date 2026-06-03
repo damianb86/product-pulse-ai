@@ -26153,13 +26153,24 @@ s-page[inline-size="large-500"] {
 
 .ppShopifyProductResult {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 12px;
   border: 1px solid var(--pp-slate-200);
   border-radius: 10px;
   background: var(--pp-mist-gray);
+}
+
+.ppShopifyProductSearchModal[data-pp-watchlist-add-modal="true"] .ppShopifyProductResult {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.ppShopifyProductSearchModal .ppProductArt-search {
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
 }
 
 .ppShopifyProductResultText {

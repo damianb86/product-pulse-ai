@@ -2590,10 +2590,27 @@ async function getWatchlistEligibleProductsByGid(shop, productGids = []) {
 function formatWatchlistEligibleProductSearchResult(snapshot = {}, diagnosis = {}) {
   const metrics = snapshot?.metrics || diagnosis?.metrics || {};
   const productMomentum = metrics.productMomentum || {};
-  const imageUrl = firstString(metrics.productImageUrl, metrics.imageUrl, metrics.featuredImageUrl);
   const productTitle = snapshot?.productTitle || diagnosis?.productTitle || "Shopify product";
   const productGid = snapshot?.productGid || diagnosis?.productGid || "";
-  const imageAlt = firstString(metrics.productImageAlt, metrics.imageAlt, productTitle);
+  const imageUrl = firstString(
+    snapshot?.imageUrl,
+    diagnosis?.imageUrl,
+    metrics.productImageUrl,
+    metrics.imageUrl,
+    metrics.featuredImageUrl,
+    metrics.featuredImage?.url,
+    metrics.product?.imageUrl,
+    metrics.product?.featuredImage?.url,
+  );
+  const imageAlt = firstString(
+    snapshot?.imageAlt,
+    diagnosis?.imageAlt,
+    metrics.productImageAlt,
+    metrics.imageAlt,
+    metrics.featuredImage?.altText,
+    metrics.product?.featuredImage?.altText,
+    productTitle,
+  );
   const sku = firstString(
     metrics.sku,
     Array.isArray(metrics.variants) ? metrics.variants.find((variant) => variant?.sku)?.sku : "",

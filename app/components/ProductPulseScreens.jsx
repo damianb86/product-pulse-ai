@@ -7642,6 +7642,7 @@ function ShopifyProductSearchModal({
                     <ProductArt
                       variant={product.variant}
                       label={product.title}
+                      size={watchlistAddMode ? "search" : "small"}
                       imageUrl={product.imageUrl}
                       imageAlt={product.imageAlt}
                     />
