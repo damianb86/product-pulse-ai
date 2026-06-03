@@ -65,6 +65,7 @@ export default function App() {
             <span>ProductPulse AI</span>
           </Link>
           <Link className={styles.textLink} to="/privacy-policy">Privacy policy</Link>
+          <Link className={styles.textLink} to="/privacy">Privacy policy</Link>
         </nav>
 
         <div className={styles.heroContent}>

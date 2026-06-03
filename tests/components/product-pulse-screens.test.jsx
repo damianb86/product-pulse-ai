@@ -5799,6 +5799,8 @@ describe("ProductPulse screens", () => {
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const issuesPanel = screen.getByText("Issues detected").closest(".ppIssuesOverviewPanel");
+    const issueHeaders = within(issuesPanel).getAllByRole("columnheader").map((header) => header.textContent);
+    expect(issueHeaders).toEqual(["Issue", "Impact", "Confidence", "Signals", "Suggested action"]);
     const issueRow = within(issuesPanel).getByText("Fear or safety concern").closest("tr");
     expect(within(issueRow).getByText("Medium")).toBeInTheDocument();
     expect(issueRow.querySelector(".ppImpactLevelIndicator-medium")).toBeInTheDocument();

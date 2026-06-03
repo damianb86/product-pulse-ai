@@ -37,7 +37,7 @@ import {
 } from "../lib/product-pulse-html-style-presets";
 import { BetaFeedbackPanelControls, BetaFeedbackPanelFrame } from "./beta-feedback/BetaFeedbackLayer";
 
-const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 4_000;
+const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 12_000;
 const RISK_THRESHOLD_HANDLE_GAP = 5;
 const PRODUCT_PULSE_MIN_RISK_THRESHOLD = 10;
 const PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD = 50;
@@ -857,7 +857,9 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   useEffect(() => {
     const hasProductDiagnosisJobs = activeDiagnosisJobs.length > 0 || allVisibleRows.some((product) => product.diagnosisJob);
     if ((!activeScanJob && !hasProductDiagnosisJobs) || !persistProductJobs) return undefined;
-    const interval = window.setInterval(() => revalidator.revalidate(), PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
+    const interval = window.setInterval(() => {
+      if (!document.hidden) revalidator.revalidate();
+    }, PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
   }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, revalidator]);
 
@@ -1862,7 +1864,9 @@ export function WatchlistScreen({ data = {}, actionData }) {
 
   useEffect(() => {
     if (!hasActiveWatchlistDiagnosisJobs) return undefined;
-    const interval = window.setInterval(() => revalidator.revalidate(), PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
+    const interval = window.setInterval(() => {
+      if (!document.hidden) revalidator.revalidate();
+    }, PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
   }, [hasActiveWatchlistDiagnosisJobs, revalidator]);
 
@@ -15015,13 +15019,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                           <tr>
                             <th>Issue</th>
                             <th>Impact</th>
+                            <th>Confidence</th>
+                            <th>Signals</th>
                             <th>Suggested action</th>
                           </tr>
                         </thead>
                         <tbody>
                           {detail.detectedIssues.length === 0 && (
                             <tr className="ppIssuesEmptyRow">
-                              <td colSpan="3">
+                              <td colSpan="5">
                                 <EmptyProductDetailState message="0 deterministic issues detected from stored product signals." />
                               </td>
                             </tr>
@@ -15044,6 +15050,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                   </span>
                                 </td>
                                 <td><ImpactLevelIndicator value={issue.severity} ariaLabel={`${issue.severity} issue impact`} /></td>
+                                <td>{issue.confidence}</td>
+                                <td>{issue.signals}</td>
                                 <td title={issue.action}>
                                   <span className="ppIssueActionCell">
                                     <span>{issue.action}</span>
