@@ -791,6 +791,9 @@ async function upsertBillingSubscriptionStateForShop(shop, input = {}) {
       ...data,
     },
     update: data,
+  }).catch((error) => {
+    if (isMissingPrismaTableError(error)) return null;
+    throw error;
   });
 }
 
@@ -866,6 +869,10 @@ function isRefundedPurchaseStatus(status) {
 
 function isRefundedSubscriptionStatus(status) {
   return normalizeBillingStatus(status) === "refunded";
+}
+
+function isMissingPrismaTableError(error) {
+  return error?.code === "P2021";
 }
 
 function normalizeShop(shop) {
