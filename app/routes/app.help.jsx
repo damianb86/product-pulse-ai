@@ -213,7 +213,7 @@ export const action = async ({ request }) => {
   if (intent === "privacy-data-request") {
     const counts = await getProductPulseDataCounts(session.shop);
 
-    await sendContactEmail({
+    await sendPrivacyContactEmail({
       type: "Privacy: Data summary",
       subject: "Privacy - ProductPulse data summary requested",
       shop: session.shop,
@@ -254,9 +254,18 @@ export const action = async ({ request }) => {
   }
 
   if (intent === "privacy-data-delete") {
-    await deleteProductPulseData(session.shop);
+    try {
+      await deleteProductPulseData(session.shop);
+    } catch (error) {
+      console.error("[help.privacy-data-delete]", error);
+      return {
+        ok: false,
+        intent: "privacy-data-delete",
+        message: "We could not delete all ProductPulse data. Please contact support and we will complete the request manually.",
+      };
+    }
 
-    await sendContactEmail({
+    await sendPrivacyContactEmail({
       type: "Privacy: Data deleted",
       subject: "Privacy - Merchant deleted all ProductPulse data",
       shop: session.shop,
@@ -792,6 +801,30 @@ export default function Help() {
 }
 
 async function getProductPulseDataCounts(shop) {
+  const counts = await Promise.all([
+    countProductPulseRows("productPulseSource", { shop }),
+    countProductPulseRows("catalogSignalJob", { shop }),
+    countProductPulseRows("productPulseJobLog", { shop }),
+    countProductPulseRows("productRiskSnapshot", { shop }),
+    countProductPulseRows("productDiagnosis", { shop }),
+    countProductPulseRows("productAction", { shop }),
+    countProductPulseRows("productRetentionRun", { shopId: shop }),
+    countProductPulseRows("productRetentionSummary", { shopId: shop }),
+    countProductPulseRows("productRetentionCohortCell", { shopId: shop }),
+    countProductPulseRows("productTimelineEvent", { shop }),
+    countProductPulseRows("productWatchlistItem", { shop }),
+    countProductPulseRows("productWatchSettings", { shop }),
+    countProductPulseRows("productWatchActivity", { shop }),
+    countProductPulseRows("productScoreHistory", { shop }),
+    countProductPulseRows("aiConversation", { shop }),
+    countProductPulseRows("aiConversationMessage", { shop }),
+    countProductPulseRows("aiUsageEvent", { shop }),
+    countProductPulseRows("aiActionProposal", { shop }),
+    countProductPulseRows("aiAppDraftProposal", { shop }),
+    countProductPulseRows("creditLedgerEntry", { shop }),
+    countProductPulseRows("contactRequest", { shop }),
+    countProductPulseRows("session", { shop }),
+  ]);
   const [
     sources,
     jobs,
@@ -815,30 +848,7 @@ async function getProductPulseDataCounts(shop) {
     creditEntries,
     contacts,
     sessions,
-  ] = await Promise.all([
-    db.productPulseSource.count({ where: { shop } }),
-    db.catalogSignalJob.count({ where: { shop } }),
-    db.productPulseJobLog.count({ where: { shop } }),
-    db.productRiskSnapshot.count({ where: { shop } }),
-    db.productDiagnosis.count({ where: { shop } }),
-    db.productAction.count({ where: { shop } }),
-    db.productRetentionRun.count({ where: { shopId: shop } }),
-    db.productRetentionSummary.count({ where: { shopId: shop } }),
-    db.productRetentionCohortCell.count({ where: { shopId: shop } }),
-    db.productTimelineEvent.count({ where: { shop } }),
-    db.productWatchlistItem.count({ where: { shop } }),
-    db.productWatchSettings.count({ where: { shop } }),
-    db.productWatchActivity.count({ where: { shop } }),
-    db.productScoreHistory.count({ where: { shop } }),
-    db.aiConversation.count({ where: { shop } }),
-    db.aiConversationMessage.count({ where: { shop } }),
-    db.aiUsageEvent.count({ where: { shop } }),
-    db.aiActionProposal.count({ where: { shop } }),
-    db.aiAppDraftProposal.count({ where: { shop } }),
-    db.creditLedgerEntry.count({ where: { shop } }),
-    db.contactRequest.count({ where: { shop } }),
-    db.session.count({ where: { shop } }),
-  ]);
+  ] = counts;
 
   return {
     sources,
@@ -867,36 +877,89 @@ async function getProductPulseDataCounts(shop) {
 }
 
 async function deleteProductPulseData(shop) {
-  await db.$transaction([
-    db.aiAppDraftAuditLog.deleteMany({ where: { shop } }),
-    db.aiAppDraftProposal.deleteMany({ where: { shop } }),
-    db.aiActionAuditLog.deleteMany({ where: { shop } }),
-    db.aiActionProposal.deleteMany({ where: { shop } }),
-    db.aiConversationToolCall.deleteMany({ where: { shop } }),
-    db.aiConversationMessage.deleteMany({ where: { shop } }),
-    db.aiConversation.deleteMany({ where: { shop } }),
-    db.aiUsageEvent.deleteMany({ where: { shop } }),
-    db.productAction.deleteMany({ where: { shop } }),
-    db.productTimelineEvent.deleteMany({ where: { shop } }),
-    db.productRetentionSummary.deleteMany({ where: { shopId: shop } }),
-    db.productRetentionSegmentDaily.deleteMany({ where: { shopId: shop } }),
-    db.productRetentionDailyActivity.deleteMany({ where: { shopId: shop } }),
-    db.productRetentionCohortCell.deleteMany({ where: { shopId: shop } }),
-    db.productRetentionDailyCohort.deleteMany({ where: { shopId: shop } }),
-    db.productRetentionRun.deleteMany({ where: { shopId: shop } }),
-    db.productDiagnosis.deleteMany({ where: { shop } }),
-    db.productRiskSnapshot.deleteMany({ where: { shop } }),
-    db.productWatchActivity.deleteMany({ where: { shop } }),
-    db.productWatchlistItem.deleteMany({ where: { shop } }),
-    db.productWatchSettings.deleteMany({ where: { shop } }),
-    db.productScoreHistory.deleteMany({ where: { shop } }),
-    db.productPulseJobLog.deleteMany({ where: { shop } }),
-    db.catalogSignalJob.deleteMany({ where: { shop } }),
-    db.productPulseSource.deleteMany({ where: { shop } }),
-    db.contactRequest.deleteMany({ where: { shop } }),
-    db.session.deleteMany({ where: { shop } }),
-  ]);
+  const operations = [
+    ["aiAppDraftAuditLog", { shop }],
+    ["aiAppDraftProposal", { shop }],
+    ["aiActionAuditLog", { shop }],
+    ["aiActionProposal", { shop }],
+    ["aiConversationToolCall", { shop }],
+    ["aiConversationMessage", { shop }],
+    ["aiConversation", { shop }],
+    ["aiUsageEvent", { shop }],
+    ["betaFeedbackPanelPreference", { shop }],
+    ["betaFeedbackReport", { shop }],
+    ["productAction", { shop }],
+    ["productTimelineEvent", { shop }],
+    ["productRetentionSummary", { shopId: shop }],
+    ["productRetentionSegmentDaily", { shopId: shop }],
+    ["productRetentionDailyActivity", { shopId: shop }],
+    ["productRetentionCohortCell", { shopId: shop }],
+    ["productRetentionDailyCohort", { shopId: shop }],
+    ["productRetentionRun", { shopId: shop }],
+    ["productDiagnosis", { shop }],
+    ["productRiskSnapshot", { shop }],
+    ["productWatchActivity", { shop }],
+    ["productWatchlistItem", { shop }],
+    ["productWatchSettings", { shop }],
+    ["productScoreHistory", { shop }],
+    ["productPulseJobLog", { shop }],
+    ["catalogSignalJob", { shop }],
+    ["productPulseSource", { shop }],
+    ["contactRequest", { shop }],
+    ["session", { shop }],
+  ];
+
+  for (const [modelName, where] of operations) {
+    await deleteProductPulseRows(modelName, where);
+  }
 }
+
+async function sendPrivacyContactEmail(payload) {
+  try {
+    await sendContactEmail(payload);
+  } catch (error) {
+    console.error("[help.privacy-email]", error);
+  }
+}
+
+async function countProductPulseRows(modelName, where) {
+  const model = db[modelName];
+  if (!model?.count) return 0;
+  try {
+    return await model.count({ where });
+  } catch (error) {
+    if (isMissingPrismaTargetError(error)) return 0;
+    throw error;
+  }
+}
+
+async function deleteProductPulseRows(modelName, where) {
+  const model = db[modelName];
+  if (!model?.deleteMany) return { count: 0, skipped: true };
+  try {
+    return await model.deleteMany({ where });
+  } catch (error) {
+    if (isMissingPrismaTargetError(error)) {
+      console.warn(`[help.privacy-delete] Skipping missing ${modelName} storage.`);
+      return { count: 0, skipped: true };
+    }
+    throw error;
+  }
+}
+
+function isMissingPrismaTargetError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return code === "P2021" || code === "P2022" || /table .* does not exist|column .* does not exist|no such table/i.test(message);
+}
+
+export const __helpRouteTestHooks = {
+  countProductPulseRows,
+  deleteProductPulseData,
+  deleteProductPulseRows,
+  isMissingPrismaTargetError,
+  sendPrivacyContactEmail,
+};
 
 function formatProductPulseCounts(counts) {
   return [
