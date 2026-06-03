@@ -177,7 +177,6 @@ export function DashboardScreen({ data, actionData }) {
   const startProductDiagnosisRunning = Boolean(startProduct?.diagnosisInProgress || startProduct?.diagnosisJob);
   const dashboardCtaKind = startProduct?.ctaKind || "link";
   const dashboardCtaHref = startProduct?.ctaHref || startProduct?.href || "/app/products";
-  const dashboardCtaIcon = startProduct?.ctaIcon || (dashboardCtaKind === "diagnose" ? "wand" : "product");
   const dashboardCtaRequiresDiagnosis = dashboardCtaKind === "diagnose" || dashboardCtaKind === "recheck";
   const dashboardToastData = actionData || getPermissionToastData(data.permissionState);
 
@@ -227,6 +226,8 @@ export function DashboardScreen({ data, actionData }) {
             <div className="ppStartHeading">
               <DashboardIcon type="next-best-action" tone="purple" size="metric" />
               <h2>Next best action</h2>
+              <span className="ppRecommendedFixBadge">Recommended fix</span>
+              <s-icon type="chevron-down" size="small"></s-icon>
             </div>
             <div className="ppStartContent">
               {startProduct ? (
@@ -275,6 +276,9 @@ export function DashboardScreen({ data, actionData }) {
               </div>
 
               <div className="ppStartActionPanel">
+                <span className="ppStartActionStatus" aria-hidden="true">
+                  <ProductPulseGlyph type="check-circle" />
+                </span>
                 {startProduct && !startProductDiagnosisRunning && dashboardCtaRequiresDiagnosis ? (
                   <button
                     className="ppPrimaryButton"
@@ -282,13 +286,13 @@ export function DashboardScreen({ data, actionData }) {
                     disabled={pendingDashboardDiagnosis}
                     onClick={handleRequestDashboardDiagnosis}
                   >
-                    <s-icon type="wand" size="small"></s-icon>
                     <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run Product Diagnosis"}</span>
+                    <s-icon type="chevron-right" size="small"></s-icon>
                   </button>
                 ) : (
                   <Link className="ppPrimaryButton" to={startProductDiagnosisRunning ? diagnosisHref : dashboardCtaHref}>
-                    <s-icon type={startProductDiagnosisRunning ? "product" : dashboardCtaIcon} size="small"></s-icon>
                     <span>{startProductDiagnosisRunning ? "View running product" : startProduct?.actionLabel || "Analyze more products"}</span>
+                    <s-icon type="chevron-right" size="small"></s-icon>
                   </Link>
                 )}
                 <span>{startProductDiagnosisRunning ? getDashboardDiagnosisJobLabel(startProduct.diagnosisJob) : startProduct?.actionHint || "Start with Catalog Scan"}</span>
@@ -12651,7 +12655,7 @@ function normalizeFaqPreviewItems(faqItems = []) {
       question: String(item?.question || "").trim(),
       answer: String(item?.answer || "").trim(),
     }))
-    .filter((item) => item.question || item.answer);
+    .filter((item) => item.question && item.answer);
 }
 
 function getFaqPreviewItems(application = {}, detailText = "") {
@@ -12663,15 +12667,57 @@ function getFaqPreviewItems(application = {}, detailText = "") {
     .map((section) => section.trim())
     .filter(Boolean);
 
-  return sections
+  const parsedItems = sections
     .map((section) => {
       const lines = section.split(/\n+/).map((line) => line.trim()).filter(Boolean);
       return {
-        question: lines[0] || "",
+        question: stripFaqPreviewQuestionPrefix(lines[0] || ""),
+        questionLine: lines[0] || "",
         answer: lines.slice(1).join("\n"),
       };
     })
-    .filter((item) => item.question && item.answer);
+    .filter((item) => item.question && item.answer && isFaqPreviewQuestionLine(item.questionLine))
+    .map(({ question, answer }) => ({ question, answer }));
+  if (parsedItems.length) return parsedItems;
+
+  const fallbackItem = buildFallbackFaqPreviewItem(detailText);
+  return fallbackItem ? [fallbackItem] : [];
+}
+
+function buildFallbackFaqPreviewItem(detailText = "") {
+  const answer = normalizeActionText(detailText);
+  if (answer.length < 24) return null;
+  return {
+    question: inferFaqPreviewQuestionFromAnswer(answer),
+    answer,
+  };
+}
+
+function inferFaqPreviewQuestionFromAnswer(answer = "") {
+  const normalized = String(answer || "").toLowerCase();
+  if (/\b(case|cases|wallet flaps?|card sleeves?|ring holders?|pop-?grips?|metal plates?|bumpers?|raised case lips?|magsafe|magnetic|alignment|charging|charger)\b/i.test(normalized)) {
+    return "Which phone cases may prevent proper alignment or charging?";
+  }
+  if (/\b(compatible|compatibility|works? with|adapter|device|model)\b/i.test(normalized)) {
+    return "What should shoppers confirm about compatibility before ordering?";
+  }
+  if (/\b(size|sizing|fit|fits|measurements?|waist|chest|sleeve|inseam|between sizes)\b/i.test(normalized)) {
+    return "What should shoppers know about fit before ordering?";
+  }
+  if (/\b(setup|install|installation|mount|assembly|assemble)\b/i.test(normalized)) {
+    return "What setup details should shoppers confirm before ordering?";
+  }
+  return "What should shoppers know before ordering?";
+}
+
+function isFaqPreviewQuestionLine(line = "") {
+  const raw = String(line || "").trim();
+  const stripped = stripFaqPreviewQuestionPrefix(raw);
+  return /^[Qq](?:uestion)?\s*[:.-]\s*/.test(raw) || /[?？]$/.test(stripped);
+}
+
+function stripFaqPreviewQuestionPrefix(line = "") {
+  return String(line || "").replace(/^[Qq](?:uestion)?\s*[:.-]\s*/, "").trim();
 }
 
 function getGroupedDescriptionActionApplication(action, product = null, options = {}) {
@@ -14063,7 +14109,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
   useEffect(() => {
     if (!toastData) return undefined;
-    const timeout = window.setTimeout(() => setToastData(null), 3200);
+    const timeout = window.setTimeout(() => setToastData(null), getProductPulseToastDuration(toastData));
     return () => window.clearTimeout(timeout);
   }, [toastData]);
 
@@ -15834,6 +15880,7 @@ export const __productPulseScreensTestHooks = {
   getProductMetricTimelineNearestSyncIndex,
   getProductMetricTimelineTooltipLockProps,
   getProductMetricTimelineOrderedCharts,
+  getRecommendedActionHtmlPreviewParts,
   getWatchRecentRunsSignature,
   readWatchRecentRunsWindowStart,
   saveWatchRecentRunsWindowStart,
@@ -29896,6 +29943,9 @@ function ProductPulseToast({ actionData, onDismiss }) {
   const [visible, setVisible] = useState(false);
   const showToast = shouldShowActionToast(actionData);
   const tone = getProductPulseToastTone(actionData);
+  const reviewUrl = typeof actionData?.reviewUrl === "string" ? actionData.reviewUrl.trim() : "";
+  const reviewMessage = String(actionData?.reviewMessage || "Please open this product in Shopify admin and verify that the applied changes are correct.").trim();
+  const reviewLabel = String(actionData?.reviewLabel || "Open product in Shopify admin").trim();
 
   useEffect(() => {
     if (!showToast) {
@@ -29904,7 +29954,7 @@ function ProductPulseToast({ actionData, onDismiss }) {
     }
     setVisible(true);
     if (onDismiss) return undefined;
-    const timeout = window.setTimeout(() => setVisible(false), 3200);
+    const timeout = window.setTimeout(() => setVisible(false), getProductPulseToastDuration(actionData));
     return () => window.clearTimeout(timeout);
   }, [actionData, onDismiss, showToast]);
 
@@ -29912,7 +29962,15 @@ function ProductPulseToast({ actionData, onDismiss }) {
   return (
     <div className={`ppProductToast ppProductToast-${tone}`} role="status">
       <s-icon type={tone === "success" ? "check" : "info"} size="small"></s-icon>
-      <span>{actionData.message}</span>
+      <div className="ppProductToastBody">
+        <span>{actionData.message}</span>
+        {reviewUrl && (
+          <a className="ppProductToastReviewLink" href={reviewUrl} target="_blank" rel="noreferrer">
+            <span>{reviewMessage}</span>
+            <strong>{reviewLabel}</strong>
+          </a>
+        )}
+      </div>
       <button
         type="button"
         aria-label="Dismiss notification"
@@ -29929,6 +29987,13 @@ function ProductPulseToast({ actionData, onDismiss }) {
 
 function shouldShowActionToast(actionData) {
   return Boolean(actionData?.message && !actionData.suppressBanner);
+}
+
+function getProductPulseToastDuration(actionData = {}) {
+  const configuredDuration = Number(actionData?.toastDurationMs);
+  if (Number.isFinite(configuredDuration) && configuredDuration > 0) return configuredDuration;
+  if (actionData?.reviewUrl) return 12000;
+  return 3200;
 }
 
 function getProductPulseToastTone(actionData) {

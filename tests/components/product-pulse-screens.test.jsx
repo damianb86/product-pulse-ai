@@ -2605,6 +2605,51 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Open recommended action Add fit note" })).toBeInTheDocument();
   });
 
+  it("shows a Shopify admin review link in successful product change toasts", async () => {
+    const reviewUrl = "https://admin.shopify.com/store/test-shop/products/123";
+
+    renderWithRouter(<ProductDiagnosisScreen
+      data={defaultView}
+      product={defaultView.startHere}
+      actionData={{
+        status: "success",
+        message: "Product FAQ was appended for Core Linen Trouser.",
+        action: { id: "create-product-faq" },
+        actionRecordStatus: "applied",
+        reviewUrl,
+        reviewMessage: "Please open this product in Shopify admin and verify that the applied changes are correct.",
+        reviewLabel: "Open product in Shopify admin",
+        toastDurationMs: 12000,
+      }}
+    />);
+
+    expect(await screen.findByText("Product FAQ was appended for Core Linen Trouser.")).toBeInTheDocument();
+    expect(screen.getByText("Please open this product in Shopify admin and verify that the applied changes are correct.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open product in Shopify admin/ })).toHaveAttribute("href", reviewUrl);
+  });
+
+  it("builds FAQ HTML preview from answer-only compatibility drafts", () => {
+    const draftText = [
+      "Cases with wallet flaps, card sleeves, ring holders, pop-grips, metal plates, thick bumpers, or raised case lips may prevent proper alignment and charging.",
+      "",
+      "If you use one of these case styles every day, please confirm compatibility before ordering or plan to use the stand with a bare phone or a verified magnetic-compatible case.",
+    ].join("\n");
+
+    const preview = __productPulseScreensTestHooks.getRecommendedActionHtmlPreviewParts({
+      target: "Product description",
+      variantId: "description-collapsible",
+      actionId: "create-product-faq",
+      faqItems: [],
+    }, {
+      currentText: "Existing product description.",
+      proposedText: draftText,
+    });
+
+    expect(preview.afterHtml).toContain("Frequently asked questions");
+    expect(preview.afterHtml).toContain("Which phone cases may prevent proper alignment or charging?");
+    expect(preview.afterHtml).toContain("wallet flaps");
+  });
+
   it("shows saved product risk history below return-rate prediction", () => {
     const product = {
       ...defaultView.startHere,

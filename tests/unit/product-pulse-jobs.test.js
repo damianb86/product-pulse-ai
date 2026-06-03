@@ -29,6 +29,21 @@ describe("ProductPulse product job helpers", () => {
     expect(row.shopifyAdminUrl).toBe("https://admin.shopify.com/store/damian-xdcxxupp/products/1234567890");
   });
 
+  it("adds Shopify admin review metadata for applied product changes", () => {
+    const metadata = productPulseJobsTestHooks.getAppliedProductReviewToastMetadata({
+      shop: "damian-xdcxxupp.myshopify.com",
+      snapshot: { productGid: "gid://shopify/Product/1234567890" },
+      applyResult: { change: { target: "Product description" } },
+    });
+
+    expect(metadata).toMatchObject({
+      reviewUrl: "https://admin.shopify.com/store/damian-xdcxxupp/products/1234567890",
+      reviewLabel: "Open product in Shopify admin",
+      reviewMessage: "Please open this product in Shopify admin and verify that the applied changes are correct.",
+      toastDurationMs: 12000,
+    });
+  });
+
   it("keeps resolved products out of unresolved table views and out of the status filter", () => {
     const snapshots = [
       {
@@ -197,6 +212,21 @@ describe("ProductPulse product job helpers", () => {
     );
 
     expect(parsed).toEqual([{ question: "Edited question?", answer: "Edited answer." }]);
+  });
+
+  it("turns answer-only compatibility FAQ drafts into an appliable question and answer", () => {
+    const draftText = [
+      "Cases with wallet flaps, card sleeves, ring holders, pop-grips, metal plates, thick bumpers, or raised case lips may prevent proper alignment and charging.",
+      "",
+      "If you use one of these case styles every day, please confirm compatibility before ordering or plan to use the stand with a bare phone or a verified magnetic-compatible case.",
+    ].join("\n");
+
+    const parsed = productPulseJobsTestHooks.normalizeFaqItemsForApply([], draftText);
+
+    expect(parsed).toEqual([{
+      question: "Which phone cases may prevent proper alignment or charging?",
+      answer: "Cases with wallet flaps, card sleeves, ring holders, pop-grips, metal plates, thick bumpers, or raised case lips may prevent proper alignment and charging. If you use one of these case styles every day, please confirm compatibility before ordering or plan to use the stand with a bare phone or a verified magnetic-compatible case.",
+    }]);
   });
 
   it("preserves description HTML when applying targeted description replacements", () => {

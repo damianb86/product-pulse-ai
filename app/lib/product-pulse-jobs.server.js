@@ -1046,6 +1046,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     ? await applyProductRecommendationAction({ admin, snapshot, action, payload })
     : null;
   if (applyResult?.status === "validation_error") return applyResult;
+  const appliedProductReviewToast = getAppliedProductReviewToastMetadata({ shop, snapshot, applyResult });
 
   if (requestedStatus === "active") {
     const restoreMatchers = [
@@ -1154,6 +1155,19 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       : `${recordLabel} was saved as a draft for ${snapshot.productTitle}.`),
     action,
     actionRecordStatus: status,
+    ...appliedProductReviewToast,
+  };
+}
+
+function getAppliedProductReviewToastMetadata({ shop, snapshot, applyResult } = {}) {
+  if (!applyResult?.change) return {};
+  const reviewUrl = getShopifyProductAdminUrl(shop, snapshot?.productGid);
+  if (!reviewUrl) return {};
+  return {
+    reviewUrl,
+    reviewLabel: "Open product in Shopify admin",
+    reviewMessage: "Please open this product in Shopify admin and verify that the applied changes are correct.",
+    toastDurationMs: 12000,
   };
 }
 
@@ -2005,7 +2019,9 @@ function normalizeFaqItemsForApply(faqItems = [], draftText = "") {
       answer: normalizeFaqAnswer(item?.answer),
     }))
     .filter((item) => item.question && item.answer);
-  return structured.slice(0, 6);
+  if (structured.length) return structured.slice(0, 6);
+
+  return buildFallbackFaqItemsFromDraftText(draftText).slice(0, 6);
 }
 
 function parseFaqText(draftText = "") {
@@ -2016,11 +2032,55 @@ function parseFaqText(draftText = "") {
   const parsed = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (!/[?？]$/.test(line)) continue;
-    const answer = lines[index + 1] || "";
-    if (answer && !/[?？]$/.test(answer)) parsed.push({ question: normalizeFaqQuestion(line), answer: normalizeFaqAnswer(answer) });
+    if (!isFaqQuestionLine(line)) continue;
+    const answerLines = [];
+    for (let answerIndex = index + 1; answerIndex < lines.length; answerIndex += 1) {
+      if (isFaqQuestionLine(lines[answerIndex])) break;
+      answerLines.push(stripFaqAnswerPrefix(lines[answerIndex]));
+      index = answerIndex;
+    }
+    const answer = answerLines.join(" ");
+    if (answer) parsed.push({ question: normalizeFaqQuestion(stripFaqQuestionPrefix(line)), answer: normalizeFaqAnswer(answer) });
   }
   return parsed;
+}
+
+function buildFallbackFaqItemsFromDraftText(draftText = "") {
+  const answer = normalizeFaqAnswer(draftText);
+  if (answer.length < 24) return [];
+  const question = inferFaqQuestionFromAnswer(answer);
+  if (!question) return [];
+  return [{ question: normalizeFaqQuestion(question), answer }];
+}
+
+function inferFaqQuestionFromAnswer(answer = "") {
+  const normalized = String(answer || "").toLowerCase();
+  if (/\b(case|cases|wallet flaps?|card sleeves?|ring holders?|pop-?grips?|metal plates?|bumpers?|raised case lips?|magsafe|magnetic|alignment|charging|charger)\b/i.test(normalized)) {
+    return "Which phone cases may prevent proper alignment or charging?";
+  }
+  if (/\b(compatible|compatibility|works? with|adapter|device|model)\b/i.test(normalized)) {
+    return "What should shoppers confirm about compatibility before ordering?";
+  }
+  if (/\b(size|sizing|fit|fits|measurements?|waist|chest|sleeve|inseam|between sizes)\b/i.test(normalized)) {
+    return "What should shoppers know about fit before ordering?";
+  }
+  if (/\b(setup|install|installation|mount|assembly|assemble)\b/i.test(normalized)) {
+    return "What setup details should shoppers confirm before ordering?";
+  }
+  return "What should shoppers know before ordering?";
+}
+
+function isFaqQuestionLine(line = "") {
+  const stripped = stripFaqQuestionPrefix(line);
+  return /^[Qq](?:uestion)?\s*[:.-]\s*/.test(String(line || "").trim()) || /[?？]$/.test(stripped);
+}
+
+function stripFaqQuestionPrefix(line = "") {
+  return String(line || "").replace(/^[Qq](?:uestion)?\s*[:.-]\s*/, "").trim();
+}
+
+function stripFaqAnswerPrefix(line = "") {
+  return String(line || "").replace(/^[Aa](?:nswer)?\s*[:.-]\s*/, "").trim();
 }
 
 function normalizeFaqQuestion(value) {
@@ -6031,6 +6091,7 @@ export const __productPulseJobsTestHooks = {
   formatBackgroundProcess,
   buildBackgroundProcessStats,
   filterProductSnapshots,
+  getAppliedProductReviewToastMetadata,
   getProductTableFilterOptions,
   getShopifyProductAdminUrl,
   getShopifyProductStorefrontUrl,

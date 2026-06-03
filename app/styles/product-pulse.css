@@ -3729,7 +3729,7 @@ s-page[inline-size="large-500"] {
   max-width: min(420px, calc(100vw - 48px));
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) 22px;
-  align-items: center;
+  align-items: start;
   gap: 10px;
   padding: 12px 12px 12px 14px;
   border: 1px solid var(--pp-slate-200);
@@ -3739,6 +3739,37 @@ s-page[inline-size="large-500"] {
   font-size: 13px;
   font-weight: 600;
   box-shadow: 0 18px 50px rgba(var(--pp-shadow-rgb), 0.18);
+}
+
+.ppProductToastBody {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ppProductToastReviewLink {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--pp-success-green-rgb), 0.24);
+  border-radius: 7px;
+  background: rgba(var(--pp-success-green-rgb), 0.08);
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.ppProductToastReviewLink strong {
+  color: var(--pp-success-green);
+  font-weight: 800;
+}
+
+.ppProductToastReviewLink:hover {
+  border-color: rgba(var(--pp-success-green-rgb), 0.38);
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+  color: var(--pp-slate-900);
 }
 
 .ppProductToast-success {
@@ -40195,5 +40226,519 @@ s-page[inline-size="large-500"] {
 
   .ppImpactLevelBars span {
     width: 3px;
+  }
+}
+
+/* Dashboard next-best-action panel refresh. */
+.ppNextBestActionPanel {
+  min-height: 374px;
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  padding: 22px;
+  border: 1px solid #d9e3ee;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 88% 64%, rgba(34, 197, 94, 0.11), transparent 24%),
+    radial-gradient(circle at 11% 73%, rgba(124, 92, 255, 0.09), transparent 19%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.ppNextBestActionPanel .ppStartHeading {
+  min-height: 48px;
+  margin: 0;
+  gap: 14px;
+}
+
+.ppNextBestActionPanel .ppStartHeading h2 {
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 820;
+  line-height: 1.15;
+}
+
+.ppNextBestActionPanel .ppStartHeading > s-icon:last-child {
+  margin-left: auto;
+  color: #64748b;
+}
+
+.ppNextBestActionPanel .ppDashboardIcon {
+  --pp-icon-badge-size: 50px;
+  --pp-icon-badge-glyph-size: 33px;
+  width: 50px;
+  height: 50px;
+  border-radius: 999px;
+  background: #f1eaff;
+  box-shadow: none;
+}
+
+.ppRecommendedFixBadge {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 13px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f1eaff 0%, #e8defd 100%);
+  color: #7c3aed;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ppNextBestActionPanel .ppStartContent {
+  grid-template-columns: minmax(470px, 1.1fr) minmax(330px, 0.72fr) minmax(260px, 0.58fr);
+  gap: 24px;
+  align-items: stretch;
+}
+
+.ppNextBestActionPanel .ppStartProduct {
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 22px;
+  align-items: center;
+}
+
+.ppNextBestActionPanel .ppProductArt-large {
+  width: 190px;
+  height: 218px;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  background:
+    radial-gradient(ellipse at 50% 82%, rgba(124, 92, 255, 0.32), transparent 32%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 16px rgba(15, 23, 42, 0.05);
+}
+
+.ppNextBestActionPanel .ppProductArt img {
+  padding: 18px;
+  object-fit: contain;
+}
+
+.ppNextBestActionPanel .ppProductShape {
+  inset: 38px 54px 54px 54px;
+  border-radius: 16px 16px 10px 10px;
+  background: linear-gradient(155deg, #111827 0%, #4b5563 58%, #1f2937 100%);
+  transform: rotate(-10deg);
+}
+
+.ppNextBestActionPanel .ppProductAccent {
+  inset: auto 36px 46px 42px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(124, 92, 255, 0.34);
+  filter: blur(8px);
+}
+
+.ppNextBestActionPanel .ppProductDetail {
+  inset: 82px 70px auto 88px;
+  height: 76px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  transform: rotate(-10deg);
+}
+
+.ppNextBestActionPanel .ppStartCopy {
+  align-self: center;
+}
+
+.ppNextBestActionPanel .ppStartCopy > span {
+  display: none;
+}
+
+.ppNextBestActionPanel .ppStartCopy h3 {
+  margin: 0 0 12px;
+  color: #0f172a;
+  font-size: 26px;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+.ppNextBestActionPanel .ppNextBestProductName {
+  margin: 0 0 18px;
+  color: #475569;
+  font-size: 16px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.ppNextBestActionPanel .ppBadgeRow {
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.ppNextBestActionPanel .ppInlineBadge {
+  min-height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ppNextBestActionPanel .ppInlineBadge s-icon {
+  transform: scale(0.84);
+}
+
+.ppNextBestActionPanel .ppInlineBadge-critical {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.ppNextBestActionPanel .ppInlineBadge-warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ppNextBestActionPanel .ppInlineBadge-success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.ppNextBestActionPanel .ppInlineBadge-info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.ppNextBestActionPanel .ppStartCopy p {
+  max-width: 430px;
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.65;
+}
+
+.ppNextBestActionPanel .ppNextBestWhy {
+  min-height: 100%;
+  align-content: start;
+  gap: 14px;
+  padding: 0 24px;
+  border-left: 1px solid #e2e8f0;
+}
+
+.ppNextBestActionPanel .ppNextBestWhy h3 {
+  margin: 0 0 2px;
+  color: #1f2937;
+  font-size: 16px;
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.ppNextBestActionPanel .ppNextBestWhy > div {
+  display: grid;
+  gap: 10px;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric {
+  position: relative;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 36px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0 15px 0 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  color: #334155;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric::before {
+  content: "";
+  width: 38px;
+  height: 38px;
+  display: block;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric::after {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  color: #64748b;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 14px;
+  text-align: center;
+  transform: translateY(-50%);
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-critical::before,
+.ppNextBestActionPanel .ppNextBestWhyMetric-warning::before {
+  background: #ffe4ec;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-critical::after,
+.ppNextBestActionPanel .ppNextBestWhyMetric-warning::after {
+  content: "/";
+  color: #db2777;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-info::before {
+  background: #dbeafe;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-info::after {
+  content: "$";
+  color: #2563eb;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric-neutral::after {
+  content: "=";
+  color: #475569;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric strong {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppNextBestActionPanel .ppNextBestWhyMetric small {
+  min-width: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ppNextBestActionPanel .ppNextBestWhy p {
+  max-width: 355px;
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.7;
+}
+
+.ppNextBestActionPanel .ppStartActionPanel {
+  position: relative;
+  min-height: 100%;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+  padding: 0 0 0 24px;
+  border-left: 1px solid #e2e8f0;
+  text-align: center;
+}
+
+.ppNextBestActionPanel .ppStartActionPanel::before,
+.ppNextBestActionPanel .ppStartActionPanel::after {
+  content: "+";
+  position: absolute;
+  color: #86efac;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.ppNextBestActionPanel .ppStartActionPanel::before {
+  top: 52px;
+  right: 34%;
+}
+
+.ppNextBestActionPanel .ppStartActionPanel::after {
+  top: 112px;
+  left: 24px;
+}
+
+.ppStartActionStatus {
+  width: 64px;
+  height: 64px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #16a34a;
+  background: #ffffff;
+  box-shadow:
+    inset 0 0 0 7px rgba(34, 197, 94, 0.12),
+    0 12px 24px rgba(34, 197, 94, 0.1);
+}
+
+.ppStartActionStatus svg {
+  width: 44px;
+  height: 44px;
+  stroke-width: 2.2;
+}
+
+.ppNextBestActionPanel .ppPrimaryButton {
+  min-width: min(100%, 286px);
+  min-height: 48px;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 18px 0 38px;
+  border: 1px solid #15803d;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #2fb35f 0%, #15803d 100%);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 820;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 8px 18px rgba(22, 163, 74, 0.34);
+}
+
+.ppNextBestActionPanel .ppPrimaryButton s-icon {
+  width: 22px;
+  height: 22px;
+  color: #ffffff;
+  filter: brightness(0) invert(1);
+  transform: none;
+}
+
+.ppNextBestActionPanel .ppPrimaryButton:hover {
+  border-color: #166534;
+  background: linear-gradient(180deg, #27a956 0%, #166534 100%);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 10px 22px rgba(22, 163, 74, 0.38);
+}
+
+.ppNextBestActionPanel .ppStartActionPanel > span:not(.ppStartActionStatus) {
+  max-width: 245px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.55;
+}
+
+@media (max-width: 1180px) and (min-width: 821px) {
+  .ppNextBestActionPanel .ppStartContent {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 0.84fr);
+  }
+
+  .ppNextBestActionPanel .ppStartActionPanel {
+    grid-column: 1 / -1;
+    min-height: 150px;
+    padding: 20px 0 0;
+    border-top: 1px solid #e2e8f0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .ppNextBestActionPanel {
+    width: 100%;
+    min-height: 0;
+    gap: 18px;
+    padding: 16px;
+    border-radius: 8px;
+  }
+
+  .ppNextBestActionPanel .ppStartHeading {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 10px;
+    min-height: 40px;
+  }
+
+  .ppNextBestActionPanel .ppStartHeading h2 {
+    font-size: 16px;
+  }
+
+  .ppNextBestActionPanel .ppDashboardIcon {
+    --pp-icon-badge-size: 40px;
+    --pp-icon-badge-glyph-size: 27px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .ppRecommendedFixBadge {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    min-height: 24px;
+    padding-inline: 10px;
+    font-size: 10px;
+  }
+
+  .ppNextBestActionPanel .ppStartHeading > s-icon:last-child {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .ppNextBestActionPanel .ppStartContent,
+  .ppNextBestActionPanel .ppStartProduct {
+    grid-template-columns: 1fr;
+  }
+
+  .ppNextBestActionPanel .ppStartContent {
+    gap: 18px;
+  }
+
+  .ppNextBestActionPanel .ppStartProduct {
+    justify-items: stretch;
+  }
+
+  .ppNextBestActionPanel .ppProductArt-large {
+    width: min(100%, 260px);
+    height: 220px;
+    justify-self: center;
+  }
+
+  .ppNextBestActionPanel .ppStartCopy h3 {
+    font-size: 22px;
+  }
+
+  .ppNextBestActionPanel .ppNextBestProductName {
+    font-size: 14px;
+  }
+
+  .ppNextBestActionPanel .ppNextBestWhy,
+  .ppNextBestActionPanel .ppStartActionPanel {
+    min-height: 0;
+    padding: 18px 0 0;
+    border-top: 1px solid #e2e8f0;
+    border-left: 0;
+  }
+
+  .ppNextBestActionPanel .ppNextBestWhyMetric {
+    grid-template-columns: 36px auto minmax(0, 1fr);
+  }
+
+  .ppNextBestActionPanel .ppNextBestWhyMetric small {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .ppNextBestActionPanel .ppStartActionPanel::before {
+    top: 28px;
+    right: 30%;
+  }
+
+  .ppNextBestActionPanel .ppStartActionPanel::after {
+    top: 84px;
+    left: 12%;
+  }
+
+  .ppNextBestActionPanel .ppPrimaryButton {
+    width: min(100%, 300px);
+    min-width: 0;
+    padding-left: 28px;
+    white-space: normal;
   }
 }

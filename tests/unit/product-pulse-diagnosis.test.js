@@ -2859,6 +2859,37 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(faq.payload.whyThisAction).toBe("Returns and negative reviews repeat fit uncertainty, so an FAQ gives shoppers a direct answer before checkout.");
   });
 
+  it("structures legacy FAQ answers as compatibility questions instead of answer-only drafts", () => {
+    const answer = [
+      "Cases with wallet flaps, card sleeves, ring holders, pop-grips, metal plates, thick bumpers, or raised case lips may prevent proper alignment and charging.",
+      "If you use one of these case styles every day, please confirm compatibility before ordering or plan to use the stand with a bare phone or a verified magnetic-compatible case.",
+    ].join(" ");
+
+    const legacyItems = __productPulseDiagnosisTestHooks.buildRecommendedFaqItems({
+      copy: { faq_answer: answer },
+      snapshot: { productTitle: "GEN Magnetic Charging Stand" },
+      mainIssue: "compatibility",
+      faqNeed: { topics: ["Compatibility"] },
+      currentDescriptionText: "",
+    });
+    const malformedAiItems = __productPulseDiagnosisTestHooks.buildRecommendedFaqItems({
+      copy: { faq_items: [{ answer, reason: "Compatibility answer was generated without a question." }] },
+      snapshot: { productTitle: "GEN Magnetic Charging Stand" },
+      mainIssue: "compatibility",
+      faqNeed: { topics: ["Compatibility"] },
+      currentDescriptionText: "",
+    });
+
+    expect(legacyItems[0]).toMatchObject({
+      question: "Which phone cases may prevent proper alignment or charging?",
+      answer,
+    });
+    expect(malformedAiItems[0]).toMatchObject({
+      question: "Which phone cases may prevent proper alignment or charging?",
+      answer,
+    });
+  });
+
   it("keeps the product template switch action disabled even when template signals qualify", () => {
     const deterministic = {
       mainIssue: "product_content",

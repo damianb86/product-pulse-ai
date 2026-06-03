@@ -9547,12 +9547,15 @@ function getRecommendedRiskTags({ mainIssue, deterministic }) {
 }
 
 function buildRecommendedFaqRecommendation({ copy = {}, snapshot, mainIssue, pdpCopy = "", faqNeed = {}, currentDescriptionText = "", contentCoverage = new Map() }) {
-  const normalizedAiItems = normalizeFaqItems(copy.faq_items);
-  const normalizedLegacyItems = normalizeFaqItems([{
+  const normalizedAiItems = normalizeFaqItemsWithFallback(copy.faq_items, { snapshot, mainIssue, faqNeed });
+  const normalizedLegacyItems = normalizeLegacyFaqItems({
     question: copy.faq_question,
     answer: copy.faq_answer,
+    snapshot,
+    mainIssue,
+    faqNeed,
     reason: "AI generated from product diagnosis signals.",
-  }]);
+  });
   const hadPreferredItems = normalizedAiItems.length > 0 || normalizedLegacyItems.length > 0;
   const aiItems = tagFaqItemSource(normalizedAiItems
     .map((item, index) => applyAiContentCoverageToFaqItem(item, contentCoverage, `faq_item_${index + 1}`))
@@ -9610,6 +9613,59 @@ function normalizeFaqItems(items = []) {
       };
     })
     .filter(Boolean);
+}
+
+function normalizeFaqItemsWithFallback(items = [], context = {}) {
+  return (Array.isArray(items) ? items : [])
+    .flatMap((item) => {
+      const normalized = normalizeFaqItems([item]);
+      if (normalized.length) return normalized;
+      const answer = String(item?.answer || item?.faq_answer || item?.text || "").replace(/\s+/g, " ").trim();
+      if (!answer) return [];
+      return normalizeFaqItems([{
+        question: inferLegacyFaqQuestionFromAnswer({ ...context, answer }),
+        answer,
+        reason: String(item?.reason || "AI generated from product diagnosis signals.").replace(/\s+/g, " ").trim(),
+      }]);
+    });
+}
+
+function normalizeLegacyFaqItems({ question = "", answer = "", snapshot = {}, mainIssue = "", faqNeed = {}, reason = "" } = {}) {
+  const normalized = normalizeFaqItems([{ question, answer, reason }]);
+  if (normalized.length) return normalized;
+
+  const fallbackAnswer = String(answer || "").replace(/\s+/g, " ").trim();
+  if (!fallbackAnswer) return [];
+  const fallbackQuestion = inferLegacyFaqQuestionFromAnswer({
+    answer: fallbackAnswer,
+    snapshot,
+    mainIssue,
+    faqNeed,
+  });
+  return normalizeFaqItems([{
+    question: fallbackQuestion,
+    answer: fallbackAnswer,
+    reason: reason || "AI generated from product diagnosis signals.",
+  }]);
+}
+
+function inferLegacyFaqQuestionFromAnswer({ answer = "", snapshot = {}, mainIssue = "", faqNeed = {} } = {}) {
+  const normalized = String(answer || "").toLowerCase();
+  const title = snapshot?.productTitle || snapshot?.product?.title || "this product";
+  const topics = Array.isArray(faqNeed.topics) ? faqNeed.topics : [];
+  if (/\b(case|cases|wallet flaps?|card sleeves?|ring holders?|pop-?grips?|metal plates?|bumpers?|raised case lips?|magsafe|magnetic|alignment|charging|charger)\b/i.test(normalized)) {
+    return "Which phone cases may prevent proper alignment or charging?";
+  }
+  if (mainIssue === "compatibility" || topics.includes("Compatibility") || /\b(compatible|compatibility|works? with|adapter|device|model)\b/i.test(normalized)) {
+    return `What should shoppers confirm about compatibility before ordering ${title}?`;
+  }
+  if (mainIssue === "fit_sizing" || topics.includes("Fit and sizing") || /\b(size|sizing|fit|fits|measurements?|waist|chest|sleeve|inseam|between sizes)\b/i.test(normalized)) {
+    return `What should shoppers know about fit before ordering ${title}?`;
+  }
+  if (mainIssue === "setup_expectation" || topics.includes("Setup guidance") || /\b(setup|install|installation|mount|assembly|assemble)\b/i.test(normalized)) {
+    return `What setup details should shoppers confirm before buying ${title}?`;
+  }
+  return `What should shoppers know before buying ${title}?`;
 }
 
 function buildDefaultFaqItems({ snapshot, mainIssue, pdpCopy = "", faqNeed = {} }) {
