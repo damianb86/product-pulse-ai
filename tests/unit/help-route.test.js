@@ -92,11 +92,22 @@ describe("Help route privacy actions", () => {
   });
 
   it("skips optional missing storage targets during privacy deletion", async () => {
-    const { __helpRouteTestHooks } = await import("../../app/routes/app.help.jsx");
+    const { action } = await import("../../app/routes/app.help.jsx");
+    const formData = new FormData();
+    formData.set("intent", "privacy-data-delete");
     mocks.db.betaFeedbackReport.deleteMany.mockRejectedValue(Object.assign(new Error("table does not exist"), { code: "P2021" }));
 
-    await expect(__helpRouteTestHooks.deleteProductPulseData("demo.myshopify.com")).resolves.toBeUndefined();
+    const result = await action({
+      request: new Request("https://app.example.com/app/help.data", {
+        method: "POST",
+        body: formData,
+      }),
+    });
 
+    expect(result).toMatchObject({
+      ok: true,
+      intent: "privacy-data-delete",
+    });
     expect(mocks.db.betaFeedbackReport.deleteMany).toHaveBeenCalledWith({ where: { shop: "demo.myshopify.com" } });
     expect(mocks.db.session.deleteMany).toHaveBeenCalledWith({ where: { shop: "demo.myshopify.com" } });
   });

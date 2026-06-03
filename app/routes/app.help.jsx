@@ -953,14 +953,6 @@ function isMissingPrismaTargetError(error) {
   return code === "P2021" || code === "P2022" || /table .* does not exist|column .* does not exist|no such table/i.test(message);
 }
 
-export const __helpRouteTestHooks = {
-  countProductPulseRows,
-  deleteProductPulseData,
-  deleteProductPulseRows,
-  isMissingPrismaTargetError,
-  sendPrivacyContactEmail,
-};
-
 function formatProductPulseCounts(counts) {
   return [
     `${counts.riskSnapshots} risk snapshot(s)`,
