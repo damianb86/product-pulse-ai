@@ -6045,6 +6045,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   const contentAnalysis = deterministic.metrics.contentAnalysis || {};
   const contentIssues = Array.isArray(contentAnalysis.issues) ? contentAnalysis.issues : [];
   const currentDescriptionText = getCurrentProductDescriptionText(deterministic.product);
+  const currentDescriptionHtml = getCurrentProductDescriptionHtml(deterministic.product);
   const descriptionReplacements = getDescriptionReplacementsFromContentIssues(contentIssues);
   const correctedDescriptionDraft = buildCorrectedDescriptionDraft({
     currentDescription: currentDescriptionText,
@@ -6135,11 +6136,12 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       type: mainIssue === "fit_sizing" && copy.faq_answer ? "PDP copy" : "PDP copy",
       effort: "Low",
       status: "Draft",
-      payload: {
-        draftText: primaryPdpDescriptionPlan.draftText,
-        issue: mainIssue,
-        currentDescriptionText,
-        operation: primaryPdpDescriptionPlan.operation,
+        payload: {
+          draftText: primaryPdpDescriptionPlan.draftText,
+          issue: mainIssue,
+          currentDescriptionText,
+          currentDescriptionHtml,
+          operation: primaryPdpDescriptionPlan.operation,
         placement: primaryPdpDescriptionPlan.operation,
         contentCoverage: primaryPdpDescriptionPlan.coverage,
         causeKey: getRecommendationCauseKey({ issue: mainIssue, text: primaryPdpDescriptionPlan.draftText, deterministic }),
@@ -6161,6 +6163,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           draftText: descriptionRewritePlan.draftText,
           issue: "product_content",
           currentDescriptionText,
+          currentDescriptionHtml,
           contentIssues: contentIssues.map((issue) => ({
             label: issue.label,
             evidence: issue.evidence,
@@ -6187,6 +6190,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           draftText: correctedDescriptionDraft,
           issue: "product_content",
           currentDescriptionText,
+          currentDescriptionHtml,
           contentIssues: contentIssues.map((issue) => ({
             label: issue.label,
             evidence: issue.evidence,
@@ -6213,6 +6217,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
           draftText: targetedDescriptionEnhancement.draftText,
           issue: "product_content",
           currentDescriptionText,
+          currentDescriptionHtml,
           contentIssues: contentIssues.map((issue) => ({
             label: issue.label,
             evidence: issue.evidence,
@@ -6253,6 +6258,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
             draftText: descriptionGuidancePlan.draftText,
             issue: "product_content",
             currentDescriptionText,
+            currentDescriptionHtml,
             contentIssues: contentIssues.map((issue) => ({
               label: issue.label,
               evidence: issue.evidence,
@@ -16607,6 +16613,10 @@ function getCurrentProductDescriptionText(product = {}) {
   if (normalizedPlain.includes(normalizedHtml)) return plain;
   if (hasSubstantialOverlap(plain, html)) return plain;
   return `${plain}\n\n${html}`;
+}
+
+function getCurrentProductDescriptionHtml(product = {}) {
+  return String(product?.descriptionHtml || product?.currentDescriptionHtml || product?.bodyHtml || "").trim();
 }
 
 function buildEmptyDescriptionCoveragePlan(reason = "") {

@@ -1309,9 +1309,21 @@ function normalizeDescriptionChangesOverride(value) {
         operation,
         operationLabel: String(change?.operationLabel || getDescriptionOperationTextForChange(operation)).trim(),
         text,
+        preserveHtml: Boolean(change?.preserveHtml),
+        descriptionReplacements: normalizeDescriptionReplacementOverrides(change?.descriptionReplacements),
       };
     })
     .filter(Boolean);
+}
+
+function normalizeDescriptionReplacementOverrides(value = []) {
+  return (Array.isArray(value) ? value : [])
+    .map((replacement) => ({
+      from: String(replacement?.from || "").trim(),
+      to: String(replacement?.to || "").trim(),
+      reason: String(replacement?.reason || "").trim(),
+    }))
+    .filter((replacement) => replacement.from && replacement.to);
 }
 
 function getDescriptionOperationTextForChange(operation = "") {
@@ -2234,9 +2246,14 @@ function getDescriptionOperationLabel(operation) {
 }
 
 function buildUpdatedProductDescriptionHtml({ currentHtml, draftText, operation, action, htmlStyle }) {
-  if (operation === "replace" && action?.payload?.preserveHtml && action?.payload?.descriptionReplacements?.length && currentHtml) {
-    const patchedHtml = applyDescriptionHtmlReplacements(currentHtml, action.payload.descriptionReplacements);
-    if (patchedHtml.changed) return patchedHtml.html;
+  if (operation === "replace" && action?.payload?.preserveHtml && currentHtml) {
+    const preservedHtml = buildPreservedProductDescriptionHtmlUpdate({
+      currentHtml,
+      draftText,
+      action,
+      htmlStyle,
+    });
+    if (preservedHtml) return preservedHtml;
   }
   if (operation === "replace" && currentHtml) {
     const placementDraft = extractPlacedDescriptionDraft({
@@ -2271,7 +2288,32 @@ function buildUpdatedProductDescriptionHtmlFromChanges({ currentHtml, changes = 
   });
 
   if (replacementChange) {
-    blocks.push(buildProductPulseDescriptionReplacement(replacementChange.text, buildDescriptionChangeAction(action, replacementChange), htmlStyle));
+    const replacementAction = buildDescriptionChangeAction(action, replacementChange);
+    const preservedReplacementHtml = currentHtml && replacementAction.payload?.preserveHtml
+      ? buildPreservedProductDescriptionHtmlUpdate({
+        currentHtml,
+        draftText: replacementChange.text,
+        action: replacementAction,
+        htmlStyle,
+      })
+      : "";
+    if (preservedReplacementHtml) {
+      blocks.push(preservedReplacementHtml);
+    } else if (currentHtml) {
+      const placementDraft = extractPlacedDescriptionDraft({
+        currentText: stripHtml(currentHtml),
+        draftText: replacementChange.text,
+      });
+      if (placementDraft) {
+        if (placementDraft.prependText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.prependText, replacementAction, htmlStyle));
+        blocks.push(currentHtml);
+        if (placementDraft.appendText) blocks.push(buildProductPulseDescriptionBlock(placementDraft.appendText, replacementAction, htmlStyle));
+      } else {
+        blocks.push(buildProductPulseDescriptionReplacement(replacementChange.text, replacementAction, htmlStyle));
+      }
+    } else {
+      blocks.push(buildProductPulseDescriptionReplacement(replacementChange.text, replacementAction, htmlStyle));
+    }
   } else if (currentHtml) {
     blocks.push(currentHtml);
   }
@@ -2292,8 +2334,153 @@ function buildDescriptionChangeAction(action = {}, change = {}) {
     payload: {
       ...(action.payload || {}),
       operation: change.operation,
+      preserveHtml: Boolean(change.preserveHtml || action.payload?.preserveHtml),
+      ...(Array.isArray(change.descriptionReplacements) && change.descriptionReplacements.length
+        ? { descriptionReplacements: change.descriptionReplacements }
+        : {}),
     },
   };
+}
+
+function buildPreservedProductDescriptionHtmlUpdate({ currentHtml = "", draftText = "", action = {} } = {}) {
+  const current = String(currentHtml || "").trim();
+  if (!current) return "";
+  const replacements = normalizeDescriptionReplacementOverrides(action?.payload?.descriptionReplacements);
+
+  if (replacements.length) {
+    const patchedHtml = applyDescriptionHtmlReplacements(current, replacements);
+    if (patchedHtml.changed) return patchedHtml.html;
+
+    const additionHtml = applyDescriptionHtmlAdditionsFromReplacements({
+      currentHtml: current,
+      replacements,
+    });
+    if (additionHtml.changed) return additionHtml.html;
+  }
+
+  const placementDraft = extractPlacedDescriptionDraft({
+    currentText: stripHtml(current),
+    draftText,
+  });
+  if (placementDraft) {
+    const blocks = [];
+    if (placementDraft.prependText) blocks.push(buildProductPulseDescriptionBodyHtml(placementDraft.prependText));
+    blocks.push(current);
+    if (placementDraft.appendText) blocks.push(buildProductPulseDescriptionBodyHtml(placementDraft.appendText));
+    return blocks.filter(Boolean).join("\n");
+  }
+
+  const missingDraftText = extractMissingDescriptionDraftText({
+    currentText: stripHtml(current),
+    draftText,
+  });
+  if (missingDraftText) {
+    return [current, buildProductPulseDescriptionBodyHtml(missingDraftText)].filter(Boolean).join("\n");
+  }
+
+  return "";
+}
+
+function applyDescriptionHtmlAdditionsFromReplacements({ currentHtml = "", replacements = [] } = {}) {
+  let html = String(currentHtml || "");
+  let changed = false;
+
+  normalizeDescriptionReplacementOverrides(replacements).forEach((replacement) => {
+    const addition = getDescriptionReplacementAddedText(replacement);
+    if (!addition || isDescriptionTextCovered(addition, stripHtml(html))) return;
+    const insertion = insertDescriptionHtmlAfterAnchor({
+      currentHtml: html,
+      anchorText: replacement.from,
+      insertionHtml: buildProductPulseDescriptionBodyHtml(addition),
+    });
+    if (!insertion.changed) return;
+    html = insertion.html;
+    changed = true;
+  });
+
+  return { html, changed };
+}
+
+function getDescriptionReplacementAddedText(replacement = {}) {
+  const from = String(replacement.from || "").trim();
+  const to = String(replacement.to || "").trim();
+  if (!from || !to) return "";
+  const normalizedFrom = normalizeDescriptionComparisonText(from);
+  const normalizedTo = normalizeDescriptionComparisonText(to);
+  if (!normalizedFrom || !normalizedTo || !normalizedTo.startsWith(normalizedFrom)) return "";
+  return to.slice(from.length).replace(/^[\s:;,.-]+/, "").trim();
+}
+
+function insertDescriptionHtmlAfterAnchor({ currentHtml = "", anchorText = "", insertionHtml = "" } = {}) {
+  const html = String(currentHtml || "");
+  const insertion = String(insertionHtml || "").trim();
+  if (!html || !insertion) return { html, changed: false };
+  const match = findBestDescriptionHtmlBlockMatch(html, anchorText);
+  if (!match) return { html: [html, insertion].filter(Boolean).join("\n"), changed: true };
+  return {
+    html: `${html.slice(0, match.end)}\n${insertion}${html.slice(match.end)}`,
+    changed: true,
+  };
+}
+
+function findBestDescriptionHtmlBlockMatch(html = "", anchorText = "") {
+  const patterns = [
+    /<(?<tag>p|li|td|th|dd|dt|h[1-6])\b[^>]*>[\s\S]*?<\/\k<tag>>/gi,
+    /<(?<tag>div|section|article)\b[^>]*>[\s\S]*?<\/\k<tag>>/gi,
+  ];
+  for (const blockPattern of patterns) {
+    let best = null;
+    let match = blockPattern.exec(String(html || ""));
+    while (match) {
+      const blockHtml = match[0] || "";
+      const blockText = stripHtml(blockHtml);
+      const score = getDescriptionTextMatchScore(blockText, anchorText);
+      if (score >= 0.58 && (!best || score > best.score)) {
+        best = {
+          start: match.index,
+          end: match.index + blockHtml.length,
+          score,
+        };
+      }
+      match = blockPattern.exec(String(html || ""));
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+function getDescriptionTextMatchScore(first = "", second = "") {
+  const firstNormalized = normalizeDescriptionComparisonText(first);
+  const secondNormalized = normalizeDescriptionComparisonText(second);
+  if (!firstNormalized || !secondNormalized) return 0;
+  if (firstNormalized === secondNormalized) return 1;
+  if (firstNormalized.includes(secondNormalized) || secondNormalized.includes(firstNormalized)) return 0.95;
+  const firstTokens = new Set(firstNormalized.split(/\s+/).filter((token) => token.length > 3));
+  const secondTokens = secondNormalized.split(/\s+/).filter((token) => token.length > 3);
+  if (!firstTokens.size || !secondTokens.length) return 0;
+  const shared = secondTokens.filter((token) => firstTokens.has(token)).length;
+  return shared / secondTokens.length;
+}
+
+function extractMissingDescriptionDraftText({ currentText = "", draftText = "" } = {}) {
+  const current = String(currentText || "").trim();
+  const units = splitDescriptionDraftUnits(draftText);
+  if (!current || units.length < 2) return "";
+  const missingUnits = units.filter((unit) => !isDescriptionTextCovered(unit, current));
+  if (!missingUnits.length || missingUnits.length === units.length) return "";
+  return missingUnits.join("\n\n").trim();
+}
+
+function splitDescriptionDraftUnits(value = "") {
+  return String(value || "")
+    .split(/\n{2,}/)
+    .flatMap((block) => String(block || "").split(/(?<=[.!?])\s+/))
+    .map((unit) => unit.trim())
+    .filter((unit) => unit && (unit.length >= 18 || unit.split(/\s+/).length >= 3));
+}
+
+function isDescriptionTextCovered(proposed = "", current = "") {
+  return getDescriptionTextMatchScore(current, proposed) >= 0.78;
 }
 
 function applyDescriptionHtmlReplacements(currentHtml, replacements = []) {

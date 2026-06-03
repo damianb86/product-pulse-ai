@@ -218,6 +218,43 @@ describe("ProductPulse product job helpers", () => {
     expect(html).not.toContain("True White");
   });
 
+  it("adds targeted description details to the original HTML instead of flattening rich descriptions", () => {
+    const currentHtml = [
+      "<section>",
+      "<h3>GEN DriftWeave overshirt</h3>",
+      "<p>Packable overshirt for travel layers and cool offices <strong>GEN DriftWeave</strong> is a lightweight shell.</p>",
+      "<table><tbody><tr><th>Size</th><th>Chest</th></tr><tr><td>M</td><td>42 in</td></tr></tbody></table>",
+      "<ul><li>Cotton-nylon blend</li><li>Low-crinkle finish</li></ul>",
+      "</section>",
+    ].join("");
+    const addition = "For precise fit, compare the body-size chart with finished garment measurements before purchase.";
+    const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
+      currentHtml,
+      draftText: [
+        "GEN DriftWeave overshirt.",
+        "Packable overshirt for travel layers and cool offices GEN DriftWeave is a lightweight shell.",
+        addition,
+      ].join(" "),
+      operation: "replace",
+      action: {
+        id: "correct-product-description",
+        payload: {
+          preserveHtml: true,
+          descriptionReplacements: [{
+            from: "Packable overshirt for travel layers and cool offices GEN DriftWeave is a lightweight shell.",
+            to: `Packable overshirt for travel layers and cool offices GEN DriftWeave is a lightweight shell. ${addition}`,
+          }],
+        },
+      },
+    });
+
+    expect(html).toContain("<table><tbody><tr><th>Size</th><th>Chest</th></tr>");
+    expect(html).toContain("<ul><li>Cotton-nylon blend</li><li>Low-crinkle finish</li></ul>");
+    expect(html).toContain("<strong>GEN DriftWeave</strong>");
+    expect(html).toContain(`<p>${addition}</p>`);
+    expect(html).not.toContain("Product note");
+  });
+
   it("wraps appended description guidance in a ProductPulse callout without replacing current HTML", () => {
     const html = productPulseJobsTestHooks.buildUpdatedProductDescriptionHtml({
       currentHtml: "<div><p>Current product description.</p></div>",

@@ -2456,7 +2456,8 @@ describe("ProductPulse screens", () => {
     fireEvent.change(screen.getAllByLabelText("Description text to apply")[0], { target: { value: "Updated fit guidance for shoppers." } });
     fireEvent.click(screen.getAllByRole("button", { name: "Apply change" })[0]);
     expect(screen.getByRole("heading", { name: "Confirm product description update" })).toBeInTheDocument();
-    expect(screen.getAllByText("Updated fit guidance for shoppers.").length).toBeGreaterThan(0);
+    const fitConfirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
+    expect(fitConfirmDialog.querySelector(".ppActionConfirmChange iframe")?.getAttribute("srcdoc")).toContain("Updated fit guidance for shoppers.");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Add fit note" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Dismiss" })[0]);
@@ -4720,6 +4721,54 @@ describe("ProductPulse screens", () => {
     expect(changedBlocks[0]).not.toHaveTextContent("Opening product copy stays unchanged.");
   });
 
+  it("shows the final preserved HTML in the product description confirmation modal", () => {
+    const currentDescription = "Opening fit sentence. Size Chest M 42 in Care hang dry.";
+    const currentDescriptionHtml = [
+      "<section>",
+      "<p>Opening <strong>fit</strong> sentence.</p>",
+      "<table><tbody><tr><th>Size</th><th>Chest</th></tr><tr><td>M</td><td>42 in</td></tr></tbody></table>",
+      "<ul><li>Care: hang dry</li></ul>",
+      "</section>",
+    ].join("");
+    const addition = "For precise fit, compare finished garment measurements before purchase.";
+    const product = {
+      ...defaultView.startHere,
+      currentDescriptionText: currentDescription,
+      currentDescriptionHtml,
+      recommendedActions: [{
+        id: "correct-product-description",
+        label: "Update product description details",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          draftText: `${currentDescription} ${addition}`,
+          currentDescriptionText: currentDescription,
+          currentDescriptionHtml,
+          operation: "replace",
+          preserveHtml: true,
+          descriptionReplacements: [{
+            from: "Opening fit sentence.",
+            to: `Opening fit sentence. ${addition}`,
+          }],
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Update product description details" }));
+    const dialog = screen.getByRole("dialog", { name: "Update product description details" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
+
+    const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
+    const finalHtmlFrame = confirmDialog.querySelector(".ppActionConfirmChange iframe");
+    expect(finalHtmlFrame).not.toBeNull();
+    expect(finalHtmlFrame.getAttribute("srcdoc")).toContain("<table><tbody><tr><th>Size</th><th>Chest</th></tr>");
+    expect(finalHtmlFrame.getAttribute("srcdoc")).toContain("<ul><li>Care: hang dry</li></ul>");
+    expect(finalHtmlFrame.getAttribute("srcdoc")).toContain("<strong>fit</strong>");
+    expect(finalHtmlFrame.getAttribute("srcdoc")).toContain(`<p>${addition}</p>`);
+  });
+
   it("groups overlapping product description changes into one selectable action", () => {
     const currentDescription = "The Trail Jacket is a lightweight shell with a water-resistant finish and adjustable cuffs.";
     const replacement = "The Trail Jacket is a lightweight, water-resistant shell with adjustable cuffs and a relaxed outdoor fit.";
@@ -4782,8 +4831,9 @@ describe("ProductPulse screens", () => {
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /Add care note/ }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
     const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
-    expect(confirmDialog).toHaveTextContent(topNote);
-    expect(confirmDialog).not.toHaveTextContent(bottomNote);
+    const finalDescriptionHtml = confirmDialog.querySelector(".ppActionConfirmChange iframe")?.getAttribute("srcdoc") || "";
+    expect(finalDescriptionHtml).toContain(topNote);
+    expect(finalDescriptionHtml).not.toContain(bottomNote);
   });
 
   it("keeps grouped product description edits separate when applying", async () => {
@@ -4853,13 +4903,9 @@ describe("ProductPulse screens", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
 
     const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
-    const currentDescriptionPanel = confirmDialog.querySelector(".ppActionConfirmCurrent");
-    expect(currentDescriptionPanel).not.toBeNull();
-    expect(currentDescriptionPanel.querySelectorAll(".ppActionPreviewDiffBlock").length).toBeGreaterThanOrEqual(2);
-    expect(within(currentDescriptionPanel).getByText("Edited fit note for layering. More room.")).toBeInTheDocument();
-    expect(within(currentDescriptionPanel).getByText("Edited technical specifications block.")).toBeInTheDocument();
-    expect(confirmDialog).toHaveTextContent("Edited fit note for layering.");
-    expect(confirmDialog).toHaveTextContent("Edited technical specifications block.");
+    const finalDescriptionHtml = confirmDialog.querySelector(".ppActionConfirmChange iframe")?.getAttribute("srcdoc") || "";
+    expect(finalDescriptionHtml).toContain("Edited fit note for layering.  More room.");
+    expect(finalDescriptionHtml).toContain("Edited technical specifications block.");
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "Accept and apply change" }));
 
     await waitFor(() => expect(action).toHaveBeenCalledTimes(1));

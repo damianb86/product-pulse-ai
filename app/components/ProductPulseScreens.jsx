@@ -7390,6 +7390,8 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
     operation: change.operation || "append",
     operationLabel: change.operationLabel || getDescriptionOperationText(change.operation || "append"),
     text: change.text || "",
+    preserveHtml: Boolean(change.preserveHtml),
+    descriptionReplacements: Array.isArray(change.descriptionReplacements) ? change.descriptionReplacements : [],
   }))) : "";
   const missingGroupedDescriptionText = isGroupedDescription
     && (!selectedDescriptionChanges.length || selectedDescriptionChanges.some((change) => !String(change.text || "").trim()));
@@ -7398,7 +7400,7 @@ function RecommendedActionConfirmModal({ confirmation, product, pending, onCance
     : getEditableTextPlaceholders(editedText);
   const metafieldMissing = application.isMetafield && (!String(application.metafieldNamespace || "").trim() || !String(application.metafieldKey || "").trim());
   const submitLabel = pending ? "Applying change..." : application.confirmationSubmitLabel || "Accept and apply change";
-  const confirmationPreview = getRecommendedActionPreviewParts(application, editedText);
+  const confirmationPreview = getRecommendedActionPreviewParts(application, editedText, { forceDescriptionHtml: true });
   const hasConfirmationHtmlPreview = Boolean(confirmationPreview.afterHtml || confirmationPreview.beforeHtml);
 
   return (
@@ -11991,6 +11993,7 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
 
   const payloads = descriptionActions.map((action) => action.payload || {});
   const currentDescriptionText = getCurrentDescriptionForAction(product, payloads.find((payload) => payload.currentDescriptionText) || {});
+  const currentDescriptionHtml = getCurrentDescriptionHtmlForAction(product, payloads.find((payload) => payload.currentDescriptionHtml) || {});
   const groupMetadata = getDescriptionActionGroupMetadata(descriptionActions, product);
   const groupedAction = {
     id: "product-description-changes",
@@ -12002,6 +12005,7 @@ function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
       descriptionChangeGroup: true,
       descriptionChanges,
       currentDescriptionText,
+      currentDescriptionHtml,
       operation: "replace",
       trigger: "ProductPulse found multiple product-description improvements that should be reviewed together.",
       proposedChange: "Apply selected description changes in one Shopify update.",
@@ -12184,10 +12188,22 @@ function buildDescriptionChangeDescriptor(action = {}, product = {}) {
     operationLabel: getDescriptionOperationText(normalizedText.operation),
     text: normalizedText.text,
     currentDescriptionText: currentDescription,
+    preserveHtml: Boolean(payload.preserveHtml),
+    descriptionReplacements: normalizeDescriptionActionReplacements(payload.descriptionReplacements),
     intro: getDescriptionActionIntro(normalizedText.operation, action),
     reason: getDescriptionChangeSpecificReason(action, product, normalizedText.operation) || getDescriptionActionWhyNarrative(action, product) || getRecommendedActionReason(action, product),
     causeKey: payload.causeKey || "",
   };
+}
+
+function normalizeDescriptionActionReplacements(replacements = []) {
+  return (Array.isArray(replacements) ? replacements : [])
+    .map((replacement) => ({
+      from: String(replacement?.from || "").trim(),
+      to: String(replacement?.to || "").trim(),
+      reason: String(replacement?.reason || "").trim(),
+    }))
+    .filter((replacement) => replacement.from && replacement.to);
 }
 
 function getVisibleDescriptionChangeText({ text = "", currentDescription = "", operation = "append" } = {}) {
@@ -12723,6 +12739,8 @@ function normalizeDescriptionChangesForApplication(changes = []) {
         operationLabel: change.operationLabel || getDescriptionOperationText(operation),
         text,
         currentDescriptionText: String(change.currentDescriptionText || ""),
+        preserveHtml: Boolean(change.preserveHtml),
+        descriptionReplacements: normalizeDescriptionActionReplacements(change.descriptionReplacements),
         intro: change.intro || getDescriptionActionIntro(operation),
         reason: change.reason || "",
       };
@@ -13005,6 +13023,8 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
       currentValue: currentDescription,
       currentHtml: currentDescriptionHtml,
       insertionPosition: operation === "replace" ? "" : operation,
+      preserveHtml: Boolean(payload.preserveHtml),
+      descriptionReplacements: normalizeDescriptionActionReplacements(payload.descriptionReplacements),
       htmlStyle: normalizeProductPulseHtmlStyle(product?.htmlStyle),
       relatedActions: Array.isArray(payload.relatedActionLabels) ? payload.relatedActionLabels : [],
     });
@@ -13273,6 +13293,7 @@ function getResolvedDescriptionOperationForAction(action, product = null, curren
 function shouldTreatDescriptionRewriteAsAppend(action = {}, product = null, currentDescriptionOverride = "") {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (payload.preserveHtml) return false;
   if (!normalized.includes("rewrite") && payload.operation !== "replace") return false;
   const currentDescription = currentDescriptionOverride || getCurrentDescriptionForAction(product, payload);
   return Boolean(getAppendedDescriptionText(currentDescription, payload.draftText));
@@ -31271,11 +31292,12 @@ function ActionPreviewHighlightBlock({ highlight, isDescription = false, expande
   );
 }
 
-function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = "", proposedText = "" } = {}) {
+function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = "", proposedText = "", forceDescriptionHtml = false } = {}) {
   const target = String(application.target || "").toLowerCase();
   const variantId = String(application.variantId || "").trim();
   const isDescription = target.includes("description");
   const isFaq = Array.isArray(application.faqItems) || variantId.includes("description-") || variantId.includes("metafield");
+  const explicitCurrentHtml = String(application.currentHtml || "").trim();
   const currentHtml = getActionCurrentDescriptionHtml(application, currentText);
   const htmlStyle = getActionApplicationHtmlStyle(application);
 
@@ -31300,7 +31322,7 @@ function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = 
   if (Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
     const selectedChanges = getSelectedDescriptionChanges(application);
     const usesHtmlBlocks = selectedChanges.some((change) => containsAllowedActionPreviewHtml(change.text));
-    if (!usesHtmlBlocks) return null;
+    if (!usesHtmlBlocks && !explicitCurrentHtml && !forceDescriptionHtml) return null;
     return {
       mode: "html",
       beforeHtml: currentHtml,
@@ -31316,7 +31338,7 @@ function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = 
 
   const operation = application.insertionPosition || application.descriptionOperation || "";
   const proposedHasHtml = containsAllowedActionPreviewHtml(proposedText);
-  const shouldRenderHtml = proposedHasHtml;
+  const shouldRenderHtml = proposedHasHtml || Boolean(explicitCurrentHtml) || forceDescriptionHtml;
   if (!shouldRenderHtml) return null;
 
   return {
@@ -31328,6 +31350,8 @@ function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = 
       draftText: proposedText,
       operation: operation || "replace",
       actionId: application.actionId || "product-description-action",
+      preserveHtml: Boolean(application.preserveHtml),
+      descriptionReplacements: application.descriptionReplacements,
       htmlStyle,
     }),
   };
@@ -31410,8 +31434,30 @@ function buildClientProductPulseFaqItemsHtml(faqItems = []) {
   )).join("\n");
 }
 
-function buildClientUpdatedProductDescriptionHtml({ currentHtml = "", currentText = "", draftText = "", operation = "replace", actionId = "product-action", htmlStyle } = {}) {
+function buildClientUpdatedProductDescriptionHtml({ currentHtml = "", currentText = "", draftText = "", operation = "replace", actionId = "product-action", preserveHtml = false, descriptionReplacements = [], htmlStyle } = {}) {
   const baseHtml = currentHtml || buildClientProductPulseDescriptionBodyHtml(currentText);
+  if (operation === "replace" && preserveHtml && baseHtml) {
+    const preservedHtml = buildClientPreservedProductDescriptionHtmlUpdate({
+      currentHtml: baseHtml,
+      currentText,
+      draftText,
+      descriptionReplacements,
+    });
+    if (preservedHtml) return preservedHtml;
+  }
+  if (operation === "replace" && baseHtml) {
+    const placementDraft = extractClientPlacedDescriptionDraft({
+      currentText: currentText || stripActionPreviewHtml(baseHtml),
+      draftText,
+    });
+    if (placementDraft) {
+      const blocks = [];
+      if (placementDraft.prependText) blocks.push(buildClientProductPulseDescriptionBlock(placementDraft.prependText, actionId, htmlStyle));
+      blocks.push(baseHtml);
+      if (placementDraft.appendText) blocks.push(buildClientProductPulseDescriptionBlock(placementDraft.appendText, actionId, htmlStyle));
+      return blocks.filter(Boolean).join("\n");
+    }
+  }
   if (operation === "replace") return buildClientProductPulseDescriptionReplacement(draftText);
 
   const suggestionHtml = buildClientProductPulseDescriptionBlock(draftText, actionId, htmlStyle);
@@ -31433,7 +31479,31 @@ function buildClientUpdatedProductDescriptionHtmlFromChanges({ currentHtml = "",
   });
 
   if (replacementChange) {
-    blocks.push(buildClientProductPulseDescriptionReplacement(replacementChange.text));
+    const replacementActionId = replacementChange.actionId || replacementChange.id || actionId;
+    const preservedReplacementHtml = replacementChange.preserveHtml && (currentHtml || currentText)
+      ? buildClientPreservedProductDescriptionHtmlUpdate({
+        currentHtml: currentHtml || buildClientProductPulseDescriptionBodyHtml(currentText),
+        currentText,
+        draftText: replacementChange.text,
+        descriptionReplacements: replacementChange.descriptionReplacements,
+      })
+      : "";
+    if (preservedReplacementHtml) {
+      blocks.push(preservedReplacementHtml);
+    } else {
+      const baseHtml = currentHtml || buildClientProductPulseDescriptionBodyHtml(currentText);
+      const placementDraft = baseHtml ? extractClientPlacedDescriptionDraft({
+        currentText: currentText || stripActionPreviewHtml(baseHtml),
+        draftText: replacementChange.text,
+      }) : null;
+      if (placementDraft) {
+        if (placementDraft.prependText) blocks.push(buildClientProductPulseDescriptionBlock(placementDraft.prependText, replacementActionId, htmlStyle));
+        blocks.push(baseHtml);
+        if (placementDraft.appendText) blocks.push(buildClientProductPulseDescriptionBlock(placementDraft.appendText, replacementActionId, htmlStyle));
+      } else {
+        blocks.push(buildClientProductPulseDescriptionReplacement(replacementChange.text));
+      }
+    }
   } else {
     const baseHtml = currentHtml || buildClientProductPulseDescriptionBodyHtml(currentText);
     if (baseHtml) blocks.push(baseHtml);
@@ -31444,6 +31514,217 @@ function buildClientUpdatedProductDescriptionHtmlFromChanges({ currentHtml = "",
   });
 
   return blocks.filter(Boolean).join("\n");
+}
+
+function buildClientPreservedProductDescriptionHtmlUpdate({ currentHtml = "", currentText = "", draftText = "", descriptionReplacements = [] } = {}) {
+  const current = String(currentHtml || "").trim();
+  if (!current) return "";
+  const replacements = normalizeDescriptionActionReplacements(descriptionReplacements);
+
+  if (replacements.length) {
+    const patchedHtml = applyClientDescriptionHtmlReplacements(current, replacements);
+    if (patchedHtml.changed) return patchedHtml.html;
+
+    const additionHtml = applyClientDescriptionHtmlAdditionsFromReplacements({
+      currentHtml: current,
+      replacements,
+    });
+    if (additionHtml.changed) return additionHtml.html;
+  }
+
+  const plainCurrent = currentText || stripActionPreviewHtml(current);
+  const placementDraft = extractClientPlacedDescriptionDraft({
+    currentText: plainCurrent,
+    draftText,
+  });
+  if (placementDraft) {
+    const blocks = [];
+    if (placementDraft.prependText) blocks.push(buildClientProductPulseDescriptionBodyHtml(placementDraft.prependText));
+    blocks.push(current);
+    if (placementDraft.appendText) blocks.push(buildClientProductPulseDescriptionBodyHtml(placementDraft.appendText));
+    return blocks.filter(Boolean).join("\n");
+  }
+
+  const missingDraftText = extractClientMissingDescriptionDraftText({
+    currentText: plainCurrent,
+    draftText,
+  });
+  if (missingDraftText) {
+    return [current, buildClientProductPulseDescriptionBodyHtml(missingDraftText)].filter(Boolean).join("\n");
+  }
+
+  return "";
+}
+
+function applyClientDescriptionHtmlReplacements(currentHtml = "", replacements = []) {
+  const parts = String(currentHtml || "").split(/(<[^>]+>)/g);
+  let changed = false;
+  const html = parts.map((part) => {
+    if (!part || part.startsWith("<")) return part;
+    const next = normalizeDescriptionActionReplacements(replacements).reduce((text, replacement) => {
+      const escaped = escapeActionPreviewRegExp(replacement.from);
+      if (!escaped) return text;
+      return String(text || "").replace(new RegExp(`\\b${escaped}\\b`, "gi"), replacement.to);
+    }, part);
+    if (next !== part) changed = true;
+    return next;
+  }).join("");
+  return { html, changed };
+}
+
+function applyClientDescriptionHtmlAdditionsFromReplacements({ currentHtml = "", replacements = [] } = {}) {
+  let html = String(currentHtml || "");
+  let changed = false;
+
+  normalizeDescriptionActionReplacements(replacements).forEach((replacement) => {
+    const addition = getClientDescriptionReplacementAddedText(replacement);
+    if (!addition || isClientDescriptionTextCovered(addition, stripActionPreviewHtml(html))) return;
+    const insertion = insertClientDescriptionHtmlAfterAnchor({
+      currentHtml: html,
+      anchorText: replacement.from,
+      insertionHtml: buildClientProductPulseDescriptionBodyHtml(addition),
+    });
+    if (!insertion.changed) return;
+    html = insertion.html;
+    changed = true;
+  });
+
+  return { html, changed };
+}
+
+function getClientDescriptionReplacementAddedText(replacement = {}) {
+  const from = String(replacement.from || "").trim();
+  const to = String(replacement.to || "").trim();
+  if (!from || !to) return "";
+  const normalizedFrom = normalizeClientDescriptionComparisonText(from);
+  const normalizedTo = normalizeClientDescriptionComparisonText(to);
+  if (!normalizedFrom || !normalizedTo || !normalizedTo.startsWith(normalizedFrom)) return "";
+  return to.slice(from.length).replace(/^[\s:;,.-]+/, "").trim();
+}
+
+function insertClientDescriptionHtmlAfterAnchor({ currentHtml = "", anchorText = "", insertionHtml = "" } = {}) {
+  const html = String(currentHtml || "");
+  const insertion = String(insertionHtml || "").trim();
+  if (!html || !insertion) return { html, changed: false };
+  const match = findBestClientDescriptionHtmlBlockMatch(html, anchorText);
+  if (!match) return { html: [html, insertion].filter(Boolean).join("\n"), changed: true };
+  return {
+    html: `${html.slice(0, match.end)}\n${insertion}${html.slice(match.end)}`,
+    changed: true,
+  };
+}
+
+function findBestClientDescriptionHtmlBlockMatch(html = "", anchorText = "") {
+  const patterns = [
+    /<(?<tag>p|li|td|th|dd|dt|h[1-6])\b[^>]*>[\s\S]*?<\/\k<tag>>/gi,
+    /<(?<tag>div|section|article)\b[^>]*>[\s\S]*?<\/\k<tag>>/gi,
+  ];
+  for (const blockPattern of patterns) {
+    let best = null;
+    let match = blockPattern.exec(String(html || ""));
+    while (match) {
+      const blockHtml = match[0] || "";
+      const score = getClientDescriptionTextMatchScore(stripActionPreviewHtml(blockHtml), anchorText);
+      if (score >= 0.58 && (!best || score > best.score)) {
+        best = {
+          start: match.index,
+          end: match.index + blockHtml.length,
+          score,
+        };
+      }
+      match = blockPattern.exec(String(html || ""));
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+function extractClientPlacedDescriptionDraft({ currentText = "", draftText = "" } = {}) {
+  const blocks = splitClientDescriptionDraftBlocks(draftText);
+  if (!normalizeClientDescriptionComparisonText(currentText) || blocks.length < 2) return null;
+  const currentIndex = blocks.findIndex((block) => clientDescriptionsReferToSameText(block, currentText));
+  if (currentIndex < 0) return null;
+  const prependText = blocks.slice(0, currentIndex).join("\n\n").trim();
+  const appendText = blocks.slice(currentIndex + 1).join("\n\n").trim();
+  if (!prependText && !appendText) return null;
+  return { prependText, appendText };
+}
+
+function extractClientMissingDescriptionDraftText({ currentText = "", draftText = "" } = {}) {
+  const units = splitClientDescriptionDraftUnits(draftText);
+  if (!String(currentText || "").trim() || units.length < 2) return "";
+  const missingUnits = units.filter((unit) => !isClientDescriptionTextCovered(unit, currentText));
+  if (!missingUnits.length || missingUnits.length === units.length) return "";
+  return missingUnits.join("\n\n").trim();
+}
+
+function splitClientDescriptionDraftBlocks(value = "") {
+  return String(value || "")
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+function splitClientDescriptionDraftUnits(value = "") {
+  return String(value || "")
+    .split(/\n{2,}/)
+    .flatMap((block) => String(block || "").split(/(?<=[.!?])\s+/))
+    .map((unit) => unit.trim())
+    .filter((unit) => unit && (unit.length >= 18 || unit.split(/\s+/).length >= 3));
+}
+
+function clientDescriptionsReferToSameText(first = "", second = "") {
+  return getClientDescriptionTextMatchScore(first, second) >= 0.9;
+}
+
+function isClientDescriptionTextCovered(proposed = "", current = "") {
+  return getClientDescriptionTextMatchScore(current, proposed) >= 0.78;
+}
+
+function getClientDescriptionTextMatchScore(first = "", second = "") {
+  const firstNormalized = normalizeClientDescriptionComparisonText(first);
+  const secondNormalized = normalizeClientDescriptionComparisonText(second);
+  if (!firstNormalized || !secondNormalized) return 0;
+  if (firstNormalized === secondNormalized) return 1;
+  if (firstNormalized.includes(secondNormalized) || secondNormalized.includes(firstNormalized)) return 0.95;
+  const firstTokens = new Set(firstNormalized.split(/\s+/).filter((token) => token.length > 3));
+  const secondTokens = secondNormalized.split(/\s+/).filter((token) => token.length > 3);
+  if (!firstTokens.size || !secondTokens.length) return 0;
+  const shared = secondTokens.filter((token) => firstTokens.has(token)).length;
+  return shared / secondTokens.length;
+}
+
+function normalizeClientDescriptionComparisonText(value = "") {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .trim()
+    .toLowerCase();
+}
+
+function stripActionPreviewHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|section|article|li|ul|ol|h[1-6]|blockquote|tr|td|th)>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function escapeActionPreviewRegExp(value = "") {
+  return String(value || "").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildClientProductPulseDescriptionBlock(text = "", actionId = "product-action", htmlStyle) {
@@ -31640,7 +31921,7 @@ function escapeActionPreviewAttribute(value = "") {
   return escapeActionPreviewHtml(value).replace(/\n/g, " ");
 }
 
-function getRecommendedActionPreviewParts(application = {}, editedText = "") {
+function getRecommendedActionPreviewParts(application = {}, editedText = "", options = {}) {
   const proposed = normalizeActionText(editedText || application.value || "");
   const current = normalizeActionText(application.currentValue || "");
   const target = String(application.target || "").toLowerCase();
@@ -31654,6 +31935,7 @@ function getRecommendedActionPreviewParts(application = {}, editedText = "") {
   const htmlPreview = getRecommendedActionHtmlPreviewParts(application, {
     currentText: current,
     proposedText: proposed,
+    forceDescriptionHtml: Boolean(options.forceDescriptionHtml),
   });
 
   if (isDescription && Array.isArray(application.descriptionChanges) && application.descriptionChanges.length) {
