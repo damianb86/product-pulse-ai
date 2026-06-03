@@ -163,6 +163,7 @@ export function ProductPulseWizard() {
   const [quickScanStepCompleted, setQuickScanStepCompleted] = useState(false);
   const [deepScanStarted, setDeepScanStarted] = useState(false);
   const [completedDeepScanJob, setCompletedDeepScanJob] = useState(null);
+  const urlStartRequestRef = useRef("");
   const step = wizardSteps[stepIndex] || wizardSteps[0];
   const productsState = useProductsWizardState(active && step.kind === "products");
   const openModal = useOpenWizardModal(active);
@@ -201,6 +202,22 @@ export function ProductPulseWizard() {
       setStepIndex(0);
     }
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requested = normalizeWizardStartParam(params.get("wizard") || params.get("startWizard"));
+    if (!requested) return;
+
+    const requestKey = `${location.pathname}?${location.search}`;
+    if (urlStartRequestRef.current === requestKey) return;
+    urlStartRequestRef.current = requestKey;
+
+    resetWizardState(true);
+    params.delete("wizard");
+    params.delete("startWizard");
+    const nextSearch = params.toString();
+    navigate(`${DASHBOARD_ROUTE}${nextSearch ? `?${nextSearch}` : ""}`, { replace: true });
+  }, [location.pathname, location.search, navigate, resetWizardState]);
 
   useEffect(() => {
     document.body.classList.toggle("ppWizardActive", active);
@@ -1279,6 +1296,11 @@ function isCurrentWizardRoute(pathname, search, step) {
 
 function isDashboardRoute(pathname) {
   return pathname === "/app" || pathname === "/app/" || pathname.startsWith(DASHBOARD_ROUTE);
+}
+
+function normalizeWizardStartParam(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "start" || normalized === "1" || normalized === "true" || normalized === "on";
 }
 
 function clamp(value, min, max) {
