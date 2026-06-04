@@ -5,7 +5,7 @@ APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_ENV_FILE=${APP_ENV_FILE:-"$APP_DIR/.env"}
 APP_DISPLAY_NAME=${APP_DISPLAY_NAME:-"ProductPulse AI"}
 VERIFY_ENV_VARS=${VERIFY_ENV_VARS:-"PRODUCT_PULSE_AI_LEVEL AI_CHATKIT_ENABLED AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT"}
-BUILD_APP_BUNDLE=${BUILD_APP_BUNDLE:-1}
+BUILD_APP_BUNDLE=${BUILD_APP_BUNDLE:-auto}
 DOCKER_BUILDKIT=${DOCKER_BUILDKIT:-1}
 COMPOSE_DOCKER_CLI_BUILD=${COMPOSE_DOCKER_CLI_BUILD:-1}
 export DOCKER_BUILDKIT COMPOSE_DOCKER_CLI_BUILD
@@ -121,6 +121,14 @@ compose up \
   db-init
 finish_step
 
+if [ "$BUILD_APP_BUNDLE" = "auto" ]; then
+  if [ -x "$APP_DIR/node_modules/.bin/react-router" ]; then
+    BUILD_APP_BUNDLE=1
+  else
+    BUILD_APP_BUNDLE=0
+  fi
+fi
+
 if [ "$BUILD_APP_BUNDLE" = "1" ]; then
   start_step "Building app bundle outside Docker"
   npm run build
@@ -128,7 +136,13 @@ if [ "$BUILD_APP_BUNDLE" = "1" ]; then
 fi
 
 if [ ! -f "$APP_DIR/build/server/index.js" ] || [ ! -f "$APP_DIR/build/product-pulse-worker.mjs" ]; then
-  echo "Missing build output. Run npm run build or deploy with BUILD_APP_BUNDLE=1." >&2
+  echo "Missing build output." >&2
+  echo "This 1 GB server should deploy a prebuilt bundle instead of compiling React Router/Vite here." >&2
+  echo "Build on a machine with dev dependencies and copy the build directory to the server:" >&2
+  echo "  npm run build" >&2
+  echo "  rsync -az --delete build/ user@server:$APP_DIR/build/" >&2
+  echo "Then run deploy again:" >&2
+  echo "  BUILD_APP_BUNDLE=0 ./deploy.sh" >&2
   exit 1
 fi
 
