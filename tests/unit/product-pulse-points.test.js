@@ -56,6 +56,29 @@ describe("Credits", () => {
     });
   });
 
+  it("reads an existing balance without starting a transaction", async () => {
+    const db = createPointTestDb({
+      entries: [{
+        id: "ledger-existing",
+        shop: "test-shop.myshopify.com",
+        direction: "credit",
+        amount: 42,
+        balanceAfter: 42,
+        reason: "Existing credits",
+        createdAt: new Date(Date.UTC(2026, 4, 27, 12, 0, 0)),
+      }],
+    });
+
+    const balance = await getStorePointBalanceForShop("test-shop.myshopify.com", { db });
+
+    expect(balance).toMatchObject({
+      shop: "test-shop.myshopify.com",
+      available: 42,
+      label: "42.0",
+    });
+    expect(db.state.transactions).toBe(0);
+  });
+
   it("debits credits once for an idempotency key", async () => {
     const db = createPointTestDb();
     await getStorePointBalanceForShop("test-shop.myshopify.com", {
@@ -307,10 +330,15 @@ function createPointTestDb({ entries = [], messages = [] } = {}) {
     entries: entries.slice(),
     messages: messages.slice(),
     nextEntry: entries.length + 1,
+    transactions: 0,
   };
 
-  return {
+  const db = {
     state,
+    async $transaction(callback) {
+      state.transactions += 1;
+      return callback(db);
+    },
     creditLedgerEntry: {
       async findFirst(query = {}) {
         const rows = filterLedgerEntries(state.entries, query.where || {});
@@ -348,6 +376,7 @@ function createPointTestDb({ entries = [], messages = [] } = {}) {
       },
     },
   };
+  return db;
 }
 
 function filterLedgerEntries(entries, where) {

@@ -40,6 +40,11 @@ export async function getStorePointBalanceForShop(shop, options = {}) {
   const normalizedShop = normalizeShop(shop);
   if (!normalizedShop) return buildPointBalance("", 0, null);
 
+  if (typeof db.creditLedgerEntry?.findFirst === "function") {
+    const existingEntry = await getLatestLedgerEntry(db, normalizedShop);
+    if (existingEntry) return buildPointBalance(normalizedShop, existingEntry.balanceAfter, existingEntry);
+  }
+
   return withPointTransaction(db, async (tx) => {
     await lockStorePointLedgerForShop(tx, normalizedShop);
     const entry = await getLatestLedgerEntry(tx, normalizedShop);

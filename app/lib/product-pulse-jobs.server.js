@@ -67,9 +67,12 @@ const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+const STALE_JOB_SWEEP_INTERVAL_MS = 60 * 1000;
 const JOB_MONITOR_RECENT_JOB_LIMIT = 6;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const BACKGROUND_PROCESS_PAGE_SIZE = 10;
+const SHOPIFY_DASHBOARD_COUNT_TIMEOUT_MS = 3 * 1000;
+const SHOPIFY_PRODUCT_IMAGE_TIMEOUT_MS = 4 * 1000;
 const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
 const ANALYTICS_SCORE_HISTORY_TAKE = 520;
 const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
@@ -79,9 +82,14 @@ const JOB_WORKER_OWNER_ID = `${process.env.HOSTNAME || "local"}:${process.pid}:$
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
+const staleFastProductScanSweeps = global.productPulseStaleFastProductScanSweeps || new Map();
 
 if (!global.productPulseJobWorkers) {
   global.productPulseJobWorkers = activeWorkers;
+}
+
+if (!global.productPulseStaleFastProductScanSweeps) {
+  global.productPulseStaleFastProductScanSweeps = staleFastProductScanSweeps;
 }
 
 if (!global.productPulseDiagnosisQueueWorkers) {
@@ -395,13 +403,17 @@ export async function getDashboardDataForShop(shop, admin) {
 async function getShopifyCatalogProductCount(admin) {
   if (!admin?.graphql) return null;
   try {
-    const data = await shopifyGraphql(admin, `#graphql
-      query ProductPulseCatalogProductCount {
-        productsCount {
-          count
+    const data = await withTimeout(
+      shopifyGraphql(admin, `#graphql
+        query ProductPulseCatalogProductCount {
+          productsCount {
+            count
+          }
         }
-      }
-    `);
+      `),
+      SHOPIFY_DASHBOARD_COUNT_TIMEOUT_MS,
+      "Shopify catalog product count timed out.",
+    );
     const count = Number(data?.productsCount?.count || 0);
     return Number.isFinite(count) && count > 0 ? count : null;
   } catch {
@@ -3401,10 +3413,17 @@ function findActiveProductDiagnosisJobForSnapshot(snapshot, jobs = []) {
 }
 
 async function failStaleFastProductScans(shop) {
+  const normalizedShop = String(shop || "").trim();
+  if (!normalizedShop) return;
+  const nowMs = Date.now();
+  const lastSweepMs = staleFastProductScanSweeps.get(normalizedShop) || 0;
+  if (nowMs - lastSweepMs < STALE_JOB_SWEEP_INTERVAL_MS) return;
+  staleFastProductScanSweeps.set(normalizedShop, nowMs);
+
   const cutoff = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
   await prisma.catalogSignalJob.updateMany({
     where: {
-      shop,
+      shop: normalizedShop,
       kind: FAST_PRODUCT_SCAN_KIND,
       status: { in: ["Queued", "Running"] },
       startedAt: { lte: cutoff },
@@ -4563,6 +4582,14 @@ async function attachProductImages(rows, admin) {
   const ids = rows.map((row) => row.productGid).filter(Boolean);
   if (!ids.length) return rows;
 
+  return withTimeout(
+    attachProductImagesFromShopify(rows, admin, ids),
+    SHOPIFY_PRODUCT_IMAGE_TIMEOUT_MS,
+    "Shopify product image lookup timed out.",
+  ).catch(() => rows);
+}
+
+async function attachProductImagesFromShopify(rows, admin, ids) {
   try {
     const response = await admin.graphql(
       `#graphql
@@ -4618,6 +4645,14 @@ async function attachProductImages(rows, admin) {
   } catch {
     return rows;
   }
+}
+
+function withTimeout(promise, timeoutMs, message = "Operation timed out.") {
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
 }
 
 async function attachProductRelationshipImagesToDiagnosis(product, admin) {
