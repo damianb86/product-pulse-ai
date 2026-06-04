@@ -390,7 +390,7 @@ async function runBulkQuery(admin, bulkQuery, label, context) {
     throw new Error(`Unable to download ${label} bulk results (${response.status}).`);
   }
 
-  const lines = parseJsonl(await response.text());
+  const lines = await parseJsonlResponse(response);
   await recordJobLog({
     ...context,
     event: "quick_scan.bulk_completed",
@@ -1975,37 +1975,41 @@ async function persistQuickScanCandidates(shop, candidates) {
       await tx.productRiskSnapshot.deleteMany({ where: { shop } });
     }
 
-    return Promise.all(persistableCandidates.map((candidate) => tx.productRiskSnapshot.upsert({
-      where: {
-        shop_productGid: {
+    const persisted = [];
+    for (const candidate of persistableCandidates) {
+      persisted.push(await tx.productRiskSnapshot.upsert({
+        where: {
+          shop_productGid: {
+            shop,
+            productGid: candidate.productGid,
+          },
+        },
+        create: {
           shop,
           productGid: candidate.productGid,
+          productTitle: candidate.productTitle,
+          handle: candidate.handle,
+          riskScore: candidate.riskScore,
+          impactScore: candidate.impactScore,
+          confidence: candidate.confidence,
+          primaryIssue: candidate.primaryIssue,
+          sourceCoverage: candidate.sourceCoverage,
+          metrics: candidate.metrics,
         },
-      },
-      create: {
-        shop,
-        productGid: candidate.productGid,
-        productTitle: candidate.productTitle,
-        handle: candidate.handle,
-        riskScore: candidate.riskScore,
-        impactScore: candidate.impactScore,
-        confidence: candidate.confidence,
-        primaryIssue: candidate.primaryIssue,
-        sourceCoverage: candidate.sourceCoverage,
-        metrics: candidate.metrics,
-      },
-      update: {
-        productTitle: candidate.productTitle,
-        handle: candidate.handle,
-        riskScore: candidate.riskScore,
-        impactScore: candidate.impactScore,
-        confidence: candidate.confidence,
-        primaryIssue: candidate.primaryIssue,
-        sourceCoverage: candidate.sourceCoverage,
-        metrics: candidate.metrics,
-        calculatedAt: new Date(),
-      },
-    })));
+        update: {
+          productTitle: candidate.productTitle,
+          handle: candidate.handle,
+          riskScore: candidate.riskScore,
+          impactScore: candidate.impactScore,
+          confidence: candidate.confidence,
+          primaryIssue: candidate.primaryIssue,
+          sourceCoverage: candidate.sourceCoverage,
+          metrics: candidate.metrics,
+          calculatedAt: new Date(),
+        },
+      }));
+    }
+    return persisted;
   });
   await recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" });
   await Promise.all([
@@ -2317,6 +2321,39 @@ function countCsvRatingProductKeys(ratings) {
     const idKey = getProductIdLookupKeys(row.shopifyProductId)[0];
     return idKey || normalizeLookupKey(row.productHandle);
   }).filter(Boolean)).size;
+}
+
+async function parseJsonlResponse(response) {
+  if (!response.body || typeof response.body.getReader !== "function") {
+    return parseJsonl(await response.text());
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const rows = [];
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = parseJsonlBuffer(buffer, rows);
+  }
+
+  buffer += decoder.decode();
+  parseJsonlBuffer(`${buffer}\n`, rows);
+  return rows;
+}
+
+function parseJsonlBuffer(buffer, rows) {
+  let nextLineBreak = buffer.search(/\r?\n/);
+  while (nextLineBreak >= 0) {
+    const line = buffer.slice(0, nextLineBreak).trim();
+    buffer = buffer.slice(nextLineBreak + (buffer[nextLineBreak] === "\r" && buffer[nextLineBreak + 1] === "\n" ? 2 : 1));
+    if (line) rows.push(JSON.parse(line));
+    nextLineBreak = buffer.search(/\r?\n/);
+  }
+  return buffer;
 }
 
 function parseJsonl(text) {

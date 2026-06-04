@@ -18122,22 +18122,31 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable th:nth-child(1),
 .ppIssuesTable td:nth-child(1) {
-  width: 34%;
+  width: 39%;
 }
 
 .ppIssuesTable th:nth-child(2),
 .ppIssuesTable td:nth-child(2) {
-  width: 22%;
+  width: 13%;
 }
 
 .ppIssuesTable th:nth-child(3),
 .ppIssuesTable td:nth-child(3) {
-  width: 44%;
+  width: 10%;
+}
+
+.ppIssuesTable th:nth-child(4),
+.ppIssuesTable td:nth-child(4) {
+  width: 8%;
+}
+
+.ppIssuesTable th:nth-child(5),
+.ppIssuesTable td:nth-child(5) {
+  width: 30%;
 }
 
 .ppIssuesTable th,
 .ppIssuesTable td {
-  min-width: 0;
   padding: 7px 8px;
   border-bottom: 1px solid var(--pp-slate-200);
   color: var(--pp-slate-700);
@@ -18175,9 +18184,7 @@ s-page[inline-size="large-500"] {
 
 .ppIssuesTable td:last-child {
   position: relative;
-  min-width: 0;
   text-align: left;
-  overflow-wrap: anywhere;
 }
 
 .ppIssueActionCell {
@@ -32392,7 +32399,7 @@ s-page[inline-size="large-500"] {
 .ppProductsScanOverlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 130;
   display: grid;
   place-items: center;
   padding: 32px;
@@ -32430,6 +32437,34 @@ s-page[inline-size="large-500"] {
 .ppProductsScanOverlay small {
   color: var(--pp-slate-500);
   font-size: 12px;
+}
+
+.ppProductsQueueOverlay {
+  background: rgba(var(--pp-slate-100-rgb), 0.26);
+  backdrop-filter: blur(3px);
+}
+
+.ppProductsQueueOverlay > div {
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  box-shadow: 0 24px 68px rgba(var(--pp-shadow-rgb), 0.16);
+}
+
+.ppProductsQueueOverlay .ppSecondaryButton {
+  margin-top: 2px;
+}
+
+.ppQueueNoticeIcon {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: var(--pp-warning-amber);
+}
+
+.ppQueueNoticeIcon s-icon {
+  transform: scale(1.18);
 }
 
 .ppScanSpinner {
@@ -40363,14 +40398,30 @@ s-page[inline-size="large-500"] {
 
   .ppIssuesTable th:nth-child(3),
   .ppIssuesTable td:nth-child(3) {
+    display: none;
+  }
+
+  .ppIssuesTable th:nth-child(4),
+  .ppIssuesTable td:nth-child(4) {
+    display: none;
+  }
+
+  .ppIssuesTable th:nth-child(5),
+  .ppIssuesTable td:nth-child(5) {
     width: 45%;
   }
 
   .ppIssuesTable th,
   .ppIssuesTable td {
+    min-width: 0;
     padding: 6px 5px;
     font-size: 10.5px;
     line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .ppIssuesTable td:last-child {
+    min-width: 0;
     overflow-wrap: anywhere;
   }
 

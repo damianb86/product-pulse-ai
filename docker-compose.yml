@@ -56,6 +56,11 @@ services:
       AI_CHATKIT_API_URL: ${AI_CHATKIT_API_URL:-/api/ai/chatkit/message}
       AI_CHATKIT_DOMAIN_KEY: ${AI_CHATKIT_DOMAIN_KEY:?Set AI_CHATKIT_DOMAIN_KEY in the app .env}
       PRODUCT_PULSE_WATCHLIST_CRON_SECRET: ${PRODUCT_PULSE_WATCHLIST_CRON_SECRET:?Set PRODUCT_PULSE_WATCHLIST_CRON_SECRET in the app .env}
+      PRODUCT_PULSE_INLINE_WORKERS_ENABLED: ${PRODUCT_PULSE_INLINE_WORKERS_ENABLED:-false}
+      PRODUCT_PULSE_JOB_LEASE_TTL_MS: ${PRODUCT_PULSE_JOB_LEASE_TTL_MS:-600000}
+      PRODUCT_PULSE_JOB_HEARTBEAT_MS: ${PRODUCT_PULSE_JOB_HEARTBEAT_MS:-60000}
+      PRODUCT_PULSE_WORKER_IDLE_SLEEP_MS: ${PRODUCT_PULSE_WORKER_IDLE_SLEEP_MS:-5000}
+      PRODUCT_PULSE_WORKER_MAX_JOBS_PER_CYCLE: ${PRODUCT_PULSE_WORKER_MAX_JOBS_PER_CYCLE:-1}
     labels:
       observability.stack: zuam
       observability.app: product-pulse-ai
@@ -64,6 +69,61 @@ services:
       caddy.encode: zstd gzip
       caddy.reverse_proxy: "{{upstreams 3000}}"
       caddy_ingress_network: ${SHARED_DOCKER_NETWORK:-shared_apps}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${DOCKER_LOG_MAX_SIZE:-10m}
+        max-file: ${DOCKER_LOG_MAX_FILE:-5}
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    networks:
+      - shared_apps
+
+  worker:
+    build: .
+    restart: unless-stopped
+    init: true
+    command: ["npm", "run", "worker"]
+    environment:
+      APP_ENV: production
+      NODE_ENV: production
+      NODE_OPTIONS: ${NODE_OPTIONS}
+      SHOPIFY_API_KEY: ${SHOPIFY_API_KEY:?Set SHOPIFY_API_KEY in the app .env}
+      SHOPIFY_API_SECRET: ${SHOPIFY_API_SECRET:?Set SHOPIFY_API_SECRET in the app .env}
+      SCOPES: ${SCOPES:?Set SCOPES in the app .env}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the app .env}
+      SHOPIFY_APP_URL: ${PROD_SHOPIFY_APP_URL:?Set PROD_SHOPIFY_APP_URL in the app .env}
+      SHOPIFY_ADMIN_APP_HANDLE: ${SHOPIFY_ADMIN_APP_HANDLE:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY in the app .env}
+      PRODUCT_PULSE_AI_LEVEL: ${PRODUCT_PULSE_AI_LEVEL:-3}
+      OPENAI_BASIC_MODEL: ${OPENAI_BASIC_MODEL:-gpt-5.4-nano}
+      OPENAI_PRO_MODEL: ${OPENAI_PRO_MODEL:-gpt-5.4-mini}
+      OPENAI_PREMIUM_MODEL: ${OPENAI_PREMIUM_MODEL:-gpt-5.4}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GEMINI_MODEL_FALLBACK_POOL: ${GEMINI_MODEL_FALLBACK_POOL:-}
+      AI_SCOPE_GUARD_ENABLED: ${AI_SCOPE_GUARD_ENABLED:-false}
+      AI_OUTPUT_GUARD_ENABLED: ${AI_OUTPUT_GUARD_ENABLED:-true}
+      AI_SCOPE_GUARD_MODEL: ${AI_SCOPE_GUARD_MODEL:-gpt-5.4-nano}
+      AI_SCOPE_GUARD_MAX_OUTPUT_TOKENS: ${AI_SCOPE_GUARD_MAX_OUTPUT_TOKENS:-700}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-gpt-5.4-mini}
+      AI_CHAT_CHEAP_MODEL: ${AI_CHAT_CHEAP_MODEL:-gpt-5.4-nano}
+      AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT: ${AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT:-30}
+      AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT: ${AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT:-100}
+      AI_CHATKIT_ENABLED: ${AI_CHATKIT_ENABLED:-true}
+      AI_CHATKIT_API_URL: ${AI_CHATKIT_API_URL:-/api/ai/chatkit/message}
+      AI_CHATKIT_DOMAIN_KEY: ${AI_CHATKIT_DOMAIN_KEY:?Set AI_CHATKIT_DOMAIN_KEY in the app .env}
+      PRODUCT_PULSE_WATCHLIST_CRON_SECRET: ${PRODUCT_PULSE_WATCHLIST_CRON_SECRET:?Set PRODUCT_PULSE_WATCHLIST_CRON_SECRET in the app .env}
+      PRODUCT_PULSE_INLINE_WORKERS_ENABLED: "true"
+      PRODUCT_PULSE_JOB_LEASE_TTL_MS: ${PRODUCT_PULSE_JOB_LEASE_TTL_MS:-600000}
+      PRODUCT_PULSE_JOB_HEARTBEAT_MS: ${PRODUCT_PULSE_JOB_HEARTBEAT_MS:-60000}
+      PRODUCT_PULSE_WORKER_IDLE_SLEEP_MS: ${PRODUCT_PULSE_WORKER_IDLE_SLEEP_MS:-5000}
+      PRODUCT_PULSE_WORKER_MAX_JOBS_PER_CYCLE: ${PRODUCT_PULSE_WORKER_MAX_JOBS_PER_CYCLE:-1}
+    labels:
+      observability.stack: zuam
+      observability.app: product-pulse-ai
+      observability.service: worker
     logging:
       driver: json-file
       options:

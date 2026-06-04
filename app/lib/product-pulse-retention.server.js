@@ -7,8 +7,10 @@ const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS = 365;
 const PRODUCT_RETENTION_DEFAULT_MAX_COHORT_AGE_DAYS = 180;
 const PRODUCT_RETENTION_LOW_SAMPLE_SIZE = 5;
 const PRODUCT_RETENTION_MIN_HEALTH_SCORE_SAMPLE = 5;
-const PRODUCT_RETENTION_ORDER_PAGE_SIZE = 50;
-const PRODUCT_RETENTION_MAX_ORDER_PAGES = 80;
+const PRODUCT_RETENTION_ORDER_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_ORDER_PAGE_SIZE", 50, 5, 50);
+const PRODUCT_RETENTION_MAX_ORDER_PAGES = getRetentionIntegerEnv("PRODUCT_RETENTION_MAX_ORDER_PAGES", 80, 1, 80);
+const PRODUCT_RETENTION_LINE_ITEMS_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_LINE_ITEMS_PAGE_SIZE", 100, 10, 100);
+const PRODUCT_RETENTION_REFUND_LINE_ITEMS_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_REFUND_LINE_ITEMS_PAGE_SIZE", 100, 10, 100);
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RETENTION_THRESHOLDS = [7, 14, 30, 60, 90, 180];
 
@@ -1508,8 +1510,8 @@ async function fetchShopifyProductRetentionOrders({ admin, windowStartDate, wind
     const data = await shopifyGraphql(admin, buildProductRetentionOrdersQuery(), {
       after: cursor,
       first: PRODUCT_RETENTION_ORDER_PAGE_SIZE,
-      lineItemsFirst: 100,
-      refundLineItemsFirst: 100,
+      lineItemsFirst: PRODUCT_RETENTION_LINE_ITEMS_PAGE_SIZE,
+      refundLineItemsFirst: PRODUCT_RETENTION_REFUND_LINE_ITEMS_PAGE_SIZE,
       query,
     });
     pagesScanned += 1;
@@ -1521,6 +1523,12 @@ async function fetchShopifyProductRetentionOrders({ admin, windowStartDate, wind
   }
 
   return { orders, pagesScanned, truncated: true };
+}
+
+function getRetentionIntegerEnv(key, defaultValue, min, max) {
+  const value = Number.parseInt(String(process.env[key] ?? ""), 10);
+  if (!Number.isFinite(value)) return defaultValue;
+  return Math.min(max, Math.max(min, value));
 }
 
 function normalizeShopifyRetentionOrder(order) {

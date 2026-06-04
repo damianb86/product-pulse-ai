@@ -1881,6 +1881,61 @@ describe("ProductPulse screens", () => {
     }
   });
 
+  it("shows a queue overlay while Product Diagnosis jobs are being added", async () => {
+    let resolveAction;
+    const action = vi.fn(() => new Promise((resolve) => {
+      resolveAction = resolve;
+    }));
+    const data = {
+      ...defaultView,
+      persistProductJobs: true,
+      productTable: {
+        ...(defaultView.productTable || {}),
+        rows: [{
+          title: "Queue Test Jacket",
+          risk: "High",
+          riskScore: 82,
+          riskTrend: [70, 76, 82],
+          issue: "Fit & sizing",
+          sources: [{ key: "products", label: "Products", shortLabel: "PDP", detail: "Shopify product metadata." }],
+          sourceOverflow: 0,
+          lastAnalysis: "Catalog Scan",
+          href: "/app/products/queue-test-jacket",
+          handle: "queue-test-jacket",
+          productGid: "gid://shopify/Product/queue-test",
+          credits: 1,
+        }],
+        total: 1,
+        totalAll: 1,
+      },
+    };
+
+    renderWithAction(<ProductsActionHarness data={data} filters={{ query: "", risk: "all" }} />, action);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Queue Test Jacket" }));
+    fireEvent.click(screen.getByRole("button", { name: "Analyze selected (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept cost and run analysis" }));
+
+    expect(await screen.findByText("Adding products to queue")).toBeInTheDocument();
+    expect(screen.getByText(/Preparing 1 product for Product Diagnosis/)).toBeInTheDocument();
+    expect(action).toHaveBeenCalled();
+
+    await act(async () => {
+      resolveAction({
+        status: "success",
+        suppressBanner: true,
+        queuedCount: 1,
+        jobs: [{
+          id: "job-queue-test",
+          kind: "product-diagnosis",
+          status: "Queued",
+          displayTitle: "Queue Test Jacket",
+        }],
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByText("Adding products to queue")).not.toBeInTheDocument());
+  });
+
   it("recommends uploading CSV reviews before Catalog Scan when no review CSV is configured", () => {
     const data = {
       ...defaultView,
@@ -5744,6 +5799,8 @@ describe("ProductPulse screens", () => {
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     const issuesPanel = screen.getByText("Issues detected").closest(".ppIssuesOverviewPanel");
+    const issueHeaders = within(issuesPanel).getAllByRole("columnheader").map((header) => header.textContent);
+    expect(issueHeaders).toEqual(["Issue", "Impact", "Confidence", "Signals", "Suggested action"]);
     const issueRow = within(issuesPanel).getByText("Fear or safety concern").closest("tr");
     expect(within(issueRow).getByText("Medium")).toBeInTheDocument();
     expect(issueRow.querySelector(".ppImpactLevelIndicator-medium")).toBeInTheDocument();

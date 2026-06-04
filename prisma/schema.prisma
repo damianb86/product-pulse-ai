@@ -58,21 +58,29 @@ model ProductPulseSource {
 }
 
 model CatalogSignalJob {
-  id           String    @id @default(cuid())
-  shop         String
-  kind         String
-  source       String
-  status       String
-  progress     Int       @default(0)
-  payload      Json?
-  errorMessage String?
-  startedAt    DateTime  @default(now())
-  finishedAt   DateTime?
-  updatedAt    DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  shop            String
+  kind            String
+  source          String
+  status          String
+  progress        Int       @default(0)
+  payload         Json?
+  errorMessage    String?
+  leasedBy        String?
+  leaseExpiresAt  DateTime?
+  lastHeartbeatAt DateTime?
+  attempts        Int       @default(0)
+  priority        Int       @default(100)
+  notBefore       DateTime?
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  updatedAt       DateTime  @updatedAt
 
   @@index([shop, status])
   @@index([shop, kind, status])
   @@index([kind, status, startedAt])
+  @@index([kind, status, leaseExpiresAt])
+  @@index([kind, status, priority, notBefore, startedAt])
 }
 
 model ProductPulseAiProviderState {

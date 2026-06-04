@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useFetcher, useLocation, useRevalidator } from "react-router";
 
-const JOB_STATUS_ACTIVE_POLL_MS = 4_000;
-const JOB_STATUS_IDLE_POLL_MS = 15_000;
+const JOB_STATUS_ACTIVE_POLL_MS = 12_000;
+const JOB_STATUS_IDLE_POLL_MS = 45_000;
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
@@ -64,7 +64,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      if (fetcherStateRef.current === "idle") fetcher.load("/app/job-status");
+      if (!document.hidden && fetcherStateRef.current === "idle") fetcher.load("/app/job-status");
     }, hasActiveJobs ? JOB_STATUS_ACTIVE_POLL_MS : JOB_STATUS_IDLE_POLL_MS);
     return () => window.clearInterval(interval);
   }, [fetcher, hasActiveJobs]);

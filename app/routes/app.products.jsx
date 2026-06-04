@@ -29,12 +29,10 @@ export const loader = async ({ request }) => {
     activeTab: normalizeProductsTab(url.searchParams.get("tab")),
   };
 
-  const [productTable, candidateProductTable, resolvedProductTable, quickScanCsvReviews] = await Promise.all([
-    getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings }),
-    getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings }),
-    getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings }),
-    getCsvReviewSourceStatusForShop(session.shop),
-  ]);
+  const productTable = await getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings });
+  const candidateProductTable = await getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings });
+  const resolvedProductTable = await getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings });
+  const quickScanCsvReviews = await getCsvReviewSourceStatusForShop(session.shop);
 
   return {
     data: {

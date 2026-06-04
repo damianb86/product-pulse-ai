@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import prisma from "../db.server";
 import { unauthenticated } from "../shopify.server";
 import {
@@ -59,6 +60,7 @@ import {
   lockStorePointLedgerForShop,
   validateStorePointsForShop,
 } from "./product-pulse-points.server";
+import { getProductPulseResourceConfig } from "./product-pulse-resource-config.server";
 import { maybeSendWatchlistRunAlertForJob } from "./product-pulse-watchlist-alerts.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
@@ -68,12 +70,13 @@ const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const BACKGROUND_PROCESS_PAGE_SIZE = 10;
-const BACKGROUND_PROCESS_ACTIVE_LIMIT = 10;
+const BACKGROUND_PROCESS_ACTIVE_LIMIT = 50;
 const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
 const ANALYTICS_SCORE_HISTORY_TAKE = 520;
 const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
 const SEO_TITLE_MAX_LENGTH = 70;
 const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
+const JOB_WORKER_OWNER_ID = `${process.env.HOSTNAME || "local"}:${process.pid}:${randomUUID()}`;
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
@@ -130,6 +133,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
       source: `Queued Shopify Catalog Scan - ${windowDays}-day order window`,
       status: "Queued",
       progress: 0,
+      priority: 20,
       payload: {
         pointCost: 1,
         queuedAt: new Date().toISOString(),
@@ -215,6 +219,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
       source: "Queued Shopify mock dataset generation",
       status: "Queued",
       progress: 0,
+      priority: 200,
       payload: {
         queuedAt: new Date().toISOString(),
         stage,
@@ -513,19 +518,13 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
     return { status: "validation_error", message: "Select at least one product to analyze." };
   }
 
-  const pointCheck = await validateStorePointsForShop(shop, uniqueProductIds.length);
-  if (!pointCheck.valid) {
-    return {
-      status: "validation_error",
-      message: pointCheck.message,
-      pointBalance: pointCheck.balance,
-    };
-  }
+  const snapshotBatch = await getProductDiagnosisSnapshotsForProductIds(shop, uniqueProductIds);
+  const batchResult = await createProductDiagnosisJobsForSnapshots(shop, snapshotBatch.snapshots);
+  const jobs = [...batchResult.jobs];
+  const pointFailures = [...batchResult.pointFailures];
 
-  const jobs = [];
-  const pointFailures = [];
-  for (const productId of uniqueProductIds) {
-    const job = await createProductDiagnosisJob(shop, productId, { ...options, skipPointBalanceCheck: true });
+  for (const productId of snapshotBatch.unmatchedProductIds) {
+    const job = await createProductDiagnosisJob(shop, productId, options);
     if (job?.pointValidationError) {
       pointFailures.push(job.pointValidationError);
       continue;
@@ -544,14 +543,24 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
 
   ensureProductDiagnosisQueueWorker(shop);
   const skippedForPoints = pointFailures.length;
+  const batchJobIds = new Set(batchResult.jobs.map((job) => job.id).filter(Boolean));
+  const fallbackCount = jobs.filter((job) => !batchJobIds.has(job.id)).length;
+  const createdCount = batchResult.createdCount + fallbackCount;
+  const reusedCount = batchResult.reusedCount;
+  const messageParts = [];
+  if (createdCount) messageParts.push(`${createdCount} Product Diagnosis job${createdCount === 1 ? "" : "s"} queued`);
+  if (reusedCount) messageParts.push(`${reusedCount} already in queue or running`);
+  if (skippedForPoints) messageParts.push(`${skippedForPoints} skipped because credits were no longer available`);
 
   return {
     status: "success",
     suppressBanner: true,
-    message: skippedForPoints
-      ? `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. ${skippedForPoints} skipped because credits were no longer available.`
-      : `${jobs.length} Product Diagnosis job${jobs.length === 1 ? "" : "s"} queued. They will run one at a time.`,
+    message: `${messageParts.join(". ")}. They will run one at a time.`,
+    requestedCount: uniqueProductIds.length,
     queuedCount: jobs.length,
+    createdCount,
+    reusedCount,
+    skippedCount: skippedForPoints,
     jobs: jobs.map(formatJob),
   };
 }
@@ -639,7 +648,7 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
       id: normalizedJobId,
       status: { in: ["Queued", "Running"] },
     },
-    data: {
+    data: getTerminalLeaseData({
       status: "Failed",
       progress: 100,
       source: "Canceled by user",
@@ -648,7 +657,7 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
         : "Canceled from Background processes. Any credits already consumed by the queued job are not automatically refunded.",
       payload: cancellationPayload,
       finishedAt: new Date(),
-    },
+    }),
   });
 
   await recordJobLog({
@@ -3084,6 +3093,177 @@ async function findProductRiskSnapshot(shop, productId) {
   });
 }
 
+async function getProductDiagnosisSnapshotsForProductIds(shop, productIds = []) {
+  const requestedIds = [...new Set(productIds.map((value) => String(value || "").trim()).filter(Boolean))];
+  if (!requestedIds.length) return { snapshots: [], matchedProductIds: new Set(), unmatchedProductIds: [] };
+
+  const snapshots = await prisma.productRiskSnapshot.findMany({
+    where: {
+      shop,
+      OR: [
+        { productGid: { in: requestedIds } },
+        { handle: { in: requestedIds } },
+      ],
+    },
+  });
+
+  const snapshotByRequestedId = new Map();
+  snapshots.forEach((snapshot) => {
+    if (snapshot.productGid) snapshotByRequestedId.set(String(snapshot.productGid), snapshot);
+    if (snapshot.handle) snapshotByRequestedId.set(String(snapshot.handle), snapshot);
+  });
+
+  const matchedProductIds = new Set();
+  const seenProductGids = new Set();
+  const orderedSnapshots = [];
+  requestedIds.forEach((productId) => {
+    const snapshot = snapshotByRequestedId.get(productId);
+    if (!snapshot) return;
+    matchedProductIds.add(productId);
+    const snapshotKey = String(snapshot.productGid || snapshot.handle || productId);
+    if (seenProductGids.has(snapshotKey)) return;
+    seenProductGids.add(snapshotKey);
+    orderedSnapshots.push(snapshot);
+  });
+
+  return {
+    snapshots: orderedSnapshots,
+    matchedProductIds,
+    unmatchedProductIds: requestedIds.filter((productId) => !matchedProductIds.has(productId)),
+  };
+}
+
+async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
+  const uniqueSnapshots = [];
+  const seenProductGids = new Set();
+  snapshots.forEach((snapshot) => {
+    const key = String(snapshot?.productGid || snapshot?.handle || "");
+    if (!key || seenProductGids.has(key)) return;
+    seenProductGids.add(key);
+    uniqueSnapshots.push(snapshot);
+  });
+  if (!uniqueSnapshots.length) {
+    return { jobs: [], createdCount: 0, reusedCount: 0, pointFailures: [] };
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await lockStorePointLedgerForShop(tx, shop);
+
+    const activeJobs = await tx.catalogSignalJob.findMany({
+      where: {
+        shop,
+        kind: PRODUCT_DIAGNOSIS_KIND,
+        status: { in: ["Queued", "Running"] },
+      },
+      orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
+    });
+
+    const jobs = [];
+    const snapshotsToCreate = [];
+    uniqueSnapshots.forEach((snapshot) => {
+      const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeJobs);
+      if (activeJob) {
+        jobs.push(activeJob);
+      } else {
+        snapshotsToCreate.push(snapshot);
+      }
+    });
+
+    if (snapshotsToCreate.length) {
+      const pointCheck = await validateStorePointsForShop(shop, snapshotsToCreate.length, { db: tx });
+      if (!pointCheck.valid) {
+        return {
+          jobs,
+          createdJobs: [],
+          pointFailures: snapshotsToCreate.map(() => pointCheck),
+        };
+      }
+    }
+
+    const createdJobs = [];
+    const pointFailures = [];
+    for (const snapshot of snapshotsToCreate) {
+      const snapshotMetrics = snapshot.metrics || {};
+      const snapshotImage = getSnapshotProductImage(snapshot);
+      const jobId = randomUUID();
+      const pointDebit = await debitStorePointsForShop(shop, {
+        db: tx,
+        amount: 1,
+        reason: `Product credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+        idempotencyKey: `product-diagnosis:${jobId}`,
+        metadata: {
+          source: "product_diagnosis",
+          jobId,
+          productGid: snapshot.productGid || null,
+          productTitle: snapshot.productTitle || null,
+          queued: true,
+        },
+      });
+      if (!isPointDebitRecorded(pointDebit)) {
+        pointFailures.push(pointDebit);
+        continue;
+      }
+
+      const job = await tx.catalogSignalJob.create({
+        data: {
+          id: jobId,
+          shop,
+          kind: PRODUCT_DIAGNOSIS_KIND,
+          source: `Queued Product Diagnosis - ${snapshot.productTitle}`,
+          status: "Queued",
+          progress: 0,
+          priority: 50,
+          payload: {
+            productId: snapshot.productGid || snapshot.handle,
+            productGid: snapshot.productGid,
+            handle: snapshot.handle,
+            productTitle: snapshot.productTitle,
+            imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+            productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
+            imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
+            productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
+            riskScore: snapshot.riskScore,
+            pointCost: 1,
+            pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+            pointDebitStatus: pointDebit.status,
+            queuedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      jobs.push(job);
+      createdJobs.push({ job, snapshot, pointDebit });
+    }
+
+    return { jobs, createdJobs, pointFailures };
+  });
+
+  for (const { job, snapshot, pointDebit } of result.createdJobs) {
+    await recordJobLog({
+      shop,
+      jobId: job.id,
+      event: "product_diagnosis.queued",
+      message: "Product diagnosis queued as a persistent background job.",
+      data: {
+        productGid: snapshot.productGid,
+        handle: snapshot.handle,
+        title: snapshot.productTitle,
+        riskScore: snapshot.riskScore,
+        pointsConsumed: 1,
+        pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+        bulkQueued: true,
+      },
+    });
+  }
+
+  return {
+    jobs: result.jobs,
+    createdCount: result.createdJobs.length,
+    reusedCount: Math.max(0, result.jobs.length - result.createdJobs.length),
+    pointFailures: result.pointFailures,
+  };
+}
+
 async function createProductDiagnosisJob(shop, productId, options = {}) {
   let snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot && options.admin) {
@@ -3136,6 +3316,7 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
         source: `Queued Product Diagnosis - ${snapshot.productTitle}`,
         status: "Queued",
         progress: 0,
+        priority: 50,
         payload: {
           productId,
           productGid: snapshot.productGid,
@@ -3236,31 +3417,245 @@ async function failStaleFastProductScans(shop) {
       errorMessage: "Catalog Scan worker timed out before completing.",
       source: "Catalog Scan failed",
       finishedAt: new Date(),
+      leasedBy: null,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
+    },
+  });
+}
+
+export async function runProductPulseBackgroundWorker(options = {}) {
+  const config = getProductPulseResourceConfig();
+  let stopping = false;
+  const stop = () => {
+    stopping = true;
+  };
+
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
+
+  try {
+    for (;;) {
+      const result = await runProductPulseBackgroundWorkerCycle(options);
+      if (options.once) return result;
+      if (stopping) return { status: "stopped", processed: result.processed || 0 };
+      if (!result.processed) await sleep(config.workerIdleSleepMs);
+    }
+  } finally {
+    process.off("SIGTERM", stop);
+    process.off("SIGINT", stop);
+  }
+}
+
+export async function runProductPulseBackgroundWorkerCycle(options = {}) {
+  const config = getProductPulseResourceConfig();
+  const maxJobs = Number(options.maxJobsPerCycle || config.workerMaxJobsPerCycle);
+  let processed = 0;
+
+  await requeueExpiredProductPulseJobs(options.shop);
+
+  for (; processed < maxJobs; processed += 1) {
+    const job = await claimNextProductPulseJob(options.shop);
+    if (!job) break;
+
+    try {
+      await processClaimedProductPulseJob(job, options);
+    } catch (error) {
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        level: "error",
+        event: "background_worker.job_failed",
+        message: `${getJobDisplayName(job.kind)} worker failed.`,
+        data: { kind: job.kind, error: serializeError(error), payload: job.payload },
+      });
+      await markJobFailed(job.id, error, `${getJobDisplayName(job.kind)} failed`);
+      if (job.kind === PRODUCT_DIAGNOSIS_KIND) {
+        await maybeSendWatchlistRunAlertForJob({
+          ...job,
+          status: "Failed",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  return { status: "ok", processed };
+}
+
+function shouldStartInlineWorkers(options = {}) {
+  return Boolean(options.force || getProductPulseResourceConfig().inlineWorkersEnabled);
+}
+
+function getLeaseExpiresAt() {
+  return new Date(Date.now() + getProductPulseResourceConfig().jobLeaseTtlMs);
+}
+
+function getTerminalLeaseData(data = {}) {
+  if (!["Completed", "Failed", "Canceled"].includes(String(data.status || ""))) return data;
+  return {
+    ...data,
+    leasedBy: null,
+    leaseExpiresAt: null,
+    lastHeartbeatAt: null,
+  };
+}
+
+async function claimSpecificCatalogSignalJob(job, { kind, source, progress = 1 } = {}) {
+  const now = new Date();
+  const claimed = await prisma.catalogSignalJob.updateMany({
+    where: {
+      id: job.id,
+      kind,
+      status: { in: ["Queued", "Running"] },
+      OR: [
+        { leasedBy: null },
+        { leasedBy: JOB_WORKER_OWNER_ID },
+        { leaseExpiresAt: null },
+        { leaseExpiresAt: { lte: now } },
+      ],
+    },
+    data: {
+      status: "Running",
+      progress: Math.max(Number(job.progress || 0), progress),
+      source,
+      startedAt: job.status === "Queued" ? now : job.startedAt,
+      leasedBy: JOB_WORKER_OWNER_ID,
+      leaseExpiresAt: getLeaseExpiresAt(),
+      lastHeartbeatAt: now,
+      attempts: { increment: 1 },
+    },
+  });
+
+  if (claimed.count !== 1) return null;
+  return prisma.catalogSignalJob.findUnique({ where: { id: job.id } });
+}
+
+async function claimNextProductPulseJob(shop) {
+  return (
+    await claimNextQueuedJob(FAST_PRODUCT_SCAN_KIND, {
+      shop,
+      progress: 12,
+      source: "Running Shopify Catalog Scan",
+    })
+  ) || (
+    await claimNextQueuedJob(PRODUCT_DIAGNOSIS_KIND, {
+      shop,
+      progress: 5,
+      source: "Running Product Diagnosis",
+    })
+  ) || (
+    await claimNextQueuedJob(SHOPIFY_MOCK_DATASET_KIND, {
+      shop,
+      progress: 2,
+      source: "Running Shopify mock dataset",
+    })
+  );
+}
+
+async function claimNextQueuedJob(kind, { shop, source, progress = 1 } = {}) {
+  const shopFilter = shop ? Prisma.sql`AND "shop" = ${shop}` : Prisma.empty;
+  const rows = await prisma.$queryRaw`
+    WITH next_job AS (
+      SELECT "id"
+      FROM "CatalogSignalJob"
+      WHERE "kind" = ${kind}
+        AND "status" = 'Queued'
+        AND ("notBefore" IS NULL OR "notBefore" <= NOW())
+        ${shopFilter}
+      ORDER BY "priority" ASC, COALESCE("notBefore", "startedAt") ASC, "startedAt" ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE "CatalogSignalJob" AS job
+    SET "status" = 'Running',
+        "progress" = ${progress},
+        "source" = ${source},
+        "startedAt" = NOW(),
+        "leasedBy" = ${JOB_WORKER_OWNER_ID},
+        "leaseExpiresAt" = ${getLeaseExpiresAt()},
+        "lastHeartbeatAt" = NOW(),
+        "attempts" = job."attempts" + 1
+    FROM next_job
+    WHERE job."id" = next_job."id"
+    RETURNING job.*;
+  `;
+
+  return rows[0] || null;
+}
+
+async function processClaimedProductPulseJob(job, options = {}) {
+  if (job.kind === FAST_PRODUCT_SCAN_KIND) return runFastProductScanJob(job, options);
+  if (job.kind === PRODUCT_DIAGNOSIS_KIND) {
+    return withJobLeaseHeartbeat(job.id, PRODUCT_DIAGNOSIS_KIND, () => runProductDiagnosisJob(job));
+  }
+  if (job.kind === SHOPIFY_MOCK_DATASET_KIND) return runShopifyMockDatasetPersistedJob(job, options);
+  return null;
+}
+
+async function withJobLeaseHeartbeat(jobId, kind, callback) {
+  const config = getProductPulseResourceConfig();
+  let stopped = false;
+  const interval = setInterval(async () => {
+    if (stopped) return;
+    try {
+      await touchJobLease(jobId, kind);
+    } catch {
+      // Heartbeat is best-effort; the job update paths still write terminal state.
+    }
+  }, config.jobHeartbeatMs);
+  if (typeof interval.unref === "function") interval.unref();
+
+  try {
+    return await callback();
+  } finally {
+    stopped = true;
+    clearInterval(interval);
+  }
+}
+
+async function touchJobLease(jobId, kind) {
+  await prisma.catalogSignalJob.updateMany({
+    where: {
+      id: jobId,
+      kind,
+      status: "Running",
+      leasedBy: JOB_WORKER_OWNER_ID,
+    },
+    data: {
+      leaseExpiresAt: getLeaseExpiresAt(),
+      lastHeartbeatAt: new Date(),
+    },
+  });
+}
+
+async function clearJobLease(jobId, kind) {
+  await prisma.catalogSignalJob.updateMany({
+    where: {
+      id: jobId,
+      kind,
+    },
+    data: {
+      leasedBy: null,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
     },
   });
 }
 
 function ensureFastProductScanWorker(job, options = {}) {
-  if (!job?.id || activeWorkers.has(job.id) || !isActiveStatus(job.status)) return;
+  if (!shouldStartInlineWorkers(options) || !job?.id || activeWorkers.has(job.id) || !isActiveStatus(job.status)) return;
 
   activeWorkers.add(job.id);
   setTimeout(async () => {
     try {
-      await recordJobLog({
-        shop: job.shop,
-        jobId: job.id,
-        event: "quick_scan.worker_started",
-        message: "Catalog Scan worker started or rehydrated from an active persisted job.",
-        data: { status: job.status, source: job.source },
+      const claimedJob = await claimSpecificCatalogSignalJob(job, {
+        kind: FAST_PRODUCT_SCAN_KIND,
+        progress: 12,
+        source: "Running Shopify Catalog Scan",
       });
-      const admin = options.admin || await getOfflineAdmin(job.shop);
-      const scopes = options.scopes || options.session?.scope || admin.productPulseScopes || "";
-      await runShopifyQuickScan({
-        shop: job.shop,
-        admin,
-        jobId: job.id,
-        scopes,
-      });
+      if (!claimedJob) return;
+      await runFastProductScanJob(claimedJob, options);
     } catch (error) {
       await recordJobLog({
         shop: job.shop,
@@ -3283,87 +3678,43 @@ function ensureFastProductScanWorker(job, options = {}) {
   }, 0);
 }
 
+async function runFastProductScanJob(job, options = {}) {
+  await recordJobLog({
+    shop: job.shop,
+    jobId: job.id,
+    event: "quick_scan.worker_started",
+    message: "Catalog Scan worker started or rehydrated from an active persisted job.",
+    data: { status: job.status, source: job.source, leasedBy: JOB_WORKER_OWNER_ID },
+  });
+
+  await withJobLeaseHeartbeat(job.id, FAST_PRODUCT_SCAN_KIND, async () => {
+    const admin = options.admin || await getOfflineAdmin(job.shop);
+    const scopes = options.scopes || options.session?.scope || admin.productPulseScopes || "";
+    await runShopifyQuickScan({
+      shop: job.shop,
+      admin,
+      jobId: job.id,
+      scopes,
+    });
+  });
+
+  await clearJobLease(job.id, FAST_PRODUCT_SCAN_KIND);
+}
+
 function ensureShopifyMockDatasetWorker(job, options = {}) {
-  if (!job?.id || activeMockDatasetWorkers.has(job.id) || !isActiveStatus(job.status)) return;
+  if (!shouldStartInlineWorkers(options) || !job?.id || activeMockDatasetWorkers.has(job.id) || !isActiveStatus(job.status)) return;
 
   activeMockDatasetWorkers.add(job.id);
   setTimeout(async () => {
     const stage = normalizeShopifyMockDatasetStage(options.stage || job.payload?.stage);
     try {
-      const claimed = await prisma.catalogSignalJob.updateMany({
-        where: {
-          id: job.id,
-          kind: SHOPIFY_MOCK_DATASET_KIND,
-          status: { in: ["Queued", "Running"] },
-        },
-        data: {
-          status: "Running",
-          progress: Math.max(Number(job.progress || 0), 2),
-          startedAt: job.startedAt || new Date(),
-          source: `Running Shopify mock dataset stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}`,
-        },
+      const claimedJob = await claimSpecificCatalogSignalJob(job, {
+        kind: SHOPIFY_MOCK_DATASET_KIND,
+        progress: 2,
+        source: `Running Shopify mock dataset stage: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}`,
       });
-      if (claimed.count !== 1) return;
-
-      await recordJobLog({
-        shop: job.shop,
-        jobId: job.id,
-        event: "mock_dataset.worker_started",
-        message: "Shopify mock dataset worker started or rehydrated from an active persisted job.",
-        data: { status: job.status, source: job.source, stage },
-      });
-
-      const adminContext = await getBackgroundShopifyAdmin(job.shop);
-      const admin = adminContext.admin;
-      const scopes = admin.productPulseScopes || options.scopes || "";
-      await recordJobLog({
-        shop: job.shop,
-        jobId: job.id,
-        event: "mock_dataset.admin_client_resolved",
-        message: `Shopify mock dataset worker is using ${adminContext.source} Admin API credentials.`,
-        data: { source: adminContext.source, hasScopes: Boolean(scopes) },
-      });
-      const summary = await runShopifyMockDatasetJob({
-        shop: job.shop,
-        admin,
-        jobId: job.id,
-        stage,
-        onProgress: async (progress, source, data = null) => {
-          await prisma.catalogSignalJob.updateMany({
-            where: {
-              id: job.id,
-              kind: SHOPIFY_MOCK_DATASET_KIND,
-              status: { in: ["Queued", "Running"] },
-            },
-            data: {
-              status: "Running",
-              progress: Math.min(99, Math.max(0, Number(progress || 0))),
-              source,
-              payload: {
-                ...(job.payload || {}),
-                stage,
-                stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
-                ...(data || {}),
-              },
-            },
-          });
-        },
-      });
-
-      await prisma.catalogSignalJob.updateMany({
-        where: {
-          id: job.id,
-          kind: SHOPIFY_MOCK_DATASET_KIND,
-          status: { in: ["Queued", "Running"] },
-        },
-        data: {
-          status: "Completed",
-          progress: 100,
-          source: `Mock dataset stage completed: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
-          payload: summary,
-          finishedAt: new Date(),
-        },
-      });
+      if (!claimedJob) return;
+      await runShopifyMockDatasetPersistedJob(claimedJob, { ...options, stage });
     } catch (error) {
       await recordJobLog({
         shop: job.shop,
@@ -3386,51 +3737,129 @@ function ensureShopifyMockDatasetWorker(job, options = {}) {
   }, 0);
 }
 
-function ensureProductDiagnosisQueueWorker(shop) {
-  if (!shop || activeDiagnosisQueueWorkers.has(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY)) return;
+async function runShopifyMockDatasetPersistedJob(job, options = {}) {
+  const stage = normalizeShopifyMockDatasetStage(options.stage || job.payload?.stage);
+  await withJobLeaseHeartbeat(job.id, SHOPIFY_MOCK_DATASET_KIND, async () => {
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      event: "mock_dataset.worker_started",
+      message: "Shopify mock dataset worker started or rehydrated from an active persisted job.",
+      data: { status: job.status, source: job.source, stage, leasedBy: JOB_WORKER_OWNER_ID },
+    });
+
+    const adminContext = await getBackgroundShopifyAdmin(job.shop);
+    const admin = adminContext.admin;
+    const scopes = admin.productPulseScopes || options.scopes || "";
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      event: "mock_dataset.admin_client_resolved",
+      message: `Shopify mock dataset worker is using ${adminContext.source} Admin API credentials.`,
+      data: { source: adminContext.source, hasScopes: Boolean(scopes) },
+    });
+    const summary = await runShopifyMockDatasetJob({
+      shop: job.shop,
+      admin,
+      jobId: job.id,
+      stage,
+      onProgress: async (progress, source, data = null) => {
+        await prisma.catalogSignalJob.updateMany({
+          where: {
+            id: job.id,
+            kind: SHOPIFY_MOCK_DATASET_KIND,
+            status: { in: ["Queued", "Running"] },
+            leasedBy: JOB_WORKER_OWNER_ID,
+          },
+          data: {
+            status: "Running",
+            progress: Math.min(99, Math.max(0, Number(progress || 0))),
+            source,
+            payload: {
+              ...(job.payload || {}),
+              stage,
+              stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
+              ...(data || {}),
+            },
+          },
+        });
+      },
+    });
+
+    await prisma.catalogSignalJob.updateMany({
+      where: {
+        id: job.id,
+        kind: SHOPIFY_MOCK_DATASET_KIND,
+        status: { in: ["Queued", "Running"] },
+        leasedBy: JOB_WORKER_OWNER_ID,
+      },
+      data: getTerminalLeaseData({
+        status: "Completed",
+        progress: 100,
+        source: `Mock dataset stage completed: ${SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage]}.`,
+        payload: summary,
+        finishedAt: new Date(),
+      }),
+    });
+  });
+}
+
+function ensureProductDiagnosisQueueWorker(shop, options = {}) {
+  if (!shouldStartInlineWorkers(options) || !shop || activeDiagnosisQueueWorkers.has(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY)) return;
 
   activeDiagnosisQueueWorkers.add(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY);
   setTimeout(async () => {
     try {
-      await requeueRecoveredProductDiagnosisJobs();
+      await requeueExpiredProductPulseJobs();
 
       for (;;) {
-        const job = await claimNextProductDiagnosisJob();
+        const job = await claimNextProductPulseJob();
         if (!job) break;
 
         try {
-          await runProductDiagnosisJob(job);
+          await processClaimedProductPulseJob(job, options);
         } catch (error) {
           await recordJobLog({
             shop: job.shop,
             jobId: job.id,
             level: "error",
             event: "product_diagnosis.worker_failed",
-            message: "Product diagnosis worker failed.",
-            data: { error: serializeError(error), payload: job.payload },
+            message: `${getJobDisplayName(job.kind)} worker failed.`,
+            data: { kind: job.kind, error: serializeError(error), payload: job.payload },
           });
-          await markJobFailed(job.id, error, "Product Diagnosis failed");
-          await maybeSendWatchlistRunAlertForJob({
-            ...job,
-            status: "Failed",
-            errorMessage: error instanceof Error ? error.message : String(error),
-          });
+          await markJobFailed(job.id, error, `${getJobDisplayName(job.kind)} failed`);
+          if (job.kind === PRODUCT_DIAGNOSIS_KIND) {
+            await maybeSendWatchlistRunAlertForJob({
+              ...job,
+              status: "Failed",
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
       }
     } finally {
       activeDiagnosisQueueWorkers.delete(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY);
       const queuedCount = await prisma.catalogSignalJob.count({
-        where: { kind: PRODUCT_DIAGNOSIS_KIND, status: "Queued" },
+        where: {
+          kind: { in: [FAST_PRODUCT_SCAN_KIND, PRODUCT_DIAGNOSIS_KIND, SHOPIFY_MOCK_DATASET_KIND] },
+          status: "Queued",
+        },
       });
-      if (queuedCount > 0) ensureProductDiagnosisQueueWorker(shop);
+      if (queuedCount > 0) ensureProductDiagnosisQueueWorker(shop, options);
     }
   }, 0);
 }
 
-async function requeueRecoveredProductDiagnosisJobs(shop) {
+async function requeueExpiredProductPulseJobs(shop) {
+  const now = new Date();
+  const staleUnleasedCutoff = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
   const where = {
-    kind: PRODUCT_DIAGNOSIS_KIND,
+    kind: { in: [FAST_PRODUCT_SCAN_KIND, PRODUCT_DIAGNOSIS_KIND, SHOPIFY_MOCK_DATASET_KIND] },
     status: "Running",
+    OR: [
+      { leaseExpiresAt: { lte: now } },
+      { leaseExpiresAt: null, updatedAt: { lte: staleUnleasedCutoff } },
+    ],
     ...(shop ? { shop } : {}),
   };
   const recovered = await prisma.catalogSignalJob.updateMany({
@@ -3438,14 +3867,17 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
     data: {
       status: "Queued",
       progress: 0,
-      source: "Requeued Product Diagnosis after worker recovery",
+      source: "Requeued after background worker lease expired",
+      leasedBy: null,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: null,
     },
   });
 
   if (recovered.count > 0) {
     const jobs = await prisma.catalogSignalJob.findMany({
       where: {
-        kind: PRODUCT_DIAGNOSIS_KIND,
+        kind: { in: [FAST_PRODUCT_SCAN_KIND, PRODUCT_DIAGNOSIS_KIND, SHOPIFY_MOCK_DATASET_KIND] },
         status: "Queued",
         ...(shop ? { shop } : {}),
       },
@@ -3453,43 +3885,16 @@ async function requeueRecoveredProductDiagnosisJobs(shop) {
       take: recovered.count,
     });
 
-    await Promise.all(jobs.map((job) => recordJobLog({
-      shop: job.shop,
-      jobId: job.id,
-      event: "product_diagnosis.requeued",
-      message: "Recovered running Product Diagnosis job and returned it to the queue.",
-      data: { payload: job.payload },
-    })));
+    for (const job of jobs) {
+      await recordJobLog({
+        shop: job.shop,
+        jobId: job.id,
+        event: "background_worker.requeued",
+        message: "Recovered expired background job lease and returned it to the queue.",
+        data: { kind: job.kind, payload: job.payload },
+      });
+    }
   }
-}
-
-async function claimNextProductDiagnosisJob(shop) {
-  const nextJob = await prisma.catalogSignalJob.findFirst({
-    where: {
-      kind: PRODUCT_DIAGNOSIS_KIND,
-      status: "Queued",
-      ...(shop ? { shop } : {}),
-    },
-    orderBy: [{ startedAt: "asc" }],
-  });
-
-  if (!nextJob) return null;
-
-  const claimed = await prisma.catalogSignalJob.updateMany({
-    where: {
-      id: nextJob.id,
-      status: "Queued",
-    },
-    data: {
-      status: "Running",
-      progress: 5,
-      source: `Running Product Diagnosis - ${nextJob.payload?.productTitle || "selected product"}`,
-      startedAt: new Date(),
-    },
-  });
-
-  if (claimed.count !== 1) return null;
-  return prisma.catalogSignalJob.findUnique({ where: { id: nextJob.id } });
 }
 
 async function runProductDiagnosisJob(job) {
@@ -3752,7 +4157,7 @@ async function updateProductDiagnosisJob(jobId, data) {
       kind: PRODUCT_DIAGNOSIS_KIND,
       status: { in: ["Queued", "Running"] },
     },
-    data,
+    data: getTerminalLeaseData(data),
   });
 }
 
@@ -3773,11 +4178,13 @@ async function markJobFailed(jobId, error, source = "Catalog Scan failed") {
       status: { in: ["Queued", "Running"] },
     },
     data: {
-      status: "Failed",
-      progress: 100,
-      source,
-      errorMessage: error instanceof Error ? error.message : String(error),
-      finishedAt: new Date(),
+      ...getTerminalLeaseData({
+        status: "Failed",
+        progress: 100,
+        source,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        finishedAt: new Date(),
+      }),
     },
   });
 }
@@ -3796,6 +4203,12 @@ function normalizeStartArgs(input, adminArg, scopesArg) {
 
 function isActiveStatus(status) {
   return status === "Queued" || status === "Running";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null, scoreHistory = []) {
@@ -5470,6 +5883,12 @@ function formatJob(job) {
     executionStartedAtIso: toIso(executionStartedAt),
     finishedAt: job.finishedAt,
     finishedAtIso: toIso(job.finishedAt),
+    leaseExpiresAt: job.leaseExpiresAt || null,
+    leaseExpiresAtIso: toIso(job.leaseExpiresAt),
+    lastHeartbeatAt: job.lastHeartbeatAt || null,
+    lastHeartbeatAtIso: toIso(job.lastHeartbeatAt),
+    attempts: job.attempts || 0,
+    priority: job.priority || 100,
     elapsedMs: job.status === "Queued" ? 0 : getElapsedMs(job.startedAt, job.finishedAt),
     pointsConsumed,
     creditsConsumed: pointsConsumed,
