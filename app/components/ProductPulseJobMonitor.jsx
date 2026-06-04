@@ -679,7 +679,7 @@ function getProductSearchSubtitle(product) {
 function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJobId, onCancelJob }) {
   const activeJobIds = useMemo(() => new Set(activeJobs.map((job) => job.id)), [activeJobs]);
   const pastJobs = useMemo(
-    () => recentJobs.filter((job) => !activeJobIds.has(job.id)),
+    () => recentJobs.filter((job) => !activeJobIds.has(job.id)).slice(0, 6),
     [activeJobIds, recentJobs],
   );
   const runningCount = activeJobs.filter((job) => job.status === "Running").length;

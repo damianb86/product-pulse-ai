@@ -270,7 +270,18 @@ describe("ProductPulseJobMonitor", () => {
     await waitFor(() => expect(cancelledJobs).toEqual(["job-running-cancel"]));
   });
 
-  it("does not cap the top bar history below the loaded recent jobs", () => {
+  it("caps History at six jobs without capping Current", () => {
+    const activeJobs = Array.from({ length: 12 }, (_, index) => ({
+      id: `active-${index + 1}`,
+      kind: "product-diagnosis",
+      name: "Queued diagnosis",
+      displayTitle: `Active Process ${index + 1}`,
+      displaySubtitle: "Product Diagnosis queued",
+      status: "Queued",
+      productHref: `/app/products/active-process-${index + 1}`,
+      startedAtIso: new Date(Date.now() - (index + 2) * 1000).toISOString(),
+      updatedAtIso: new Date(Date.now() - (index + 1) * 1000).toISOString(),
+    }));
     const recentJobs = Array.from({ length: 25 }, (_, index) => ({
       id: `job-${index + 1}`,
       kind: "product-diagnosis",
@@ -284,12 +295,15 @@ describe("ProductPulseJobMonitor", () => {
       finishedAtIso: new Date(Date.now() - (index + 1) * 1000).toISOString(),
     }));
 
-    renderMonitor({ activeJobs: [], recentJobs, logs: [] });
+    renderMonitor({ activeJobs, recentJobs, logs: [] });
 
     fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
 
-    expect(screen.getByText("Background Process 25")).toBeVisible();
-    expect(document.querySelectorAll(".ppGlobalTopbarJobSection.isHistory .ppGlobalTopbarJobItem")).toHaveLength(25);
+    expect(screen.getByText("Active Process 12")).toBeVisible();
+    expect(document.querySelectorAll(".ppGlobalTopbarJobSection.isCurrent .ppGlobalTopbarJobItem")).toHaveLength(12);
+    expect(screen.getByText("Background Process 6")).toBeVisible();
+    expect(screen.queryByText("Background Process 7")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".ppGlobalTopbarJobSection.isHistory .ppGlobalTopbarJobItem")).toHaveLength(6);
   });
 
   it("does not replay already failed jobs as user-visible alerts on page load", () => {

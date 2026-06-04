@@ -67,10 +67,9 @@ const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
-const JOB_MONITOR_RECENT_JOB_LIMIT = 50;
+const JOB_MONITOR_RECENT_JOB_LIMIT = 6;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const BACKGROUND_PROCESS_PAGE_SIZE = 10;
-const BACKGROUND_PROCESS_ACTIVE_LIMIT = 50;
 const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
 const ANALYTICS_SCORE_HISTORY_TAKE = 520;
 const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
@@ -567,42 +566,41 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
 
 export async function getRecentJobsForShop(shop) {
   await failStaleFastProductScans(shop);
-  const jobs = await prisma.catalogSignalJob.findMany({
-    where: { shop },
-    orderBy: [{ updatedAt: "desc" }],
-    take: JOB_MONITOR_RECENT_JOB_LIMIT,
-  });
-  jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
-    if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
-    if (job.kind === SHOPIFY_MOCK_DATASET_KIND) ensureShopifyMockDatasetWorker(job);
-  });
-  if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
-    ensureProductDiagnosisQueueWorker(shop);
-  }
+  const [jobs, activeJobs] = await Promise.all([
+    prisma.catalogSignalJob.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }],
+      take: JOB_MONITOR_RECENT_JOB_LIMIT,
+    }),
+    prisma.catalogSignalJob.findMany({
+      where: { shop, status: { in: ["Queued", "Running"] } },
+      orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
+    }),
+  ]);
+  ensureWorkersForJobs(shop, activeJobs);
   return jobs.map(formatJob);
 }
 
 export async function getJobMonitorForShop(shop) {
   await failStaleFastProductScans(shop);
-  const jobs = await prisma.catalogSignalJob.findMany({
-    where: { shop },
-    orderBy: [{ updatedAt: "desc" }],
-    take: JOB_MONITOR_RECENT_JOB_LIMIT,
-  });
-  const logs = await getJobLogsForShop(shop, 100);
-  const pointSummary = await getStorePointSummaryForShop(shop);
-
-  jobs.filter((job) => isActiveStatus(job.status)).forEach((job) => {
-    if (job.kind === FAST_PRODUCT_SCAN_KIND) ensureFastProductScanWorker(job);
-    if (job.kind === SHOPIFY_MOCK_DATASET_KIND) ensureShopifyMockDatasetWorker(job);
-  });
-  if (jobs.some((job) => job.kind === PRODUCT_DIAGNOSIS_KIND && isActiveStatus(job.status))) {
-    ensureProductDiagnosisQueueWorker(shop);
-  }
+  const [recentJobs, activeJobs, logs, pointSummary] = await Promise.all([
+    prisma.catalogSignalJob.findMany({
+      where: { shop },
+      orderBy: [{ updatedAt: "desc" }],
+      take: JOB_MONITOR_RECENT_JOB_LIMIT,
+    }),
+    prisma.catalogSignalJob.findMany({
+      where: { shop, status: { in: ["Queued", "Running"] } },
+      orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
+    }),
+    getJobLogsForShop(shop, 100),
+    getStorePointSummaryForShop(shop),
+  ]);
+  ensureWorkersForJobs(shop, activeJobs);
 
   return {
-    activeJobs: jobs.filter((job) => isActiveStatus(job.status)).map(formatJob),
-    recentJobs: jobs.map(formatJob),
+    activeJobs: activeJobs.map(formatJob),
+    recentJobs: recentJobs.map(formatJob),
     logs: logs.map(formatJobLog),
     pointBalance: pointSummary.balance,
     pointSummary,
@@ -755,7 +753,6 @@ export async function getBackgroundProcessesForShop(shop, options = {}) {
     prisma.catalogSignalJob.findMany({
       where: { shop, status: { in: ["Queued", "Running"] } },
       orderBy: [{ updatedAt: "desc" }],
-      take: BACKGROUND_PROCESS_ACTIVE_LIMIT,
     }),
   ]);
 
