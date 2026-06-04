@@ -31542,6 +31542,7 @@ function RecommendedActionPreviewColumn({
   const hasHtmlPreview = Boolean(String(html || "").trim());
   const displayText = getActionPreviewDisplayText(text, { isDescription, expanded });
   const displayDiffSegments = hasDiffSegments ? getActionPreviewDisplayDiffSegments(diffSegments, { expanded }) : [];
+  const previewHtml = hasHtmlPreview && hasDiffSegments ? buildActionPreviewHighlightedHtml(html, diffSegments) : html;
   const expandedClass = expanded ? " isExpanded" : "";
   const htmlClass = hasHtmlPreview ? " hasHtmlPreview" : "";
 
@@ -31558,10 +31559,7 @@ function RecommendedActionPreviewColumn({
           />
         ))}
         {hasHtmlPreview ? (
-          <>
-            {hasDiffSegments && <ActionPreviewDiffText segments={displayDiffSegments} />}
-            <ActionPreviewHtmlFrame html={html} expanded={expanded} mode={htmlPreviewMode} title={label} />
-          </>
+          <ActionPreviewHtmlFrame html={previewHtml} expanded={expanded} mode={htmlPreviewMode} title={label} />
         ) : hasDiffSegments ? (
           <ActionPreviewDiffText segments={displayDiffSegments} />
         ) : (
@@ -31578,6 +31576,43 @@ function RecommendedActionPreviewColumn({
       </div>
     </div>
   );
+}
+
+function buildActionPreviewHighlightedHtml(html = "", diffSegments = []) {
+  const changedTexts = (Array.isArray(diffSegments) ? diffSegments : [])
+    .filter((segment) => segment?.changed)
+    .map((segment) => normalizeActionText(stripActionPreviewHtml(segment.text)))
+    .filter((text) => text.length >= 8)
+    .sort((first, second) => second.length - first.length);
+  if (!changedTexts.length) return html;
+
+  let highlightedHtml = String(html || "");
+  changedTexts.forEach((text) => {
+    highlightedHtml = insertActionPreviewHtmlDiffMark(highlightedHtml, text);
+  });
+  return highlightedHtml;
+}
+
+function insertActionPreviewHtmlDiffMark(html = "", text = "") {
+  const escapedText = escapeActionPreviewHtml(text);
+  const candidates = uniqueStrings([escapedText, text]).filter(Boolean);
+  for (const candidate of candidates) {
+    const index = html.indexOf(candidate);
+    if (index < 0 || isActionPreviewHtmlDiffAlreadyMarked(html, index)) continue;
+    return [
+      html.slice(0, index),
+      `<mark class="pp-action-preview-diff">`,
+      html.slice(index, index + candidate.length),
+      "</mark>",
+      html.slice(index + candidate.length),
+    ].join("");
+  }
+  return html;
+}
+
+function isActionPreviewHtmlDiffAlreadyMarked(html = "", index = 0) {
+  const before = html.slice(Math.max(0, index - 80), index).toLowerCase();
+  return before.includes("<mark") && !before.includes("</mark>");
 }
 
 function ActionPreviewHtmlFrame({ html = "", expanded = false, mode = "", title = "HTML preview" }) {
@@ -32148,6 +32183,7 @@ function buildActionHtmlPreviewDocument(html = "", { openDialogs = false } = {})
     "dialog[open]{position:relative;display:block;margin:14px 0 0;max-width:100%;width:100%;max-height:none;}",
     "dialog::backdrop{display:none;}",
     "summary{outline:none;}",
+    ".pp-action-preview-diff{padding:2px 4px;border-radius:5px;background:rgba(34,197,94,.2);color:#166534;font-weight:750;box-decoration-break:clone;-webkit-box-decoration-break:clone;}",
     "</style>",
     "</head>",
     "<body>",

@@ -4956,10 +4956,11 @@ describe("ProductPulse screens", () => {
     expect(suggestedHtmlFrame.getAttribute("srcdoc")).toContain(`<p>${addition}</p>`);
 
     const updatedColumn = within(dialog).getByText("Updated description preview").closest(".ppActionPreviewColumn");
-    const previewChangedBlocks = updatedColumn.querySelectorAll(".ppActionPreviewDiffBlock");
-    expect(previewChangedBlocks.length).toBeGreaterThan(0);
-    expect(previewChangedBlocks[0]).toHaveTextContent(addition);
-    expect(updatedColumn.querySelector(".ppActionPreviewHtmlFrame")).not.toBeNull();
+    expect(updatedColumn.querySelector(".ppActionPreviewDiffText")).toBeNull();
+    const updatedHtmlFrame = updatedColumn.querySelector(".ppActionPreviewHtmlFrame");
+    expect(updatedHtmlFrame).not.toBeNull();
+    expect(updatedHtmlFrame.getAttribute("srcdoc")).toContain("pp-action-preview-diff");
+    expect(updatedHtmlFrame.getAttribute("srcdoc")).toContain(addition);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
 
