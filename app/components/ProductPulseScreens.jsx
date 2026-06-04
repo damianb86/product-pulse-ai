@@ -30804,6 +30804,8 @@ function RecommendedActionReviewBody({
   detailExpanded,
   hasLongDetail,
   isEditingInline,
+  editAsHtml = false,
+  editDraftText = "",
   unresolvedPlaceholders = [],
   onDetailExpandedChange,
   onDescriptionChangeExpandedToggle,
@@ -30816,6 +30818,7 @@ function RecommendedActionReviewBody({
   onMetafieldKeyChange,
 }) {
   const detailText = String(application.editable ? editedText : application.value || action.detail || "");
+  const proposedDetailText = isEditingInline && editAsHtml ? editDraftText : detailText;
 
   if (actionKind === "investigation") {
     return (
@@ -30856,7 +30859,8 @@ function RecommendedActionReviewBody({
             action={action}
             application={application}
             detailExpanded={detailExpanded}
-            detailText={detailText}
+            detailText={proposedDetailText}
+            editAsHtml={editAsHtml}
             hasLongDetail={hasLongDetail}
             isEditingInline={isEditingInline}
             onDetailExpandedChange={onDetailExpandedChange}
@@ -31379,6 +31383,7 @@ function RecommendedActionProposedChange({
   action,
   application,
   detailText,
+  editAsHtml = false,
   detailExpanded,
   hasLongDetail,
   isEditingInline,
@@ -31397,11 +31402,11 @@ function RecommendedActionProposedChange({
     <div className="ppActionProposedChangeBox">
       {isEditingInline ? (
         <label className="ppActionInlineEditor ppActionInlineEditor-review">
-          <span>{application.valueLabel || "Proposed value"}</span>
+          <span>{editAsHtml ? "HTML to apply" : application.valueLabel || "Proposed value"}</span>
           <textarea
-            aria-label="Description text to apply"
+            aria-label={editAsHtml ? "Description HTML to apply" : "Description text to apply"}
             value={detailText}
-            rows={detailExpanded ? 10 : 6}
+            rows={editAsHtml ? 14 : detailExpanded ? 10 : 6}
             onChange={(event) => onEditedTextChange(event.target.value)}
           />
         </label>
@@ -31706,6 +31711,13 @@ function getRecommendedActionHtmlPreviewParts(application = {}, { currentText = 
   const proposedHasHtml = containsAllowedActionPreviewHtml(proposedText);
   const shouldRenderHtml = proposedHasHtml || Boolean(explicitCurrentHtml) || forceDescriptionHtml;
   if (!shouldRenderHtml) return null;
+  if (proposedHasHtml && (!operation || operation === "replace")) {
+    return {
+      mode: "html",
+      beforeHtml: currentHtml,
+      afterHtml: proposedText,
+    };
+  }
 
   return {
     mode: "html",
@@ -33041,7 +33053,9 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const productStateKey = product?.slug || product?.id || "";
   const [detailExpanded, setDetailExpanded] = useState(false);
   const [editedText, setEditedText] = useState(application.value || action.detail || "");
+  const [editDraftText, setEditDraftText] = useState(application.value || action.detail || "");
   const [isEditingInline, setIsEditingInline] = useState(false);
+  const isEditingInlineRef = useRef(false);
   const archivedState = action.archivedStateOverride || getArchivedActionStateFromRecordStatus(action.appliedRecord?.status);
   const applied = action.appliedRecord?.status === "applied";
   const dismissed = archivedState === "dismissed";
@@ -33071,13 +33085,16 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     ? { ...application, expandedDescriptionChangeIds }
     : application;
   const detailText = String(effectiveApplication.editable ? editedText : action.detail || "");
-  const hasLongDetail = detailText.length > 300 || detailText.split(/\s+/).length > 70;
+  const editAsHtml = isRecommendedActionHtmlDescriptionEdit(action, effectiveApplication);
+  const hasPendingHtmlEdit = isEditingInline && editAsHtml && editDraftText !== editedText;
+  const activeDetailText = isEditingInline && editAsHtml ? editDraftText : detailText;
+  const hasLongDetail = activeDetailText.length > 300 || activeDetailText.split(/\s+/).length > 70;
   const placeholderApplication = isEditingInline && !effectiveApplication.descriptionChanges?.length
     ? { ...effectiveApplication, descriptionChanges: [] }
     : effectiveApplication;
-  const unresolvedPlaceholders = getActionApplicationPlaceholders(placeholderApplication, detailText);
+  const unresolvedPlaceholders = getActionApplicationPlaceholders(placeholderApplication, activeDetailText);
   const metafieldMissing = effectiveApplication.isMetafield && (!String(effectiveApplication.metafieldNamespace || "").trim() || !String(effectiveApplication.metafieldKey || "").trim());
-  const disabled = pending || applied || !hasSelectedDescriptionChanges || metafieldMissing || (actionKind === "applyable" && unresolvedPlaceholders.length > 0);
+  const disabled = pending || applied || hasPendingHtmlEdit || !hasSelectedDescriptionChanges || metafieldMissing || (actionKind === "applyable" && unresolvedPlaceholders.length > 0);
   const actionButton = getRecommendedActionButton(action, mode, buttonText, disabled, {
     actionId,
     application: effectiveApplication,
@@ -33097,13 +33114,32 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
     setSelectedDescriptionChangeIds(defaultDescriptionChangeKey ? defaultDescriptionChangeKey.split("|") : []);
     setExpandedDescriptionChangeIds({});
     setEditedDescriptionChangeTexts({});
+    setEditDraftText("");
     setIsEditingInline(false);
     setDetailExpanded(false);
   }, [actionStateKey, productStateKey, baseApplication.defaultVariantId, baseApplication.variantId, baseApplication.metafieldNamespace, baseApplication.metafieldKey, defaultDescriptionChangeKey]);
 
   useEffect(() => {
-    if (!isEditingInline) setEditedText(application.value || action.detail || "");
-  }, [application.value, action.detail, isEditingInline]);
+    isEditingInlineRef.current = isEditingInline;
+  }, [isEditingInline]);
+
+  useEffect(() => {
+    if (!isEditingInlineRef.current) {
+      const nextText = application.value || action.detail || "";
+      setEditedText(nextText);
+      setEditDraftText(nextText);
+    }
+  }, [application.value, action.detail]);
+
+  const handleStartInlineEdit = () => {
+    setIsEditingInline(true);
+    setEditDraftText(editAsHtml ? getRecommendedActionEditableHtml(effectiveApplication, editedText) : editedText);
+  };
+
+  const handleApplyInlineEdit = () => {
+    setEditedText(editDraftText);
+    setIsEditingInline(false);
+  };
 
   const actionBody = (
     <RecommendedActionReviewBody
@@ -33115,13 +33151,15 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       detailExpanded={detailExpanded}
       hasLongDetail={hasLongDetail}
       isEditingInline={isEditingInline}
+      editAsHtml={editAsHtml}
+      editDraftText={editDraftText}
       unresolvedPlaceholders={unresolvedPlaceholders}
       onDetailExpandedChange={setDetailExpanded}
       onDescriptionChangeExpandedToggle={(changeId) => setExpandedDescriptionChangeIds((current) => ({ ...current, [changeId]: !current[changeId] }))}
       onDescriptionChangeSelectedChange={(changeId, selected) => setSelectedDescriptionChangeIds((current) => updateSelectedDescriptionChangeIds(current, changeId, selected, baseApplication))}
       onDescriptionChangeTextChange={(changeId, value) => setEditedDescriptionChangeTexts((current) => ({ ...current, [changeId]: value }))}
-      onEditedTextChange={setEditedText}
-      onEditText={() => setIsEditingInline(true)}
+      onEditedTextChange={editAsHtml ? setEditDraftText : setEditedText}
+      onEditText={handleStartInlineEdit}
       onMetafieldNamespaceChange={setMetafieldNamespace}
       onMetafieldKeyChange={setMetafieldKey}
       onSelectedVariantChange={setSelectedVariantId}
@@ -33140,9 +33178,14 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
         <span>{dismissed ? "Undo dismiss" : "Dismiss"}</span>
       </button>
       {!showHeader && actionKind === "applyable" && application.editable && (
-        <button className="ppActionEditFooterButton" type="button" onClick={() => setIsEditingInline(true)} disabled={pending || applied}>
-          <s-icon type="edit" size="small"></s-icon>
-          <span>Edit text</span>
+        <button
+          className="ppActionEditFooterButton"
+          type="button"
+          onClick={isEditingInline && editAsHtml ? handleApplyInlineEdit : handleStartInlineEdit}
+          disabled={pending || applied || (isEditingInline && editAsHtml && !String(editDraftText || "").trim())}
+        >
+          <s-icon type={isEditingInline && editAsHtml ? "check" : "edit"} size="small"></s-icon>
+          <span>{isEditingInline && editAsHtml ? "Apply edited HTML" : "Edit text"}</span>
         </button>
       )}
       {!showHeader && actionKind === "investigation" && (
@@ -33201,6 +33244,17 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
       {actionCta}
     </article>
   );
+}
+
+function isRecommendedActionHtmlDescriptionEdit(action = {}, application = {}) {
+  const normalizedAction = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  const target = String(application.target || "").toLowerCase();
+  return target.includes("description") && normalizedAction.includes("update product description details");
+}
+
+function getRecommendedActionEditableHtml(application = {}, editedText = "") {
+  const preview = getRecommendedActionPreviewParts(application, editedText || application.value || "", { forceDescriptionHtml: true });
+  return preview.afterHtml || editedText || application.value || "";
 }
 
 function getDefaultDescriptionChangeIds(application = {}) {

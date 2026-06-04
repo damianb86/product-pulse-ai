@@ -4913,7 +4913,7 @@ describe("ProductPulse screens", () => {
     expect(changedBlocks[0]).not.toHaveTextContent("Opening product copy stays unchanged.");
   });
 
-  it("shows the final preserved HTML in the product description confirmation modal", () => {
+  it("shows the final preserved HTML in the product description confirmation modal", async () => {
     const currentDescription = "Opening fit sentence. Size Chest M 42 in Care hang dry.";
     const currentDescriptionHtml = [
       "<section>",
@@ -4962,6 +4962,24 @@ describe("ProductPulse screens", () => {
     expect(updatedHtmlFrame.getAttribute("srcdoc")).toContain("pp-action-preview-diff");
     expect(updatedHtmlFrame.getAttribute("srcdoc")).toContain(addition);
 
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit text" }));
+    const htmlEditor = within(dialog).getByLabelText("Description HTML to apply");
+    expect(htmlEditor.value).toContain("<table><tbody><tr><th>Size</th><th>Chest</th></tr>");
+    expect(htmlEditor.value).toContain(addition);
+    expect(within(dialog).getByRole("button", { name: "Apply change" })).toBeDisabled();
+
+    const editedAddition = "For precise fit, review the garment measurements and compare them with a similar layer before purchase.";
+    fireEvent.change(htmlEditor, {
+      target: { value: htmlEditor.value.replace(addition, editedAddition) },
+    });
+    expect(updatedHtmlFrame.getAttribute("srcdoc")).not.toContain(editedAddition);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply edited HTML" }));
+
+    await waitFor(() => {
+      expect(updatedColumn.querySelector(".ppActionPreviewHtmlFrame")?.getAttribute("srcdoc")).toContain(editedAddition);
+    });
+    expect(within(dialog).getByRole("button", { name: "Apply change" })).not.toBeDisabled();
+
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
 
     const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });
@@ -4970,7 +4988,7 @@ describe("ProductPulse screens", () => {
     expect(finalHtmlFrame.getAttribute("srcdoc")).toContain("<table><tbody><tr><th>Size</th><th>Chest</th></tr>");
     expect(finalHtmlFrame.getAttribute("srcdoc")).toContain("<ul><li>Care: hang dry</li></ul>");
     expect(finalHtmlFrame.getAttribute("srcdoc")).toContain("<strong>fit</strong>");
-    expect(finalHtmlFrame.getAttribute("srcdoc")).toContain(`<p>${addition}</p>`);
+    expect(finalHtmlFrame.getAttribute("srcdoc")).toContain(editedAddition);
   });
 
   it("groups overlapping product description changes into one selectable action", () => {
