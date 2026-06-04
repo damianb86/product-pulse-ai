@@ -13,10 +13,10 @@ ENV AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT=100
 
 COPY package.json package-lock.json* ./
 
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
-COPY . .
-
-RUN APP_ENV=production npx prisma generate && npm run build && npm prune --omit=dev && npm cache clean --force
+COPY prisma ./prisma
+COPY build ./build
+COPY instrument.server.mjs ./instrument.server.mjs
 
 CMD ["npm", "run", "docker-start"]

@@ -5,6 +5,7 @@ APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_ENV_FILE=${APP_ENV_FILE:-"$APP_DIR/.env"}
 APP_DISPLAY_NAME=${APP_DISPLAY_NAME:-"ProductPulse AI"}
 VERIFY_ENV_VARS=${VERIFY_ENV_VARS:-"PRODUCT_PULSE_AI_LEVEL AI_CHATKIT_ENABLED AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT"}
+BUILD_APP_BUNDLE=${BUILD_APP_BUNDLE:-1}
 DOCKER_BUILDKIT=${DOCKER_BUILDKIT:-1}
 COMPOSE_DOCKER_CLI_BUILD=${COMPOSE_DOCKER_CLI_BUILD:-1}
 export DOCKER_BUILDKIT COMPOSE_DOCKER_CLI_BUILD
@@ -120,8 +121,19 @@ compose up \
   db-init
 finish_step
 
-start_step "Building and starting app container"
-compose up -d --build --remove-orphans --no-deps app
+if [ "$BUILD_APP_BUNDLE" = "1" ]; then
+  start_step "Building app bundle outside Docker"
+  npm run build
+  finish_step
+fi
+
+if [ ! -f "$APP_DIR/build/server/index.js" ] || [ ! -f "$APP_DIR/build/product-pulse-worker.mjs" ]; then
+  echo "Missing build output. Run npm run build or deploy with BUILD_APP_BUNDLE=1." >&2
+  exit 1
+fi
+
+start_step "Building and starting app and worker containers"
+compose up -d --build --remove-orphans --no-deps app worker
 finish_step
 
 if [ -n "$VERIFY_ENV_VARS" ]; then
@@ -138,6 +150,6 @@ if [ -n "$VERIFY_ENV_VARS" ]; then
 fi
 
 start_step "Reading app container status"
-compose ps app
+compose ps app worker
 finish_step
 echo "Deploy complete."
