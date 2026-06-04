@@ -91,6 +91,22 @@ describe("BetaFeedbackProvider", () => {
     expect(screen.queryByRole("button", { name: "Beta feedback for Risk panel" })).not.toBeInTheDocument();
   });
 
+  it("ignores non-json preference responses from auth fallbacks", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("<!DOCTYPE html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    renderLayer();
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/api/beta-feedback"), expect.any(Object));
+    });
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("submits global feedback with safe page context", async () => {
     renderLayer();
 

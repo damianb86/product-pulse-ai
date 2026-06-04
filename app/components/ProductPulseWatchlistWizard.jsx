@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
+import { buildEmbeddedAppPath, getEmbeddedAppPathname } from "../lib/product-pulse-app-paths";
 
 const WATCHLIST_WIZARD_STORAGE_KEY = "productPulse.watchlistWizard.completed.v1";
 const WATCHLIST_ROUTE = "/app/watchlist";
@@ -64,6 +65,9 @@ const watchlistWizardSteps = [
 export function ProductPulseWatchlistWizard() {
   const location = useLocation();
   const navigate = useNavigate();
+  const navigateToAppPath = useCallback((path, options) => {
+    navigate(buildEmbeddedAppPath(location.pathname, path), options);
+  }, [location.pathname, navigate]);
   const [hydrated, setHydrated] = useState(false);
   const [active, setActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -127,13 +131,13 @@ export function ProductPulseWatchlistWizard() {
     const handleStartWatchlistWizard = () => {
       resetWatchlistWizardState(true);
       if (!isWatchlistIndexRoute(location.pathname)) {
-        navigate(WATCHLIST_ROUTE);
+        navigateToAppPath(WATCHLIST_ROUTE);
       }
     };
 
     window.addEventListener("productpulse:watchlist-wizard-start", handleStartWatchlistWizard);
     return () => window.removeEventListener("productpulse:watchlist-wizard-start", handleStartWatchlistWizard);
-  }, [location.pathname, navigate, resetWatchlistWizardState]);
+  }, [location.pathname, navigateToAppPath, resetWatchlistWizardState]);
 
   useEffect(() => {
     const handleResetWatchlistWizard = () => resetWatchlistWizardState(false);
@@ -167,8 +171,8 @@ export function ProductPulseWatchlistWizard() {
 
   useEffect(() => {
     if (!visible || !step.route || isCurrentWatchlistWizardRoute(location.pathname, step)) return;
-    navigate(step.route);
-  }, [location.pathname, navigate, step, visible]);
+    navigateToAppPath(step.route);
+  }, [location.pathname, navigateToAppPath, step, visible]);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -308,13 +312,13 @@ export function ProductPulseWatchlistWizard() {
         });
         const productStepIndex = watchlistWizardSteps.findIndex((candidate) => candidate.kind === "productHero");
         if (productStepIndex >= 0) setStepIndex(productStepIndex);
-        if (detail.href && !location.pathname.startsWith(detail.href)) navigate(detail.href);
+        if (detail.href && !getEmbeddedAppPathname(location.pathname).startsWith(detail.href)) navigateToAppPath(detail.href);
       }
     };
 
     window.addEventListener("productpulse:watchlist-wizard", handleWatchlistWizardEvent);
     return () => window.removeEventListener("productpulse:watchlist-wizard", handleWatchlistWizardEvent);
-  }, [active, location.pathname, navigate]);
+  }, [active, location.pathname, navigateToAppPath]);
 
   const advanceWizard = useCallback((options = {}) => {
     if (!options.ignoreDisabled && nextDisabled) return;
@@ -326,9 +330,9 @@ export function ProductPulseWatchlistWizard() {
     setStepIndex(nextIndex);
     const nextStep = watchlistWizardSteps[nextIndex];
     if (nextStep?.route && !isCurrentWatchlistWizardRoute(location.pathname, nextStep)) {
-      navigate(nextStep.route);
+      navigateToAppPath(nextStep.route);
     }
-  }, [completeWizard, location.pathname, navigate, nextDisabled, stepIndex]);
+  }, [completeWizard, location.pathname, navigateToAppPath, nextDisabled, stepIndex]);
 
   const handleNext = useCallback(() => {
     advanceWizard();
@@ -344,9 +348,9 @@ export function ProductPulseWatchlistWizard() {
     setStepIndex(previousIndex);
     const previousStep = watchlistWizardSteps[previousIndex];
     if (previousStep?.route && !isCurrentWatchlistWizardRoute(location.pathname, previousStep)) {
-      navigate(previousStep.route);
+      navigateToAppPath(previousStep.route);
     }
-  }, [location.pathname, navigate, stepIndex]);
+  }, [location.pathname, navigateToAppPath, stepIndex]);
 
   if (!hydrated || !visible) return null;
 
@@ -936,16 +940,19 @@ function shouldBlockWatchlistWizardInteraction(target, stepKind) {
 }
 
 function isCurrentWatchlistWizardRoute(pathname, step) {
-  if (step.route === WATCHLIST_ROUTE) return isWatchlistIndexRoute(pathname);
-  return step.route && pathname.startsWith(step.route);
+  const appPathname = getEmbeddedAppPathname(pathname);
+  if (step.route === WATCHLIST_ROUTE) return isWatchlistIndexRoute(appPathname);
+  return step.route && appPathname.startsWith(step.route);
 }
 
 function isWatchlistIndexRoute(pathname) {
-  return pathname === WATCHLIST_ROUTE || pathname === `${WATCHLIST_ROUTE}/`;
+  const appPathname = getEmbeddedAppPathname(pathname);
+  return appPathname === WATCHLIST_ROUTE || appPathname === `${WATCHLIST_ROUTE}/`;
 }
 
 function isWatchlistProductRoute(pathname) {
-  return pathname.startsWith(`${WATCHLIST_ROUTE}/`) && !isWatchlistIndexRoute(pathname);
+  const appPathname = getEmbeddedAppPathname(pathname);
+  return appPathname.startsWith(`${WATCHLIST_ROUTE}/`) && !isWatchlistIndexRoute(appPathname);
 }
 
 function isWatchlistRoute(pathname) {

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useFetcher, useLocation, useRevalidator } from "react-router";
+import { buildEmbeddedAppPath } from "../lib/product-pulse-app-paths";
 
 const JOB_STATUS_ACTIVE_POLL_MS = 12_000;
 const JOB_STATUS_IDLE_POLL_MS = 45_000;
@@ -31,20 +32,24 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const pointSummary = monitor.pointSummary || initialMonitor?.pointSummary || null;
   const pointBalance = pointSummary?.balance || monitor.pointBalance || initialMonitor?.pointBalance || null;
   const hasActiveJobs = activeJobs.length > 0;
+  const buildAppPath = useCallback((path) => buildEmbeddedAppPath(location.pathname, path), [location.pathname]);
+  const jobStatusPath = buildAppPath("/app/job-status");
   const pendingCancelJobId = cancelFetcher.state !== "idle"
     ? String(cancelFetcher.formData?.get("jobId") || "")
     : "";
   const failureNotice = failedJobNotice ? (
-    <JobFailureNotice
-      job={failedJobNotice}
-      onDismiss={() => setFailedJobNotice(null)}
-    />
+      <JobFailureNotice
+        job={failedJobNotice}
+        onDismiss={() => setFailedJobNotice(null)}
+        buildAppPath={buildAppPath}
+      />
   ) : null;
   const completionNotice = completedJobNotice ? (
-    <JobCompletionNotice
-      job={completedJobNotice}
-      onDismiss={() => setCompletedJobNotice(null)}
-    />
+      <JobCompletionNotice
+        job={completedJobNotice}
+        onDismiss={() => setCompletedJobNotice(null)}
+        buildAppPath={buildAppPath}
+      />
   ) : null;
   const selectedJob = useMemo(
     () => recentJobs.find((job) => job.id === selectedJobId) || activeJobs.find((job) => job.id === selectedJobId) || null,
@@ -64,10 +69,10 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      if (!document.hidden && fetcherStateRef.current === "idle") fetcher.load("/app/job-status");
+      if (!document.hidden && fetcherStateRef.current === "idle") fetcher.load(jobStatusPath);
     }, hasActiveJobs ? JOB_STATUS_ACTIVE_POLL_MS : JOB_STATUS_IDLE_POLL_MS);
     return () => window.clearInterval(interval);
-  }, [fetcher, hasActiveJobs]);
+  }, [fetcher, hasActiveJobs, jobStatusPath]);
 
   useEffect(() => {
     fetcherStateRef.current = fetcher.state;
@@ -125,9 +130,9 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     if (cancelFetcher.state !== "idle" || cancelFetcher.data?.status !== "success") return;
-    fetcher.load("/app/job-status");
+    fetcher.load(jobStatusPath);
     revalidator.revalidate();
-  }, [cancelFetcher.data, cancelFetcher.state, fetcher, revalidator]);
+  }, [cancelFetcher.data, cancelFetcher.state, fetcher, jobStatusPath, revalidator]);
 
   useEffect(() => {
     if (completedJobNotice?.kind !== "product-diagnosis") return;
@@ -184,10 +189,10 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
     const timeout = window.setTimeout(() => {
       lastSearchQueryRef.current = normalizedSearchQuery;
-      searchFetcherLoadRef.current(`/app/product-search?q=${encodeURIComponent(normalizedSearchQuery)}`);
+      searchFetcherLoadRef.current(buildAppPath(`/app/product-search?q=${encodeURIComponent(normalizedSearchQuery)}`));
     }, 180);
     return () => window.clearTimeout(timeout);
-  }, [activePopover, normalizedSearchQuery]);
+  }, [activePopover, buildAppPath, normalizedSearchQuery]);
 
   useEffect(() => {
     const handleQueuedJobs = (event) => {
@@ -202,19 +207,19 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       });
       observedJobsRef.current = nextJobs;
 
-      if (fetcherStateRef.current === "idle") fetcher.load("/app/job-status");
+      if (fetcherStateRef.current === "idle") fetcher.load(jobStatusPath);
       revalidator.revalidate();
     };
 
     window.addEventListener("productpulse:jobs-queued", handleQueuedJobs);
     return () => window.removeEventListener("productpulse:jobs-queued", handleQueuedJobs);
-  }, [fetcher, revalidator]);
+  }, [fetcher, jobStatusPath, revalidator]);
 
   useEffect(() => {
     if (!hasActiveJobs && fetcher.state === "idle" && !fetcher.data) {
-      fetcher.load("/app/job-status");
+      fetcher.load(jobStatusPath);
     }
-  }, [fetcher, hasActiveJobs]);
+  }, [fetcher, hasActiveJobs, jobStatusPath]);
 
   const groupedLogs = useMemo(() => {
     const byJob = new Map();
@@ -257,8 +262,9 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
         const formData = new FormData();
         formData.set("_action", "cancel-background-job");
         formData.set("jobId", job.id);
-        cancelFetcher.submit(formData, { method: "post", action: "/app/job-status" });
+        cancelFetcher.submit(formData, { method: "post", action: jobStatusPath });
       }}
+      buildAppPath={buildAppPath}
     />
   );
 
@@ -381,6 +387,7 @@ function ProductPulseGlobalTopbar({
   now,
   pendingCancelJobId,
   onCancelJob,
+  buildAppPath,
 }) {
   const activeCount = activeJobs.length;
   const isSearchOpen = activePopover === "search";
@@ -410,6 +417,7 @@ function ProductPulseGlobalTopbar({
               searchFetcher={searchFetcher}
               searchInputRef={searchInputRef}
               onClose={() => setActivePopover(null)}
+              buildAppPath={buildAppPath}
             />
           ) : null}
         </div>
@@ -438,6 +446,7 @@ function ProductPulseGlobalTopbar({
               onClose={() => setActivePopover(null)}
               pendingCancelJobId={pendingCancelJobId}
               onCancelJob={onCancelJob}
+              buildAppPath={buildAppPath}
             />
           ) : null}
         </div>
@@ -458,7 +467,7 @@ function ProductPulseGlobalTopbar({
             <strong>{pointLabel}</strong>
           </button>
           {isCreditsOpen ? (
-            <CreditsPopover id="pp-global-credits" pointBalance={pointBalance} pointSummary={pointSummary} />
+            <CreditsPopover id="pp-global-credits" pointBalance={pointBalance} pointSummary={pointSummary} buildAppPath={buildAppPath} />
           ) : null}
         </div>
       </div>
@@ -466,7 +475,7 @@ function ProductPulseGlobalTopbar({
   );
 }
 
-function CreditsPopover({ id, pointSummary, pointBalance }) {
+function CreditsPopover({ id, pointSummary, pointBalance, buildAppPath = defaultBuildAppPath }) {
   const summary = normalizeCreditPopoverSummary(pointSummary, pointBalance);
   const activity = summary.activity;
 
@@ -519,7 +528,7 @@ function CreditsPopover({ id, pointSummary, pointBalance }) {
       </section>
 
       <footer className="ppCreditsFooter">
-        <Link className="ppCreditsBuyLink" to="/app/plans-and-credits">
+        <Link className="ppCreditsBuyLink" to={buildAppPath("/app/plans-and-credits")}>
           <span className="ppCreditsBuyIcon" aria-hidden="true">
             <s-icon type="product" size="small"></s-icon>
           </span>
@@ -595,7 +604,7 @@ function formatSignedCreditValue(value) {
   return `${sign}${formatCompactCreditValue(amount)} credit${amount === 1 ? "" : "s"}`;
 }
 
-function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, searchInputRef, onClose }) {
+function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, searchInputRef, onClose, buildAppPath = defaultBuildAppPath }) {
   const normalizedQuery = searchQuery.trim();
   const searchData = searchFetcher.data || {};
   const searchResults = searchData.query === normalizedQuery ? searchData.products || [] : [];
@@ -630,7 +639,7 @@ function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, 
                   <strong>{product.title}</strong>
                   <small>{getProductSearchSubtitle(product)}</small>
                 </span>
-                <Link className="ppGlobalTopbarOpenButton" to={product.href} onClick={onClose} aria-label={`Open ${product.title || "product"}`}>
+                <Link className="ppGlobalTopbarOpenButton" to={buildAppPath(product.href)} onClick={onClose} aria-label={`Open ${product.title || "product"}`}>
                   <s-icon type="external" size="small"></s-icon>
                 </Link>
               </li>
@@ -676,7 +685,7 @@ function getProductSearchSubtitle(product) {
   return parts.join(" \u00B7 ") || "ProductPulse product";
 }
 
-function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJobId, onCancelJob }) {
+function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJobId, onCancelJob, buildAppPath = defaultBuildAppPath }) {
   const activeJobIds = useMemo(() => new Set(activeJobs.map((job) => job.id)), [activeJobs]);
   const pastJobs = useMemo(
     () => recentJobs.filter((job) => !activeJobIds.has(job.id)).slice(0, 6),
@@ -710,10 +719,11 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJo
         onClose={onClose}
         pendingCancelJobId={pendingCancelJobId}
         onCancelJob={onCancelJob}
+        buildAppPath={buildAppPath}
         current
       />
-      <JobPopoverSection title="History" jobs={pastJobs} emptyText="No recent jobs yet." now={now} onClose={onClose} />
-      <Link className="ppGlobalTopbarJobsFooter" to="/app/background-processes" onClick={onClose}>
+      <JobPopoverSection title="History" jobs={pastJobs} emptyText="No recent jobs yet." now={now} onClose={onClose} buildAppPath={buildAppPath} />
+      <Link className="ppGlobalTopbarJobsFooter" to={buildAppPath("/app/background-processes")} onClick={onClose}>
         <span aria-hidden="true" className="ppGlobalTopbarJobsFooterIcon">
           <i></i>
           <i></i>
@@ -726,7 +736,7 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJo
   );
 }
 
-function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = false, pendingCancelJobId = "", onCancelJob }) {
+function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = false, pendingCancelJobId = "", onCancelJob, buildAppPath = defaultBuildAppPath }) {
   return (
     <section className={`ppGlobalTopbarJobSection${current ? " isCurrent" : " isHistory"}`}>
       <h2>{title}</h2>
@@ -741,6 +751,7 @@ function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = fal
                 onClose={onClose}
                 cancelPending={pendingCancelJobId === job.id}
                 onCancelJob={onCancelJob}
+                buildAppPath={buildAppPath}
               />
             </li>
           ))}
@@ -752,7 +763,7 @@ function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = fal
   );
 }
 
-function JobPopoverItem({ job, now, current = false, onClose, cancelPending = false, onCancelJob }) {
+function JobPopoverItem({ job, now, current = false, onClose, cancelPending = false, onCancelJob, buildAppPath = defaultBuildAppPath }) {
   const statusKey = getJobStatusKey(job);
   const metaItems = getJobMetaItems(job, now, current);
   const canCancel = current && isActiveJobStatus(job.status) && typeof onCancelJob === "function";
@@ -791,7 +802,7 @@ function JobPopoverItem({ job, now, current = false, onClose, cancelPending = fa
           </button>
         ) : null}
         {job.productHref ? (
-          <Link className="ppGlobalTopbarJobOpenButton" to={job.productHref} onClick={onClose} aria-label={`Open product for ${getJobTitle(job)}`}>
+          <Link className="ppGlobalTopbarJobOpenButton" to={buildAppPath(job.productHref)} onClick={onClose} aria-label={`Open product for ${getJobTitle(job)}`}>
             <s-icon type="external" size="small"></s-icon>
           </Link>
         ) : null}
@@ -874,7 +885,7 @@ function isCompletionNoticeJob(job) {
   return job?.status === "Completed" && ["product-diagnosis", "fast-product-scan"].includes(job.kind);
 }
 
-function JobCompletionNotice({ job, onDismiss }) {
+function JobCompletionNotice({ job, onDismiss, buildAppPath = defaultBuildAppPath }) {
   return (
     <JobNotice
       job={job}
@@ -884,11 +895,12 @@ function JobCompletionNotice({ job, onDismiss }) {
       role="status"
       ariaLive="polite"
       onDismiss={onDismiss}
+      buildAppPath={buildAppPath}
     />
   );
 }
 
-function JobFailureNotice({ job, onDismiss }) {
+function JobFailureNotice({ job, onDismiss, buildAppPath = defaultBuildAppPath }) {
   const detail = getJobFailureDetail(job);
 
   return (
@@ -901,12 +913,14 @@ function JobFailureNotice({ job, onDismiss }) {
       role="alert"
       ariaLive="assertive"
       onDismiss={onDismiss}
+      buildAppPath={buildAppPath}
     />
   );
 }
 
-function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismiss }) {
+function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismiss, buildAppPath = defaultBuildAppPath }) {
   const action = getJobNoticeAction(job);
+  const actionHref = buildAppPath(action.href);
   const isSuccess = tone === "success";
   const isProductDiagnosisCompletion = isSuccess && job?.kind === "product-diagnosis";
   const handleActionClick = () => {
@@ -914,7 +928,7 @@ function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismis
       dispatchProductPulseWizardJobEvent({
         type: "deep-scan-product-opened",
         job,
-        href: action.href,
+        href: actionHref,
       });
     }
     onDismiss();
@@ -926,7 +940,7 @@ function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismis
       role={role}
       aria-live={ariaLive}
       data-pp-job-completion-notice={isSuccess ? job?.kind : undefined}
-      data-pp-job-product-href={isProductDiagnosisCompletion ? action.href : undefined}
+      data-pp-job-product-href={isProductDiagnosisCompletion ? actionHref : undefined}
     >
       <JobNoticeMedia job={job} tone={tone} />
       <span className="ppJobNoticeStatusIcon" aria-hidden="true">
@@ -939,7 +953,7 @@ function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismis
       </div>
       <Link
         className="ppJobNoticeAction"
-        to={action.href}
+        to={actionHref}
         onClick={handleActionClick}
         data-pp-job-completion-open-product={isProductDiagnosisCompletion ? "true" : undefined}
       >
@@ -1013,6 +1027,10 @@ function getJobNoticeAction(job) {
   }
   const href = job?.productHref || (job?.productHandle ? `/app/products/${job.productHandle}` : "/app/background-processes");
   return { href, label: href === "/app/background-processes" ? "View job" : "Open product" };
+}
+
+function defaultBuildAppPath(path) {
+  return path;
 }
 
 function getJobCompletionNoticeTitle(job) {

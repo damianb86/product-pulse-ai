@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatKit, useChatKit } from "@openai/chatkit-react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
+import { buildEmbeddedApiPath, buildEmbeddedAppPath, getEmbeddedAppPathname } from "../lib/product-pulse-app-paths";
 
 const CHATKIT_BROWSER_SCRIPT_SRC = "https://cdn.platform.openai.com/deployments/chatkit/chatkit.js";
 const CHATKIT_CONVERSATION_STORAGE_KEY = "productPulse.chatkit.conversationId.v1";
@@ -11,6 +12,7 @@ let chatKitBrowserScriptPromise;
 
 export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -131,11 +133,11 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
       markConversationStarted();
     }
     const session = await ensureBackendSession();
-    return fetch(input, attachChatKitMetadata(init, session));
-  }, [ensureBackendSession, markConversationStarted]);
+    return fetch(getScopedApiInput(input, location.pathname), attachChatKitMetadata(init, session));
+  }, [ensureBackendSession, location.pathname, markConversationStarted]);
 
   const handleWidgetAction = useCallback(async (action, widgetItem) => {
-    const response = await fetch("/api/ai/chatkit/action", {
+    const response = await fetch(buildEmbeddedApiPath(location.pathname, "/api/ai/chatkit/action"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -151,19 +153,19 @@ export function ProductPulseChatKitAssistant({ config, quota, pageContext }) {
     }
 
     if (body.action?.type === "navigate" && body.action.url) {
-      navigateToProductPulseUrl(body.action.url, setStatusMessage, navigate);
+      navigateToProductPulseUrl(body.action.url, setStatusMessage, navigate, location.pathname);
       return;
     }
 
     if (body.action?.type === "send_message" && body.action.message) {
       await chatKitMethodsRef.current?.sendUserMessage({ text: body.action.message });
     }
-  }, [navigate]);
+  }, [location.pathname, navigate]);
 
   const handleEffect = useCallback((event) => {
     if (event?.name !== "product_pulse.navigate") return;
-    navigateToProductPulseUrl(event?.data?.url, setStatusMessage, navigate);
-  }, [navigate]);
+    navigateToProductPulseUrl(event?.data?.url, setStatusMessage, navigate, location.pathname);
+  }, [location.pathname, navigate]);
 
   const toggleThemeMode = useCallback(() => {
     setThemeMode((current) => {
@@ -532,19 +534,32 @@ function ChatKitStarterIcon({ type }) {
   return <svg {...commonProps}><path d="M4.8 12h14.4" /><path d="M12 4.8v14.4" /></svg>;
 }
 
-function navigateToProductPulseUrl(url, setStatusMessage, navigate) {
+function navigateToProductPulseUrl(url, setStatusMessage, navigate, currentPathname = "") {
   if (typeof url !== "string" || !isSafeProductPulsePath(url)) {
     setStatusMessage("That assistant navigation is not available.");
     return;
   }
+  const scopedUrl = buildEmbeddedAppPath(currentPathname, url);
   window.dispatchEvent(new CustomEvent("productpulse:chatkit-navigate", {
-    detail: { url },
+    detail: { url: scopedUrl },
   }));
-  navigate(url);
+  navigate(scopedUrl);
+}
+
+function getScopedApiInput(input, currentPathname = "") {
+  if (typeof input === "string" && input.startsWith("/api/")) {
+    return buildEmbeddedApiPath(currentPathname, input);
+  }
+  if (input instanceof URL && input.pathname.startsWith("/api/")) {
+    return new URL(buildEmbeddedApiPath(currentPathname, `${input.pathname}${input.search}${input.hash}`), input.origin);
+  }
+  return input;
 }
 
 function isSafeProductPulsePath(url) {
-  return url === "/app" || url.startsWith("/app/");
+  if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(String(url || ""))) return false;
+  const pathname = getEmbeddedAppPathname(url);
+  return pathname === "/app" || pathname.startsWith("/app/");
 }
 
 function readStoredConversationState() {

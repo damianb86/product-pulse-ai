@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLoaderData, useLocation, useNavigation } from "react-router";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLocation, useNavigate, useNavigation } from "react-router";
+import { buildEmbeddedAppPath, getEmbeddedAppBasePath } from "./lib/product-pulse-app-paths";
 import appStylesheet from "./styles/product-pulse.css?url";
 import betaFeedbackStylesheet from "./styles/product-pulse-beta-feedback.css?url";
 import chatKitStylesheet from "./styles/product-pulse-chatkit.css?url";
@@ -14,26 +15,14 @@ export const links = () => [
   { rel: "stylesheet", href: wizardStylesheet },
 ];
 
-export const loader = async () => ({
-  // eslint-disable-next-line no-undef
-  shopifyApiKey: process.env.SHOPIFY_API_KEY || "",
-});
-
 export default function App() {
-  const { shopifyApiKey } = useLoaderData() || {};
-  const location = useLocation();
-  const shouldLoadShopifyScripts = location.pathname.startsWith("/app") || location.pathname.startsWith("/auth");
-
   return (
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
-        {shouldLoadShopifyScripts && shopifyApiKey ? <meta name="shopify-api-key" content={shopifyApiKey} /> : null}
-        {shouldLoadShopifyScripts ? <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script> : null}
         <Meta />
         <Links />
-        {shouldLoadShopifyScripts ? <script src="https://cdn.shopify.com/shopifycloud/polaris.js"></script> : null}
       </head>
       <body>
         <Outlet />
@@ -47,6 +36,7 @@ export default function App() {
 
 function ProductPulseRouteTransitionOverlay() {
   const location = useLocation();
+  const navigate = useNavigate();
   const navigation = useNavigation();
   const [clickPending, setClickPending] = useState(false);
   const currentPath = `${location.pathname}${location.search}${location.hash}`;
@@ -81,12 +71,19 @@ function ProductPulseRouteTransitionOverlay() {
       if (!nextUrl) return;
       const nextPath = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
       if (nextPath === currentPath) return;
+      const scopedPath = getScopedProductPulseNavigationPath(location.pathname, nextUrl);
+      if (scopedPath && scopedPath !== nextPath) {
+        event.preventDefault();
+        setClickPending(true);
+        navigate(scopedPath);
+        return;
+      }
       setClickPending(true);
     };
 
     document.addEventListener("click", handleClickCapture, true);
     return () => document.removeEventListener("click", handleClickCapture, true);
-  }, [currentPath]);
+  }, [currentPath, location.pathname, navigate]);
 
   const loadingCopy = useMemo(() => (
     isRouteLoading ? "Loading page" : "Opening page"
@@ -111,9 +108,15 @@ function getProductPulseInternalNavigationUrl(href) {
   try {
     const nextUrl = new URL(href, window.location.href);
     if (nextUrl.origin !== window.location.origin) return null;
-    if (!nextUrl.pathname.startsWith("/app")) return null;
+    if (!nextUrl.pathname.startsWith("/app") && !nextUrl.pathname.includes("/app/")) return null;
     return nextUrl;
   } catch {
     return null;
   }
+}
+
+function getScopedProductPulseNavigationPath(currentPathname, nextUrl) {
+  const basePath = getEmbeddedAppBasePath(currentPathname);
+  if (!basePath || !nextUrl.pathname.startsWith("/app")) return "";
+  return `${buildEmbeddedAppPath(currentPathname, nextUrl.pathname)}${nextUrl.search}${nextUrl.hash}`;
 }

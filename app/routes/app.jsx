@@ -14,6 +14,7 @@ import { ProductPulseJobMonitor } from "../components/ProductPulseJobMonitor";
 import { ProductPulseWatchlistWizard } from "../components/ProductPulseWatchlistWizard";
 import { ProductPulseWizard } from "../components/ProductPulseWizard";
 import { getBetaFeedbackClientConfig } from "../lib/beta-feedback-config.server";
+import { buildEmbeddedAppPath, getEmbeddedAppPathname } from "../lib/product-pulse-app-paths";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
 import { getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
 
@@ -36,6 +37,7 @@ export const loader = async ({ request }) => {
 
   return {
     apiKey,
+    shop: session.shop,
     developmentMode,
     aiCostDashboardEnabled: isAiCostDashboardEnabled(),
     chatKit: getAiChatKitClientConfig(),
@@ -49,11 +51,13 @@ export const loader = async ({ request }) => {
 };
 
 export default function App() {
-  const { apiKey, developmentMode, aiCostDashboardEnabled, chatKit, chatQuota, jobMonitor, betaFeedback, observability } = useLoaderData();
+  const { apiKey, shop, developmentMode, aiCostDashboardEnabled, chatKit, chatQuota, jobMonitor, betaFeedback, observability } = useLoaderData();
   const location = useLocation();
-  const activeSection = getActiveNavSection(location.pathname);
+  const appPathname = getEmbeddedAppPathname(location.pathname);
+  const activeSection = getActiveNavSection(appPathname);
   const aiPageContext = getAiPageContext(location);
-  const dashboardHref = activeSection === "dashboard" ? `${location.pathname}${location.search}` : "/app/dashboard";
+  const buildHref = (pathname, extraParams = {}) => buildEmbeddedAppHref(location, pathname, { shop, extraParams });
+  const dashboardHref = activeSection === "dashboard" ? buildHref(appPathname) : buildHref("/app/dashboard");
 
   return (
     <AppProvider embedded apiKey={apiKey}>
@@ -62,16 +66,16 @@ export default function App() {
         <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
         <s-app-nav>
           <s-link href={dashboardHref} data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
-          <s-link href="/app/products" data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
-          <s-link href="/app/watchlist" data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
-          <s-link href="/app/analytics" data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
-          <s-link href="/app/plans-and-credits" data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plan &amp; Credits</s-link>
+          <s-link href={buildHref("/app/products")} data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>
+          <s-link href={buildHref("/app/watchlist")} data-active={activeSection === "watchlist" ? "true" : undefined}>Watchlist</s-link>
+          <s-link href={buildHref("/app/analytics")} data-active={activeSection === "analytics" ? "true" : undefined}>Analytics</s-link>
+          <s-link href={buildHref("/app/plans-and-credits")} data-active={activeSection === "plans-and-credits" ? "true" : undefined}>Plan &amp; Credits</s-link>
           {aiCostDashboardEnabled ? (
-            <s-link href="/app/ai-costs" data-active={activeSection === "ai-costs" ? "true" : undefined}>AI Costs</s-link>
+            <s-link href={buildHref("/app/ai-costs")} data-active={activeSection === "ai-costs" ? "true" : undefined}>AI Costs</s-link>
           ) : null}
-          <s-link href="/app/connect" data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
-          <s-link href="/app/settings" data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
-          <s-link href="/app/help" data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
+          <s-link href={buildHref("/app/connect")} data-active={activeSection === "connect" ? "true" : undefined}>Connect</s-link>
+          <s-link href={buildHref("/app/settings")} data-active={activeSection === "settings" ? "true" : undefined}>Settings</s-link>
+          <s-link href={buildHref("/app/help")} data-active={activeSection === "help" ? "true" : undefined}>Help & Contact</s-link>
         </s-app-nav>
         <Outlet />
         <ProductPulseChatKitAssistant config={chatKit} quota={chatQuota} pageContext={aiPageContext} />
@@ -139,6 +143,27 @@ function serializeChatQuotaForClient(quota) {
   };
 }
 
+function buildEmbeddedAppHref(location, pathname, { shop = "", extraParams = {} } = {}) {
+  const params = getShopifyNavigationParams(location.search, shop);
+  Object.entries(extraParams).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") params.set(key, String(value));
+  });
+  const query = params.toString();
+  const scopedPathname = buildEmbeddedAppPath(location.pathname, pathname);
+  return query ? `${scopedPathname}?${query}` : scopedPathname;
+}
+
+function getShopifyNavigationParams(search, shop) {
+  const currentParams = new URLSearchParams(search);
+  const params = new URLSearchParams();
+  ["shop", "host", "embedded", "locale"].forEach((key) => {
+    const value = currentParams.get(key);
+    if (value) params.set(key, value);
+  });
+  if (!params.get("shop") && shop) params.set("shop", shop);
+  return params;
+}
+
 function getActiveNavSection(pathname) {
   if (pathname === "/app" || pathname === "/app/" || pathname.startsWith("/app/dashboard")) return "dashboard";
   if (pathname.startsWith("/app/products")) return "products";
@@ -153,7 +178,7 @@ function getActiveNavSection(pathname) {
 }
 
 function getAiPageContext(location) {
-  const pathname = location.pathname;
+  const pathname = getEmbeddedAppPathname(location.pathname);
   const searchParams = new URLSearchParams(location.search);
   const filters = getSafeFilterContext(searchParams);
 

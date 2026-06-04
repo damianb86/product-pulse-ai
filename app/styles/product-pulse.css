@@ -21360,10 +21360,6 @@ s-page[inline-size="large-500"] {
   line-height: 1.45;
 }
 
-.ppRecommendedActionModal .ppActionPreviewHtmlFrame {
-  min-height: 100%;
-}
-
 .ppRecommendedActionModal .ppActionPreviewHtmlFrame.isExpanded {
   min-height: min(520px, 58vh);
 }

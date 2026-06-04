@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router";
+import { buildEmbeddedApiPath } from "../../lib/product-pulse-app-paths";
 
 const BetaFeedbackContext = createContext(null);
 
@@ -85,12 +86,13 @@ export function BetaFeedbackProvider({ config, children }) {
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return undefined;
     const abortController = new AbortController();
+    const preferencesUrl = buildEmbeddedApiPath(location.pathname, `/api/beta-feedback?pageKey=${encodeURIComponent(pageKey)}`);
 
-    fetch(`/api/beta-feedback?pageKey=${encodeURIComponent(pageKey)}`, {
+    fetch(preferencesUrl, {
       headers: { Accept: "application/json" },
       signal: abortController.signal,
     })
-      .then((response) => response.ok ? response.json() : null)
+      .then((response) => response.ok && isJsonResponse(response) ? response.json() : null)
       .then((data) => {
         if (!data?.enabled || !Array.isArray(data.preferences)) return;
         setPreferences((current) => ({
@@ -103,7 +105,7 @@ export function BetaFeedbackProvider({ config, children }) {
       });
 
     return () => abortController.abort();
-  }, [enabled, pageKey]);
+  }, [enabled, location.pathname, pageKey]);
 
   const collectContext = useCallback((panel = null, extra = {}) => {
     const panelContext = panel?.context && typeof panel.context === "object" ? panel.context : {};
@@ -132,7 +134,7 @@ export function BetaFeedbackProvider({ config, children }) {
   }, [pageKey]);
 
   const postBetaFeedback = useCallback(async (payload) => {
-    const response = await fetch("/api/beta-feedback", {
+    const response = await fetch(buildEmbeddedApiPath(location.pathname, "/api/beta-feedback"), {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -140,12 +142,12 @@ export function BetaFeedbackProvider({ config, children }) {
       },
       body: JSON.stringify(payload),
     });
-    const data = await response.json().catch(() => ({}));
+    const data = isJsonResponse(response) ? await response.json().catch(() => ({})) : {};
     if (!response.ok || !["success", "ok"].includes(String(data.status || ""))) {
       throw new Error(data.message || "Beta feedback could not be saved.");
     }
     return data;
-  }, []);
+  }, [location.pathname]);
 
   const openFeedback = useCallback((panel = null, defaults = {}) => {
     const normalizedPanel = normalizePanel(panel);
@@ -324,6 +326,10 @@ export function BetaFeedbackProvider({ config, children }) {
       ) : null}
     </BetaFeedbackContext.Provider>
   );
+}
+
+function isJsonResponse(response) {
+  return String(response?.headers?.get?.("content-type") || "").toLowerCase().includes("application/json");
 }
 
 export function BetaFeedbackPanelControls({ panel, className = "", allowHide = true }) {

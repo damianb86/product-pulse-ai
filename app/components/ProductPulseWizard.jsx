@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
+import { buildEmbeddedAppPath, getEmbeddedAppPathname } from "../lib/product-pulse-app-paths";
 
 const WIZARD_STORAGE_KEY = "productPulse.onboardingWizard.completed.v1";
 const DASHBOARD_ROUTE = "/app/dashboard";
@@ -154,6 +155,9 @@ const modalCopy = {
 export function ProductPulseWizard() {
   const location = useLocation();
   const navigate = useNavigate();
+  const navigateToAppPath = useCallback((path, options) => {
+    navigate(buildEmbeddedAppPath(location.pathname, path), options);
+  }, [location.pathname, navigate]);
   const [hydrated, setHydrated] = useState(false);
   const [active, setActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -216,8 +220,8 @@ export function ProductPulseWizard() {
     params.delete("wizard");
     params.delete("startWizard");
     const nextSearch = params.toString();
-    navigate(`${DASHBOARD_ROUTE}${nextSearch ? `?${nextSearch}` : ""}`, { replace: true });
-  }, [location.pathname, location.search, navigate, resetWizardState]);
+    navigateToAppPath(`${DASHBOARD_ROUTE}${nextSearch ? `?${nextSearch}` : ""}`, { replace: true });
+  }, [location.pathname, location.search, navigateToAppPath, resetWizardState]);
 
   useEffect(() => {
     document.body.classList.toggle("ppWizardActive", active);
@@ -242,8 +246,8 @@ export function ProductPulseWizard() {
 
   useEffect(() => {
     if (!active || !step.route || isCurrentWizardRoute(location.pathname, location.search, step)) return;
-    navigate(step.route);
-  }, [active, location.pathname, location.search, navigate, step]);
+    navigateToAppPath(step.route);
+  }, [active, location.pathname, location.search, navigateToAppPath, step]);
 
   useEffect(() => {
     if (!active || !step.targets?.length) return undefined;
@@ -306,7 +310,7 @@ export function ProductPulseWizard() {
         setQuickScanStepCompleted(false);
         const connectStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "connect");
         if (connectStepIndex >= 0) setStepIndex(connectStepIndex);
-        navigate(CONNECT_ROUTE);
+        navigateToAppPath(CONNECT_ROUTE);
       }
       if (detail.type === "deep-scan-started") {
         setQuickScanStarted(false);
@@ -328,7 +332,7 @@ export function ProductPulseWizard() {
         if (job) setCompletedDeepScanJob(job);
         const productStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "productOverview");
         if (productStepIndex >= 0) setStepIndex(productStepIndex);
-        if (detail.href) navigate(detail.href);
+        if (detail.href) navigateToAppPath(detail.href);
       }
       if (detail.type === "chat-opened") {
         completeWizard();
@@ -337,19 +341,19 @@ export function ProductPulseWizard() {
 
     window.addEventListener("productpulse:wizard", handleWizardEvent);
     return () => window.removeEventListener("productpulse:wizard", handleWizardEvent);
-  }, [active, completeWizard, completedDeepScanJob, navigate]);
+  }, [active, completeWizard, completedDeepScanJob, navigateToAppPath]);
 
   useEffect(() => {
     const handleStartWizard = () => {
       resetWizardState(true);
       if (!isCurrentWizardRoute(location.pathname, location.search, wizardSteps[0])) {
-        navigate(DASHBOARD_ROUTE);
+        navigateToAppPath(DASHBOARD_ROUTE);
       }
     };
 
     window.addEventListener("productpulse:wizard-start", handleStartWizard);
     return () => window.removeEventListener("productpulse:wizard-start", handleStartWizard);
-  }, [location.pathname, location.search, navigate, resetWizardState]);
+  }, [location.pathname, location.search, navigateToAppPath, resetWizardState]);
 
   useEffect(() => {
     const handleResetWizard = () => resetWizardState(false);
@@ -373,8 +377,8 @@ export function ProductPulseWizard() {
     const nextIndex = stepIndex + 1;
     setStepIndex(nextIndex);
     const nextStep = wizardSteps[nextIndex];
-    if (nextStep?.route) navigate(nextStep.route);
-  }, [completeWizard, navigate, nextDisabled, stepIndex]);
+    if (nextStep?.route) navigateToAppPath(nextStep.route);
+  }, [completeWizard, navigateToAppPath, nextDisabled, stepIndex]);
 
   const handleNext = useCallback(() => {
     if (step.kind === "backgroundProcesses" && !deepScanStarted && !completedDeepScanJob) {
@@ -412,20 +416,20 @@ export function ProductPulseWizard() {
     if (step.kind === "deepScanComplete") {
       const productStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "productOverview");
       if (productStepIndex >= 0) setStepIndex(productStepIndex);
-      if (completedDeepScanJob?.productHref) navigate(completedDeepScanJob.productHref);
+      if (completedDeepScanJob?.productHref) navigateToAppPath(completedDeepScanJob.productHref);
       return;
     }
 
     advanceWizard({ ignoreDisabled: true });
-  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, navigate, quickScanStepCompleted, step.kind]);
+  }, [advanceWizard, completeWizard, completedDeepScanJob, deepScanStarted, navigateToAppPath, quickScanStepCompleted, step.kind]);
 
   const handleBack = useCallback(() => {
     if (stepIndex <= 0) return;
     const previousIndex = stepIndex - 1;
     setStepIndex(previousIndex);
     const previousStep = wizardSteps[previousIndex];
-    if (previousStep?.route) navigate(previousStep.route);
-  }, [navigate, stepIndex]);
+    if (previousStep?.route) navigateToAppPath(previousStep.route);
+  }, [navigateToAppPath, stepIndex]);
 
   if (!hydrated || !active) return null;
 
@@ -1286,16 +1290,18 @@ function getWizardTooltipSideClass(side) {
 }
 
 function isCurrentWizardRoute(pathname, search, step) {
-  if (step.kind === "welcome") return isDashboardRoute(pathname);
+  const appPathname = getEmbeddedAppPathname(pathname);
+  if (step.kind === "welcome") return isDashboardRoute(appPathname);
   if (step.kind === "backgroundProcesses") return true;
   if (step.kind === "products") {
-    return pathname.startsWith("/app/products") && new URLSearchParams(search).get("tab") === "candidates";
+    return appPathname.startsWith("/app/products") && new URLSearchParams(search).get("tab") === "candidates";
   }
-  return step.route && pathname.startsWith(step.route);
+  return step.route && appPathname.startsWith(step.route);
 }
 
 function isDashboardRoute(pathname) {
-  return pathname === "/app" || pathname === "/app/" || pathname.startsWith(DASHBOARD_ROUTE);
+  const appPathname = getEmbeddedAppPathname(pathname);
+  return appPathname === "/app" || appPathname === "/app/" || appPathname.startsWith(DASHBOARD_ROUTE);
 }
 
 function normalizeWizardStartParam(value) {

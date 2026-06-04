@@ -9,7 +9,9 @@ import {
 } from "../lib/beta-feedback.server";
 
 export const loader = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const authenticated = await authenticateBetaFeedbackRequest(request);
+  if (authenticated.response) return authenticated.response;
+  const { session } = authenticated;
   const url = new URL(request.url);
 
   if (!isBetaFeedbackEnabled()) {
@@ -23,7 +25,9 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { session } = await authenticate.admin(request);
+  const authenticated = await authenticateBetaFeedbackRequest(request);
+  if (authenticated.response) return authenticated.response;
+  const { session } = authenticated;
 
   if (!isBetaFeedbackEnabled()) {
     return json({ status: "disabled", message: "Beta feedback is disabled." }, { status: 404 });
@@ -67,6 +71,30 @@ export const action = async ({ request }) => {
 
   return json({ status: "validation_error", message: "Unsupported beta feedback action." }, { status: 400 });
 };
+
+async function authenticateBetaFeedbackRequest(request) {
+  try {
+    return await authenticate.admin(request);
+  } catch (error) {
+    if (wantsJsonResponse(request)) {
+      return {
+        response: json({
+          status: "unauthorized",
+          enabled: false,
+          preferences: [],
+          message: "Shopify session is not available for beta feedback.",
+        }, { status: 401 }),
+      };
+    }
+    throw error;
+  }
+}
+
+function wantsJsonResponse(request) {
+  const accept = String(request.headers.get("accept") || "").toLowerCase();
+  const contentType = String(request.headers.get("content-type") || "").toLowerCase();
+  return accept.includes("application/json") || contentType.includes("application/json");
+}
 
 async function parseBetaFeedbackPayload(request) {
   const contentType = request.headers.get("content-type") || "";
