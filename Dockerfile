@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM node:20-alpine
 RUN apk add --no-cache openssl
 
@@ -12,7 +13,7 @@ ENV AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT=100
 
 COPY package.json package-lock.json* ./
 
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 COPY . .
 

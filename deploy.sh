@@ -5,6 +5,9 @@ APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_ENV_FILE=${APP_ENV_FILE:-"$APP_DIR/.env"}
 APP_DISPLAY_NAME=${APP_DISPLAY_NAME:-"ProductPulse AI"}
 VERIFY_ENV_VARS=${VERIFY_ENV_VARS:-"PRODUCT_PULSE_AI_LEVEL AI_CHATKIT_ENABLED AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT"}
+DOCKER_BUILDKIT=${DOCKER_BUILDKIT:-1}
+COMPOSE_DOCKER_CLI_BUILD=${COMPOSE_DOCKER_CLI_BUILD:-1}
+export DOCKER_BUILDKIT COMPOSE_DOCKER_CLI_BUILD
 
 resolve_file() {
   FILE=$1
@@ -40,6 +43,18 @@ compose() {
     --env-file "$SHARED_ENV_FILE" \
     --env-file "$APP_ENV_FILE" \
     "$@"
+}
+
+start_step() {
+  STEP_NAME=$1
+  STEP_STARTED_AT=$(date +%s)
+  echo "$STEP_NAME..."
+}
+
+finish_step() {
+  STEP_FINISHED_AT=$(date +%s)
+  echo "$STEP_NAME completed in $((STEP_FINISHED_AT - STEP_STARTED_AT))s"
+  echo
 }
 
 APP_ENV_FILE=$(resolve_file "$APP_ENV_FILE")
@@ -92,21 +107,25 @@ echo "Deploying $APP_DISPLAY_NAME"
 echo "  app env:    $APP_ENV_FILE"
 echo "  shared env: $SHARED_ENV_FILE"
 echo
-echo "Validating docker-compose.yml with both env files..."
+start_step "Validating docker-compose.yml with both env files"
 compose config >/dev/null
+finish_step
 
-echo "Initializing database role and database..."
+start_step "Initializing database role and database"
 compose up \
   --no-deps \
   --force-recreate \
   --abort-on-container-exit \
   --exit-code-from db-init \
   db-init
+finish_step
 
-echo "Building and starting app container..."
+start_step "Building and starting app container"
 compose up -d --build --remove-orphans --no-deps app
+finish_step
 
 if [ -n "$VERIFY_ENV_VARS" ]; then
+  start_step "Verifying selected app environment variables"
   for ENV_VAR in $VERIFY_ENV_VARS; do
     VALUE=$(compose exec -T app printenv "$ENV_VAR" 2>/dev/null || true)
     if [ -n "$VALUE" ]; then
@@ -115,7 +134,10 @@ if [ -n "$VERIFY_ENV_VARS" ]; then
       echo "Warning: could not read $ENV_VAR from the app container." >&2
     fi
   done
+  finish_step
 fi
 
+start_step "Reading app container status"
 compose ps app
+finish_step
 echo "Deploy complete."
