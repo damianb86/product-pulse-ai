@@ -31389,6 +31389,9 @@ function RecommendedActionProposedChange({
   const faqPreviewItems = !isEditingInline && isFaqRecommendedAction(action)
     ? getFaqPreviewItems(application, detailText)
     : [];
+  const proposedHtmlPreview = !isEditingInline && !faqPreviewItems.length
+    ? getRecommendedActionProposedHtmlPreview(action, application, detailText)
+    : "";
 
   return (
     <div className="ppActionProposedChangeBox">
@@ -31414,6 +31417,12 @@ function RecommendedActionProposedChange({
                 </article>
               ))}
             </div>
+          ) : proposedHtmlPreview ? (
+            <ActionPreviewHtmlFrame
+              html={proposedHtmlPreview}
+              expanded={detailExpanded}
+              title={application.valueLabel || "Suggested improved description"}
+            />
           ) : (
             <p className={`ppActionDetailText ppActionSuggestionText ${hasLongDetail && !detailExpanded ? "isClamped" : ""}`.trim()}>
               {renderAnalysisText(detailText || "No proposed value supplied.")}
@@ -31433,6 +31442,31 @@ function RecommendedActionProposedChange({
       )}
     </div>
   );
+}
+
+function getRecommendedActionProposedHtmlPreview(action = {}, application = {}, proposedText = "") {
+  const normalizedAction = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
+  if (!normalizedAction.includes("update product description details")) return "";
+  const target = String(application.target || "").toLowerCase();
+  if (!target.includes("description")) return "";
+  const proposed = normalizeActionText(proposedText || application.value || "");
+  if (!proposed) return "";
+
+  const operation = application.insertionPosition || application.descriptionOperation || "";
+  if (operation === "prepend" || operation === "append") {
+    return buildClientProductPulseDescriptionBlock(
+      proposed,
+      application.actionId || "product-description-action",
+      getActionApplicationHtmlStyle(application),
+    );
+  }
+
+  const preview = getRecommendedActionHtmlPreviewParts(application, {
+    currentText: normalizeActionText(application.currentValue || ""),
+    proposedText: proposed,
+    forceDescriptionHtml: true,
+  });
+  return preview?.afterHtml || buildClientProductPulseDescriptionReplacement(proposed);
 }
 
 const ACTION_DESCRIPTION_PREVIEW_COLLAPSED_LENGTH = 460;
@@ -31524,7 +31558,10 @@ function RecommendedActionPreviewColumn({
           />
         ))}
         {hasHtmlPreview ? (
-          <ActionPreviewHtmlFrame html={html} expanded={expanded} mode={htmlPreviewMode} title={label} />
+          <>
+            {hasDiffSegments && <ActionPreviewDiffText segments={displayDiffSegments} />}
+            <ActionPreviewHtmlFrame html={html} expanded={expanded} mode={htmlPreviewMode} title={label} />
+          </>
         ) : hasDiffSegments ? (
           <ActionPreviewDiffText segments={displayDiffSegments} />
         ) : (
@@ -32378,8 +32415,8 @@ function getActionPreviewDisplayText(value = "", { isDescription = false, expand
 }
 
 function buildActionDescriptionDiffSegments(currentValue = "", updatedValue = "") {
-  const current = normalizeActionText(currentValue);
-  const updated = normalizeActionText(updatedValue);
+  const current = normalizeActionText(stripActionPreviewHtml(currentValue));
+  const updated = normalizeActionText(stripActionPreviewHtml(updatedValue));
   if (!updated) return [];
   if (!current) return [{ text: updated, changed: true }];
   if (current === updated) return [{ text: updated, changed: false }];
@@ -32424,8 +32461,8 @@ function getActionDescriptionMatchedUpdatedIndexes(currentBlocks = [], updatedBl
 
   for (let row = rows - 1; row >= 0; row -= 1) {
     for (let column = columns - 1; column >= 0; column -= 1) {
-      matrix[row][column] = currentBlocks[row].key === updatedBlocks[column].key
-        ? matrix[row + 1][column + 1] + 1
+      matrix[row][column] = areActionDescriptionDiffBlocksEquivalent(currentBlocks[row], updatedBlocks[column])
+        ? matrix[row + 1][column + 1] + getActionDescriptionDiffMatchScore(currentBlocks[row], updatedBlocks[column])
         : Math.max(matrix[row + 1][column], matrix[row][column + 1]);
     }
   }
@@ -32434,7 +32471,7 @@ function getActionDescriptionMatchedUpdatedIndexes(currentBlocks = [], updatedBl
   let row = 0;
   let column = 0;
   while (row < rows && column < columns) {
-    if (currentBlocks[row].key === updatedBlocks[column].key) {
+    if (areActionDescriptionDiffBlocksEquivalent(currentBlocks[row], updatedBlocks[column])) {
       matched.add(updatedBlocks[column].originalIndex);
       row += 1;
       column += 1;
@@ -32445,6 +32482,35 @@ function getActionDescriptionMatchedUpdatedIndexes(currentBlocks = [], updatedBl
     }
   }
   return matched;
+}
+
+function getActionDescriptionDiffMatchScore(currentBlock = {}, updatedBlock = {}) {
+  if (!areActionDescriptionDiffBlocksEquivalent(currentBlock, updatedBlock)) return 0;
+  return currentBlock.key === updatedBlock.key ? 2 : 1;
+}
+
+function areActionDescriptionDiffBlocksEquivalent(currentBlock = {}, updatedBlock = {}) {
+  const currentKey = currentBlock.key;
+  const updatedKey = updatedBlock.key;
+  if (!currentKey || !updatedKey) return false;
+  if (currentKey === updatedKey) return true;
+  return getActionDescriptionDiffTokenSimilarity(currentKey, updatedKey) >= 0.9;
+}
+
+function getActionDescriptionDiffTokenSimilarity(first = "", second = "") {
+  const firstTokens = getActionDescriptionDiffTokens(first);
+  const secondTokens = getActionDescriptionDiffTokens(second);
+  if (!firstTokens.length || !secondTokens.length) return 0;
+  const secondTokenSet = new Set(secondTokens);
+  const shared = firstTokens.filter((token) => secondTokenSet.has(token)).length;
+  return shared / Math.max(firstTokens.length, secondTokens.length);
+}
+
+function getActionDescriptionDiffTokens(value = "") {
+  return String(value || "")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
 }
 
 function mergeActionDescriptionDiffBlocks(blocks = []) {

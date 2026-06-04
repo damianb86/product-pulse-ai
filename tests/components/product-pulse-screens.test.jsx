@@ -4950,6 +4950,17 @@ describe("ProductPulse screens", () => {
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
     fireEvent.click(screen.getByRole("button", { name: "Open recommended action Update product description details" }));
     const dialog = screen.getByRole("dialog", { name: "Update product description details" });
+    const suggestedHtmlFrame = dialog.querySelector(".ppActionProposedChangeBox iframe");
+    expect(suggestedHtmlFrame).not.toBeNull();
+    expect(suggestedHtmlFrame.getAttribute("srcdoc")).toContain("<table><tbody><tr><th>Size</th><th>Chest</th></tr>");
+    expect(suggestedHtmlFrame.getAttribute("srcdoc")).toContain(`<p>${addition}</p>`);
+
+    const updatedColumn = within(dialog).getByText("Updated description preview").closest(".ppActionPreviewColumn");
+    const previewChangedBlocks = updatedColumn.querySelectorAll(".ppActionPreviewDiffBlock");
+    expect(previewChangedBlocks.length).toBeGreaterThan(0);
+    expect(previewChangedBlocks[0]).toHaveTextContent(addition);
+    expect(updatedColumn.querySelector(".ppActionPreviewHtmlFrame")).not.toBeNull();
+
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply change" }));
 
     const confirmDialog = screen.getByRole("dialog", { name: "Confirm product description update" });

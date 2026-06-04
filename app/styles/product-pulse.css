@@ -20276,6 +20276,10 @@ s-page[inline-size="large-500"] {
   margin: 0;
 }
 
+.ppActionPreviewDiffText + .ppActionPreviewHtmlFrame {
+  margin-top: 10px;
+}
+
 .ppActionPreviewDiffBlock {
   display: inline;
   padding: 2px 4px;
