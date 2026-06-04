@@ -68,6 +68,14 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }, []);
 
   useEffect(() => {
+    if (initialMonitor || document.hidden) return undefined;
+    const timeout = window.setTimeout(() => {
+      if (fetcherStateRef.current === "idle") fetcher.load(jobStatusPath);
+    }, 1_000);
+    return () => window.clearTimeout(timeout);
+  }, [fetcher, initialMonitor, jobStatusPath]);
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       if (!document.hidden && fetcherStateRef.current === "idle") fetcher.load(jobStatusPath);
     }, hasActiveJobs ? JOB_STATUS_ACTIVE_POLL_MS : JOB_STATUS_IDLE_POLL_MS);

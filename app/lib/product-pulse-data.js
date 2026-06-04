@@ -3386,37 +3386,46 @@ export function getFlattenedSources() {
   );
 }
 
-export function getAppViewData({ query = "", risk = "all" } = {}) {
+export function getAppViewData({ query = "", risk = "all" } = {}, options = {}) {
+  const includeProducts = options.includeProducts !== false;
+  const includeFilteredProducts = includeProducts && options.includeFilteredProducts !== false;
+  const includeAnalytics = options.includeAnalytics !== false;
+  const includeDashboard = options.includeDashboard !== false;
+  const includeTopIssues = includeProducts && options.includeTopIssues !== false;
   const sources = getFlattenedSources();
   const coverageScore = calculateCoverageScore(sources);
   const coverageState = getCoverageState(coverageScore);
-  const filteredProducts = filterProducts(products, { query, risk });
-  const startHere = products[0];
-  const dashboard = buildDashboardViewData(products, { billing });
+  const filteredProducts = includeFilteredProducts ? filterProducts(products, { query, risk }) : [];
+  const startHere = includeProducts ? products[0] : null;
+  const dashboard = includeDashboard ? buildDashboardViewData(products, { billing }) : null;
 
-  return {
+  const data = {
     sourceGroups,
     sources,
     coverageScore,
     coverageState,
-    products,
-    filteredProducts,
     jobs,
-    analytics: buildAnalyticsViewData(products, { sources }),
     billing,
-    dashboard,
-    startHere,
-    topIssues: products.slice(0, 3).map((product) => ({
-      product: product.title,
-      issue: product.primaryIssue,
-      riskScore: product.riskScore,
-    })),
     permissionState: {
       hasRequiredScopes: true,
       requiredScopes: REQUIRED_SHOPIFY_SCOPES,
       missingScopes: [],
     },
   };
+
+  if (includeProducts) data.products = products;
+  if (includeFilteredProducts) data.filteredProducts = filteredProducts;
+  if (includeAnalytics) data.analytics = buildAnalyticsViewData(products, { sources });
+  if (includeDashboard) data.dashboard = dashboard;
+  if (includeProducts) data.startHere = startHere;
+  if (includeTopIssues) {
+    data.topIssues = products.slice(0, 3).map((product) => ({
+      product: product.title,
+      issue: product.primaryIssue,
+      riskScore: product.riskScore,
+    }));
+  }
+  return data;
 }
 
 export function getProductBySlug(productId) {

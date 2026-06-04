@@ -14,11 +14,14 @@ import {
 } from "../lib/product-pulse-jobs.server";
 import { getProductPulseSettings } from "../lib/product-pulse-settings.server";
 import { addWatchedProductForShop, addWatchedProductsForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
+import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 export const loader = async ({ request }) => {
+  const perf = createProductPulsePerfLogger("loader.products", { route: "/app/products" });
   const { admin, session } = await authenticate.admin(request);
+  perf.mark("authenticate", { shop: session.shop });
   const url = new URL(request.url);
-  const settings = await getProductPulseSettings(session.shop);
+  const settings = await measureProductPulseStep(perf, "getProductPulseSettings", () => getProductPulseSettings(session.shop));
   const mainFilters = parseProductTableFilters(url.searchParams);
   const candidateFilters = parseProductTableFilters(url.searchParams, "candidate");
   const resolvedFilters = parseProductTableFilters(url.searchParams, "resolved");
@@ -29,22 +32,51 @@ export const loader = async ({ request }) => {
     activeTab: normalizeProductsTab(url.searchParams.get("tab")),
   };
 
-  const productTable = await getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings });
-  const candidateProductTable = await getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings });
-  const resolvedProductTable = await getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings });
-  const quickScanCsvReviews = await getCsvReviewSourceStatusForShop(session.shop);
+  try {
+    const productTable = await measureProductPulseStep(
+      perf,
+      "getProductsQueueForShop.full",
+      () => getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.full" }),
+    );
+    const candidateProductTable = await measureProductPulseStep(
+      perf,
+      "getProductsQueueForShop.candidates",
+      () => getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.candidates" }),
+    );
+    const resolvedProductTable = await measureProductPulseStep(
+      perf,
+      "getProductsQueueForShop.resolved",
+      () => getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings, perf, perfPrefix: "products.resolved" }),
+    );
+    const quickScanCsvReviews = await measureProductPulseStep(
+      perf,
+      "getCsvReviewSourceStatusForShop",
+      () => getCsvReviewSourceStatusForShop(session.shop),
+    );
+    const appViewData = getAppViewData(filters, {
+      includeAnalytics: false,
+      includeDashboard: false,
+      includeProducts: false,
+      includeFilteredProducts: false,
+    });
+    perf.mark("getAppViewData.minimal");
+    perf.done({ shop: session.shop });
 
-  return {
-    data: {
-      ...getAppViewData(filters),
-      productTable,
-      candidateProductTable,
-      resolvedProductTable,
-      quickScanCsvReviews,
-      persistProductJobs: true,
-    },
-    filters,
-  };
+    return {
+      data: {
+        ...appViewData,
+        productTable,
+        candidateProductTable,
+        resolvedProductTable,
+        quickScanCsvReviews,
+        persistProductJobs: true,
+      },
+      filters,
+    };
+  } catch (error) {
+    perf.fail(error, { shop: session.shop });
+    throw error;
+  }
 };
 
 export const action = async ({ request }) => {

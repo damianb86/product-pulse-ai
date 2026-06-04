@@ -3,13 +3,34 @@ import { authenticate } from "../shopify.server";
 import { DashboardScreen } from "../components/ProductPulseScreens";
 import { getAppViewData, runCatalogSignalScan } from "../lib/product-pulse-data";
 import { getDashboardDataForShop, queueProductDiagnosisForShop } from "../lib/product-pulse-jobs.server";
+import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 export const loader = async ({ request }) => {
+  const perf = createProductPulsePerfLogger("loader.dashboard", { route: "/app/dashboard" });
   const { admin, session } = await authenticate.admin(request);
-  return {
-    ...getAppViewData(),
-    dashboard: await getDashboardDataForShop(session.shop, admin),
-  };
+  perf.mark("authenticate", { shop: session.shop });
+  try {
+    const data = getAppViewData({}, {
+      includeAnalytics: false,
+      includeDashboard: false,
+      includeProducts: false,
+      includeFilteredProducts: false,
+    });
+    perf.mark("getAppViewData.minimal");
+    const dashboard = await measureProductPulseStep(
+      perf,
+      "getDashboardDataForShop",
+      () => getDashboardDataForShop(session.shop, admin, { perf }),
+    );
+    perf.done({ shop: session.shop });
+    return {
+      ...data,
+      dashboard,
+    };
+  } catch (error) {
+    perf.fail(error, { shop: session.shop });
+    throw error;
+  }
 };
 
 export const action = async ({ request }) => {

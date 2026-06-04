@@ -16,25 +16,28 @@ import { ProductPulseWizard } from "../components/ProductPulseWizard";
 import { getBetaFeedbackClientConfig } from "../lib/beta-feedback-config.server";
 import { buildEmbeddedAppPath, getEmbeddedAppPathname } from "../lib/product-pulse-app-paths";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
-import { getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
+import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 export const loader = async ({ request }) => {
+  const perf = createProductPulsePerfLogger("loader.app", { route: "/app" });
   const { session } = await authenticate.admin(request);
+  perf.mark("authenticate", { shop: session.shop });
   setSentrySessionContext(session);
   const developmentMode = isProductPulseDevelopment();
   const aiChatConfig = getAiChatConfig();
-  const chatQuota = await getAiChatMonthlyQuotaForShop(session.shop, {
+  const chatQuota = await measureProductPulseStep(perf, "getAiChatMonthlyQuotaForShop", () => getAiChatMonthlyQuotaForShop(session.shop, {
     userId: session.userId,
     defaultModel: aiChatConfig.defaultModel,
     cheapModel: aiChatConfig.cheapModel,
     standardMonthlyMessageLimit: aiChatConfig.standardMonthlyMessageLimit,
     cheapMonthlyMessageLimit: aiChatConfig.cheapMonthlyMessageLimit,
-  });
+  }));
   // eslint-disable-next-line no-undef
   const apiKey = process.env.SHOPIFY_API_KEY || "";
   // eslint-disable-next-line no-undef
   const env = process.env;
 
+  perf.done({ shop: session.shop });
   return {
     apiKey,
     shop: session.shop,
@@ -42,7 +45,7 @@ export const loader = async ({ request }) => {
     aiCostDashboardEnabled: isAiCostDashboardEnabled(),
     chatKit: getAiChatKitClientConfig(),
     chatQuota: serializeChatQuotaForClient(chatQuota),
-    jobMonitor: await getJobMonitorForShop(session.shop),
+    jobMonitor: null,
     betaFeedback: getBetaFeedbackClientConfig({ session }),
     observability: {
       sentry: getSentryClientRuntimeConfig(session, env),

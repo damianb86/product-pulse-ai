@@ -60,6 +60,7 @@ import {
   lockStorePointLedgerForShop,
   validateStorePointsForShop,
 } from "./product-pulse-points.server";
+import { measureProductPulseStep } from "./product-pulse-perf.server";
 import { getProductPulseResourceConfig } from "./product-pulse-resource-config.server";
 import { maybeSendWatchlistRunAlertForJob } from "./product-pulse-watchlist-alerts.server";
 
@@ -261,44 +262,53 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
 }
 
 export async function getProductsQueueForShop(shop, admin, filters = {}, options = {}) {
-  await failStaleFastProductScans(shop);
+  const perf = options.perf;
+  const perfPrefix = options.perfPrefix || "products";
+  await measureProductPulseStep(perf, `${perfPrefix}.failStaleFastProductScans`, () => failStaleFastProductScans(shop));
   const [snapshots, activeJob, activeDiagnosisJobs, settings, watchedItems] = await Promise.all([
-    prisma.productRiskSnapshot.findMany({
+    measureProductPulseStep(perf, `${perfPrefix}.snapshots`, () => prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
-    }),
-    getActiveFastProductScan(shop),
-    getActiveProductDiagnosisJobs(shop),
-    options.settings ? Promise.resolve(options.settings) : getProductPulseSettings(shop),
-    prisma.productWatchlistItem.findMany({
+    })),
+    measureProductPulseStep(perf, `${perfPrefix}.activeFastScan`, () => getActiveFastProductScan(shop)),
+    measureProductPulseStep(perf, `${perfPrefix}.activeDiagnosisJobs`, () => getActiveProductDiagnosisJobs(shop)),
+    options.settings ? Promise.resolve(options.settings) : measureProductPulseStep(perf, `${perfPrefix}.settings`, () => getProductPulseSettings(shop)),
+    measureProductPulseStep(perf, `${perfPrefix}.watchlistItems`, () => prisma.productWatchlistItem.findMany({
       where: { shop },
       select: { productGid: true, status: true },
-    }),
+    })),
   ]);
+  perf?.mark(`${perfPrefix}.baseData.loaded`, {
+    snapshots: snapshots.length,
+    activeDiagnosisJobs: activeDiagnosisJobs.length,
+    watchedItems: watchedItems.length,
+  });
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const activeDiagnosisProductKeys = getActiveDiagnosisProductKeySet(activeDiagnosisJobs);
   const [latestDiagnosisByProductGid, resolvedActionsByProductGid] = await Promise.all([
-    getLatestCompletedDiagnosisMap(shop, snapshots),
-    getResolvedProductActionsMap(shop, snapshots),
+    measureProductPulseStep(perf, `${perfPrefix}.latestDiagnosisMap`, () => getLatestCompletedDiagnosisMap(shop, snapshots)),
+    measureProductPulseStep(perf, `${perfPrefix}.resolvedActionsMap`, () => getResolvedProductActionsMap(shop, snapshots)),
   ]);
   const filterOptions = getProductTableFilterOptions(snapshots, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
+  perf?.mark(`${perfPrefix}.filterOptions`);
   const filteredSnapshots = sortProductSnapshots(
     filterProductSnapshots(snapshots, filters, resolvedActionsByProductGid, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys),
     filters,
     resolvedActionsByProductGid,
   );
+  perf?.mark(`${perfPrefix}.filterAndSort`, { filteredSnapshots: filteredSnapshots.length });
   const rowsPerPage = normalizeRowsPerPage(filters.rows);
   const totalPages = Math.max(1, Math.ceil(filteredSnapshots.length / rowsPerPage));
   const page = Math.min(normalizePositiveInteger(filters.page, 1), totalPages);
   const pageSnapshots = filteredSnapshots.slice((page - 1) * rowsPerPage, page * rowsPerPage);
   const watchedByProductGid = new Map(watchedItems.map((item) => [item.productGid, item]));
-  const scoreHistoryByProductGid = await getProductScoreHistoryForProductsForShop(
+  const scoreHistoryByProductGid = await measureProductPulseStep(perf, `${perfPrefix}.scoreHistory`, () => getProductScoreHistoryForProductsForShop(
     shop,
     pageSnapshots.map((snapshot) => snapshot.productGid),
     { take: 80 },
-  );
+  ));
   const rows = pageSnapshots.map((snapshot) => formatProductRow(
     shop,
     snapshot,
@@ -308,8 +318,10 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
     watchedByProductGid.get(snapshot.productGid),
     scoreHistoryByProductGid.get(snapshot.productGid) || [],
   ));
-  const rowsWithImages = await attachProductImages(rows, admin);
+  perf?.mark(`${perfPrefix}.formatRows`, { rows: rows.length });
+  const rowsWithImages = await measureProductPulseStep(perf, `${perfPrefix}.attachProductImages`, () => attachProductImages(rows, admin));
   const rowsWithJobs = attachActiveProductDiagnosisJobs(rowsWithImages, activeDiagnosisJobs);
+  perf?.mark(`${perfPrefix}.attachActiveJobs`);
 
   return {
     rows: rowsWithJobs,
@@ -361,43 +373,54 @@ export async function addShopifyProductCandidateForShop(shop, admin, productId) 
   };
 }
 
-export async function getDashboardDataForShop(shop, admin) {
-  await failStaleFastProductScans(shop);
+export async function getDashboardDataForShop(shop, admin, options = {}) {
+  const perf = options.perf;
+  await measureProductPulseStep(perf, "dashboard.failStaleFastProductScans", () => failStaleFastProductScans(shop));
   const [snapshots, pointBalance, activeJob, activeDiagnosisJobs, settings, catalogProductCount, actions] = await Promise.all([
-    prisma.productRiskSnapshot.findMany({
+    measureProductPulseStep(perf, "dashboard.snapshots", () => prisma.productRiskSnapshot.findMany({
       where: { shop },
       orderBy: [{ riskScore: "desc" }, { updatedAt: "desc" }],
-    }),
-    getStorePointBalanceForShop(shop),
-    getActiveFastProductScan(shop),
-    getActiveProductDiagnosisJobs(shop),
-    getProductPulseSettings(shop),
-    getShopifyCatalogProductCount(admin),
-    prisma.productAction.findMany({
+    })),
+    measureProductPulseStep(perf, "dashboard.pointBalance", () => getStorePointBalanceForShop(shop)),
+    measureProductPulseStep(perf, "dashboard.activeFastScan", () => getActiveFastProductScan(shop)),
+    measureProductPulseStep(perf, "dashboard.activeDiagnosisJobs", () => getActiveProductDiagnosisJobs(shop)),
+    measureProductPulseStep(perf, "dashboard.settings", () => getProductPulseSettings(shop)),
+    measureProductPulseStep(perf, "dashboard.shopifyCatalogProductCount", () => getShopifyCatalogProductCount(admin)),
+    measureProductPulseStep(perf, "dashboard.actions", () => prisma.productAction.findMany({
       where: { shop },
       orderBy: { createdAt: "desc" },
       take: 250,
-    }),
+    })),
   ]);
+  perf?.mark("dashboard.baseData.loaded", {
+    snapshots: snapshots.length,
+    activeDiagnosisJobs: activeDiagnosisJobs.length,
+    actions: actions.length,
+    catalogProductCount,
+  });
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
 
-  const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots);
+  const latestDiagnosisByProductGid = await measureProductPulseStep(perf, "dashboard.latestDiagnosisMap", () => getLatestCompletedDiagnosisMap(shop, snapshots));
   const dashboardProductsWithoutImages = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
     snapshot,
     actions.filter((action) => action.productGid === snapshot.productGid).map(formatStoredProductAction),
     latestDiagnosisByProductGid.get(snapshot.productGid),
     settings,
   ));
-  const dashboardProducts = await attachProductImages(dashboardProductsWithoutImages, admin);
+  perf?.mark("dashboard.formatProducts", { products: dashboardProductsWithoutImages.length });
+  const dashboardProducts = await measureProductPulseStep(perf, "dashboard.attachProductImages", () => attachProductImages(dashboardProductsWithoutImages, admin));
   const dashboardProductsWithJobs = attachActiveProductDiagnosisJobs(dashboardProducts, activeDiagnosisJobs);
+  perf?.mark("dashboard.attachActiveJobs");
 
-  return buildDashboardViewData(dashboardProductsWithJobs, {
+  const dashboard = buildDashboardViewData(dashboardProductsWithJobs, {
     billing: { creditsAvailable: pointBalance.available, pointBalance },
     catalogProductCount,
     settings,
   });
+  perf?.mark("dashboard.buildDashboardViewData");
+  return dashboard;
 }
 
 async function getShopifyCatalogProductCount(admin) {
