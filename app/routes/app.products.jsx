@@ -33,21 +33,23 @@ export const loader = async ({ request }) => {
   };
 
   try {
-    const productTable = await measureProductPulseStep(
-      perf,
-      "getProductsQueueForShop.full",
-      () => getProductsQueueForShop(session.shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.full" }),
-    );
-    const candidateProductTable = await measureProductPulseStep(
-      perf,
-      "getProductsQueueForShop.candidates",
-      () => getProductsQueueForShop(session.shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.candidates" }),
-    );
-    const resolvedProductTable = await measureProductPulseStep(
-      perf,
-      "getProductsQueueForShop.resolved",
-      () => getProductsQueueForShop(session.shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings, perf, perfPrefix: "products.resolved" }),
-    );
+    if (url.searchParams.get("_productTables") === "1") {
+      const productTables = await loadProductsPageTables({
+        shop: session.shop,
+        admin,
+        settings,
+        perf,
+        mainFilters,
+        candidateFilters,
+        resolvedFilters,
+      });
+      perf.done({ shop: session.shop, mode: "tables" });
+      return {
+        requestKey: buildProductTablesRequestKey(url),
+        productTables,
+      };
+    }
+
     const quickScanCsvReviews = await measureProductPulseStep(
       perf,
       "getCsvReviewSourceStatusForShop",
@@ -65,11 +67,12 @@ export const loader = async ({ request }) => {
     return {
       data: {
         ...appViewData,
-        productTable,
-        candidateProductTable,
-        resolvedProductTable,
+        productTable: buildEmptyProductTable(mainFilters),
+        candidateProductTable: buildEmptyProductTable(candidateFilters),
+        resolvedProductTable: buildEmptyProductTable(resolvedFilters),
         quickScanCsvReviews,
         persistProductJobs: true,
+        productTablesDeferred: true,
       },
       filters,
     };
@@ -145,6 +148,50 @@ export default function Products() {
   return <ProductsScreen data={data} filters={filters} actionData={actionData} />;
 }
 
+async function loadProductsPageTables({ shop, admin, settings, perf, mainFilters, candidateFilters, resolvedFilters }) {
+  const productTable = await measureProductPulseStep(
+    perf,
+    "getProductsQueueForShop.full",
+    () => getProductsQueueForShop(shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.full" }),
+  );
+  const candidateProductTable = await measureProductPulseStep(
+    perf,
+    "getProductsQueueForShop.candidates",
+    () => getProductsQueueForShop(shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.candidates" }),
+  );
+  const resolvedProductTable = await measureProductPulseStep(
+    perf,
+    "getProductsQueueForShop.resolved",
+    () => getProductsQueueForShop(shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings, perf, perfPrefix: "products.resolved" }),
+  );
+
+  return {
+    productTable,
+    candidateProductTable,
+    resolvedProductTable,
+  };
+}
+
+function buildEmptyProductTable(filters = {}) {
+  return {
+    rows: [],
+    total: 0,
+    totalAll: 0,
+    page: normalizePositiveInteger(filters.page, 1),
+    rowsPerPage: normalizeProductRowsPerPage(filters.rows),
+    totalPages: 1,
+    filterOptions: {},
+    activeScanJob: null,
+    activeDiagnosisJobs: [],
+  };
+}
+
+function buildProductTablesRequestKey(url) {
+  const params = new URLSearchParams(url.searchParams);
+  params.delete("_productTables");
+  return params.toString();
+}
+
 function parseSelectedWatchlistProducts(value) {
   try {
     const parsed = JSON.parse(String(value || "[]"));
@@ -169,10 +216,19 @@ function parseProductTableFilters(searchParams, prefix = "") {
     vendor: get("vendor", "all"),
     collection: get("collection", "all"),
     page: get("page", "1"),
-    rows: get("rows", "25"),
+    rows: normalizeProductRowsPerPage(get("rows", "5")),
     sort: get("sort", ""),
     direction: get("direction", "desc"),
   };
+}
+
+function normalizeProductRowsPerPage(value) {
+  return Number(value) === 10 ? "10" : "5";
+}
+
+function normalizePositiveInteger(value, fallback = 1) {
+  const number = Number.parseInt(value, 10);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
 function normalizeProductsTab(value) {

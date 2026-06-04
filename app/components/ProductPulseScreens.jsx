@@ -734,6 +734,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const navigation = useNavigation();
   const submit = useSubmit();
   const shopifyProductSearchFetcher = useFetcher();
+  const productTablesFetcher = useFetcher();
+  const location = useLocation();
   const [localFastScan, setLocalFastScan] = useState(false);
   const [localSortConfig, setLocalSortConfig] = useState(null);
   const [openActionProduct, setOpenActionProduct] = useState(null);
@@ -753,6 +755,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
   const [diagnosisQueueOverlayTimedOut, setDiagnosisQueueOverlayTimedOut] = useState(false);
   const [diagnosisQueueOverlayDismissed, setDiagnosisQueueOverlayDismissed] = useState(false);
+  const productTablesLoadRef = useRef(productTablesFetcher.load);
   const requestedProductsTab = normalizeProductsTab(filters.activeTab);
   const [activeProductsTab, setActiveProductsTab] = useState(() => {
     if (requestedProductsTab) return requestedProductsTab;
@@ -760,9 +763,29 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     if (hasActiveProductTableFilters(filters.candidates)) return "candidates";
     return "full";
   });
-  const productTableRows = data.productTable?.rows;
-  const candidateTableRows = data.candidateProductTable?.rows;
-  const resolvedTableRows = data.resolvedProductTable?.rows;
+  const productTablesDeferred = Boolean(data.productTablesDeferred);
+  const productTablesRequestKey = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    params.delete("_productTables");
+    return params.toString();
+  }, [location.search]);
+  const productTablesFetchHref = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    params.set("_productTables", "1");
+    const query = params.toString();
+    return `${location.pathname || "/app/products"}${query ? `?${query}` : ""}`;
+  }, [location.pathname, location.search]);
+  const fetchedProductTables = productTablesFetcher.data?.productTables;
+  const fetchedProductTablesFresh = productTablesDeferred
+    && fetchedProductTables
+    && productTablesFetcher.data?.requestKey === productTablesRequestKey;
+  const productTableData = fetchedProductTablesFresh ? fetchedProductTables.productTable : data.productTable;
+  const candidateProductTableData = fetchedProductTablesFresh ? fetchedProductTables.candidateProductTable : data.candidateProductTable;
+  const resolvedProductTableData = fetchedProductTablesFresh ? fetchedProductTables.resolvedProductTable : data.resolvedProductTable;
+  const productTablesLoading = productTablesDeferred && !fetchedProductTablesFresh;
+  const productTableRows = productTableData?.rows;
+  const candidateTableRows = candidateProductTableData?.rows;
+  const resolvedTableRows = resolvedProductTableData?.rows;
   const productRows = useMemo(() => productTableRows || [], [productTableRows]);
   const candidateRows = useMemo(() => candidateTableRows || [], [candidateTableRows]);
   const resolvedRows = useMemo(() => resolvedTableRows || [], [resolvedTableRows]);
@@ -775,31 +798,31 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     });
     return Array.from(rowsByKey.values());
   }, [productRows, candidateRows, resolvedRows]);
-  const productCount = data.productTable?.total ?? productRows.length;
-  const candidateCount = data.candidateProductTable?.total ?? candidateRows.length;
-  const resolvedCount = data.resolvedProductTable?.total ?? resolvedRows.length;
-  const totalAllProducts = data.productTable?.totalAll ?? productCount;
-  const candidateTotalAllProducts = data.candidateProductTable?.totalAll ?? candidateCount;
-  const resolvedTotalAllProducts = data.resolvedProductTable?.totalAll ?? resolvedCount;
-  const filterOptions = data.productTable?.filterOptions || {};
+  const productCount = productTableData?.total ?? productRows.length;
+  const candidateCount = candidateProductTableData?.total ?? candidateRows.length;
+  const resolvedCount = resolvedProductTableData?.total ?? resolvedRows.length;
+  const totalAllProducts = productTableData?.totalAll ?? productCount;
+  const candidateTotalAllProducts = candidateProductTableData?.totalAll ?? candidateCount;
+  const resolvedTotalAllProducts = resolvedProductTableData?.totalAll ?? resolvedCount;
+  const filterOptions = productTableData?.filterOptions || {};
   const candidateFilters = filters.candidates || {};
   const resolvedFilters = filters.resolved || {};
-  const candidateFilterOptions = data.candidateProductTable?.filterOptions || filterOptions;
-  const resolvedFilterOptions = data.resolvedProductTable?.filterOptions || filterOptions;
-  const page = data.productTable?.page || 1;
-  const rowsPerPage = data.productTable?.rowsPerPage || Number(filters.rows || 25);
-  const totalPages = data.productTable?.totalPages || 1;
-  const candidatePage = data.candidateProductTable?.page || 1;
-  const candidateRowsPerPage = data.candidateProductTable?.rowsPerPage || Number(candidateFilters.rows || 25);
-  const candidateTotalPages = data.candidateProductTable?.totalPages || 1;
-  const resolvedPage = data.resolvedProductTable?.page || 1;
-  const resolvedRowsPerPage = data.resolvedProductTable?.rowsPerPage || Number(resolvedFilters.rows || 25);
-  const resolvedTotalPages = data.resolvedProductTable?.totalPages || 1;
-  const activeScanJob = data.productTable?.activeScanJob || null;
+  const candidateFilterOptions = candidateProductTableData?.filterOptions || filterOptions;
+  const resolvedFilterOptions = resolvedProductTableData?.filterOptions || filterOptions;
+  const page = productTableData?.page || 1;
+  const rowsPerPage = normalizeProductTablePageSize(productTableData?.rowsPerPage ?? filters.rows);
+  const totalPages = productTableData?.totalPages || 1;
+  const candidatePage = candidateProductTableData?.page || 1;
+  const candidateRowsPerPage = normalizeProductTablePageSize(candidateProductTableData?.rowsPerPage ?? candidateFilters.rows);
+  const candidateTotalPages = candidateProductTableData?.totalPages || 1;
+  const resolvedPage = resolvedProductTableData?.page || 1;
+  const resolvedRowsPerPage = normalizeProductTablePageSize(resolvedProductTableData?.rowsPerPage ?? resolvedFilters.rows);
+  const resolvedTotalPages = resolvedProductTableData?.totalPages || 1;
+  const activeScanJob = productTableData?.activeScanJob || null;
   const activeDiagnosisJobs = [
-    ...(data.productTable?.activeDiagnosisJobs || []),
-    ...(data.candidateProductTable?.activeDiagnosisJobs || []),
-    ...(data.resolvedProductTable?.activeDiagnosisJobs || []),
+    ...(productTableData?.activeDiagnosisJobs || []),
+    ...(candidateProductTableData?.activeDiagnosisJobs || []),
+    ...(resolvedProductTableData?.activeDiagnosisJobs || []),
   ];
   const persistProductJobs = Boolean(data.persistProductJobs);
   const pendingFastScan = navigation.state === "submitting" && navigation.formData?.get("_action") === "fast-product-scan";
@@ -855,13 +878,27 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   };
 
   useEffect(() => {
+    productTablesLoadRef.current = productTablesFetcher.load;
+  }, [productTablesFetcher.load]);
+
+  useEffect(() => {
+    if (!productTablesDeferred) return;
+    productTablesLoadRef.current(productTablesFetchHref);
+  }, [productTablesDeferred, productTablesFetchHref]);
+
+  useEffect(() => {
     const hasProductDiagnosisJobs = activeDiagnosisJobs.length > 0 || allVisibleRows.some((product) => product.diagnosisJob);
     if ((!activeScanJob && !hasProductDiagnosisJobs) || !persistProductJobs) return undefined;
     const interval = window.setInterval(() => {
-      if (!document.hidden) revalidator.revalidate();
+      if (document.hidden) return;
+      if (productTablesDeferred) {
+        productTablesLoadRef.current(productTablesFetchHref);
+      } else {
+        revalidator.revalidate();
+      }
     }, PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
-  }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, revalidator]);
+  }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, productTablesDeferred, productTablesFetchHref, revalidator]);
 
   useEffect(() => {
     if (!pendingBulkAnalyze) {
@@ -1090,6 +1127,22 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
       setSelectedProducts(new Set());
     }
   }, [actionData]);
+
+  useEffect(() => {
+    if (!productTablesDeferred || actionData?.status !== "success") return;
+    const actionId = String(actionData?.action?.id || "");
+    const shouldRefreshTables = Boolean(actionData?.analyzedCount || actionData?.queuedCount)
+      || [
+        "add-shopify-product-candidate",
+        "add-watched-product",
+        "add-watched-products",
+        "remove-watched-product",
+        "mark-resolved",
+        "mark-unresolved",
+        "delete-product-analysis",
+      ].includes(actionId);
+    if (shouldRefreshTables) productTablesLoadRef.current(productTablesFetchHref);
+  }, [actionData, productTablesDeferred, productTablesFetchHref]);
 
   const handleLocalFastScan = () => {
     setLocalFastScan(true);
@@ -1363,6 +1416,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     emptyDescription,
     tableTestId,
     showFindProduct = false,
+    isLoading = false,
   }) => {
     const selectionState = getRowsSelectionState(rows);
     const productLabel = getProductTableLabel(table);
@@ -1410,7 +1464,9 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               </div>
             )}
             <span className="ppProductsTableCount">
-              {rows.length > 0
+              {isLoading
+                ? `Loading ${productLabel}...`
+                : rows.length > 0
                 ? `${rows.length} of ${count} ${productLabel}${totalAll !== count ? ` (${totalAll} stored)` : ""}`
                 : table === "candidates" ? "No candidates in this view" : "No Product Diagnosis results in this view"}
             </span>
@@ -1471,6 +1527,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                     checked={selectionState.allSelected}
                     aria-checked={selectionState.hasSelection && !selectionState.allSelected ? "mixed" : selectionState.allSelected}
                     aria-label={`Select all visible ${productLabel}`}
+                    disabled={isLoading}
                     onChange={() => handleToggleRows(rows)}
                   />
                 </th>
@@ -1500,7 +1557,20 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && (
+              {isLoading && (
+                <tr className="ppProductsEmptyRow">
+                  <td colSpan="10">
+                    <div className="ppProductsEmptyState" role="status" aria-live="polite">
+                      <span className="ppMiniSpinner" aria-hidden="true" />
+                      <div>
+                        <h2>Loading products</h2>
+                        <p>Fetching the latest product rows for this table page.</p>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!isLoading && rows.length === 0 && (
                 <tr className="ppProductsEmptyRow">
                   <td colSpan="10">
                     <div className="ppProductsEmptyState">
@@ -1612,13 +1682,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
             </tbody>
             </table>
           </div>
-          {rows.length > 0 && (
+          {!isLoading && rows.length > 0 && (
             <div className="ppProductsPagination">
               <label className="ppRowsSelect">
                 Rows per page
                 <select value={pageSize} onChange={(event) => submitProductFilters({ rows: event.target.value, page: "1" }, table)}>
-                  <option value="25">25</option>
-                  <option value="50">50</option>
+                  <option value="5">5</option>
+                  <option value="10">10</option>
                 </select>
               </label>
               <div className="ppPageControls" aria-label={`${title} pagination`}>
@@ -1700,12 +1770,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const renderActiveProductsTable = () => {
     if (activeProductsTab === "candidates") {
-      return renderProductTable({ table: "candidates", title: "Candidates", description: "Products captured by Catalog Scan or added manually, without a completed Product Diagnosis yet.", rows: candidateRows, count: candidateCount, totalAll: candidateTotalAllProducts, currentPage: candidatePage, pageSize: candidateRowsPerPage, pages: candidateTotalPages, tableSortConfig: candidateSortConfig, tableTestId: "products-candidates-table", showFindProduct: true, searchState: { open: candidateSearchOpen, value: candidateSearchValue, inputRef: candidateTableSearchInputRef, setOpen: setCandidateSearchOpen, setValue: setCandidateSearchValue }, emptyTitle: "No candidates yet", emptyDescription: "Run Catalog Scan or add a Shopify product as a candidate without starting Product Diagnosis." });
+      return renderProductTable({ table: "candidates", title: "Candidates", description: "Products captured by Catalog Scan or added manually, without a completed Product Diagnosis yet.", rows: candidateRows, count: candidateCount, totalAll: candidateTotalAllProducts, currentPage: candidatePage, pageSize: candidateRowsPerPage, pages: candidateTotalPages, tableSortConfig: candidateSortConfig, tableTestId: "products-candidates-table", showFindProduct: true, searchState: { open: candidateSearchOpen, value: candidateSearchValue, inputRef: candidateTableSearchInputRef, setOpen: setCandidateSearchOpen, setValue: setCandidateSearchValue }, emptyTitle: "No candidates yet", emptyDescription: "Run Catalog Scan or add a Shopify product as a candidate without starting Product Diagnosis.", isLoading: productTablesLoading });
     }
     if (activeProductsTab === "resolved") {
-      return renderProductTable({ table: "resolved", title: "Resolved", description: "Products marked resolved after review or remediation.", rows: resolvedRows, count: resolvedCount, totalAll: resolvedTotalAllProducts, currentPage: resolvedPage, pageSize: resolvedRowsPerPage, pages: resolvedTotalPages, tableSortConfig: resolvedSortConfig, tableTestId: "products-resolved-table", searchState: { open: resolvedSearchOpen, value: resolvedSearchValue, inputRef: resolvedTableSearchInputRef, setOpen: setResolvedSearchOpen, setValue: setResolvedSearchValue }, emptyTitle: "No resolved products yet", emptyDescription: "Resolved products will appear here after you mark a diagnosis as resolved." });
+      return renderProductTable({ table: "resolved", title: "Resolved", description: "Products marked resolved after review or remediation.", rows: resolvedRows, count: resolvedCount, totalAll: resolvedTotalAllProducts, currentPage: resolvedPage, pageSize: resolvedRowsPerPage, pages: resolvedTotalPages, tableSortConfig: resolvedSortConfig, tableTestId: "products-resolved-table", searchState: { open: resolvedSearchOpen, value: resolvedSearchValue, inputRef: resolvedTableSearchInputRef, setOpen: setResolvedSearchOpen, setValue: setResolvedSearchValue }, emptyTitle: "No resolved products yet", emptyDescription: "Resolved products will appear here after you mark a diagnosis as resolved.", isLoading: productTablesLoading });
     }
-    return renderProductTable({ table: "main", title: "Product Diagnosis", description: "Products with completed or running Product Diagnosis.", rows: productRows, count: productCount, totalAll: totalAllProducts, currentPage: page, pageSize: rowsPerPage, pages: totalPages, tableSortConfig: sortConfig, tableTestId: "products-table", showFindProduct: true, searchState: { open: searchOpen, value: searchValue, inputRef: productTableSearchInputRef, setOpen: setSearchOpen, setValue: setSearchValue }, emptyTitle: "No Product Diagnosis results yet", emptyDescription: "Run Product Diagnosis from Candidates or find a Shopify product to start Product Diagnosis." });
+    return renderProductTable({ table: "main", title: "Product Diagnosis", description: "Products with completed or running Product Diagnosis.", rows: productRows, count: productCount, totalAll: totalAllProducts, currentPage: page, pageSize: rowsPerPage, pages: totalPages, tableSortConfig: sortConfig, tableTestId: "products-table", showFindProduct: true, searchState: { open: searchOpen, value: searchValue, inputRef: productTableSearchInputRef, setOpen: setSearchOpen, setValue: setSearchValue }, emptyTitle: "No Product Diagnosis results yet", emptyDescription: "Run Product Diagnosis from Candidates or find a Shopify product to start Product Diagnosis.", isLoading: productTablesLoading });
   };
 
   return (
@@ -8089,10 +8159,14 @@ const PRODUCT_FILTER_DEFAULTS = {
   vendor: "all",
   collection: "all",
   page: "1",
-  rows: "25",
+  rows: "5",
   sort: "",
   direction: "desc",
 };
+
+function normalizeProductTablePageSize(value) {
+  return Number(value) === 10 ? 10 : 5;
+}
 
 function getProductTableLabel(table = "main") {
   if (table === "candidates") return "candidates";
@@ -8182,7 +8256,7 @@ function appendProductFilterFormValues(formData, values = {}, prefix = "") {
     vendor: "all",
     collection: "all",
     page: "1",
-    rows: "25",
+    rows: "5",
     sort: "",
     direction: "desc",
     ...values,
@@ -8193,7 +8267,8 @@ function appendProductFilterFormValues(formData, values = {}, prefix = "") {
     if (normalizedValues[name] && normalizedValues[name] !== "all") formData.set(getParamName(name), normalizedValues[name]);
   });
   if (String(normalizedValues.page || "1") !== "1") formData.set(getParamName("page"), String(normalizedValues.page));
-  if (String(normalizedValues.rows || "25") !== "25") formData.set(getParamName("rows"), String(normalizedValues.rows));
+  const normalizedRows = String(normalizeProductTablePageSize(normalizedValues.rows));
+  if (normalizedRows !== "5") formData.set(getParamName("rows"), normalizedRows);
   if (normalizedValues.sort) {
     formData.set(getParamName("sort"), normalizedValues.sort);
     formData.set(getParamName("direction"), normalizedValues.direction === "asc" ? "asc" : "desc");

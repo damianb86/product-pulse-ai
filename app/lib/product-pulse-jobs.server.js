@@ -4536,7 +4536,7 @@ function getStatusLabel(score, resolved = false, settings = undefined) {
 }
 
 function normalizeRowsPerPage(value) {
-  return Number(value) === 50 ? 50 : 25;
+  return Number(value) === 10 ? 10 : 5;
 }
 
 function normalizePositiveInteger(value, fallback) {
