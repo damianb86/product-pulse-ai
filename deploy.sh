@@ -2,7 +2,7 @@
 set -eu
 
 APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-APP_ENV_FILE=${APP_ENV_FILE:-"$APP_DIR/.env"}
+APP_ENV_FILE=${APP_ENV_FILE:-}
 APP_DISPLAY_NAME=${APP_DISPLAY_NAME:-"ProductPulse AI"}
 VERIFY_ENV_VARS=${VERIFY_ENV_VARS:-"PRODUCT_PULSE_AI_LEVEL AI_CHATKIT_ENABLED AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT"}
 BUILD_APP_BUNDLE=${BUILD_APP_BUNDLE:-auto}
@@ -58,7 +58,13 @@ finish_step() {
   echo
 }
 
-APP_ENV_FILE=$(resolve_file "$APP_ENV_FILE")
+if [ -n "$APP_ENV_FILE" ]; then
+  APP_ENV_FILE=$(resolve_file "$APP_ENV_FILE")
+elif [ -f "$APP_DIR/.env.production" ]; then
+  APP_ENV_FILE=$(resolve_file "$APP_DIR/.env.production")
+else
+  APP_ENV_FILE=$(resolve_file "$APP_DIR/.env")
+fi
 
 if [ -n "${SHARED_ENV_FILE:-}" ]; then
   SHARED_ENV_FILE=$(resolve_file "$SHARED_ENV_FILE")

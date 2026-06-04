@@ -98,10 +98,46 @@ ProductPulse AI is configured to deploy like Reply Pilot on the shared Zuam Dock
 
 - Shared Caddy and PostgreSQL live in `../shared-docker`.
 - The app joins the external Docker network `shared_apps`.
-- `deploy.sh` loads both the app `.env` and the shared `shared-docker/.env`, validates `docker-compose.yml`, then runs `docker compose up -d --build --remove-orphans`.
+- Keep `.env` for local development and `.env.production` for production runtime/deploy values. `deploy.sh` uses `.env.production` automatically when it exists; otherwise it falls back to `.env`. You can override this with `APP_ENV_FILE=/path/to/env ./deploy.sh`.
+- `deploy.sh` loads both the app env file and the shared `shared-docker/.env`, validates `docker-compose.yml`, then runs `docker compose up -d --build --remove-orphans`.
 - Docker publishes `SHOPIFY_APP_URL` from `PROD_SHOPIFY_APP_URL`; keep local `SHOPIFY_APP_URL` for development.
 - In Docker, use the shared PostgreSQL hostname in `DATABASE_URL`, for example `postgresql://zuam_dev:replace-with-app-db-password@postgres:5432/product_pulse_ai?schema=public&connection_limit=10&pool_timeout=30`.
 - Docker runs background processing in a separate `worker` service. Keep `PRODUCT_PULSE_INLINE_WORKERS_ENABLED=false` for the web app so user requests do not inherit long-running jobs.
+- On low-memory servers, build the production bundle on a developer machine and copy `build/` to the server before deploy:
+
+```bash
+npm run build:production
+rsync -az --delete build/ user@server:/opt/apps/product-pulse-ai/build/
+ssh user@server 'cd /opt/apps/product-pulse-ai && BUILD_APP_BUNDLE=0 ./deploy.sh'
+```
+
+With a PEM key, for example `ssh.pem` and server `ubuntu@3.135.94.213`:
+
+```bash
+chmod 400 ssh.pem
+npm run build:production
+rsync -az --delete -e "ssh -i ssh.pem" build/ ubuntu@3.135.94.213:/opt/apps/product-pulse-ai/build/
+ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && BUILD_APP_BUNDLE=0 ./deploy.sh'
+```
+
+After `deploy.sh` finishes successfully, no extra app command is required. The script validates env files, initializes the database role/database, starts `app` and `worker`, verifies selected env vars, and prints container status. To inspect the result manually:
+
+```bash
+ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && docker compose --env-file ../shared-docker/.env --env-file .env.production ps app worker'
+ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && docker compose --env-file ../shared-docker/.env --env-file .env.production logs -f --tail=100 app worker'
+```
+
+`build:production` loads `.env.production` but overrides runtime `NODE_OPTIONS` during the build with `BUILD_NODE_OPTIONS` so Vite/Rollup can use more local memory. Default build heap is 4 GB:
+
+```bash
+BUILD_NODE_OPTIONS=--max-old-space-size=6144 npm run build:production
+```
+
+Sentry runtime error reporting only needs `SENTRY_DSN` and `VITE_SENTRY_DSN`. Source map upload is disabled by default during local production builds because it requires a valid `SENTRY_AUTH_TOKEN`. To upload source maps intentionally:
+
+```bash
+BUILD_SENTRY_SOURCEMAPS=1 npm run build:production
+```
 
 Resource controls for the worker:
 
