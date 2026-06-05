@@ -4,12 +4,15 @@ import { buildEmbeddedAppPath } from "../lib/product-pulse-app-paths";
 
 const JOB_STATUS_MIN_REFRESH_MS = 10_000;
 const JOB_STATUS_ACTIVE_POLL_MS = 10_000;
-const JOB_STATUS_IDLE_POLL_MS = 45_000;
+const JOB_STATUS_IDLE_POLL_MS = 180_000;
+const JOB_STATUS_INITIAL_LOAD_MS = 30_000;
+const CREDIT_SUMMARY_REFRESH_MS = 60_000;
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
   const fetcher = useFetcher();
   const cancelFetcher = useFetcher();
   const searchFetcher = useFetcher();
+  const creditFetcher = useFetcher();
   const revalidator = useRevalidator();
   const location = useLocation();
   const [minimized, setMinimized] = useState(() => Boolean(developmentMode));
@@ -23,20 +26,27 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const announcedFailedJobIdsRef = useRef(new Set());
   const fetcherStateRef = useRef(fetcher.state);
   const searchFetcherLoadRef = useRef(searchFetcher.load);
+  const creditFetcherLoadRef = useRef(creditFetcher.load);
+  const creditFetcherStateRef = useRef(creditFetcher.state);
   const lastJobStatusLoadAtRef = useRef(0);
+  const lastCreditSummaryLoadAtRef = useRef(0);
   const pendingJobStatusLoadRef = useRef(null);
   const lastSearchQueryRef = useRef("");
   const topbarRef = useRef(null);
   const searchInputRef = useRef(null);
-  const monitor = fetcher.data?.jobMonitor || initialMonitor || {};
+  const [monitorSnapshot, setMonitorSnapshot] = useState(() => initialMonitor || {});
+  const monitor = monitorSnapshot || {};
   const activeJobs = useMemo(() => monitor.activeJobs || [], [monitor.activeJobs]);
   const recentJobs = useMemo(() => monitor.recentJobs || [], [monitor.recentJobs]);
   const logs = useMemo(() => monitor.logs || [], [monitor.logs]);
-  const pointSummary = monitor.pointSummary || initialMonitor?.pointSummary || null;
-  const pointBalance = pointSummary?.balance || monitor.pointBalance || initialMonitor?.pointBalance || null;
-  const hasActiveJobs = activeJobs.length > 0;
+  const creditSummary = creditFetcher.data?.pointSummary || null;
+  const pointSummary = creditSummary || monitor.pointSummary || initialMonitor?.pointSummary || null;
+  const pointBalance = pointSummary?.balance || creditFetcher.data?.pointBalance || monitor.pointBalance || initialMonitor?.pointBalance || null;
+  const activeJobCount = Number(monitor.activeJobCount ?? initialMonitor?.activeJobCount ?? activeJobs.length) || 0;
+  const hasActiveJobs = activeJobCount > 0;
   const buildAppPath = useCallback((path) => buildEmbeddedAppPath(location.pathname, path), [location.pathname]);
   const jobStatusPath = buildAppPath("/app/job-status");
+  const creditSummaryPath = buildAppPath("/app/credits-summary");
   const pendingCancelJobId = cancelFetcher.state !== "idle"
     ? String(cancelFetcher.formData?.get("jobId") || "")
     : "";
@@ -64,12 +74,12 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     [logs, selectedJobId],
   );
   const requestJobStatusLoad = useCallback((options = {}) => {
-    const { allowHidden = false } = options;
+    const { allowHidden = false, force = false, scope = "summary" } = options;
     if (!allowHidden && document.hidden) return;
     if (fetcherStateRef.current !== "idle") return;
 
     const elapsedMs = Date.now() - lastJobStatusLoadAtRef.current;
-    const remainingMs = Math.max(0, JOB_STATUS_MIN_REFRESH_MS - elapsedMs);
+    const remainingMs = force ? 0 : Math.max(0, JOB_STATUS_MIN_REFRESH_MS - elapsedMs);
     if (remainingMs > 0) {
       if (!pendingJobStatusLoadRef.current) {
         pendingJobStatusLoadRef.current = window.setTimeout(() => {
@@ -81,7 +91,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     }
 
     lastJobStatusLoadAtRef.current = Date.now();
-    fetcher.load(jobStatusPath);
+    fetcher.load(buildJobStatusRequestPath(jobStatusPath, scope));
   }, [fetcher, jobStatusPath]);
 
   useEffect(() => {
@@ -91,10 +101,15 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }, []);
 
   useEffect(() => {
+    if (!fetcher.data?.jobMonitor) return;
+    setMonitorSnapshot((current) => mergeJobMonitorSnapshot(current, fetcher.data.jobMonitor));
+  }, [fetcher.data]);
+
+  useEffect(() => {
     if (initialMonitor || document.hidden) return undefined;
     const timeout = window.setTimeout(() => {
       requestJobStatusLoad();
-    }, JOB_STATUS_MIN_REFRESH_MS);
+    }, JOB_STATUS_INITIAL_LOAD_MS);
     return () => window.clearTimeout(timeout);
   }, [initialMonitor, requestJobStatusLoad]);
 
@@ -119,6 +134,23 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   useEffect(() => {
     searchFetcherLoadRef.current = searchFetcher.load;
   }, [searchFetcher.load]);
+
+  useEffect(() => {
+    creditFetcherLoadRef.current = creditFetcher.load;
+  }, [creditFetcher.load]);
+
+  useEffect(() => {
+    creditFetcherStateRef.current = creditFetcher.state;
+  }, [creditFetcher.state]);
+
+  useEffect(() => {
+    if (activePopover !== "credits") return;
+    if (creditFetcherStateRef.current !== "idle") return;
+    const elapsedMs = Date.now() - lastCreditSummaryLoadAtRef.current;
+    if (creditFetcher.data?.pointSummary && elapsedMs < CREDIT_SUMMARY_REFRESH_MS) return;
+    lastCreditSummaryLoadAtRef.current = Date.now();
+    creditFetcherLoadRef.current(creditSummaryPath);
+  }, [activePopover, creditFetcher.data, creditSummaryPath]);
 
   useEffect(() => {
     const currentJobs = new Map();
@@ -168,7 +200,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     if (cancelFetcher.state !== "idle" || cancelFetcher.data?.status !== "success") return;
-    requestJobStatusLoad();
+    requestJobStatusLoad({ force: true });
     revalidator.revalidate();
   }, [cancelFetcher.data, cancelFetcher.state, requestJobStatusLoad, revalidator]);
 
@@ -183,6 +215,11 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   useEffect(() => {
     setActivePopover(null);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (activePopover !== "jobs") return;
+    requestJobStatusLoad({ force: true, scope: "popover" });
+  }, [activePopover, requestJobStatusLoad]);
 
   useEffect(() => {
     const handleWizardOpenBackgroundProcesses = () => {
@@ -245,7 +282,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       });
       observedJobsRef.current = nextJobs;
 
-      requestJobStatusLoad();
+      requestJobStatusLoad({ force: true });
       revalidator.revalidate();
     };
 
@@ -285,10 +322,12 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       searchFetcher={searchFetcher}
       searchInputRef={searchInputRef}
       activeJobs={activeJobs}
+      activeJobCount={activeJobCount}
       recentJobs={recentJobs}
       hasActiveJobs={hasActiveJobs}
       pointBalance={pointBalance}
       pointSummary={pointSummary}
+      creditsLoading={activePopover === "credits" && creditFetcher.state !== "idle"}
       now={now}
       pendingCancelJobId={pendingCancelJobId}
       onCancelJob={(job) => {
@@ -340,7 +379,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
         <div className="ppDevJobPanelHeader">
           <div>
             <span>Development jobs</span>
-            <strong>{activeJobs.length} running / {recentJobs.length} recent</strong>
+            <strong>{activeJobCount} active / {recentJobs.length} recent</strong>
           </div>
           <button className="ppJobMinimizeButton" type="button" onClick={toggleMinimized} aria-label="Minimize development job monitor" title="Minimize">
             <span aria-hidden="true" />
@@ -418,20 +457,23 @@ function ProductPulseGlobalTopbar({
   searchFetcher,
   searchInputRef,
   activeJobs,
+  activeJobCount,
   recentJobs,
   hasActiveJobs,
   pointBalance,
   pointSummary,
+  creditsLoading,
   now,
   pendingCancelJobId,
   onCancelJob,
   buildAppPath,
 }) {
-  const activeCount = activeJobs.length;
+  const activeCount = Number(activeJobCount ?? activeJobs.length) || 0;
   const isSearchOpen = activePopover === "search";
   const isJobsOpen = activePopover === "jobs";
   const isCreditsOpen = activePopover === "credits";
   const pointLabel = formatPointBalanceLabel(pointBalance);
+  const creditsButtonLabel = hasPointBalance(pointBalance) ? `${pointLabel} Credits available` : "Credits";
 
   return (
     <div className="ppGlobalTopbar" ref={refProp}>
@@ -479,6 +521,7 @@ function ProductPulseGlobalTopbar({
             <JobsPopover
               id="pp-global-jobs"
               activeJobs={activeJobs}
+              activeJobCount={activeCount}
               recentJobs={recentJobs}
               now={now}
               onClose={() => setActivePopover(null)}
@@ -493,10 +536,10 @@ function ProductPulseGlobalTopbar({
           <button
             className={`ppGlobalTopbarPoints${isCreditsOpen ? " isActive" : ""}`}
             type="button"
-            aria-label={`${pointLabel} Credits available`}
+            aria-label={creditsButtonLabel}
             aria-expanded={isCreditsOpen}
             aria-controls="pp-global-credits"
-            title={`${pointLabel} Credits available`}
+            title={creditsButtonLabel}
             onClick={() => setActivePopover(isCreditsOpen ? null : "credits")}
           >
             <span className="ppGlobalTopbarWalletIcon" aria-hidden="true">
@@ -505,7 +548,7 @@ function ProductPulseGlobalTopbar({
             <strong>{pointLabel}</strong>
           </button>
           {isCreditsOpen ? (
-            <CreditsPopover id="pp-global-credits" pointBalance={pointBalance} pointSummary={pointSummary} buildAppPath={buildAppPath} />
+            <CreditsPopover id="pp-global-credits" pointBalance={pointBalance} pointSummary={pointSummary} loading={creditsLoading} buildAppPath={buildAppPath} />
           ) : null}
         </div>
       </div>
@@ -513,7 +556,7 @@ function ProductPulseGlobalTopbar({
   );
 }
 
-function CreditsPopover({ id, pointSummary, pointBalance, buildAppPath = defaultBuildAppPath }) {
+function CreditsPopover({ id, pointSummary, pointBalance, loading = false, buildAppPath = defaultBuildAppPath }) {
   const summary = normalizeCreditPopoverSummary(pointSummary, pointBalance);
   const activity = summary.activity;
 
@@ -542,7 +585,9 @@ function CreditsPopover({ id, pointSummary, pointBalance, buildAppPath = default
 
       <section className="ppCreditsActivity" aria-label="Recent credit activity">
         <h2>Recent credit activity</h2>
-        {activity.length ? (
+        {loading && !pointSummary ? (
+          <p className="ppCreditsActivityEmpty">Loading credit activity...</p>
+        ) : activity.length ? (
           <ul>
             {activity.map((item) => (
               <li key={item.id}>
@@ -723,7 +768,7 @@ function getProductSearchSubtitle(product) {
   return parts.join(" \u00B7 ") || "ProductPulse product";
 }
 
-function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJobId, onCancelJob, buildAppPath = defaultBuildAppPath }) {
+function JobsPopover({ id, activeJobs, activeJobCount, recentJobs, now, onClose, pendingCancelJobId, onCancelJob, buildAppPath = defaultBuildAppPath }) {
   const activeJobIds = useMemo(() => new Set(activeJobs.map((job) => job.id)), [activeJobs]);
   const pastJobs = useMemo(
     () => recentJobs.filter((job) => !activeJobIds.has(job.id)).slice(0, 6),
@@ -731,9 +776,11 @@ function JobsPopover({ id, activeJobs, recentJobs, now, onClose, pendingCancelJo
   );
   const runningCount = activeJobs.filter((job) => job.status === "Running").length;
   const queuedCount = activeJobs.filter((job) => job.status === "Queued").length;
+  const totalActiveCount = Number(activeJobCount ?? activeJobs.length) || 0;
   const summary = [
     runningCount ? `${runningCount} running` : null,
     queuedCount ? `${queuedCount} queued` : null,
+    totalActiveCount > activeJobs.length ? `${totalActiveCount} active total` : null,
   ].filter(Boolean).join(" / ");
 
   return (
@@ -885,6 +932,7 @@ function getJobCreditLabel(job) {
 }
 
 function formatPointBalanceLabel(pointBalance) {
+  if (!hasPointBalance(pointBalance)) return "Credits";
   const rawValue = typeof pointBalance === "number"
     ? pointBalance
     : pointBalance?.available ?? pointBalance?.balance ?? 0;
@@ -894,6 +942,11 @@ function formatPointBalanceLabel(pointBalance) {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
+}
+
+function hasPointBalance(pointBalance) {
+  if (typeof pointBalance === "number") return Number.isFinite(pointBalance);
+  return pointBalance?.available !== undefined || pointBalance?.balance !== undefined;
 }
 
 function getJobRefreshSnapshot(job) {
@@ -1065,6 +1118,32 @@ function getJobNoticeAction(job) {
   }
   const href = job?.productHref || (job?.productHandle ? `/app/products/${job.productHandle}` : "/app/background-processes");
   return { href, label: href === "/app/background-processes" ? "View job" : "Open product" };
+}
+
+function buildJobStatusRequestPath(path, scope) {
+  const normalizedScope = scope === "popover" ? "popover" : "summary";
+  return `${path}${path.includes("?") ? "&" : "?"}scope=${normalizedScope}`;
+}
+
+function mergeJobMonitorSnapshot(current = {}, incoming = {}) {
+  if (!incoming || typeof incoming !== "object") return current || {};
+  return {
+    ...current,
+    ...incoming,
+    activeJobs: Array.isArray(incoming.activeJobs) ? incoming.activeJobs : current.activeJobs || [],
+    recentJobs: incoming.recentJobsLoaded !== false && Array.isArray(incoming.recentJobs)
+      ? incoming.recentJobs
+      : current.recentJobs || [],
+    logs: incoming.logsLoaded !== false && Array.isArray(incoming.logs)
+      ? incoming.logs
+      : current.logs || [],
+    pointSummary: incoming.pointSummaryLoaded !== false && incoming.pointSummary !== undefined
+      ? incoming.pointSummary || null
+      : current.pointSummary || null,
+    pointBalance: incoming.pointSummaryLoaded !== false && (incoming.pointBalance !== undefined || incoming.pointSummary !== undefined)
+      ? incoming.pointBalance || incoming.pointSummary?.balance || null
+      : current.pointBalance || current.pointSummary?.balance || null,
+  };
 }
 
 function defaultBuildAppPath(path) {

@@ -35,8 +35,13 @@ import {
   getProductPulseHtmlStyleTemplate,
   normalizeProductPulseHtmlStyle,
 } from "../lib/product-pulse-html-style-presets";
+import { buildEmbeddedApiPath } from "../lib/product-pulse-app-paths";
 import { BetaFeedbackPanelControls, BetaFeedbackPanelFrame } from "./beta-feedback/BetaFeedbackLayer";
 
+const dashboardClientCache = new Map();
+const DASHBOARD_CLIENT_CACHE_MAX_ENTRIES = 8;
+const analyticsClientCache = new Map();
+const ANALYTICS_CLIENT_CACHE_MAX_ENTRIES = 8;
 const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 12_000;
 const PRODUCT_TABLE_CLIENT_CACHE_MAX_ENTRIES = 24;
 const RISK_THRESHOLD_HANDLE_GAP = 5;
@@ -166,8 +171,21 @@ function dispatchProductPulseWizardSettingsLeaveAllowed() {
 export function DashboardScreen({ data, actionData }) {
   const submit = useSubmit();
   const navigation = useNavigation();
+  const location = useLocation();
+  const dashboardFetcher = useFetcher();
+  const dashboardLoadRef = useRef(dashboardFetcher.load);
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
-  const dashboard = data.dashboard || {};
+  const dashboardDeferred = Boolean(data.dashboardDeferred);
+  const dashboardCacheScope = data.shop || data.shopDomain || data.storeDomain || "";
+  const dashboardDataHref = useMemo(() => {
+    return `${buildEmbeddedApiPath(location.pathname, "/app/dashboard-data")}${location.search || ""}`;
+  }, [location.pathname, location.search]);
+  const fetchedDashboard = dashboardFetcher.data?.dashboard || null;
+  const cachedDashboard = dashboardDeferred ? getCachedDashboardForScope(dashboardCacheScope) : null;
+  const dashboard = data.dashboard || fetchedDashboard || cachedDashboard || getDashboardPlaceholderData();
+  const dashboardHasLoadedData = Boolean(data.dashboard || fetchedDashboard || cachedDashboard);
+  const dashboardInitialLoading = dashboardDeferred && !dashboardHasLoadedData;
+  const dashboardRefreshing = dashboardDeferred && dashboardHasLoadedData && dashboardFetcher.state !== "idle";
   const startProduct = dashboard.startProduct || null;
   const diagnosisHref = startProduct?.href || "/app/products";
   const dashboardKpis = dashboard.kpis || [];
@@ -181,6 +199,36 @@ export function DashboardScreen({ data, actionData }) {
   const dashboardCtaHref = startProduct?.ctaHref || startProduct?.href || "/app/products";
   const dashboardCtaRequiresDiagnosis = dashboardCtaKind === "diagnose" || dashboardCtaKind === "recheck";
   const dashboardToastData = actionData || getPermissionToastData(data.permissionState);
+
+  useEffect(() => {
+    dashboardLoadRef.current = dashboardFetcher.load;
+  }, [dashboardFetcher.load]);
+
+  useEffect(() => {
+    if (!dashboardDeferred || !data.dashboard) return;
+    setCachedDashboardForScope(dashboardCacheScope, data.dashboard);
+  }, [dashboardCacheScope, dashboardDeferred, data.dashboard]);
+
+  useEffect(() => {
+    if (!dashboardDeferred || !fetchedDashboard) return;
+    setCachedDashboardForScope(dashboardCacheScope, fetchedDashboard);
+  }, [dashboardCacheScope, dashboardDeferred, fetchedDashboard]);
+
+  useEffect(() => {
+    if (!dashboardDeferred) return;
+    if (data.dashboard || fetchedDashboard || cachedDashboard) return;
+    dashboardLoadRef.current(dashboardDataHref);
+  }, [cachedDashboard, dashboardDataHref, dashboardDeferred, data.dashboard, fetchedDashboard]);
+
+  useEffect(() => {
+    if (!dashboardDeferred || actionData?.status !== "success") return;
+    const actionId = String(actionData?.action?.id || "");
+    const shouldRefreshDashboard = Boolean(actionData?.queuedCount || actionData?.analyzedCount)
+      || ["add-shopify-product-candidate", "mark-resolved", "mark-unresolved", "delete-product-analysis"].includes(actionId);
+    if (!shouldRefreshDashboard) return;
+    clearCachedDashboardForScope(dashboardCacheScope);
+    dashboardLoadRef.current(dashboardDataHref);
+  }, [actionData, dashboardCacheScope, dashboardDataHref, dashboardDeferred]);
 
   useEffect(() => {
     announceProductPulseJobs(actionData);
@@ -210,130 +258,230 @@ export function DashboardScreen({ data, actionData }) {
 
   return (
     <FullWidthPage heading="Dashboard">
-      <ScreenShell className="ppDashboard">
+      <ScreenShell className={`ppDashboard${dashboardInitialLoading ? " isDashboardDataLoading" : ""}${dashboardRefreshing ? " isDashboardDataRefreshing" : ""}`}>
         <ProductPulseToast actionData={dashboardToastData} />
 
-        <p className="ppDashboardSubtitle">
-          Current product quality status from Product Diagnosis, recommended actions and connected evidence.
-        </p>
+        <div className="ppDashboardDataStage" aria-busy={dashboardInitialLoading ? "true" : "false"}>
+          <div className={`ppDashboardDataContent${dashboardInitialLoading ? " isBlurred" : ""}`}>
+            <p className="ppDashboardSubtitle">
+              Current product quality status from Product Diagnosis, recommended actions and connected evidence.
+            </p>
 
-        <div className="ppDashboardKpis" aria-label="Product quality overview">
-          {dashboardKpis.map((kpi) => (
-            <DashboardKpiCard key={kpi.label} kpi={kpi} />
-          ))}
-        </div>
-
-        <s-section padding="none">
-          <div className="ppStartPanel ppNextBestActionPanel">
-            <div className="ppStartHeading">
-              <DashboardIcon type="next-best-action" tone="purple" size="metric" />
-              <h2>Next best action</h2>
-              <span className="ppRecommendedFixBadge">Recommended fix</span>
+            <div className="ppDashboardKpis" aria-label="Product quality overview">
+              {dashboardKpis.map((kpi) => (
+                <DashboardKpiCard key={kpi.label} kpi={kpi} />
+              ))}
             </div>
-            <div className="ppStartContent">
-              {startProduct ? (
-                <div className="ppStartProduct" title={startProduct.priorityReason}>
-                  <ProductArt
-                    variant={startProduct.variant || "shirt"}
-                    label={startProduct.title}
-                    size="large"
-                    imageUrl={startProduct.imageUrl}
-                    imageAlt={startProduct.imageAlt}
-                  />
-                  <div className="ppStartCopy">
-                    <span>{startProduct.eyebrow || "Recommended next step"}</span>
-                    <h3>{startProduct.actionTitle || startProduct.title}</h3>
-                    <strong className="ppNextBestProductName">{startProduct.title}</strong>
-                    <div className="ppBadgeRow">
-                      {(startProduct.badges || []).map((badge) => (
-                        <InlineBadge key={`${badge.label}-${badge.tone}`} tone={badge.tone} icon={badge.icon}>{badge.label}</InlineBadge>
+
+            <s-section padding="none">
+              <div className="ppStartPanel ppNextBestActionPanel">
+                <div className="ppStartHeading">
+                  <DashboardIcon type="next-best-action" tone="purple" size="metric" />
+                  <h2>Next best action</h2>
+                  <span className="ppRecommendedFixBadge">Recommended fix</span>
+                </div>
+                <div className="ppStartContent">
+                  {startProduct ? (
+                    <div className="ppStartProduct" title={startProduct.priorityReason}>
+                      <ProductArt
+                        variant={startProduct.variant || "shirt"}
+                        label={startProduct.title}
+                        size="large"
+                        imageUrl={startProduct.imageUrl}
+                        imageAlt={startProduct.imageAlt}
+                      />
+                      <div className="ppStartCopy">
+                        <span>{startProduct.eyebrow || "Recommended next step"}</span>
+                        <h3>{startProduct.actionTitle || startProduct.title}</h3>
+                        <strong className="ppNextBestProductName">{startProduct.title}</strong>
+                        <div className="ppBadgeRow">
+                          {(startProduct.badges || []).map((badge) => (
+                            <InlineBadge key={`${badge.label}-${badge.tone}`} tone={badge.tone} icon={badge.icon}>{badge.label}</InlineBadge>
+                          ))}
+                        </div>
+                        <p>{startProduct.summary}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="ppStartProduct ppStartProduct-empty">
+                      <DashboardIcon type="search" tone="blue" />
+                      <div className="ppStartCopy">
+                        <span>No stored scan data yet</span>
+                        <h3>Run Catalog Scan first</h3>
+                        <p>ProductPulse will populate this dashboard after it stores product risk snapshots from Shopify signals.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="ppNextBestWhy">
+                    <h3>Why this matters</h3>
+                    <div>
+                      {(startProduct?.whyMetrics || []).map((metric) => (
+                        <span className={`ppNextBestWhyMetric ppNextBestWhyMetric-${metric.tone || "neutral"}`} key={metric.label}>
+                          <strong>{metric.value}</strong>
+                          <small>{metric.label}</small>
+                        </span>
                       ))}
                     </div>
-                    <p>{startProduct.summary}</p>
+                    <p>{startProduct?.whySummary || "ProductPulse ranks the next action by product risk, diagnosis confidence, estimated margin exposure and open recommended actions."}</p>
                   </div>
-                </div>
-              ) : (
-                <div className="ppStartProduct ppStartProduct-empty">
-                  <DashboardIcon type="search" tone="blue" />
-                  <div className="ppStartCopy">
-                    <span>No stored scan data yet</span>
-                    <h3>Run Catalog Scan first</h3>
-                    <p>ProductPulse will populate this dashboard after it stores product risk snapshots from Shopify signals.</p>
-                  </div>
-                </div>
-              )}
 
-              <div className="ppNextBestWhy">
-                <h3>Why this matters</h3>
-                <div>
-                  {(startProduct?.whyMetrics || []).map((metric) => (
-                    <span className={`ppNextBestWhyMetric ppNextBestWhyMetric-${metric.tone || "neutral"}`} key={metric.label}>
-                      <strong>{metric.value}</strong>
-                      <small>{metric.label}</small>
+                  <div className="ppStartActionPanel">
+                    <span className="ppStartActionStatus" aria-hidden="true">
+                      <ProductPulseGlyph type="check-circle" />
                     </span>
-                  ))}
+                    {startProduct && !startProductDiagnosisRunning && dashboardCtaRequiresDiagnosis ? (
+                      <button
+                        className="ppPrimaryButton"
+                        type="button"
+                        disabled={pendingDashboardDiagnosis || dashboardInitialLoading}
+                        onClick={handleRequestDashboardDiagnosis}
+                      >
+                        <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run Product Diagnosis"}</span>
+                        <s-icon type="chevron-right" size="small"></s-icon>
+                      </button>
+                    ) : (
+                      <Link className="ppPrimaryButton" to={dashboardInitialLoading ? "#" : startProductDiagnosisRunning ? diagnosisHref : dashboardCtaHref} aria-disabled={dashboardInitialLoading ? "true" : undefined}>
+                        <span>{startProductDiagnosisRunning ? "View running product" : startProduct?.actionLabel || "Analyze more products"}</span>
+                        <s-icon type="chevron-right" size="small"></s-icon>
+                      </Link>
+                    )}
+                    <span>{startProductDiagnosisRunning ? getDashboardDiagnosisJobLabel(startProduct.diagnosisJob) : startProduct?.actionHint || "Start with Catalog Scan"}</span>
+                  </div>
                 </div>
-                <p>{startProduct?.whySummary || "ProductPulse ranks the next action by product risk, diagnosis confidence, estimated margin exposure and open recommended actions."}</p>
+              </div>
+            </s-section>
+
+            {diagnosisConfirmation && (
+              <ProductAnalysisConfirmModal
+                confirmation={diagnosisConfirmation}
+                pending={pendingDashboardDiagnosis}
+                pendingIds={pendingDashboardDiagnosis ? diagnosisConfirmation.products : []}
+                onCancel={() => setDiagnosisConfirmation(null)}
+                onConfirm={handleConfirmDashboardDiagnosis}
+              />
+            )}
+
+            <div className="ppDashboardActionGrid">
+              <div className="ppDashboardPriorityStack">
+                <s-section padding="none">
+                  <DashboardPriorityProducts products={priorityProducts} />
+                </s-section>
+
+                <s-section padding="none">
+                  <DashboardTopActiveIssues issues={topActiveIssues} />
+                </s-section>
               </div>
 
-              <div className="ppStartActionPanel">
-                <span className="ppStartActionStatus" aria-hidden="true">
-                  <ProductPulseGlyph type="check-circle" />
-                </span>
-                {startProduct && !startProductDiagnosisRunning && dashboardCtaRequiresDiagnosis ? (
-                  <button
-                    className="ppPrimaryButton"
-                    type="button"
-                    disabled={pendingDashboardDiagnosis}
-                    onClick={handleRequestDashboardDiagnosis}
-                  >
-                    <span>{pendingDashboardDiagnosis ? "Queueing..." : startProduct.actionLabel || "Run Product Diagnosis"}</span>
-                    <s-icon type="chevron-right" size="small"></s-icon>
-                  </button>
-                ) : (
-                  <Link className="ppPrimaryButton" to={startProductDiagnosisRunning ? diagnosisHref : dashboardCtaHref}>
-                    <span>{startProductDiagnosisRunning ? "View running product" : startProduct?.actionLabel || "Analyze more products"}</span>
-                    <s-icon type="chevron-right" size="small"></s-icon>
-                  </Link>
-                )}
-                <span>{startProductDiagnosisRunning ? getDashboardDiagnosisJobLabel(startProduct.diagnosisJob) : startProduct?.actionHint || "Start with Catalog Scan"}</span>
-              </div>
+              <s-section padding="none">
+                <DashboardActionQueue queue={actionQueue} />
+              </s-section>
             </div>
-          </div>
-        </s-section>
-
-        {diagnosisConfirmation && (
-          <ProductAnalysisConfirmModal
-            confirmation={diagnosisConfirmation}
-            pending={pendingDashboardDiagnosis}
-            pendingIds={pendingDashboardDiagnosis ? diagnosisConfirmation.products : []}
-            onCancel={() => setDiagnosisConfirmation(null)}
-            onConfirm={handleConfirmDashboardDiagnosis}
-          />
-        )}
-
-        <div className="ppDashboardActionGrid">
-          <div className="ppDashboardPriorityStack">
-            <s-section padding="none">
-              <DashboardPriorityProducts products={priorityProducts} />
-            </s-section>
 
             <s-section padding="none">
-              <DashboardTopActiveIssues issues={topActiveIssues} />
+              <DashboardCoverageSummary summary={coverageSummary} />
             </s-section>
           </div>
 
-          <s-section padding="none">
-            <DashboardActionQueue queue={actionQueue} />
-          </s-section>
+          {dashboardInitialLoading && (
+            <div className="ppDashboardDataOverlay" role="status" aria-live="polite">
+              <span className="ppDashboardDataSpinner" aria-hidden="true">
+                <i></i>
+                <i></i>
+                <i></i>
+              </span>
+              <strong>Loading dashboard data</strong>
+              <small>Preparing product risk, actions and coverage.</small>
+            </div>
+          )}
         </div>
-
-        <s-section padding="none">
-          <DashboardCoverageSummary summary={coverageSummary} />
-        </s-section>
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+function getDashboardPlaceholderData() {
+  return {
+    kpis: [
+      { label: "Products needing attention", value: "-", detail: "Loading scanned products", icon: "product", tone: "blue" },
+      { label: "Pending recommended actions", value: "-", detail: "Loading action queue", icon: "wand", tone: "purple" },
+      { label: "Estimated Margin Exposure", value: "-", detail: "Loading exposure", icon: "cash-dollar", tone: "green" },
+      { label: "Issues resolved / Risk reduced", value: "-", detail: "Loading outcomes", icon: "check", tone: "blue" },
+    ],
+    startProduct: {
+      title: "Loading product data",
+      actionTitle: "Preparing next best action",
+      summary: "ProductPulse is loading product risk, diagnosis status and action priority.",
+      eyebrow: "Dashboard data",
+      variant: "shirt",
+      priorityReason: "Loading dashboard data.",
+      actionLabel: "Loading...",
+      actionHint: "Dashboard data is loading",
+      ctaKind: "link",
+      ctaHref: "/app/products",
+      whySummary: "ProductPulse ranks the next action by product risk, diagnosis confidence, estimated margin exposure and open recommended actions.",
+      whyMetrics: [
+        { label: "risk", value: "-", tone: "neutral" },
+        { label: "signals", value: "-", tone: "neutral" },
+        { label: "exposure", value: "-", tone: "neutral" },
+      ],
+      badges: [
+        { tone: "info", icon: "search", label: "Loading" },
+      ],
+    },
+    priorityProducts: [
+      { rank: 1, title: "Loading priority products", riskLabel: "Loading", riskTone: "neutral", marginAtRiskLabel: "-", issueLabel: "Product quality", actionLabel: "Loading", href: "/app/products" },
+      { rank: 2, title: "Loading product signals", riskLabel: "Loading", riskTone: "neutral", marginAtRiskLabel: "-", issueLabel: "Evidence", actionLabel: "Loading", href: "/app/products" },
+    ],
+    actionQueue: {
+      total: 0,
+      totalLabel: "-",
+      detail: "Loading recommended actions.",
+      rows: [
+        { label: "Loading action queue", detail: "Preparing recommended actions.", valueLabel: "-", icon: "next-best-action", tone: "blue", href: "/app/products" },
+      ],
+    },
+    topActiveIssues: [
+      { label: "Loading issue types", productsLabel: "-", marginAtRiskLabel: "-" },
+      { label: "Preparing product evidence", productsLabel: "-", marginAtRiskLabel: "-" },
+    ],
+    coverageSummary: {
+      statusLabel: "Loading coverage",
+      coverageLine: "Preparing scan coverage.",
+      detail: "Coverage updates as products are scanned and sources connect.",
+      tone: "blue",
+      icon: "clock",
+      sources: [
+        { label: "Products", status: "Loading", tone: "blue", icon: "product" },
+        { label: "Reviews", status: "Loading", tone: "blue", icon: "star" },
+      ],
+      catalogCoverage: { label: "Total catalog", valueLabel: "-", percent: 0, tone: "blue" },
+      productPulseCoverage: { label: "Products in ProductPulse", valueLabel: "-", percent: 0, tone: "blue" },
+    },
+  };
+}
+
+function getDashboardClientCacheKey(scope = "") {
+  return String(scope || "default").trim() || "default";
+}
+
+function getCachedDashboardForScope(scope = "") {
+  return dashboardClientCache.get(getDashboardClientCacheKey(scope)) || null;
+}
+
+function setCachedDashboardForScope(scope = "", dashboard = null) {
+  if (!dashboard) return;
+  const key = getDashboardClientCacheKey(scope);
+  dashboardClientCache.delete(key);
+  while (dashboardClientCache.size >= DASHBOARD_CLIENT_CACHE_MAX_ENTRIES) {
+    const oldestKey = dashboardClientCache.keys().next().value;
+    dashboardClientCache.delete(oldestKey);
+  }
+  dashboardClientCache.set(key, dashboard);
+}
+
+function clearCachedDashboardForScope(scope = "") {
+  dashboardClientCache.delete(getDashboardClientCacheKey(scope));
 }
 
 function getDashboardDiagnosisJobLabel(job) {
@@ -5316,7 +5464,7 @@ export function BackgroundProcessesScreen({ data = {} }) {
           <aside className="ppWatchlistPanel ppBackgroundProcessSidePanel">
             <div className="ppWatchlistPanelHeader">
               <h2>Current queue</h2>
-              <span>{formatInteger(activeProcesses.length)} active</span>
+              <span>{formatInteger(stats.active ?? activeProcesses.length)} active</span>
             </div>
             <div className="ppBackgroundProcessMiniList">
               {activeProcesses.length ? activeProcesses.map((process) => (
@@ -22999,7 +23147,20 @@ function announceProductPulseJobs(actionData) {
 }
 
 export function AnalyticsScreen({ data }) {
-  const analyticsView = data?.analytics || {};
+  const location = useLocation();
+  const analyticsFetcher = useFetcher();
+  const analyticsLoadRef = useRef(analyticsFetcher.load);
+  const analyticsDeferred = Boolean(data?.analyticsDeferred);
+  const analyticsCacheScope = data?.shop || data?.shopDomain || data?.storeDomain || "";
+  const analyticsDataHref = useMemo(() => {
+    return `${buildEmbeddedApiPath(location.pathname, "/app/analytics-data")}${location.search || ""}`;
+  }, [location.pathname, location.search]);
+  const fetchedAnalytics = analyticsFetcher.data?.analytics || null;
+  const cachedAnalytics = analyticsDeferred ? getCachedAnalyticsForScope(analyticsCacheScope) : null;
+  const analyticsView = data?.analytics || fetchedAnalytics || cachedAnalytics || getAnalyticsPlaceholderData();
+  const analyticsHasLoadedData = Boolean(data?.analytics || fetchedAnalytics || cachedAnalytics);
+  const analyticsInitialLoading = analyticsDeferred && !analyticsHasLoadedData;
+  const analyticsRefreshing = analyticsDeferred && analyticsHasLoadedData && analyticsFetcher.state !== "idle";
   const [businessImpactOpen, setBusinessImpactOpen] = useState(false);
   const [impactBreakdownKey, setImpactBreakdownKey] = useState(analyticsView.impactBreakdown?.defaultKey || "collection");
   const kpis = analyticsView.kpis || [];
@@ -23009,7 +23170,7 @@ export function AnalyticsScreen({ data }) {
   const actionImpactTrend = analyticsView.actionImpactTrend || { series: [], labels: [] };
   const issueImpact = analyticsView.issueImpact || { rows: [] };
   const impactBreakdown = analyticsView.impactBreakdown || { defaultKey: "collection", filters: [] };
-  const breakdownFilters = impactBreakdown.filters || [];
+  const breakdownFilters = useMemo(() => impactBreakdown.filters || [], [impactBreakdown.filters]);
   const selectedBreakdown = breakdownFilters.find((filter) => filter.key === impactBreakdownKey)
     || breakdownFilters.find((filter) => filter.key === impactBreakdown.defaultKey)
     || breakdownFilters[0]
@@ -23020,21 +23181,49 @@ export function AnalyticsScreen({ data }) {
   const topProductsAtRisk = analyticsView.topProductsAtRisk || [];
   const deepDiagnosisCharts = analyticsView.deepDiagnosisCharts || {};
 
+  useEffect(() => {
+    analyticsLoadRef.current = analyticsFetcher.load;
+  }, [analyticsFetcher.load]);
+
+  useEffect(() => {
+    if (!analyticsDeferred || !data?.analytics) return;
+    setCachedAnalyticsForScope(analyticsCacheScope, data.analytics);
+  }, [analyticsCacheScope, analyticsDeferred, data?.analytics]);
+
+  useEffect(() => {
+    if (!analyticsDeferred || !fetchedAnalytics) return;
+    setCachedAnalyticsForScope(analyticsCacheScope, fetchedAnalytics);
+  }, [analyticsCacheScope, analyticsDeferred, fetchedAnalytics]);
+
+  useEffect(() => {
+    if (!analyticsDeferred) return;
+    if (data?.analytics || fetchedAnalytics || cachedAnalytics) return;
+    analyticsLoadRef.current(analyticsDataHref);
+  }, [analyticsDataHref, analyticsDeferred, cachedAnalytics, data?.analytics, fetchedAnalytics]);
+
+  useEffect(() => {
+    if (!breakdownFilters.length) return;
+    if (breakdownFilters.some((filter) => filter.key === impactBreakdownKey)) return;
+    setImpactBreakdownKey(impactBreakdown.defaultKey || breakdownFilters[0]?.key || "collection");
+  }, [breakdownFilters, impactBreakdown.defaultKey, impactBreakdownKey]);
+
   return (
     <FullWidthPage label="Analytics" className="ppAnalyticsPage">
-      <ScreenShell className="ppDashboard ppAnalyticsScreen">
-        <div className="ppAnalyticsTopbar">
-          <div>
-            <h1>Analytics</h1>
-            <p>Visualize product quality risk, issue trends and estimated margin exposure.</p>
-          </div>
-        </div>
+      <ScreenShell className={`ppDashboard ppAnalyticsScreen${analyticsInitialLoading ? " isAnalyticsDataLoading" : ""}${analyticsRefreshing ? " isAnalyticsDataRefreshing" : ""}`}>
+        <div className="ppDashboardDataStage" aria-busy={analyticsInitialLoading ? "true" : "false"}>
+          <div className={`ppDashboardDataContent${analyticsInitialLoading ? " isBlurred" : ""}`}>
+            <div className="ppAnalyticsTopbar">
+              <div>
+                <h1>Analytics</h1>
+                <p>Visualize product quality risk, issue trends and estimated margin exposure.</p>
+              </div>
+            </div>
 
-        <div className="ppAnalyticsKpis" aria-label="Analytics overview">
-          {kpis.map((kpi, index) => (
-            <AnalyticsKpiCard key={kpi.label} kpi={kpi} index={index} />
-          ))}
-        </div>
+            <div className="ppAnalyticsKpis" aria-label="Analytics overview">
+              {kpis.map((kpi, index) => (
+                <AnalyticsKpiCard key={kpi.label} kpi={kpi} index={index} />
+              ))}
+            </div>
 
         <div className="ppAnalyticsDeepChartGrid">
           <AnalyticsRiskMarginTrendPanel chart={deepDiagnosisCharts.riskMarginTrend} />
@@ -23116,9 +23305,125 @@ export function AnalyticsScreen({ data }) {
             onClose={() => setBusinessImpactOpen(false)}
           />
         )}
+          </div>
+
+          {analyticsInitialLoading && (
+            <div className="ppDashboardDataOverlay" role="status" aria-live="polite">
+              <span className="ppDashboardDataSpinner" aria-hidden="true">
+                <i></i>
+                <i></i>
+                <i></i>
+              </span>
+              <strong>Loading Analytics data</strong>
+              <small>Preparing risk trends, impact charts and coverage.</small>
+            </div>
+          )}
+        </div>
       </ScreenShell>
     </FullWidthPage>
   );
+}
+
+function getAnalyticsPlaceholderData() {
+  return {
+    generatedAt: null,
+    windowDays: 90,
+    windowLabel: "Loading analytics window",
+    productCountLabel: "Loading stored products",
+    lastUpdatedLabel: "Loading analytics data",
+    kpis: [
+      { label: "Estimated Margin Exposure", value: "-", detail: "Loading exposure", icon: "cash-dollar", tone: "green" },
+      { label: "Products needing attention", value: "-", detail: "Loading product risk", icon: "shield-check-mark", tone: "blue" },
+      { label: "Pending actions", value: "-", detail: "Loading action workflow", icon: "wand", tone: "purple" },
+      { label: "Catalog coverage", value: "-", detail: "Loading coverage", icon: "product", tone: "blue" },
+    ],
+    totals: {},
+    riskSignals: { series: [], labels: [] },
+    issueDistribution: { rows: [], max: 1 },
+    sourceContribution: { rows: [], total: 0, totalLabel: "-" },
+    deepDiagnosisCharts: {
+      riskMarginTrend: { hasData: false, series: [], labels: [], pointDetails: [] },
+      issueDistribution: { rows: [], total: 0, totalLabel: "-" },
+      sourceCoverageMix: { rows: [], total: 0, totalLabel: "-" },
+    },
+    riskBubbles: [],
+    collectionMargin: { rows: [], max: 1 },
+    analysisCoverage: { rows: [], max: 1 },
+    impactTrend: {
+      series: [
+        { label: "Trend-weighted margin", color: "green", values: [0, 0, 0, 0, 0, 0, 0], displayValue: "-", detail: "Loading trend data." },
+      ],
+      labels: [],
+      summary: {
+        currentTotalLabel: "-",
+        trendWeightedLabel: "-",
+        detail: "Loading current exposure and historical trend.",
+      },
+    },
+    actionImpactTrend: {
+      series: [],
+      labels: [],
+      summary: null,
+    },
+    issueImpact: { rows: [] },
+    impactBreakdown: {
+      defaultKey: "collection",
+      filters: [
+        { key: "collection", label: "By collection", rows: [] },
+        { key: "source", label: "By source", rows: [] },
+      ],
+    },
+    actionPerformance: {
+      rows: [
+        { label: "Open actions", valueLabel: "-", detail: "Loading actions.", icon: "wand", tone: "purple" },
+        { label: "Applied actions", valueLabel: "-", detail: "Loading outcomes.", icon: "check", tone: "green" },
+      ],
+      effectiveness: [
+        { label: "Fix effectiveness", value: "Loading", detail: "Preparing before/after measurement." },
+      ],
+    },
+    catalogCoverage: {
+      analyzedLabel: "Loading stored products",
+      rows: [
+        { label: "Stored products", value: 0, total: 1, valueLabel: "-", tone: "blue" },
+        { label: "Full diagnoses", value: 0, total: 1, valueLabel: "-", tone: "purple" },
+      ],
+    },
+    evidenceSourceCoverage: [
+      { label: "Shopify catalog", state: "Loading", stateTone: "blue", detail: "Preparing connected evidence.", percentLabel: "-", countLabel: "-", productsLabel: "-", icon: "product" },
+      { label: "Reviews", state: "Loading", stateTone: "blue", detail: "Preparing review evidence.", percentLabel: "-", countLabel: "-", productsLabel: "-", icon: "star" },
+    ],
+    topProductsAtRisk: [],
+    topInsights: [],
+    businessImpact: {
+      title: "Estimated Margin Exposure",
+      subtitle: "Loading projected impact from stored ProductPulse analytics.",
+      metrics: [
+        { label: "Projected margin exposure", value: "-", detail: "Loading margin exposure.", icon: "cash-dollar", tone: "green" },
+        { label: "Products analyzed", value: "-", detail: "Loading product coverage.", icon: "product", tone: "blue" },
+        { label: "Action readiness", value: "-", detail: "Loading recommended actions.", icon: "wand", tone: "purple" },
+      ],
+    },
+  };
+}
+
+function getAnalyticsClientCacheKey(scope = "") {
+  return String(scope || "default").trim() || "default";
+}
+
+function getCachedAnalyticsForScope(scope = "") {
+  return analyticsClientCache.get(getAnalyticsClientCacheKey(scope)) || null;
+}
+
+function setCachedAnalyticsForScope(scope = "", analytics = null) {
+  if (!analytics) return;
+  const key = getAnalyticsClientCacheKey(scope);
+  analyticsClientCache.delete(key);
+  while (analyticsClientCache.size >= ANALYTICS_CLIENT_CACHE_MAX_ENTRIES) {
+    const oldestKey = analyticsClientCache.keys().next().value;
+    analyticsClientCache.delete(oldestKey);
+  }
+  analyticsClientCache.set(key, analytics);
 }
 
 export function PreviewScreen({ data, actionData }) {

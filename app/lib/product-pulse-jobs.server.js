@@ -55,7 +55,6 @@ import {
 import {
   creditStorePointsForShop,
   debitStorePointsForShop,
-  getStorePointBalanceForShop,
   getStorePointSummaryForShop,
   lockStorePointLedgerForShop,
   validateStorePointsForShop,
@@ -63,6 +62,11 @@ import {
 import { measureProductPulseStep } from "./product-pulse-perf.server";
 import { getProductPulseResourceConfig } from "./product-pulse-resource-config.server";
 import { maybeSendWatchlistRunAlertForJob } from "./product-pulse-watchlist-alerts.server";
+import {
+  getProductPulseProductRollupMetricsForProducts,
+  getProductPulseProductRollupSnapshotRowsForShop,
+  upsertProductPulseProductRollup,
+} from "./product-pulse-product-rollup.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -73,12 +77,20 @@ const JOB_MONITOR_RECENT_JOB_LIMIT = 6;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const BACKGROUND_PROCESS_PAGE_SIZE = 10;
 const SHOPIFY_DASHBOARD_COUNT_TIMEOUT_MS = 3 * 1000;
+const SHOPIFY_CATALOG_PRODUCT_COUNT_CACHE_SOURCE_KEY = "__productpulse_shopify_catalog_count";
+const SHOPIFY_CATALOG_PRODUCT_COUNT_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_SHOPIFY_CATALOG_COUNT_CACHE_TTL_MS", 6 * 60 * 60 * 1000, { min: 60 * 1000, max: 7 * 24 * 60 * 60 * 1000 });
 const SHOPIFY_PRODUCT_IMAGE_TIMEOUT_MS = 4 * 1000;
 const DASHBOARD_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_DASHBOARD_CACHE_TTL_MS", 15 * 1000, { min: 0, max: 5 * 60 * 1000 });
 const DASHBOARD_ACTIVE_JOB_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_DASHBOARD_ACTIVE_JOB_CACHE_TTL_MS", 5 * 1000, { min: 0, max: 60 * 1000 });
 const DASHBOARD_CACHE_MAX_SHOPS = getBoundedIntegerEnv("PRODUCT_PULSE_DASHBOARD_CACHE_MAX_SHOPS", 25, { min: 1, max: 200 });
+const ANALYTICS_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_ANALYTICS_CACHE_TTL_MS", 60 * 1000, { min: 0, max: 10 * 60 * 1000 });
+const ANALYTICS_ACTIVE_JOB_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_ANALYTICS_ACTIVE_JOB_CACHE_TTL_MS", 10 * 1000, { min: 0, max: 60 * 1000 });
+const ANALYTICS_CACHE_MAX_SHOPS = getBoundedIntegerEnv("PRODUCT_PULSE_ANALYTICS_CACHE_MAX_SHOPS", 25, { min: 1, max: 200 });
 const JOB_MONITOR_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_JOB_MONITOR_CACHE_TTL_MS", 10 * 1000, { min: 0, max: 60 * 1000 });
 const JOB_MONITOR_CACHE_MAX_SHOPS = getBoundedIntegerEnv("PRODUCT_PULSE_JOB_MONITOR_CACHE_MAX_SHOPS", 50, { min: 1, max: 200 });
+const JOB_MONITOR_ACTIVE_JOB_LIMIT = getBoundedIntegerEnv("PRODUCT_PULSE_JOB_MONITOR_ACTIVE_JOB_LIMIT", 20, { min: 1, max: 100 });
+const BACKGROUND_PROCESS_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_BACKGROUND_PROCESS_CACHE_TTL_MS", 10 * 1000, { min: 0, max: 60 * 1000 });
+const BACKGROUND_PROCESS_CACHE_MAX_ENTRIES = getBoundedIntegerEnv("PRODUCT_PULSE_BACKGROUND_PROCESS_CACHE_MAX_ENTRIES", 80, { min: 5, max: 500 });
 const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
 const ANALYTICS_SCORE_HISTORY_TAKE = 520;
 const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
@@ -164,6 +176,115 @@ const PRODUCT_RISK_SNAPSHOT_LIST_METRIC_KEYS = [
   "productRetentionSummary",
 ];
 const PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE = 40;
+const DASHBOARD_SNAPSHOT_METRIC_KEYS = [
+  "reviewCount",
+  "negativeReviewCount",
+  "returnRate",
+  "refundRate",
+  "returnUnits",
+  "refundUnits",
+  "recentSignalUnits",
+  "windowDays",
+  "soldUnits",
+  "storeAvgReturnRate",
+  "storeAvgRefundRate",
+  "signalCount",
+  "signalsCount",
+  "issueCount",
+  "revenueAtRisk",
+  "estimatedImpact",
+  "marginAtRisk",
+  "refundAmount",
+  "latestDiagnosisId",
+  "lastDetailedDiagnosisAt",
+  "productMomentumScore",
+  "productMomentumTier",
+  "momentumDirection",
+  "momentumConfidence",
+  "momentumConfidenceLabel",
+  "imageUrl",
+  "productImageUrl",
+  "featuredImageUrl",
+  "imageAlt",
+  "productImageAlt",
+  "featuredImageAlt",
+];
+const ANALYTICS_SNAPSHOT_METRIC_KEYS = [
+  "reviewRating",
+  "avgRating",
+  "reviewCount",
+  "negativeReviewCount",
+  "negativeReviewRate",
+  "recentNegativeReviewCount",
+  "returnRate",
+  "refundRate",
+  "returnUnits",
+  "refundUnits",
+  "recentSignalUnits",
+  "windowDays",
+  "soldUnits",
+  "soldOrders",
+  "storeAvgReturnRate",
+  "storeAvgRefundRate",
+  "lastSignalAt",
+  "signalCount",
+  "signalsCount",
+  "issueCount",
+  "revenueAtRisk",
+  "estimatedImpact",
+  "marginAtRisk",
+  "salesAmount",
+  "avgUnitRevenue",
+  "refundAmount",
+  "latestDiagnosisId",
+  "lastDetailedDiagnosisAt",
+  "productType",
+  "vendor",
+  "tags",
+  "collections",
+  "topReturnReasons",
+  "affectedVariants",
+  "signalTrend",
+  "riskTrend",
+  "contentIssueCount",
+  "descriptionWords",
+  "descriptionWordCount",
+  "csvReviewCount",
+  "csvReviewRatingCount",
+  "csvNegativeReviewCount",
+  "csvAverageRating",
+  "judgeMeReviewCount",
+  "judgeMeNegativeReviewCount",
+  "judgeMeAverageRating",
+  "yotpoReviewCount",
+  "looxReviewCount",
+  "customerTextSignals",
+  "marginRate",
+  "impactFactors",
+  "estimatedImpactFactors",
+];
+const SCORE_HISTORY_ANALYTICS_METRIC_KEYS = [
+  "returnRate",
+  "refundRate",
+  "negativeReviewRate",
+  "marginAtRisk",
+  "revenueAtRisk",
+  "financialExposure",
+  "salesAmount",
+  "refundAmount",
+  "soldUnits",
+  "returnUnits",
+  "refundUnits",
+  "reviewCount",
+  "negativeReviewCount",
+  "avgRating",
+  "reviewRating",
+  "csvAverageRating",
+  "customerSignalCount",
+  "evidenceStrengthScore",
+  "retentionHealthScore",
+  "productMomentumScore",
+];
 const PRODUCT_TABLE_ROW_METRIC_KEYS = [
   "signalCount",
   "signalsCount",
@@ -188,7 +309,9 @@ const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || 
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
 const staleFastProductScanSweeps = global.productPulseStaleFastProductScanSweeps || new Map();
 const dashboardCache = global.productPulseDashboardCache || new Map();
+const analyticsCache = global.productPulseAnalyticsCache || new Map();
 const jobMonitorCache = global.productPulseJobMonitorCache || new Map();
+const backgroundProcessCache = global.productPulseBackgroundProcessCache || new Map();
 
 if (!global.productPulseJobWorkers) {
   global.productPulseJobWorkers = activeWorkers;
@@ -202,8 +325,16 @@ if (!global.productPulseDashboardCache) {
   global.productPulseDashboardCache = dashboardCache;
 }
 
+if (!global.productPulseAnalyticsCache) {
+  global.productPulseAnalyticsCache = analyticsCache;
+}
+
 if (!global.productPulseJobMonitorCache) {
   global.productPulseJobMonitorCache = jobMonitorCache;
+}
+
+if (!global.productPulseBackgroundProcessCache) {
+  global.productPulseBackgroundProcessCache = backgroundProcessCache;
 }
 
 if (!global.productPulseDiagnosisQueueWorkers) {
@@ -256,11 +387,50 @@ function setCachedProductPulseDashboard(shop, dashboard, { activeJob = null, act
 export function invalidateProductPulseDashboardCache(shop) {
   const key = normalizeDashboardCacheKey(shop);
   if (key) dashboardCache.delete(key);
+  invalidateProductPulseAnalyticsCache(shop);
 }
 
-function getCachedJobMonitor(shop) {
-  if (JOB_MONITOR_CACHE_TTL_MS <= 0) return null;
+function getCachedProductPulseAnalytics(shop, options = {}) {
+  if (options.forceRefresh || ANALYTICS_CACHE_TTL_MS <= 0) return null;
   const key = normalizeDashboardCacheKey(shop);
+  if (!key) return null;
+  const entry = analyticsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    analyticsCache.delete(key);
+    return null;
+  }
+  return entry.analytics;
+}
+
+function setCachedProductPulseAnalytics(shop, analytics, { activeJob = null, activeDiagnosisJobs = [] } = {}) {
+  if (ANALYTICS_CACHE_TTL_MS <= 0 || !analytics) return;
+  const key = normalizeDashboardCacheKey(shop);
+  if (!key) return;
+  const hasActiveJob = Boolean(activeJob) || (Array.isArray(activeDiagnosisJobs) && activeDiagnosisJobs.length > 0);
+  const ttlMs = hasActiveJob && ANALYTICS_ACTIVE_JOB_CACHE_TTL_MS > 0
+    ? Math.min(ANALYTICS_CACHE_TTL_MS, ANALYTICS_ACTIVE_JOB_CACHE_TTL_MS)
+    : ANALYTICS_CACHE_TTL_MS;
+  if (ttlMs <= 0) return;
+  while (analyticsCache.size >= ANALYTICS_CACHE_MAX_SHOPS) {
+    const oldestKey = analyticsCache.keys().next().value;
+    if (!oldestKey) break;
+    analyticsCache.delete(oldestKey);
+  }
+  analyticsCache.set(key, {
+    analytics,
+    expiresAt: Date.now() + ttlMs,
+  });
+}
+
+function invalidateProductPulseAnalyticsCache(shop) {
+  const key = normalizeDashboardCacheKey(shop);
+  if (key) analyticsCache.delete(key);
+}
+
+function getCachedJobMonitor(shop, options = {}) {
+  if (options.forceRefresh || JOB_MONITOR_CACHE_TTL_MS <= 0) return null;
+  const key = getJobMonitorCacheKey(shop, options);
   if (!key) return null;
   const entry = jobMonitorCache.get(key);
   if (!entry) return null;
@@ -271,9 +441,9 @@ function getCachedJobMonitor(shop) {
   return entry.monitor;
 }
 
-function setCachedJobMonitor(shop, monitor) {
+function setCachedJobMonitor(shop, monitor, options = {}) {
   if (JOB_MONITOR_CACHE_TTL_MS <= 0 || !monitor) return;
-  const key = normalizeDashboardCacheKey(shop);
+  const key = getJobMonitorCacheKey(shop, options);
   if (!key) return;
   while (jobMonitorCache.size >= JOB_MONITOR_CACHE_MAX_SHOPS) {
     const oldestKey = jobMonitorCache.keys().next().value;
@@ -288,7 +458,64 @@ function setCachedJobMonitor(shop, monitor) {
 
 function invalidateJobMonitorCache(shop) {
   const key = normalizeDashboardCacheKey(shop);
-  if (key) jobMonitorCache.delete(key);
+  if (!key) return;
+  [...jobMonitorCache.keys()].forEach((cacheKey) => {
+    if (cacheKey === key || String(cacheKey).startsWith(`${key}:`)) jobMonitorCache.delete(cacheKey);
+  });
+  invalidateBackgroundProcessCache(shop);
+}
+
+function getJobMonitorCacheKey(shop, options = {}) {
+  const key = normalizeDashboardCacheKey(shop);
+  if (!key) return "";
+  const recentMode = options.includeRecentJobs ? "recent" : "active";
+  const logsMode = options.includeLogs ? "full" : "summary";
+  const pointMode = options.includePointSummary === false ? "no-points" : "points";
+  return `${key}:${recentMode}:${logsMode}:${pointMode}`;
+}
+
+function getCachedBackgroundProcesses(shop, options = {}) {
+  if (options.forceRefresh || BACKGROUND_PROCESS_CACHE_TTL_MS <= 0) return null;
+  const key = getBackgroundProcessCacheKey(shop, options);
+  if (!key) return null;
+  const entry = backgroundProcessCache.get(key);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    backgroundProcessCache.delete(key);
+    return null;
+  }
+  return entry.backgroundProcesses;
+}
+
+function setCachedBackgroundProcesses(shop, backgroundProcesses, options = {}) {
+  if (BACKGROUND_PROCESS_CACHE_TTL_MS <= 0 || !backgroundProcesses) return;
+  const key = getBackgroundProcessCacheKey(shop, options);
+  if (!key) return;
+  while (backgroundProcessCache.size >= BACKGROUND_PROCESS_CACHE_MAX_ENTRIES) {
+    const oldestKey = backgroundProcessCache.keys().next().value;
+    if (!oldestKey) break;
+    backgroundProcessCache.delete(oldestKey);
+  }
+  backgroundProcessCache.set(key, {
+    backgroundProcesses,
+    expiresAt: Date.now() + BACKGROUND_PROCESS_CACHE_TTL_MS,
+  });
+}
+
+function invalidateBackgroundProcessCache(shop) {
+  const key = normalizeDashboardCacheKey(shop);
+  if (!key) return;
+  [...backgroundProcessCache.keys()].forEach((cacheKey) => {
+    if (cacheKey === key || String(cacheKey).startsWith(`${key}:`)) backgroundProcessCache.delete(cacheKey);
+  });
+}
+
+function getBackgroundProcessCacheKey(shop, options = {}) {
+  const key = normalizeDashboardCacheKey(shop);
+  if (!key) return "";
+  const page = normalizeBackgroundProcessPage(options.page);
+  const logsMode = options.includeLogs ? "logs" : "no-logs";
+  return `${key}:page-${page}:${logsMode}`;
 }
 
 function normalizeDashboardCacheKey(shop) {
@@ -507,6 +734,54 @@ function buildProductTableRowMetricsSql() {
   return Prisma.sql`jsonb_strip_nulls(${flatMetricsSql})`;
 }
 
+function buildProductDashboardSnapshotMetricsSql() {
+  const flatMetricObjects = [];
+  for (let index = 0; index < DASHBOARD_SNAPSHOT_METRIC_KEYS.length; index += PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE) {
+    flatMetricObjects.push(buildProductRiskSnapshotMetricChunkSql(
+      DASHBOARD_SNAPSHOT_METRIC_KEYS.slice(index, index + PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE),
+    ));
+  }
+  const flatMetricsSql = joinJsonbObjectsSql(flatMetricObjects);
+  return Prisma.sql`jsonb_strip_nulls(${flatMetricsSql})`;
+}
+
+function buildProductAnalyticsSnapshotMetricsSql() {
+  const flatMetricObjects = [];
+  for (let index = 0; index < ANALYTICS_SNAPSHOT_METRIC_KEYS.length; index += PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE) {
+    flatMetricObjects.push(buildProductRiskSnapshotMetricChunkSql(
+      ANALYTICS_SNAPSHOT_METRIC_KEYS.slice(index, index + PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE),
+    ));
+  }
+  const flatMetricsSql = joinJsonbObjectsSql(flatMetricObjects);
+  const nestedMetricsSql = Prisma.sql`jsonb_build_object(
+    'monthlyOrderActivity',
+    CASE
+      WHEN jsonb_typeof(metrics_json -> 'monthlyOrderActivity') = 'object'
+      THEN jsonb_strip_nulls(jsonb_build_object('summary', metrics_json #> '{monthlyOrderActivity,summary}'))
+      ELSE NULL
+    END,
+    'textInsights',
+    CASE
+      WHEN jsonb_typeof(metrics_json -> 'textInsights') = 'object'
+      THEN jsonb_strip_nulls(jsonb_build_object('sentiment', metrics_json #> '{textInsights,sentiment}'))
+      ELSE NULL
+    END
+  )`;
+
+  return Prisma.sql`jsonb_strip_nulls(${flatMetricsSql} || ${nestedMetricsSql})`;
+}
+
+function buildProductScoreHistoryAnalyticsMetricsSql() {
+  const flatMetricObjects = [];
+  for (let index = 0; index < SCORE_HISTORY_ANALYTICS_METRIC_KEYS.length; index += PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE) {
+    flatMetricObjects.push(buildProductRiskSnapshotMetricChunkSql(
+      SCORE_HISTORY_ANALYTICS_METRIC_KEYS.slice(index, index + PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE),
+    ));
+  }
+
+  return Prisma.sql`jsonb_strip_nulls(${joinJsonbObjectsSql(flatMetricObjects)})`;
+}
+
 function buildProductRiskSnapshotMetricChunkSql(keys) {
   const flatFields = keys.flatMap((key) => [
     Prisma.raw(`'${key}'`),
@@ -522,6 +797,9 @@ function joinJsonbObjectsSql(jsonbObjects) {
 }
 
 async function getProductRiskSnapshotsForList(shop) {
+  const rollupRows = await getProductPulseProductRollupSnapshotRowsForShop(shop);
+  if (rollupRows.length) return rollupRows;
+
   return prisma.$queryRaw`
     WITH snapshot_rows AS (
       SELECT
@@ -560,16 +838,100 @@ async function getProductRiskSnapshotsForList(shop) {
   `;
 }
 
-async function getProductRiskSnapshotsWithLatestDiagnosisMap(shop, perf, perfPrefix) {
+async function getProductRiskSnapshotsForAnalytics(shop) {
+  const rollupRows = await getProductPulseProductRollupSnapshotRowsForShop(shop);
+  if (rollupRows.length) return rollupRows;
+
+  return prisma.$queryRaw`
+    WITH snapshot_rows AS (
+      SELECT
+        id,
+        shop,
+        "productGid",
+        "productTitle",
+        handle,
+        "riskScore",
+        "impactScore",
+        confidence,
+        "primaryIssue",
+        "sourceCoverage",
+        "calculatedAt",
+        "updatedAt",
+        metrics::jsonb AS metrics_json
+      FROM "ProductRiskSnapshot"
+      WHERE shop = ${shop}
+    )
+    SELECT
+      id,
+      shop,
+      "productGid",
+      "productTitle",
+      handle,
+      "riskScore",
+      "impactScore",
+      confidence,
+      "primaryIssue",
+      "sourceCoverage",
+      ${buildProductAnalyticsSnapshotMetricsSql()} AS metrics,
+      "calculatedAt",
+      "updatedAt"
+    FROM snapshot_rows
+    ORDER BY "riskScore" DESC, "updatedAt" DESC
+  `;
+}
+
+async function getProductRiskSnapshotsForDashboard(shop) {
+  const rollupRows = await getProductPulseProductRollupSnapshotRowsForShop(shop);
+  if (rollupRows.length) return rollupRows;
+
+  return prisma.$queryRaw`
+    WITH snapshot_rows AS (
+      SELECT
+        id,
+        shop,
+        "productGid",
+        "productTitle",
+        handle,
+        "riskScore",
+        "impactScore",
+        confidence,
+        "primaryIssue",
+        "sourceCoverage",
+        "calculatedAt",
+        "updatedAt",
+        metrics::jsonb AS metrics_json
+      FROM "ProductRiskSnapshot"
+      WHERE shop = ${shop}
+    )
+    SELECT
+      id,
+      shop,
+      "productGid",
+      "productTitle",
+      handle,
+      "riskScore",
+      "impactScore",
+      confidence,
+      "primaryIssue",
+      "sourceCoverage",
+      ${buildProductDashboardSnapshotMetricsSql()} AS metrics,
+      "calculatedAt",
+      "updatedAt"
+    FROM snapshot_rows
+    ORDER BY "riskScore" DESC, "updatedAt" DESC
+  `;
+}
+
+async function getDashboardSnapshotsWithLatestDiagnosisMap(shop, perf) {
   const snapshots = await measureProductPulseStep(
     perf,
-    `${perfPrefix}.snapshots.light`,
-    () => getProductRiskSnapshotsForList(shop),
+    "dashboard.snapshots.minimal",
+    () => getProductRiskSnapshotsForDashboard(shop),
   );
   const latestDiagnosisByProductGid = await measureProductPulseStep(
     perf,
-    `${perfPrefix}.latestDiagnosisMap.light`,
-    () => getLatestCompletedDiagnosisMap(shop, snapshots, { light: true }),
+    "dashboard.latestDiagnosisMap.minimal",
+    () => getLatestDashboardDiagnosisMap(shop, snapshots),
   );
 
   return { snapshots, latestDiagnosisByProductGid };
@@ -816,6 +1178,9 @@ function getProductTableKeyForTab(tab) {
 }
 
 async function getProductTableBaseRowsForShop(shop) {
+  const rollupRows = await getProductPulseProductRollupSnapshotRowsForShop(shop);
+  if (rollupRows.length) return rollupRows;
+
   return prisma.$queryRaw`
     WITH latest_diagnosis AS (
       SELECT DISTINCT ON ("productGid")
@@ -964,6 +1329,9 @@ async function getProductTableRowMetricsForProducts(shop, productGids = []) {
   const uniqueProductGids = [...new Set(productGids.filter(Boolean))];
   if (!uniqueProductGids.length) return new Map();
 
+  const rollupMetrics = await getProductPulseProductRollupMetricsForProducts(shop, uniqueProductGids);
+  if (rollupMetrics.size === uniqueProductGids.length) return rollupMetrics;
+
   const rows = await prisma.$queryRaw`
     WITH snapshot_rows AS (
       SELECT
@@ -1022,6 +1390,141 @@ async function getProductScoreHistoryForProductsLight(shop, productGids = [], op
     historyByProductGid.set(row.productGid, history);
   });
   return historyByProductGid;
+}
+
+async function getProductScoreHistoryForProductsForAnalytics(shop, productGids = [], options = {}) {
+  if (!shop) return new Map();
+  const uniqueProductGids = [...new Set(productGids.filter(Boolean))];
+  if (!uniqueProductGids.length) return new Map();
+  const take = Math.round(Math.max(1, Math.min(ANALYTICS_SCORE_HISTORY_TAKE, Number(options.take || 90))));
+  const sinceDate = getValidDate(options.since);
+  const includeBaselineBefore = Boolean(options.includeBaselineBefore && sinceDate);
+  const baselineUnionSql = includeBaselineBefore
+    ? Prisma.sql`
+      UNION ALL
+      SELECT
+        id,
+        "productGid",
+        source,
+        "riskScore",
+        "impactScore",
+        confidence,
+        "primaryIssue",
+        "recordedAt",
+        metrics_json
+      FROM baseline_history
+    `
+    : Prisma.empty;
+
+  const rows = sinceDate
+    ? await prisma.$queryRaw`
+      WITH recent_history AS (
+        SELECT
+          id,
+          "productGid",
+          source,
+          "riskScore",
+          "impactScore",
+          confidence,
+          "primaryIssue",
+          "recordedAt",
+          metrics::jsonb AS metrics_json,
+          row_number() OVER (PARTITION BY "productGid" ORDER BY "recordedAt" DESC) AS row_number
+        FROM "ProductScoreHistory"
+        WHERE shop = ${shop}
+          AND "productGid" IN (${Prisma.join(uniqueProductGids)})
+          AND "recordedAt" >= ${sinceDate}
+      ),
+      baseline_history AS (
+        SELECT DISTINCT ON ("productGid")
+          id,
+          "productGid",
+          source,
+          "riskScore",
+          "impactScore",
+          confidence,
+          "primaryIssue",
+          "recordedAt",
+          metrics::jsonb AS metrics_json
+        FROM "ProductScoreHistory"
+        WHERE shop = ${shop}
+          AND "productGid" IN (${Prisma.join(uniqueProductGids)})
+          AND "recordedAt" < ${sinceDate}
+        ORDER BY "productGid", "recordedAt" DESC
+      ),
+      combined_history AS (
+        SELECT
+          id,
+          "productGid",
+          source,
+          "riskScore",
+          "impactScore",
+          confidence,
+          "primaryIssue",
+          "recordedAt",
+          metrics_json
+        FROM recent_history
+        WHERE row_number <= ${take}
+        ${baselineUnionSql}
+      )
+      SELECT
+        id,
+        "productGid",
+        source,
+        "riskScore",
+        "impactScore",
+        confidence,
+        "primaryIssue",
+        "recordedAt",
+        ${buildProductScoreHistoryAnalyticsMetricsSql()} AS metrics
+      FROM combined_history
+      ORDER BY "productGid" ASC, "recordedAt" ASC
+    `
+    : await prisma.$queryRaw`
+      WITH ranked_history AS (
+        SELECT
+          id,
+          "productGid",
+          source,
+          "riskScore",
+          "impactScore",
+          confidence,
+          "primaryIssue",
+          "recordedAt",
+          metrics::jsonb AS metrics_json,
+          row_number() OVER (PARTITION BY "productGid" ORDER BY "recordedAt" DESC) AS row_number
+        FROM "ProductScoreHistory"
+        WHERE shop = ${shop}
+          AND "productGid" IN (${Prisma.join(uniqueProductGids)})
+      )
+      SELECT
+        id,
+        "productGid",
+        source,
+        "riskScore",
+        "impactScore",
+        confidence,
+        "primaryIssue",
+        "recordedAt",
+        ${buildProductScoreHistoryAnalyticsMetricsSql()} AS metrics
+      FROM ranked_history
+      WHERE row_number <= ${take}
+      ORDER BY "productGid" ASC, "recordedAt" ASC
+    `;
+
+  const historyByProductGid = new Map(uniqueProductGids.map((productGid) => [productGid, []]));
+  rows.forEach((row) => {
+    const history = historyByProductGid.get(row.productGid) || [];
+    history.push(row);
+    historyByProductGid.set(row.productGid, history);
+  });
+  return historyByProductGid;
+}
+
+function getValidDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
 }
 
 function buildProductsQueueResultForContext(context, rows, base) {
@@ -1086,23 +1589,34 @@ export async function getDashboardDataForShop(shop, admin, options = {}) {
   }
   perf?.mark("dashboard.cache.miss");
 
-  const catalogProductCountPromise = measureProductPulseStep(perf, "dashboard.shopifyCatalogProductCount", () => getShopifyCatalogProductCount(admin));
-  await measureProductPulseStep(perf, "dashboard.failStaleFastProductScans", () => failStaleFastProductScans(shop));
-  const { snapshots, latestDiagnosisByProductGid } = await getProductRiskSnapshotsWithLatestDiagnosisMap(
+  const { snapshots, latestDiagnosisByProductGid } = await getDashboardSnapshotsWithLatestDiagnosisMap(
     shop,
     perf,
-    "dashboard",
   );
   const settings = await measureProductPulseStep(perf, "dashboard.settings", () => getProductPulseSettings(shop));
   const actions = await measureProductPulseStep(perf, "dashboard.actions", () => prisma.productAction.findMany({
     where: { shop },
+    select: {
+      id: true,
+      diagnosisId: true,
+      productGid: true,
+      actionType: true,
+      label: true,
+      status: true,
+      payload: true,
+      createdAt: true,
+      appliedAt: true,
+    },
     orderBy: { createdAt: "desc" },
     take: 250,
   }));
   const actionsByProductGid = groupProductActionsByProductGid(actions);
   const { activeJob, activeDiagnosisJobs } = await measureProductPulseStep(perf, "dashboard.activeJobs", () => getActiveDashboardJobs(shop));
-  const pointBalance = await measureProductPulseStep(perf, "dashboard.pointBalance", () => getStorePointBalanceForShop(shop));
-  const catalogProductCount = await catalogProductCountPromise;
+  const catalogProductCount = await measureProductPulseStep(
+    perf,
+    "dashboard.catalogProductCount.cached",
+    () => getCachedShopifyCatalogProductCountForDashboard(shop, admin, snapshots.length),
+  );
   perf?.mark("dashboard.baseData.loaded", {
     snapshots: snapshots.length,
     activeDiagnosisJobs: activeDiagnosisJobs.length,
@@ -1113,46 +1627,138 @@ export async function getDashboardDataForShop(shop, admin, options = {}) {
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
 
-  const dashboardProductsWithoutImages = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
+  const dashboardProducts = snapshots.map((snapshot) => formatSnapshotForDashboard(
     snapshot,
     actionsByProductGid.get(snapshot.productGid) || [],
     latestDiagnosisByProductGid.get(snapshot.productGid),
     settings,
   ));
-  perf?.mark("dashboard.formatProducts", { products: dashboardProductsWithoutImages.length });
-  const dashboardProductsWithJobs = attachActiveProductDiagnosisJobs(dashboardProductsWithoutImages, activeDiagnosisJobs);
+  perf?.mark("dashboard.formatProducts.minimal", { products: dashboardProducts.length });
+  const dashboardProductsWithJobs = attachActiveProductDiagnosisJobs(dashboardProducts, activeDiagnosisJobs);
   perf?.mark("dashboard.attachActiveJobs");
 
-  const dashboardWithoutImage = buildDashboardViewData(dashboardProductsWithJobs, {
-    billing: { creditsAvailable: pointBalance.available, pointBalance },
+  const dashboard = buildDashboardViewData(dashboardProductsWithJobs, {
     catalogProductCount,
     settings,
   });
   perf?.mark("dashboard.buildDashboardViewData");
-  const dashboard = await measureProductPulseStep(perf, "dashboard.attachStartProductImage", () => attachDashboardStartProductImage(dashboardWithoutImage, admin));
   setCachedProductPulseDashboard(shop, dashboard, { activeJob, activeDiagnosisJobs });
   return dashboard;
 }
 
+async function getCachedShopifyCatalogProductCountForDashboard(shop, admin, fallbackCount = 0) {
+  const normalizedFallbackCount = Math.max(0, Number(fallbackCount || 0));
+  const cached = await readShopifyCatalogProductCountCache(shop);
+  if (cached?.fresh) return Math.max(cached.count, normalizedFallbackCount);
+
+  if (cached?.count > 0) {
+    if (admin?.graphql) {
+      refreshShopifyCatalogProductCountCache(shop, admin, cached.count).catch(() => {});
+    }
+    return Math.max(cached.count, normalizedFallbackCount);
+  }
+
+  if (!admin?.graphql) return normalizedFallbackCount;
+
+  try {
+    const refreshed = await refreshShopifyCatalogProductCountCache(shop, admin, normalizedFallbackCount);
+    return Math.max(refreshed, normalizedFallbackCount);
+  } catch {
+    return normalizedFallbackCount;
+  }
+}
+
+async function readShopifyCatalogProductCountCache(shop) {
+  if (!shop) return null;
+  const record = await prisma.productPulseSource.findUnique({
+    where: {
+      shop_sourceKey: {
+        shop,
+        sourceKey: SHOPIFY_CATALOG_PRODUCT_COUNT_CACHE_SOURCE_KEY,
+      },
+    },
+    select: {
+      config: true,
+      lastSyncedAt: true,
+    },
+  });
+  if (!record) return null;
+
+  const config = record.config && typeof record.config === "object" ? record.config : {};
+  const count = Number(config.count || 0);
+  if (!Number.isFinite(count) || count <= 0) return null;
+
+  const countedAt = new Date(config.countedAt || record.lastSyncedAt || 0).getTime();
+  const fresh = countedAt > 0 && Date.now() - countedAt <= SHOPIFY_CATALOG_PRODUCT_COUNT_CACHE_TTL_MS;
+  return {
+    count: Math.round(count),
+    countedAt: Number.isFinite(countedAt) ? countedAt : 0,
+    fresh,
+  };
+}
+
+async function refreshShopifyCatalogProductCountCache(shop, admin, previousCount = 0) {
+  const count = await getShopifyCatalogProductCount(admin);
+  if (!Number.isFinite(count) || count <= 0) return Math.max(0, Number(previousCount || 0));
+
+  const countedAt = new Date();
+  await prisma.productPulseSource.upsert({
+    where: {
+      shop_sourceKey: {
+        shop,
+        sourceKey: SHOPIFY_CATALOG_PRODUCT_COUNT_CACHE_SOURCE_KEY,
+      },
+    },
+    create: {
+      shop,
+      sourceKey: SHOPIFY_CATALOG_PRODUCT_COUNT_CACHE_SOURCE_KEY,
+      category: "cache",
+      name: "Shopify catalog product count",
+      connected: true,
+      active: true,
+      available: true,
+      health: "cached",
+      coverageWeight: 0,
+      config: {
+        count,
+        countedAt: countedAt.toISOString(),
+        source: "shopify.productsCount",
+      },
+      lastSyncedAt: countedAt,
+    },
+    update: {
+      connected: true,
+      active: true,
+      available: true,
+      health: "cached",
+      config: {
+        count,
+        countedAt: countedAt.toISOString(),
+        source: "shopify.productsCount",
+      },
+      lastSyncedAt: countedAt,
+    },
+  });
+
+  if (count !== Number(previousCount || 0)) invalidateProductPulseDashboardCache(shop);
+  return count;
+}
+
 async function getShopifyCatalogProductCount(admin) {
   if (!admin?.graphql) return null;
-  try {
-    const data = await withTimeout(
-      shopifyGraphql(admin, `#graphql
-        query ProductPulseCatalogProductCount {
-          productsCount {
-            count
-          }
+  const data = await withTimeout(
+    shopifyGraphql(admin, `#graphql
+      query ProductPulseCatalogProductCount {
+        productsCount {
+          count
         }
-      `),
-      SHOPIFY_DASHBOARD_COUNT_TIMEOUT_MS,
-      "Shopify catalog product count timed out.",
-    );
-    const count = Number(data?.productsCount?.count || 0);
-    return Number.isFinite(count) && count > 0 ? count : null;
-  } catch {
-    return null;
-  }
+      }
+    `),
+    SHOPIFY_DASHBOARD_COUNT_TIMEOUT_MS,
+    "Shopify catalog product count timed out.",
+  );
+  const count = Number(data?.productsCount?.count || 0);
+  return Number.isFinite(count) && count > 0 ? Math.round(count) : null;
 }
 
 function groupProductActionsByProductGid(actions = []) {
@@ -1167,45 +1773,46 @@ function groupProductActionsByProductGid(actions = []) {
   return grouped;
 }
 
-async function attachDashboardStartProductImage(dashboard, admin) {
-  const startProduct = dashboard?.startProduct;
-  if (!startProduct?.productId || startProduct.imageUrl || !admin?.graphql) return dashboard;
-  const [rowWithImage] = await attachProductImages([{ productGid: startProduct.productId }], admin);
-  const imageUrl = normalizeJobPayloadString(rowWithImage?.imageUrl);
-  if (!imageUrl) return dashboard;
+export async function getAnalyticsDataForShop(shop, options = {}) {
+  const perf = options.perf || null;
+  const cachedAnalytics = getCachedProductPulseAnalytics(shop, options);
+  if (cachedAnalytics) {
+    perf?.mark("analytics.cache.hit");
+    return cachedAnalytics;
+  }
 
-  return {
-    ...dashboard,
-    startProduct: {
-      ...startProduct,
-      imageUrl,
-      imageAlt: normalizeJobPayloadString(rowWithImage?.imageAlt) || startProduct.title || "",
-    },
-  };
-}
-
-export async function getAnalyticsDataForShop(shop) {
-  await failStaleFastProductScans(shop);
+  perf?.mark("analytics.cache.miss");
+  await measureProductPulseStep(perf, "analytics.failStaleFastProductScans", () => failStaleFastProductScans(shop));
   const [snapshots, activeJob, activeDiagnosisJobs, sources, actions, settings] = await Promise.all([
-    getProductRiskSnapshotsForList(shop),
-    getActiveFastProductScan(shop),
-    getActiveProductDiagnosisJobs(shop),
-    prisma.productPulseSource.findMany({
-      where: { shop, sourceKey: { not: PRODUCT_PULSE_SETTINGS_SOURCE_KEY } },
+    measureProductPulseStep(perf, "analytics.snapshots.optimized", () => getProductRiskSnapshotsForAnalytics(shop)),
+    measureProductPulseStep(perf, "analytics.activeFastScan", () => getActiveFastProductScan(shop)),
+    measureProductPulseStep(perf, "analytics.activeDiagnosisJobs", () => getActiveProductDiagnosisJobs(shop)),
+    measureProductPulseStep(perf, "analytics.sources", () => prisma.productPulseSource.findMany({
+      where: { shop, sourceKey: { not: PRODUCT_PULSE_SETTINGS_SOURCE_KEY }, category: { not: "cache" } },
       orderBy: [{ category: "asc" }, { sourceKey: "asc" }],
-    }),
-    prisma.productAction.findMany({
+    })),
+    measureProductPulseStep(perf, "analytics.actions", () => prisma.productAction.findMany({
       where: { shop },
       orderBy: { createdAt: "desc" },
       take: 250,
-    }),
-    getProductPulseSettings(shop),
+    })),
+    measureProductPulseStep(perf, "analytics.settings", () => getProductPulseSettings(shop)),
   ]);
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
+  perf?.mark("analytics.base.loaded", {
+    snapshots: snapshots.length,
+    sources: sources.length,
+    actions: actions.length,
+    activeDiagnosisJobs: activeDiagnosisJobs.length,
+  });
 
-  const latestDiagnosisByProductGid = await getLatestCompletedDiagnosisMap(shop, snapshots, { light: true });
+  const latestDiagnosisByProductGid = await measureProductPulseStep(
+    perf,
+    "analytics.latestDiagnosisMap.light",
+    () => getLatestCompletedDiagnosisMap(shop, snapshots, { light: true }),
+  );
   const analyticsHistoryWindowDays = Math.max(
     ANALYTICS_RETROACTIVE_HISTORY_DAYS,
     Number(settings?.analysis?.lookbackDays || 0),
@@ -1213,30 +1820,38 @@ export async function getAnalyticsDataForShop(shop) {
   const analyticsHistorySince = new Date(
     Date.now() - (analyticsHistoryWindowDays + ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS) * 24 * 60 * 60 * 1000,
   );
-  const scoreHistoryByProductGid = await getProductScoreHistoryForProductsForShop(
-    shop,
-    snapshots.map((snapshot) => snapshot.productGid),
-    {
-      take: Math.max(ANALYTICS_SCORE_HISTORY_TAKE, analyticsHistoryWindowDays + 30),
-      since: analyticsHistorySince,
-      includeBaselineBefore: true,
-    },
+  const scoreHistoryByProductGid = await measureProductPulseStep(
+    perf,
+    "analytics.scoreHistory",
+    () => getProductScoreHistoryForProductsForAnalytics(
+      shop,
+      snapshots.map((snapshot) => snapshot.productGid),
+      {
+        take: Math.max(ANALYTICS_SCORE_HISTORY_TAKE, analyticsHistoryWindowDays + 30),
+        since: analyticsHistorySince,
+        includeBaselineBefore: true,
+      },
+    ),
   );
-  const analyticsProducts = snapshots.map((snapshot) => formatSnapshotForDiagnosis(
-    snapshot,
-    actions.filter((action) => action.productGid === snapshot.productGid),
-    latestDiagnosisByProductGid.get(snapshot.productGid),
-    settings,
-    null,
-    scoreHistoryByProductGid.get(snapshot.productGid) || [],
-  ));
+  const analyticsProducts = await measureProductPulseStep(perf, "analytics.formatProducts", () => {
+    const actionsByProductGid = groupProductActionsByProductGid(actions);
+    return snapshots.map((snapshot) => formatSnapshotForAnalytics(
+      snapshot,
+      actionsByProductGid.get(snapshot.productGid) || [],
+      latestDiagnosisByProductGid.get(snapshot.productGid),
+      settings,
+      scoreHistoryByProductGid.get(snapshot.productGid) || [],
+    ));
+  }, { products: snapshots.length });
 
-  return buildAnalyticsViewData(analyticsProducts, {
+  const analytics = await measureProductPulseStep(perf, "analytics.buildAnalyticsViewData", () => buildAnalyticsViewData(analyticsProducts, {
     sources,
     actions,
     settings,
-    windowDays: settings.analysis?.lookbackDays,
-  });
+    windowDays: settings?.analysis?.lookbackDays,
+  }));
+  setCachedProductPulseAnalytics(shop, analytics, { activeJob, activeDiagnosisJobs });
+  return analytics;
 }
 
 async function getLatestCompletedDiagnosisMap(shop, snapshots = [], options = {}) {
@@ -1282,6 +1897,33 @@ async function getLatestCompletedDiagnosisMap(shop, snapshots = [], options = {}
     }
   });
   return latestByProductGid;
+}
+
+async function getLatestDashboardDiagnosisMap(shop, snapshots = []) {
+  const productGids = [...new Set(snapshots.map((snapshot) => snapshot.productGid).filter(Boolean))];
+  if (!productGids.length) return new Map();
+
+  const diagnoses = await prisma.$queryRaw`
+    SELECT DISTINCT ON ("productGid")
+      id,
+      shop,
+      "productGid",
+      "productTitle",
+      status,
+      "riskScore",
+      confidence,
+      "likelyCause",
+      recommendations,
+      "createdAt",
+      "completedAt"
+    FROM "ProductDiagnosis"
+    WHERE shop = ${shop}
+      AND status = 'Completed'
+      AND "productGid" IN (${Prisma.join(productGids)})
+    ORDER BY "productGid", "completedAt" DESC NULLS LAST, "createdAt" DESC
+  `;
+
+  return new Map(diagnoses.map((diagnosis) => [diagnosis.productGid, diagnosis]));
 }
 
 async function getResolvedProductActionsMap(shop, snapshots = []) {
@@ -1385,35 +2027,65 @@ export async function getRecentJobsForShop(shop) {
   return jobs.map(formatJob);
 }
 
-export async function getJobMonitorForShop(shop) {
-  const cachedMonitor = getCachedJobMonitor(shop);
-  if (cachedMonitor) return cachedMonitor;
+export async function getJobMonitorForShop(shop, options = {}) {
+  const perf = options.perf || null;
+  const includeRecentJobs = options.includeRecentJobs !== false;
+  const includeLogs = Boolean(options.includeLogs);
+  const includePointSummary = options.includePointSummary !== false;
+  const cacheOptions = { ...options, includeRecentJobs, includeLogs, includePointSummary };
+  const cachedMonitor = getCachedJobMonitor(shop, cacheOptions);
+  if (cachedMonitor) {
+    perf?.mark("jobStatus.cache.hit", {
+      activeJobs: cachedMonitor.activeJobs?.length || 0,
+      recentJobs: cachedMonitor.recentJobs?.length || 0,
+      logs: cachedMonitor.logs?.length || 0,
+      activeJobCount: cachedMonitor.activeJobCount ?? cachedMonitor.activeJobs?.length ?? 0,
+    });
+    return cachedMonitor;
+  }
 
-  await failStaleFastProductScans(shop);
-  const [recentJobs, activeJobs, logs, pointSummary] = await Promise.all([
-    prisma.catalogSignalJob.findMany({
+  perf?.mark("jobStatus.cache.miss");
+  await measureProductPulseStep(perf, "jobStatus.failStaleFastProductScans", () => failStaleFastProductScans(shop));
+  const activeWhere = { shop, status: { in: ["Queued", "Running"] } };
+  const [recentJobs, activeJobsRaw, logs, pointSummary] = await Promise.all([
+    includeRecentJobs ? measureProductPulseStep(perf, "jobStatus.recentJobs", () => prisma.catalogSignalJob.findMany({
       where: { shop },
       orderBy: [{ updatedAt: "desc" }],
       take: JOB_MONITOR_RECENT_JOB_LIMIT,
-    }),
-    prisma.catalogSignalJob.findMany({
-      where: { shop, status: { in: ["Queued", "Running"] } },
+    })) : [],
+    measureProductPulseStep(perf, "jobStatus.activeJobs", () => prisma.catalogSignalJob.findMany({
+      where: activeWhere,
       orderBy: [{ status: "desc" }, { updatedAt: "desc" }],
-    }),
-    getJobLogsForShop(shop, 100),
-    getStorePointSummaryForShop(shop),
+      take: JOB_MONITOR_ACTIVE_JOB_LIMIT + 1,
+    })),
+    includeLogs
+      ? measureProductPulseStep(perf, "jobStatus.logs", () => getJobLogsForShop(shop, 100))
+      : [],
+    includePointSummary
+      ? measureProductPulseStep(perf, "jobStatus.pointSummary", () => getStorePointSummaryForShop(shop, { limit: 3 }))
+      : null,
   ]);
+  const activeJobsLimited = activeJobsRaw.length > JOB_MONITOR_ACTIVE_JOB_LIMIT;
+  const activeJobs = activeJobsLimited ? activeJobsRaw.slice(0, JOB_MONITOR_ACTIVE_JOB_LIMIT) : activeJobsRaw;
+  const activeJobCount = activeJobsLimited
+    ? await measureProductPulseStep(perf, "jobStatus.activeJobCount", () => prisma.catalogSignalJob.count({ where: activeWhere }))
+    : activeJobs.length;
   ensureWorkersForJobs(shop, activeJobs);
 
   const monitor = {
     activeJobs: activeJobs.map(formatJob),
+    activeJobCount,
+    activeJobsLimited,
     recentJobs: recentJobs.map(formatJob),
+    recentJobsLoaded: includeRecentJobs,
     logs: logs.map(formatJobLog),
-    pointBalance: pointSummary.balance,
+    logsLoaded: includeLogs,
+    pointBalance: pointSummary?.balance || null,
     pointSummary,
+    pointSummaryLoaded: includePointSummary,
     updatedAt: new Date().toISOString(),
   };
-  setCachedJobMonitor(shop, monitor);
+  setCachedJobMonitor(shop, monitor, cacheOptions);
   return monitor;
 }
 
@@ -1536,34 +2208,52 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
 }
 
 export async function getBackgroundProcessesForShop(shop, options = {}) {
-  await failStaleFastProductScans(shop);
   const requestedPage = normalizeBackgroundProcessPage(options.page);
+  const includeLogs = Boolean(options.includeLogs);
+  const perf = options.perf || null;
+  const cacheOptions = { ...options, page: requestedPage, includeLogs };
+  const cachedBackgroundProcesses = getCachedBackgroundProcesses(shop, cacheOptions);
+  if (cachedBackgroundProcesses) {
+    perf?.mark("backgroundProcesses.cache.hit", {
+      page: requestedPage,
+      processes: cachedBackgroundProcesses.processes?.length || 0,
+      activeProcesses: cachedBackgroundProcesses.activeProcesses?.length || 0,
+      logs: cachedBackgroundProcesses.logs?.length || 0,
+    });
+    return cachedBackgroundProcesses;
+  }
+
+  perf?.mark("backgroundProcesses.cache.miss", { page: requestedPage, includeLogs });
+  await measureProductPulseStep(perf, "backgroundProcesses.failStaleFastProductScans", () => failStaleFastProductScans(shop));
   const [total, statusGroups, kindGroups, logs] = await Promise.all([
-    prisma.catalogSignalJob.count({ where: { shop } }),
-    prisma.catalogSignalJob.groupBy({
+    measureProductPulseStep(perf, "backgroundProcesses.total", () => prisma.catalogSignalJob.count({ where: { shop } })),
+    measureProductPulseStep(perf, "backgroundProcesses.statusGroups", () => prisma.catalogSignalJob.groupBy({
       by: ["status"],
       where: { shop },
       _count: { _all: true },
-    }),
-    prisma.catalogSignalJob.groupBy({
+    })),
+    measureProductPulseStep(perf, "backgroundProcesses.kindGroups", () => prisma.catalogSignalJob.groupBy({
       by: ["kind"],
       where: { shop },
       _count: { _all: true },
-    }),
-    getJobLogsForShop(shop, BACKGROUND_PROCESS_LOG_LIMIT),
+    })),
+    includeLogs
+      ? measureProductPulseStep(perf, "backgroundProcesses.logs", () => getJobLogsForShop(shop, BACKGROUND_PROCESS_LOG_LIMIT))
+      : [],
   ]);
   const page = clampBackgroundProcessPage(requestedPage, total);
   const [jobs, activeJobs] = await Promise.all([
-    prisma.catalogSignalJob.findMany({
+    measureProductPulseStep(perf, "backgroundProcesses.pageJobs", () => prisma.catalogSignalJob.findMany({
       where: { shop },
       orderBy: [{ updatedAt: "desc" }],
       skip: (page - 1) * BACKGROUND_PROCESS_PAGE_SIZE,
       take: BACKGROUND_PROCESS_PAGE_SIZE,
-    }),
-    prisma.catalogSignalJob.findMany({
+    })),
+    measureProductPulseStep(perf, "backgroundProcesses.activeJobs", () => prisma.catalogSignalJob.findMany({
       where: { shop, status: { in: ["Queued", "Running"] } },
       orderBy: [{ updatedAt: "desc" }],
-    }),
+      take: JOB_MONITOR_ACTIVE_JOB_LIMIT,
+    })),
   ]);
 
   ensureWorkersForJobs(shop, activeJobs);
@@ -1575,9 +2265,10 @@ export async function getBackgroundProcessesForShop(shop, options = {}) {
   const statusCounts = mapBackgroundProcessStatusCounts(statusGroups);
   const kindCounts = mapBackgroundProcessKindCounts(kindGroups);
 
-  return {
+  const backgroundProcesses = {
     processes,
     activeProcesses,
+    activeProcessesLimited: ((statusCounts.Running || 0) + (statusCounts.Queued || 0)) > activeProcesses.length,
     logs: formattedLogs,
     stats: buildBackgroundProcessStats(jobs, formattedLogs, {
       total,
@@ -1589,6 +2280,8 @@ export async function getBackgroundProcessesForShop(shop, options = {}) {
     logLimit: BACKGROUND_PROCESS_LOG_LIMIT,
     updatedAt: new Date().toISOString(),
   };
+  setCachedBackgroundProcesses(shop, backgroundProcesses, cacheOptions);
+  return backgroundProcesses;
 }
 
 export async function getProductSnapshotForShop(shop, productId, admin) {
@@ -1953,6 +2646,9 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     },
   });
   await recordTimelineForProductAction({ shop, snapshot, actionRecord, action });
+  if (status === "applied" && ["mark-resolved", "mark-unresolved"].includes(recordActionId)) {
+    await upsertProductPulseProductRollup(snapshot, { latestDiagnosis, resolvedAction: actionRecord }).catch(() => null);
+  }
 
   invalidateProductPulseDashboardCache(shop);
   return {
@@ -5483,6 +6179,7 @@ async function resolveSnapshotProductImage(shop, snapshot, admin) {
   }).catch(() => null);
 
   snapshot.metrics = nextMetrics;
+  await upsertProductPulseProductRollup(snapshot).catch(() => null);
   return { imageUrl, imageAlt };
 }
 
@@ -5802,7 +6499,7 @@ async function createManualProductRiskSnapshot(shop, admin, productId) {
   if (!product?.id) return null;
   const snapshotPayload = buildManualProductRiskSnapshotPayload(shop, product);
 
-  return prisma.productRiskSnapshot.upsert({
+  const snapshot = await prisma.productRiskSnapshot.upsert({
     where: {
       shop_productGid: {
         shop,
@@ -5818,6 +6515,8 @@ async function createManualProductRiskSnapshot(shop, admin, productId) {
       calculatedAt: new Date(),
     },
   });
+  await upsertProductPulseProductRollup(snapshot).catch(() => null);
+  return snapshot;
 }
 
 async function fetchShopifyProductForManualSnapshot(admin, productId) {
@@ -6207,6 +6906,74 @@ function formatLiveShopifyProductForDiagnosis(product, watchedItem = null) {
   };
 }
 
+function formatSnapshotForDashboard(snapshot, actions = [], latestDiagnosis = null, settings = undefined) {
+  const metrics = snapshot.metrics || {};
+  const storedActions = filterDisabledProductActions(actions.map(formatStoredProductAction));
+  const resolvedAction = getActiveResolvedStoredAction(storedActions);
+  const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
+  const riskScore = latestDiagnosis?.riskScore ?? snapshot.riskScore;
+  const confidence = latestDiagnosis?.confidence ?? snapshot.confidence;
+  const primaryIssue = latestDiagnosis?.likelyCause || snapshot.primaryIssue;
+  const image = getSnapshotProductImage(snapshot);
+  const diagnosisRecommendations = Array.isArray(latestDiagnosis?.recommendations)
+    ? filterDisabledProductActions(latestDiagnosis.recommendations)
+    : [];
+
+  return {
+    id: snapshot.productGid,
+    productGid: snapshot.productGid,
+    slug: snapshot.handle,
+    title: snapshot.productTitle,
+    handle: snapshot.handle,
+    status: "Active",
+    riskScore,
+    impactScore: snapshot.impactScore,
+    confidence,
+    riskTone: getRiskTone(riskScore, settings),
+    riskLabel: getRiskLabel(riskScore, settings),
+    sourceCoverage: Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : ["Shopify products"],
+    lastAnalysis: toIso(snapshot.updatedAt),
+    analysisDepth: analysisState.depth,
+    analysisLabel: analysisState.label,
+    analysisDetail: analysisState.detail,
+    analysisTone: analysisState.tone,
+    analysisIcon: analysisState.icon,
+    analysisCompletedAt: analysisState.completedAt,
+    latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
+    primaryIssue,
+    imageUrl: image.imageUrl || null,
+    imageAlt: image.imageAlt || snapshot.productTitle || "",
+    metrics: {
+      returnRate: Number(metrics.returnRate || 0),
+      refundRate: Number(metrics.refundRate || 0),
+      reviewCount: Number(metrics.reviewCount || 0),
+      negativeReviewCount: Number(metrics.negativeReviewCount || 0),
+      issueCount: Number(metrics.signalCount || metrics.signalsCount || metrics.issueCount || 0),
+      revenueAtRisk: Number(metrics.revenueAtRisk || metrics.estimatedImpact || metrics.refundAmount || 0),
+      marginAtRisk: Number(metrics.marginAtRisk || (metrics.revenueAtRisk ? metrics.revenueAtRisk * 0.45 : 0) || 0),
+      estimatedImpact: Number(metrics.estimatedImpact || metrics.revenueAtRisk || metrics.refundAmount || 0),
+      signalCount: Number(metrics.signalCount || metrics.signalsCount || metrics.issueCount || 0),
+      productMomentumScore: metrics.productMomentumScore || null,
+      productMomentumTier: metrics.productMomentumTier || "",
+      momentumDirection: metrics.momentumDirection || "",
+      momentumConfidence: metrics.momentumConfidence || null,
+      momentumConfidenceLabel: metrics.momentumConfidenceLabel || "",
+      returnUnits: Number(metrics.returnUnits || 0),
+      refundUnits: Number(metrics.refundUnits || 0),
+      recentSignalUnits: Number(metrics.recentSignalUnits || 0),
+      windowDays: Number(metrics.windowDays || 60),
+      soldUnits: Math.max(Number(metrics.soldUnits || 0), Number(metrics.returnUnits || 0), Number(metrics.refundUnits || 0)),
+      storeAvgReturnRate: Number(metrics.storeAvgReturnRate || 0),
+      storeAvgRefundRate: Number(metrics.storeAvgRefundRate || 0),
+      latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
+      lastDetailedDiagnosisAt: latestDiagnosis?.completedAt || metrics.lastDetailedDiagnosisAt || null,
+    },
+    recommendedActions: analysisState.depth === "full" ? diagnosisRecommendations : [],
+    actionHistory: storedActions,
+    resolvedAt: resolvedAction?.appliedAt || null,
+  };
+}
+
 function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined, watchedItem = null, scoreHistory = []) {
   const metrics = snapshot.metrics || {};
   const diagnosisReport = metrics.diagnosisReport || {};
@@ -6377,6 +7144,115 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     evidence: diagnosisEvidence || getSnapshotEvidence(snapshot, metrics),
     issues: diagnosisIssues || getSnapshotIssues(snapshot, metrics, settings),
     recommendedActions: hasFullDiagnosis ? (diagnosisRecommendations || filterDisabledProductActions(getSnapshotRecommendedActions(snapshot, metrics))) : [],
+    actionHistory: storedActions,
+    resolvedAt: resolvedAction?.appliedAt || null,
+  };
+}
+
+function formatSnapshotForAnalytics(snapshot, actions = [], latestDiagnosis = null, settings = undefined, scoreHistory = []) {
+  const metrics = snapshot.metrics || {};
+  const storedActions = filterDisabledProductActions(actions.map(formatStoredProductAction));
+  const resolvedAction = getActiveResolvedStoredAction(storedActions);
+  const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
+  const hasFullDiagnosis = analysisState.depth === "full";
+  const riskScore = latestDiagnosis?.riskScore ?? snapshot.riskScore;
+  const confidence = latestDiagnosis?.confidence ?? snapshot.confidence;
+  const primaryIssue = latestDiagnosis?.likelyCause || snapshot.primaryIssue;
+  const monthlySummary = metrics.monthlyOrderActivity?.summary || {};
+  const hasMonthlyOrderUnits = Number(monthlySummary.totalOrderUnits || 0) > 0;
+  const normalizedSoldUnits = Math.max(
+    Number(metrics.soldUnits || 0),
+    Number(monthlySummary.totalOrderUnits || 0),
+    Number(metrics.returnUnits || 0),
+    Number(metrics.refundUnits || 0),
+  );
+  const normalizedReturnRate = hasMonthlyOrderUnits ? Number(monthlySummary.returnRate || 0) : Number(metrics.returnRate || 0);
+  const normalizedRefundRate = hasMonthlyOrderUnits ? Number(monthlySummary.refundRate || 0) : Number(metrics.refundRate || 0);
+
+  return {
+    id: snapshot.productGid,
+    productGid: snapshot.productGid,
+    slug: snapshot.handle,
+    title: snapshot.productTitle,
+    handle: snapshot.handle,
+    collection: metrics.collections?.[0] || metrics.productType || "Shopify catalog",
+    vendor: metrics.vendor || "",
+    productType: metrics.productType || "",
+    tags: Array.isArray(metrics.tags) ? metrics.tags : [],
+    status: "Active",
+    riskScore,
+    impactScore: snapshot.impactScore,
+    confidence,
+    riskTone: getRiskTone(riskScore, settings),
+    riskLabel: getRiskLabel(riskScore, settings),
+    sourceCoverage: Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : ["Shopify products"],
+    lastAnalysis: toIso(snapshot.updatedAt),
+    analysisDepth: analysisState.depth,
+    analysisLabel: analysisState.label,
+    analysisCompletedAt: analysisState.completedAt,
+    latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
+    primaryIssue,
+    hasRiskSnapshot: true,
+    metrics: {
+      returnRate: normalizedReturnRate,
+      refundRate: normalizedRefundRate,
+      reviewRating: metrics.reviewRating || metrics.avgRating || 0,
+      avgRating: metrics.avgRating || metrics.reviewRating || metrics.csvAverageRating || 0,
+      reviewCount: metrics.reviewCount || 0,
+      negativeReviewCount: metrics.negativeReviewCount || 0,
+      negativeReviewRate: metrics.negativeReviewRate || 0,
+      recentNegativeReviewCount: metrics.recentNegativeReviewCount || 0,
+      issueCount: metrics.signalCount || metrics.signalsCount || metrics.issueCount || 0,
+      revenueAtRisk: metrics.revenueAtRisk || metrics.estimatedImpact || metrics.refundAmount || 0,
+      marginAtRisk: metrics.marginAtRisk || (metrics.revenueAtRisk ? metrics.revenueAtRisk * 0.45 : 0),
+      estimatedImpact: metrics.estimatedImpact || metrics.revenueAtRisk || metrics.refundAmount || 0,
+      signalCount: metrics.signalCount || metrics.signalsCount || metrics.issueCount || 0,
+      salesAmount: metrics.salesAmount || 0,
+      avgUnitRevenue: metrics.avgUnitRevenue || 0,
+      refundAmount: metrics.refundAmount || 0,
+      monthlyOrderActivity: metrics.monthlyOrderActivity || null,
+      impactFactors: metrics.impactFactors || null,
+      estimatedImpactFactors: metrics.estimatedImpactFactors || null,
+      marginRate: metrics.marginRate || null,
+      returnUnits: metrics.returnUnits || 0,
+      refundUnits: metrics.refundUnits || 0,
+      recentSignalUnits: metrics.recentSignalUnits || 0,
+      windowDays: metrics.windowDays || 60,
+      soldUnits: normalizedSoldUnits,
+      soldOrders: metrics.soldOrders || 0,
+      storeAvgReturnRate: metrics.storeAvgReturnRate || 0,
+      storeAvgRefundRate: metrics.storeAvgRefundRate || 0,
+      lastSignalAt: metrics.lastSignalAt || null,
+      signalTrend: Array.isArray(metrics.signalTrend) ? metrics.signalTrend : [],
+      riskTrend: Array.isArray(metrics.riskTrend) ? metrics.riskTrend : [],
+      riskHistory: formatProductRiskHistory(scoreHistory),
+      productType: metrics.productType || "",
+      vendor: metrics.vendor || "",
+      tags: Array.isArray(metrics.tags) ? metrics.tags : [],
+      collections: Array.isArray(metrics.collections) ? metrics.collections : [],
+      topReturnReasons: Array.isArray(metrics.topReturnReasons) ? metrics.topReturnReasons : [],
+      affectedVariants: Array.isArray(metrics.affectedVariants) ? metrics.affectedVariants : [],
+      textInsights: metrics.textInsights || null,
+      judgeMeReviewCount: metrics.judgeMeReviewCount || 0,
+      judgeMeNegativeReviewCount: metrics.judgeMeNegativeReviewCount || 0,
+      judgeMeAverageRating: metrics.judgeMeAverageRating || 0,
+      csvReviewCount: metrics.csvReviewCount || 0,
+      csvReviewRatingCount: metrics.csvReviewRatingCount || 0,
+      csvNegativeReviewCount: metrics.csvNegativeReviewCount || 0,
+      csvAverageRating: metrics.csvAverageRating || 0,
+      yotpoReviewCount: metrics.yotpoReviewCount || 0,
+      looxReviewCount: metrics.looxReviewCount || 0,
+      customerTextSignals: metrics.customerTextSignals || 0,
+      latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
+      lastDetailedDiagnosisAt: latestDiagnosis?.completedAt || metrics.lastDetailedDiagnosisAt || null,
+      orderAccessDenied: Boolean(metrics.orderAccessDenied),
+      descriptionWords: metrics.descriptionWords || metrics.descriptionWordCount || 0,
+      descriptionWordCount: metrics.descriptionWordCount || metrics.descriptionWords || 0,
+      contentIssueCount: metrics.contentIssueCount || 0,
+      confidence,
+      mainIssue: primaryIssue,
+    },
+    recommendedActions: hasFullDiagnosis ? filterDisabledProductActions(getSnapshotRecommendedActions(snapshot, metrics)) : [],
     actionHistory: storedActions,
     resolvedAt: resolvedAction?.appliedAt || null,
   };

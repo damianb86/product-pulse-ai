@@ -23,6 +23,7 @@ import { calculateProductScoreModel } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummaries } from "./product-pulse-return-refund-relationship.server";
 import { buildProductPurchaseContextSummaries } from "./product-pulse-purchase-context.server";
 import { buildProductRelationshipSummaries } from "./product-pulse-product-relationships.server";
+import { upsertProductPulseProductRollups } from "./product-pulse-product-rollup.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
@@ -1971,8 +1972,15 @@ async function persistQuickScanCandidates(shop, candidates) {
           productGid: { notIn: retainedProductGids },
         },
       });
+      await tx.productPulseProductRollup.deleteMany({
+        where: {
+          shop,
+          productGid: { notIn: retainedProductGids },
+        },
+      });
     } else {
       await tx.productRiskSnapshot.deleteMany({ where: { shop } });
+      await tx.productPulseProductRollup.deleteMany({ where: { shop } });
     }
 
     const persisted = [];
@@ -2011,6 +2019,12 @@ async function persistQuickScanCandidates(shop, candidates) {
     }
     return persisted;
   });
+  await upsertProductPulseProductRollups(persistedSnapshots).catch((error) => recordJobLog({
+    shop,
+    event: "quick_scan.product_rollup_failed",
+    message: "Catalog Scan completed, but ProductPulse product rollup could not be refreshed.",
+    data: { error: error instanceof Error ? error.message : String(error) },
+  }).catch(() => null));
   await recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" });
   await Promise.all([
     recordTimelineForLatestScoreSnapshots(shop, persistedSnapshots, { source: "quickscan" }),

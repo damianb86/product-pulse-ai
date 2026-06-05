@@ -24,7 +24,7 @@ import {
 export async function getConnectViewDataForShop(shop) {
   await ensureSourceRows(shop);
   const records = await prisma.productPulseSource.findMany({
-    where: { shop, sourceKey: { not: PRODUCT_PULSE_SETTINGS_SOURCE_KEY } },
+    where: { shop, sourceKey: { not: PRODUCT_PULSE_SETTINGS_SOURCE_KEY }, category: { not: "cache" } },
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 

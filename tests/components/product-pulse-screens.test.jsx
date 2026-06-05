@@ -540,6 +540,26 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("Impact by collection")).not.toBeInTheDocument();
   });
 
+  it("renders a deferred dashboard shell while data loads", () => {
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        element: <DashboardScreen data={{ ...defaultView, shop: "deferred-dashboard-test.myshopify.com", dashboard: null, dashboardDeferred: true }} />,
+      },
+      {
+        path: "/app/dashboard-data",
+        loader: () => new Promise(() => {}),
+      },
+    ], { initialEntries: ["/"] });
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("Loading dashboard data")).toBeInTheDocument();
+    expect(screen.getByText("Preparing next best action")).toBeInTheDocument();
+    expect(screen.getByText("Loading priority products")).toBeInTheDocument();
+    expect(document.querySelector(".ppDashboardDataContent")).toHaveClass("isBlurred");
+  });
+
   it("renders source coverage categories", () => {
     renderWithRouter(<ConnectScreen data={defaultView} />);
     expect(screen.getByRole("heading", { name: "Connect your sources" })).toBeInTheDocument();
@@ -6804,6 +6824,26 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Review conversion margin drag")).toBeInTheDocument();
     expect(screen.getByText("Inputs used")).toBeInTheDocument();
     expect(screen.getByText(/designed for prioritization/)).toBeInTheDocument();
+  });
+
+  it("renders a deferred analytics shell while data loads", () => {
+    const router = createMemoryRouter([
+      {
+        path: "/",
+        element: <AnalyticsScreen data={{ ...defaultView, shop: "deferred-analytics-test.myshopify.com", analytics: null, analyticsDeferred: true }} />,
+      },
+      {
+        path: "/app/analytics-data",
+        loader: () => new Promise(() => {}),
+      },
+    ], { initialEntries: ["/"] });
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("Loading Analytics data")).toBeInTheDocument();
+    expect(screen.getByText("Visualize product quality risk, issue trends and estimated margin exposure.")).toBeInTheDocument();
+    expect(screen.getByText("Loading projected impact from stored ProductPulse analytics.")).toBeInTheDocument();
+    expect(document.querySelector(".ppDashboardDataContent")).toHaveClass("isBlurred");
   });
 
   it("shows analytics chart popovers and hides long-range risk margin points until hover", () => {

@@ -20,6 +20,16 @@ function renderMonitor(initialMonitor, options = {}) {
       },
     },
     {
+      path: "/app/credits-summary",
+      loader: () => {
+        const monitor = getMonitor() || {};
+        return {
+          pointSummary: monitor.pointSummary || null,
+          pointBalance: monitor.pointBalance || monitor.pointSummary?.balance || null,
+        };
+      },
+    },
+    {
       path: "/app/product-search",
       loader: ({ request }) => {
         const query = new URL(request.url).searchParams.get("q") || "";

@@ -43,6 +43,7 @@ import {
   fetchLooxProductReviewPages,
   fetchLooxReviewPages,
 } from "./product-pulse-loox.server";
+import { upsertProductPulseProductRollup, upsertProductPulseProductRollups } from "./product-pulse-product-rollup.server";
 
 const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS = 365;
@@ -4003,6 +4004,7 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       calculatedAt: new Date(),
     },
   });
+  await upsertProductPulseProductRollup(updatedSnapshot, { latestDiagnosis: diagnosis }).catch(() => null);
   await Promise.all([
     recordReconstructedProductScoreHistory({
       shop,
@@ -4170,9 +4172,10 @@ async function ensureProductRelationshipCandidateSnapshots({
 
     if (missingPayloads.length) {
       await prisma.productRiskSnapshot.createMany({ data: missingPayloads, skipDuplicates: true });
+      await upsertProductPulseProductRollups(missingPayloads).catch(() => null);
     }
 
-    await Promise.all(refreshPayloads.map((payload) => prisma.productRiskSnapshot.update({
+    const refreshedSnapshots = await Promise.all(refreshPayloads.map((payload) => prisma.productRiskSnapshot.update({
       where: { shop_productGid: { shop, productGid: payload.productGid } },
       data: {
         productTitle: payload.productTitle,
@@ -4181,6 +4184,7 @@ async function ensureProductRelationshipCandidateSnapshots({
         calculatedAt: new Date(),
       },
     })));
+    await upsertProductPulseProductRollups(refreshedSnapshots).catch(() => null);
 
     if (missingPayloads.length || refreshPayloads.length) {
       await recordJobLog({
@@ -4409,10 +4413,12 @@ async function findReusableCompletedDiagnosis({ shop, snapshot }) {
 
 async function persistNoChangeDiagnosisRefresh({ shop, snapshot, deterministic, reuseDecision }) {
   const data = buildNoChangeDiagnosisRefreshData({ snapshot, deterministic, reuseDecision });
-  return prisma.productRiskSnapshot.update({
+  const refreshedSnapshot = await prisma.productRiskSnapshot.update({
     where: { shop_productGid: { shop, productGid: snapshot.productGid } },
     data,
   });
+  await upsertProductPulseProductRollup(refreshedSnapshot).catch(() => null);
+  return refreshedSnapshot;
 }
 
 function buildNoChangeDiagnosisRefreshData({ snapshot = {}, deterministic = {}, reuseDecision = {} } = {}) {

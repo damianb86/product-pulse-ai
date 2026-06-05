@@ -1,21 +1,56 @@
 import { authenticate } from "../shopify.server";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
 import { cancelBackgroundJobForShop, getJobMonitorForShop } from "../lib/product-pulse-jobs.server";
+import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 export const shouldRevalidate = () => false;
 
 export const loader = async ({ request }) => {
+  const perf = createProductPulsePerfLogger("loader.job-status", { route: "/app/job-status" });
   const { session } = await authenticate.admin(request);
+  perf.mark("authenticate", { shop: session.shop });
+  const url = new URL(request.url);
+  const scope = normalizeJobStatusScope(url.searchParams.get("scope"));
+  const developmentMode = isProductPulseDevelopment();
+  const includeRecentJobs = developmentMode || scope === "popover";
+  const includeLogs = developmentMode && scope === "popover";
 
-  return Response.json({
-    developmentMode: isProductPulseDevelopment(),
-    jobMonitor: await getJobMonitorForShop(session.shop),
-  }, {
-    headers: {
-      "Cache-Control": "private, max-age=10",
-    },
-  });
+  try {
+    const jobMonitor = await measureProductPulseStep(
+      perf,
+      "getJobMonitorForShop",
+      () => getJobMonitorForShop(session.shop, {
+        includeRecentJobs,
+        includeLogs,
+        includePointSummary: false,
+        perf,
+      }),
+    );
+    perf.done({
+      shop: session.shop,
+      scope,
+      activeJobs: jobMonitor.activeJobs?.length || 0,
+      activeJobCount: jobMonitor.activeJobCount ?? jobMonitor.activeJobs?.length ?? 0,
+      recentJobs: jobMonitor.recentJobs?.length || 0,
+      logs: jobMonitor.logs?.length || 0,
+    });
+    return Response.json({
+      developmentMode,
+      jobMonitor,
+    }, {
+      headers: {
+        "Cache-Control": "private, max-age=10",
+      },
+    });
+  } catch (error) {
+    perf.fail(error, { shop: session.shop });
+    throw error;
+  }
 };
+
+function normalizeJobStatusScope(value) {
+  return value === "popover" ? "popover" : "summary";
+}
 
 export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
