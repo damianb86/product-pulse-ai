@@ -302,7 +302,7 @@ SELECT
   END,
   COALESCE(latest_diagnosis.id, NULLIF(snapshot.metrics_json ->> 'latestDiagnosisId', '')),
   COALESCE(latest_diagnosis."completedAt", "_product_pulse_jsonb_timestamp"(snapshot.metrics_json -> 'lastDetailedDiagnosisAt')),
-  latest_resolution_action."actionType" = 'mark-resolved',
+  COALESCE(latest_resolution_action."actionType" = 'mark-resolved', false),
   CASE WHEN latest_resolution_action."actionType" = 'mark-resolved' THEN COALESCE(latest_resolution_action."appliedAt", latest_resolution_action."createdAt") ELSE NULL END,
   watchlist."productGid" IS NOT NULL,
   watchlist.status,
