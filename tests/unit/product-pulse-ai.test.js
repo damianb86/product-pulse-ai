@@ -465,8 +465,8 @@ describe("ProductPulse AI provider fallback", () => {
   it("generates all chart business interpretations in one intermediate-cost diagnosis call", async () => {
     process.env.PRODUCT_PULSE_AI_LEVEL = "3";
     const requests = [];
-    const responses = [
-      {
+    const responses = {
+      classification: {
         classified_signals: [],
         clusters: [],
         granular_findings: [],
@@ -476,9 +476,9 @@ describe("ProductPulse AI provider fallback", () => {
         issue_summary: "Deterministic issue signals were used.",
         source_agreement: "single_source",
       },
-      { emergent_sentiments: [], discarded_suggestions: [], summary: "No emergent sentiment." },
-      { missing: [], present: [], notes: "No content gaps." },
-      {
+      emergentSentiment: { emergent_sentiments: [], discarded_suggestions: [], summary: "No emergent sentiment." },
+      contentGap: { missing: [], present: [], notes: "No content gaps." },
+      finalReport: {
         main_finding_title: "Order activity needs review",
         main_finding_detail: "Order and return activity changed recently.",
         evidence_summary: "The chart data shows a recent change.",
@@ -486,7 +486,7 @@ describe("ProductPulse AI provider fallback", () => {
         recommendation_copy: {},
         action_rationales: [],
       },
-      {
+      chartInterpretations: {
         chart_interpretations: {
           monthly_order_activity: "Orders rose in May while returns and refunds also appeared, so the product has demand but operational outcomes should be watched closely.",
           return_rate_prediction: "The forecast stays elevated after recent returns, which suggests the next cohorts may continue to carry return pressure.",
@@ -495,11 +495,21 @@ describe("ProductPulse AI provider fallback", () => {
           product_momentum: "Sales Momentum is concentrated in the latest week, which points to fresh activity rather than a long stable sales pattern.",
         },
       },
-    ];
+    };
     vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
       const body = JSON.parse(options.body);
       requests.push(body);
-      const responseText = JSON.stringify(responses[requests.length - 1] || {});
+      const input = String(body.input || "");
+      const response = input.includes("chart_interpretations")
+        ? responses.chartInterpretations
+        : input.includes("emergent_sentiments")
+          ? responses.emergentSentiment
+          : input.includes("content_quality_score")
+            ? responses.contentGap
+            : input.includes("main_finding_title")
+              ? responses.finalReport
+              : responses.classification;
+      const responseText = JSON.stringify(response || {});
       return new Response(JSON.stringify({ output_text: responseText }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -563,10 +573,13 @@ describe("ProductPulse AI provider fallback", () => {
     });
 
     expect(requests).toHaveLength(5);
-    expect(requests[0].model).toBe("gpt-5.4-mini");
-    expect(requests[1].model).toBe("gpt-5.4-nano");
-    expect(requests[2].model).toBe("gpt-5.4-mini");
-    expect(requests[3].model).toBe("gpt-5.4");
+    expect(requests.map((request) => request.model).sort()).toEqual([
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-mini",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+    ]);
     const chartRequests = requests.filter((request) => String(request.input).includes("chart_interpretations"));
     expect(chartRequests).toHaveLength(1);
     expect(chartRequests[0].model).toBe("gpt-5.4-mini");

@@ -1271,14 +1271,88 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
 
 async function fetchProductMomentumCatalogBaseline({ shop, currentProductGid }) {
   if (!shop) return null;
-  const snapshots = await prisma.productRiskSnapshot.findMany({
-    where: { shop },
-    select: { productGid: true, metrics: true },
-    orderBy: [{ updatedAt: "desc" }],
-    take: 1000,
-  });
+  const snapshots = await fetchProductMomentumCatalogBaselineRows(shop).catch(async () => (
+    prisma.productRiskSnapshot.findMany({
+      where: { shop },
+      select: { productGid: true, metrics: true },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 1000,
+    })
+  ));
 
   return buildProductMomentumCatalogBaseline(snapshots, currentProductGid);
+}
+
+async function fetchProductMomentumCatalogBaselineRows(shop) {
+  const rows = await prisma.$queryRaw`
+    SELECT
+      "productGid",
+      CASE
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'unitsLast30Days') = 'number'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'unitsLast30Days')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'unitsLast30Days') = 'string'
+          AND ("metrics"->'productMomentum'->'inputs'->>'unitsLast30Days') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'unitsLast30Days')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'soldUnits') = 'number'
+          THEN ("metrics"->>'soldUnits')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'soldUnits') = 'string'
+          AND ("metrics"->>'soldUnits') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+          THEN ("metrics"->>'soldUnits')::DOUBLE PRECISION
+        ELSE 0
+      END AS "unitsLast30",
+      CASE
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'unitsPrevious90Days') = 'number'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'unitsPrevious90Days')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'unitsPrevious90Days') = 'string'
+          AND ("metrics"->'productMomentum'->'inputs'->>'unitsPrevious90Days') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'unitsPrevious90Days')::DOUBLE PRECISION
+        ELSE 0
+      END AS "unitsPrevious90",
+      CASE
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'revenueLast30Days') = 'number'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'revenueLast30Days')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'revenueLast30Days') = 'string'
+          AND ("metrics"->'productMomentum'->'inputs'->>'revenueLast30Days') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'revenueLast30Days')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'salesAmount') = 'number'
+          THEN ("metrics"->>'salesAmount')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'salesAmount') = 'string'
+          AND ("metrics"->>'salesAmount') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+          THEN ("metrics"->>'salesAmount')::DOUBLE PRECISION
+        ELSE 0
+      END AS "revenueLast30",
+      CASE
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'revenuePrevious90Days') = 'number'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'revenuePrevious90Days')::DOUBLE PRECISION
+        WHEN jsonb_typeof("metrics"->'productMomentum'->'inputs'->'revenuePrevious90Days') = 'string'
+          AND ("metrics"->'productMomentum'->'inputs'->>'revenuePrevious90Days') ~ '^-?[0-9]+(\\.[0-9]+)?$'
+          THEN ("metrics"->'productMomentum'->'inputs'->>'revenuePrevious90Days')::DOUBLE PRECISION
+        ELSE 0
+      END AS "revenuePrevious90",
+      COALESCE("metrics"->>'productType', '') AS "productType",
+      COALESCE("metrics"->>'vendor', '') AS "vendor"
+    FROM "ProductRiskSnapshot"
+    WHERE "shop" = ${shop}
+    ORDER BY "updatedAt" DESC
+    LIMIT 1000
+  `;
+  return rows.map((row) => ({
+    productGid: row.productGid,
+    metrics: {
+      productType: row.productType || "",
+      vendor: row.vendor || "",
+      productMomentum: {
+        inputs: {
+          unitsLast30Days: numberOrNull(row.unitsLast30),
+          unitsPrevious90Days: numberOrNull(row.unitsPrevious90),
+          revenueLast30Days: numberOrNull(row.revenueLast30),
+          revenuePrevious90Days: numberOrNull(row.revenuePrevious90),
+        },
+      },
+      soldUnits: numberOrNull(row.unitsLast30),
+      salesAmount: numberOrNull(row.revenueLast30),
+    },
+  }));
 }
 
 async function fetchProductTaxonomyCategorySuggestions({ admin, product = {} } = {}) {

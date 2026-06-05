@@ -106,6 +106,20 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
   });
 
   try {
+  const chartInterpretationsPromise = runChartInterpretationsAiStep({
+    shop,
+    jobId,
+    input,
+    usageTracker,
+    onPerfEvent,
+  });
+  const relationshipInsightsPromise = runRelationshipInsightsAiStep({
+    shop,
+    jobId,
+    input,
+    usageTracker,
+    onPerfEvent,
+  });
   const classificationPrompt = buildSignalClassificationPrompt(input);
   const classificationResponse = await generateAiText({
     shop,
@@ -127,79 +141,23 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
     source_agreement: "unknown",
   });
 
-  const emergentSentimentResponse = await generateAiText({
-    shop,
-    jobId,
-    task: "emergent_sentiment",
-    prompt: buildEmergentSentimentPrompt(input, classification),
-    usageTracker,
-    onPerfEvent,
-  });
+  const [emergentSentimentResponse, gapResult] = await Promise.all([
+    generateAiText({
+      shop,
+      jobId,
+      task: "emergent_sentiment",
+      prompt: buildEmergentSentimentPrompt(input, classification),
+      usageTracker,
+      onPerfEvent,
+    }),
+    runContentGapAiStep({ shop, jobId, input, classification, usageTracker, onPerfEvent }),
+  ]);
   const emergentSentiments = parseAiJson(emergentSentimentResponse.text, {
     emergent_sentiments: [],
     discarded_suggestions: [],
     summary: "No emergent customer sentiments were detected.",
   });
-
-  const cachedContentGaps = input?.incremental?.productContent?.cachedContentGaps || null;
-  let gapResponse = null;
-  let contentGaps = null;
-  if (cachedContentGaps) {
-    contentGaps = cachedContentGaps;
-    gapResponse = {
-      provider: "cache",
-      model: "previous-product-content-analysis",
-      task: "content_gap",
-      text: JSON.stringify(cachedContentGaps),
-      usage: usageTracker.record({
-        provider: "cache",
-        model: "previous-product-content-analysis",
-        task: "content_gap",
-        requestContext: "cache",
-        usageSource: "cache",
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        cachedInputTokens: 0,
-        reasoningTokens: 0,
-      }),
-    };
-    await recordJobLog({
-      shop,
-      jobId,
-      event: "product_diagnosis.content_gap_reused",
-      message: "Reused previous product content-gap analysis because Shopify product content has not changed since the last product diagnosis.",
-      data: {
-        provider: "cache",
-        task: "content_gap",
-        previousCompletedAt: input?.incremental?.previousCompletedAt || null,
-        productUpdatedAt: input?.incremental?.productContent?.productUpdatedAt || null,
-      },
-    });
-    emitProductDiagnosisAiPerf(onPerfEvent, "product_diagnosis.ai_task.cached", {
-      shop,
-      jobId,
-      task: "content_gap",
-      provider: "cache",
-      model: "previous-product-content-analysis",
-      durationMs: 0,
-    }, "info");
-  } else {
-    const gapPrompt = buildContentGapPrompt(input, classification);
-    gapResponse = await generateAiText({
-      shop,
-      jobId,
-      task: "content_gap",
-      prompt: gapPrompt,
-      usageTracker,
-      onPerfEvent,
-    });
-    contentGaps = parseAiJson(gapResponse.text, {
-      missing: [],
-      present: [],
-      notes: "AI PDP content-gap analysis was unavailable.",
-    });
-  }
+  const { gapResponse, contentGaps } = gapResult;
 
   const reportPrompt = buildFinalReportPrompt(input, classification, contentGaps, emergentSentiments);
   const reportResponse = await generateAiText({
@@ -221,101 +179,18 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
   });
   const actionRationales = normalizeFinalReportActionRationales(report);
 
-  let contentCoverageValidationResponse = null;
-  let contentCoverageValidation = { coverage: [], summary: "No product-content coverage validation was run." };
-  const contentCoveragePrompt = buildContentCoverageValidationPrompt(input, report, contentGaps);
-  if (contentCoveragePrompt) {
-    try {
-      contentCoverageValidationResponse = await generateAiText({
-        shop,
-        jobId,
-        task: "content_coverage_validation",
-        prompt: contentCoveragePrompt,
-        usageTracker,
-        onPerfEvent,
-      });
-      contentCoverageValidation = parseAiJson(contentCoverageValidationResponse.text, {
-        coverage: [],
-        summary: "Product-content coverage validation was unavailable.",
-      });
-    } catch (error) {
-      await recordJobLog({
-        shop,
-        jobId,
-        level: "warn",
-        event: "product_diagnosis.content_coverage_validation_failed",
-        message: "AI product-content coverage validation failed; deterministic duplicate checks will be used.",
-        data: { error: serializeError(error) },
-      }).catch(() => {});
-    }
-  }
-
-  const compactChartInput = buildCompactProductChartInterpretationInput(input);
-  let chartInterpretationsResponse = null;
-  let chartInterpretations = normalizeProductChartInterpretations(null, compactChartInput);
-  if (compactChartInput.available) {
-    try {
-      chartInterpretationsResponse = await generateAiText({
-        shop,
-        jobId,
-        task: "chart_interpretations",
-        prompt: buildProductChartInterpretationsPrompt(compactChartInput),
-        usageTracker,
-        onPerfEvent,
-      });
-      chartInterpretations = normalizeProductChartInterpretations(
-        parseAiJson(chartInterpretationsResponse.text, { chart_interpretations: {} }),
-        compactChartInput,
-        pickAiModelSummary(chartInterpretationsResponse),
-      );
-    } catch (error) {
-      chartInterpretations = normalizeProductChartInterpretations({
-        status: "ai_unavailable",
-        chart_interpretations: {},
-      }, compactChartInput);
-      await recordJobLog({
-        shop,
-        jobId,
-        level: "warn",
-        event: "product_diagnosis.chart_interpretations_failed",
-        message: "AI chart interpretations were skipped after the intermediate chart interpretation model failed.",
-        data: { error: serializeError(error) },
-      }).catch(() => {});
-    }
-  }
-  const compactRelationshipInput = buildCompactProductRelationshipAiInput(input);
-  let relationshipInsightsResponse = null;
-  let relationshipInsights = normalizeProductRelationshipAiInsights(null, compactRelationshipInput);
-  if (compactRelationshipInput.available) {
-    try {
-      relationshipInsightsResponse = await generateAiText({
-        shop,
-        jobId,
-        task: "relationship_insights",
-        prompt: buildProductRelationshipInsightsPrompt(compactRelationshipInput),
-        usageTracker,
-        onPerfEvent,
-      });
-      relationshipInsights = normalizeProductRelationshipAiInsights(
-        parseAiJson(relationshipInsightsResponse.text, { insights: [] }),
-        compactRelationshipInput,
-        pickAiModelSummary(relationshipInsightsResponse),
-      );
-    } catch (error) {
-      relationshipInsights = normalizeProductRelationshipAiInsights({
-        status: "ai_unavailable",
-        insights: [],
-      }, compactRelationshipInput);
-      await recordJobLog({
-        shop,
-        jobId,
-        level: "warn",
-        event: "product_diagnosis.relationship_insights_failed",
-        message: "Product relationship AI insights were skipped after the relationship insight model failed.",
-        data: { error: serializeError(error) },
-      }).catch(() => {});
-    }
-  }
+  const [
+    contentCoverageResult,
+    chartInterpretationsResult,
+    relationshipInsightsResult,
+  ] = await Promise.all([
+    runContentCoverageValidationAiStep({ shop, jobId, input, report, contentGaps, usageTracker, onPerfEvent }),
+    chartInterpretationsPromise,
+    relationshipInsightsPromise,
+  ]);
+  const { contentCoverageValidationResponse, contentCoverageValidation } = contentCoverageResult;
+  const { chartInterpretationsResponse, chartInterpretations } = chartInterpretationsResult;
+  const { relationshipInsightsResponse, relationshipInsights } = relationshipInsightsResult;
   const aiUsage = await usageTracker.logSummary({
     event: "product_diagnosis.ai_token_usage",
     data: {
@@ -375,6 +250,175 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
 export async function generateProductDiagnosisTestText({ shop, jobId, product }) {
   const prompt = buildProductDiagnosisPrompt(product);
   return generateAiText({ shop, jobId, task: "test_text", prompt });
+}
+
+async function runContentGapAiStep({ shop, jobId, input, classification, usageTracker, onPerfEvent }) {
+  const cachedContentGaps = input?.incremental?.productContent?.cachedContentGaps || null;
+  if (cachedContentGaps) {
+    const gapResponse = {
+      provider: "cache",
+      model: "previous-product-content-analysis",
+      task: "content_gap",
+      text: stringifyAiJson(cachedContentGaps),
+      usage: usageTracker.record({
+        provider: "cache",
+        model: "previous-product-content-analysis",
+        task: "content_gap",
+        requestContext: "cache",
+        usageSource: "cache",
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+      }),
+    };
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "product_diagnosis.content_gap_reused",
+      message: "Reused previous product content-gap analysis because Shopify product content has not changed since the last product diagnosis.",
+      data: {
+        provider: "cache",
+        task: "content_gap",
+        previousCompletedAt: input?.incremental?.previousCompletedAt || null,
+        productUpdatedAt: input?.incremental?.productContent?.productUpdatedAt || null,
+      },
+    });
+    emitProductDiagnosisAiPerf(onPerfEvent, "product_diagnosis.ai_task.cached", {
+      shop,
+      jobId,
+      task: "content_gap",
+      provider: "cache",
+      model: "previous-product-content-analysis",
+      durationMs: 0,
+    }, "info");
+    return { gapResponse, contentGaps: cachedContentGaps };
+  }
+
+  const gapResponse = await generateAiText({
+    shop,
+    jobId,
+    task: "content_gap",
+    prompt: buildContentGapPrompt(input, classification),
+    usageTracker,
+    onPerfEvent,
+  });
+  return {
+    gapResponse,
+    contentGaps: parseAiJson(gapResponse.text, {
+      missing: [],
+      present: [],
+      notes: "AI PDP content-gap analysis was unavailable.",
+    }),
+  };
+}
+
+async function runContentCoverageValidationAiStep({ shop, jobId, input, report, contentGaps, usageTracker, onPerfEvent }) {
+  let contentCoverageValidationResponse = null;
+  let contentCoverageValidation = { coverage: [], summary: "No product-content coverage validation was run." };
+  const contentCoveragePrompt = buildContentCoverageValidationPrompt(input, report, contentGaps);
+  if (!contentCoveragePrompt) return { contentCoverageValidationResponse, contentCoverageValidation };
+
+  try {
+    contentCoverageValidationResponse = await generateAiText({
+      shop,
+      jobId,
+      task: "content_coverage_validation",
+      prompt: contentCoveragePrompt,
+      usageTracker,
+      onPerfEvent,
+    });
+    contentCoverageValidation = parseAiJson(contentCoverageValidationResponse.text, {
+      coverage: [],
+      summary: "Product-content coverage validation was unavailable.",
+    });
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.content_coverage_validation_failed",
+      message: "AI product-content coverage validation failed; deterministic duplicate checks will be used.",
+      data: { error: serializeError(error) },
+    }).catch(() => {});
+  }
+
+  return { contentCoverageValidationResponse, contentCoverageValidation };
+}
+
+async function runChartInterpretationsAiStep({ shop, jobId, input, usageTracker, onPerfEvent }) {
+  const compactChartInput = buildCompactProductChartInterpretationInput(input);
+  let chartInterpretationsResponse = null;
+  let chartInterpretations = normalizeProductChartInterpretations(null, compactChartInput);
+  if (!compactChartInput.available) return { chartInterpretationsResponse, chartInterpretations };
+
+  try {
+    chartInterpretationsResponse = await generateAiText({
+      shop,
+      jobId,
+      task: "chart_interpretations",
+      prompt: buildProductChartInterpretationsPrompt(compactChartInput),
+      usageTracker,
+      onPerfEvent,
+    });
+    chartInterpretations = normalizeProductChartInterpretations(
+      parseAiJson(chartInterpretationsResponse.text, { chart_interpretations: {} }),
+      compactChartInput,
+      pickAiModelSummary(chartInterpretationsResponse),
+    );
+  } catch (error) {
+    chartInterpretations = normalizeProductChartInterpretations({
+      status: "ai_unavailable",
+      chart_interpretations: {},
+    }, compactChartInput);
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.chart_interpretations_failed",
+      message: "AI chart interpretations were skipped after the intermediate chart interpretation model failed.",
+      data: { error: serializeError(error) },
+    }).catch(() => {});
+  }
+  return { chartInterpretationsResponse, chartInterpretations };
+}
+
+async function runRelationshipInsightsAiStep({ shop, jobId, input, usageTracker, onPerfEvent }) {
+  const compactRelationshipInput = buildCompactProductRelationshipAiInput(input);
+  let relationshipInsightsResponse = null;
+  let relationshipInsights = normalizeProductRelationshipAiInsights(null, compactRelationshipInput);
+  if (!compactRelationshipInput.available) return { relationshipInsightsResponse, relationshipInsights };
+
+  try {
+    relationshipInsightsResponse = await generateAiText({
+      shop,
+      jobId,
+      task: "relationship_insights",
+      prompt: buildProductRelationshipInsightsPrompt(compactRelationshipInput),
+      usageTracker,
+      onPerfEvent,
+    });
+    relationshipInsights = normalizeProductRelationshipAiInsights(
+      parseAiJson(relationshipInsightsResponse.text, { insights: [] }),
+      compactRelationshipInput,
+      pickAiModelSummary(relationshipInsightsResponse),
+    );
+  } catch (error) {
+    relationshipInsights = normalizeProductRelationshipAiInsights({
+      status: "ai_unavailable",
+      insights: [],
+    }, compactRelationshipInput);
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.relationship_insights_failed",
+      message: "Product relationship AI insights were skipped after the relationship insight model failed.",
+      data: { error: serializeError(error) },
+    }).catch(() => {});
+  }
+  return { relationshipInsightsResponse, relationshipInsights };
 }
 
 export async function generateWatchChangeReportNarrative({ shop, jobId, productTitle, report }) {
@@ -492,13 +536,17 @@ function cleanAiParagraph(value) {
     .slice(0, 1200);
 }
 
+function stringifyAiJson(value) {
+  return JSON.stringify(value ?? null);
+}
+
 function buildSignalClassificationPrompt(input) {
-  const snippets = JSON.stringify(input?.evidenceSnippets || [], null, 2);
-  const metrics = JSON.stringify(input?.deterministic || {}, null, 2);
-  const product = JSON.stringify(input?.product || {}, null, 2);
-  const incremental = JSON.stringify(input?.incremental || null, null, 2);
+  const snippets = stringifyAiJson(input?.evidenceSnippets || []);
+  const metrics = stringifyAiJson(input?.deterministic || {});
+  const product = stringifyAiJson(input?.product || {});
+  const incremental = stringifyAiJson(input?.incremental || null);
   const previousPrimaryIssue = String(input?.previousPrimaryIssue || "").trim();
-  const sentimentTaxonomy = JSON.stringify(PREDEFINED_CUSTOMER_SENTIMENTS, null, 2);
+  const sentimentTaxonomy = stringifyAiJson(PREDEFINED_CUSTOMER_SENTIMENTS);
 
   return [
     "You are ProductPulse AI. Classify customer evidence for one ecommerce product.",
@@ -522,7 +570,7 @@ function buildSignalClassificationPrompt(input) {
     "Predefined sentiment taxonomy:",
     sentimentTaxonomy,
     "Schema:",
-    JSON.stringify({
+    stringifyAiJson({
       classified_signals: [{
         source: "judgeme_review|yotpo_review|loox_review|csv_review|shopify_return_note|shopify_return_reason|shopify_refund_note",
         text: "short evidence snippet",
@@ -595,7 +643,7 @@ function buildSignalClassificationPrompt(input) {
       main_issue_label: "Sizing and fit",
       issue_summary: "one concise paragraph",
       source_agreement: "returns_and_reviews_agree|single_source|weak|none",
-    }, null, 2),
+    }),
     "Product:",
     product,
     "Previous stored primary issue:",
@@ -611,11 +659,11 @@ function buildSignalClassificationPrompt(input) {
 }
 
 function buildEmergentSentimentPrompt(input, classification) {
-  const snippets = JSON.stringify(input?.evidenceSnippets || [], null, 2);
-  const classifiedSignals = JSON.stringify(classification?.classified_signals || [], null, 2);
-  const granularFindings = JSON.stringify(classification?.granular_findings || [], null, 2);
-  const repeatedLanguage = JSON.stringify(classification?.repeated_language || [], null, 2);
-  const sentimentTaxonomy = JSON.stringify(PREDEFINED_CUSTOMER_SENTIMENTS, null, 2);
+  const snippets = stringifyAiJson(input?.evidenceSnippets || []);
+  const classifiedSignals = stringifyAiJson(classification?.classified_signals || []);
+  const granularFindings = stringifyAiJson(classification?.granular_findings || []);
+  const repeatedLanguage = stringifyAiJson(classification?.repeated_language || []);
+  const sentimentTaxonomy = stringifyAiJson(PREDEFINED_CUSTOMER_SENTIMENTS);
 
   return [
     "You are ProductPulse AI clustering customer emotions for one ecommerce product.",
@@ -629,7 +677,7 @@ function buildEmergentSentimentPrompt(input, classification) {
     "Predefined sentiment taxonomy:",
     sentimentTaxonomy,
     "Schema:",
-    JSON.stringify({
+    stringifyAiJson({
       emergent_sentiments: [{
         label: "Creeped out",
         normalized_label: "creeped_out",
@@ -649,7 +697,7 @@ function buildEmergentSentimentPrompt(input, classification) {
         reason: "Only one weak signal or already covered by predefined taxonomy.",
       }],
       summary: "Short explanation of whether any emergent sentiment deserves merchant attention.",
-    }, null, 2),
+    }),
     "Classified signals:",
     classifiedSignals,
     "Granular findings:",
@@ -678,7 +726,7 @@ function buildContentGapPrompt(input, classification) {
     "A subjective mismatch must be explicitly grounded in the supplied fields.",
     "Return valid JSON only. Do not calculate financial metrics, rates, customer-signal counts, confidence, or risk score.",
     "Schema:",
-    JSON.stringify({
+    stringifyAiJson({
       content_quality_score: 82,
       content_summary: "The description is coherent with the title but lacks fit guidance.",
       present: ["material info"],
@@ -696,9 +744,9 @@ function buildContentGapPrompt(input, classification) {
         missing_content: "fit note",
         why_it_matters: "Customers mention tight chest fit.",
       }],
-    }, null, 2),
+    }),
     "Product content:",
-    JSON.stringify({
+    stringifyAiJson({
       title: product.title,
       handle: product.handle,
       description: normalizedDescription,
@@ -711,9 +759,9 @@ function buildContentGapPrompt(input, classification) {
       variants: (product.variants || []).slice(0, 50),
       metafields: product.metafields || [],
       media: product.media || [],
-    }, null, 2),
+    }),
     "AI clusters:",
-    JSON.stringify(classification?.clusters || [], null, 2),
+    stringifyAiJson(classification?.clusters || []),
   ].join("\n\n");
 }
 
@@ -766,7 +814,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Keep each action rationale to one short paragraph, ideally 35 to 75 words. Use a medium-depth explanation: clear and specific, but short.",
     "Return valid JSON only. No markdown.",
     "Schema:",
-    JSON.stringify({
+    stringifyAiJson({
       main_finding_title: "Sizing and fit expectations are not being met",
       main_finding_detail: "One overview paragraph.\\n\\nWhat is wrong? Direct answer grounded in the strongest issue pattern.\\n\\nWhy do we believe that? Direct answer grounded in source agreement and evidence support.\\n\\nWhat should we do now? Direct answer with the next practical merchant action.\\n\\nHow much does it matter? Direct answer explaining impact, risk, confidence, and urgency without overusing visible numbers.",
       evidence_summary: "1-2 sentence source agreement summary",
@@ -839,19 +887,19 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
         action_id: "add-product-description-guidance",
         rationale: "ProductPulse recommends updating the description because return notes and content analysis point to the same buyer confusion: shoppers are missing a specific product detail before purchase. Adding that clarification to the PDP gives buyers the relevant context before checkout and can reduce avoidable returns.",
       }],
-    }, null, 2),
+    }),
     "Product:",
-    JSON.stringify(input?.product || {}, null, 2),
+    stringifyAiJson(input?.product || {}),
     "Deterministic metrics:",
-    JSON.stringify(input?.deterministic || {}, null, 2),
+    stringifyAiJson(input?.deterministic || {}),
     "AI classification:",
-    JSON.stringify(classification || {}, null, 2),
+    stringifyAiJson(classification || {}),
     "PDP content gaps:",
-    JSON.stringify(contentGaps || {}, null, 2),
+    stringifyAiJson(contentGaps || {}),
     "Emergent customer sentiments:",
-    JSON.stringify(emergentSentiments || {}, null, 2),
+    stringifyAiJson(emergentSentiments || {}),
     "Recommendation candidates chosen by rules:",
-    JSON.stringify(input?.recommendationCandidates || [], null, 2),
+    stringifyAiJson(input?.recommendationCandidates || []),
   ].join("\n\n");
 }
 
@@ -872,7 +920,7 @@ function buildContentCoverageValidationPrompt(input, report, contentGaps) {
     "Use confidence high only when the current content clearly covers or clearly lacks the candidate. Use medium for close semantic paraphrases. Use low if uncertain.",
     "Return valid JSON only. No markdown.",
     "Schema:",
-    JSON.stringify({
+    stringifyAiJson({
       coverage: [{
         id: "faq_item_1",
         status: "already_covered|partially_covered|not_covered|unclear",
@@ -885,25 +933,25 @@ function buildContentCoverageValidationPrompt(input, report, contentGaps) {
         reason: "brief explanation",
       }],
       summary: "brief validation summary",
-    }, null, 2),
+    }),
     "Current product content:",
-    JSON.stringify({
+    stringifyAiJson({
       title: product.title,
       handle: product.handle,
       description: String(product.description || "").slice(0, 7000),
       description_html_excerpt: product.descriptionHtml ? String(product.descriptionHtml).slice(0, 7000) : "",
       options: product.options || [],
       variants: (product.variants || []).slice(0, 50),
-    }, null, 2),
+    }),
     "PDP content-gap analysis:",
-    JSON.stringify({
+    stringifyAiJson({
       present: contentGaps?.present || [],
       missing: contentGaps?.missing || [],
       content_issues: contentGaps?.content_issues || [],
       issue_specific_gaps: contentGaps?.issue_specific_gaps || [],
-    }, null, 2),
+    }),
     "Proposed copy candidates to validate:",
-    JSON.stringify(candidates, null, 2),
+    stringifyAiJson(candidates),
   ].join("\n\n");
 }
 
@@ -1000,7 +1048,7 @@ function buildProductChartInterpretationsPrompt(compactInput) {
     "If a chart has unavailable or too-thin data, return an empty string for that chart.",
     "Return valid JSON only. No markdown.",
     "Schema:",
-    JSON.stringify({
+    stringifyAiJson({
       chart_interpretations: {
         monthly_order_activity: "One concise business interpretation paragraph, or empty string.",
         return_rate_prediction: "One concise business interpretation paragraph, or empty string.",
@@ -1008,9 +1056,9 @@ function buildProductChartInterpretationsPrompt(compactInput) {
         product_risk_over_time: "One concise business interpretation paragraph, or empty string.",
         product_momentum: "One concise business interpretation paragraph, or empty string.",
       },
-    }, null, 2),
+    }),
     "Compact chart data:",
-    JSON.stringify(compactInput, null, 2),
+    stringifyAiJson(compactInput),
   ].join("\n\n");
 }
 
@@ -1381,7 +1429,7 @@ function buildProductRelationshipInsightsPrompt(compactInput) {
     "If confidence or sample size is low, include a caveat.",
     "Return valid JSON only. No markdown.",
     "Schema:",
-    JSON.stringify({
+    stringifyAiJson({
       insights: [{
         source_relationship_id: "relatedProductId:direction:timeWindow",
         type: "bundle_opportunity|cross_sell_opportunity|compatibility_context|journey_context|confidence_caveat",
@@ -1389,9 +1437,9 @@ function buildProductRelationshipInsightsPrompt(compactInput) {
         recommendation: "One concise review-oriented next step, or empty string.",
         caveat: "Low-confidence caveat when relevant, or empty string.",
       }],
-    }, null, 2),
+    }),
     "Sanitized deterministic relationship input:",
-    JSON.stringify(compactInput, null, 2),
+    stringifyAiJson(compactInput),
   ].join("\n\n");
 }
 

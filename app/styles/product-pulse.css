@@ -39978,7 +39978,7 @@ s-page[inline-size="large-500"] {
   .ppPlansPanel h2,
   .ppPlansBillingHeader h2,
   .ppPlansMatrixCard h2 {
-    margin: 0;
+    margin: 5px 0;
     color: var(--pp-slate-950);
     font-size: var(--pp-desktop-panel-title-size);
     font-weight: 900;
