@@ -165,63 +165,17 @@ const PRODUCT_RISK_SNAPSHOT_LIST_METRIC_KEYS = [
 ];
 const PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE = 40;
 const PRODUCT_TABLE_ROW_METRIC_KEYS = [
-  "reviewRating",
-  "avgRating",
-  "reviewCount",
-  "negativeReviewCount",
-  "negativeReviewRate",
-  "returnRate",
-  "refundRate",
-  "returnUnits",
-  "refundUnits",
-  "windowDays",
-  "soldUnits",
   "signalCount",
   "signalsCount",
   "issueCount",
-  "refundAmount",
   "latestDiagnosisId",
   "lastDetailedDiagnosisAt",
-  "productType",
-  "vendor",
-  "tags",
-  "collections",
-  "variantCount",
-  "skuCount",
-  "topReturnReasons",
-  "topRefundReasons",
   "riskTrend",
   "productMomentumScore",
   "productMomentumTier",
   "momentumDirection",
   "momentumConfidence",
   "momentumConfidenceLabel",
-  "contentQualityScore",
-  "contentQualityRisk",
-  "contentIssueCount",
-  "mediaCount",
-  "mediaWithoutAltCount",
-  "descriptionWordCount",
-  "descriptionLength",
-  "hasDescription",
-  "titleNeedsReview",
-  "variantNamingAdvisory",
-  "productStatus",
-  "optionNames",
-  "csvAverageRating",
-  "csvReviewCount",
-  "csvNegativeReviewCount",
-  "csvLowRatingCount",
-  "csvNegativeRatingRate",
-  "csvCriticalRatingCount",
-  "csvRatingRisk",
-  "csvReviewRatingCount",
-  "judgeMeAverageRating",
-  "judgeMeReviewCount",
-  "judgeMeNegativeReviewCount",
-  "customerTextSignals",
-  "evidenceConflict",
-  "conflictingEvidence",
   "imageUrl",
   "productImageUrl",
   "featuredImageUrl",
@@ -5110,6 +5064,8 @@ function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction
   const riskLabel = getRiskLabel(snapshot.riskScore, settings);
   const riskTone = getRiskTone(snapshot.riskScore, settings);
   const isWatched = Boolean(watchedItem);
+  const signalCount = Number(metrics.signalCount || metrics.signalsCount || metrics.issueCount || 0);
+  const sourceCount = sources.length;
   return {
     productGid: snapshot.productGid,
     handle: snapshot.handle,
@@ -5133,10 +5089,11 @@ function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction
     analysisCompletedAt: analysisState.completedAt,
     isWatched,
     watchlistStatus: watchedItem?.status || null,
-    signals: metrics.signalCount || 0,
-    signalTone: getEvidenceToneForProduct(snapshot.riskScore, metrics, settings),
-    signalBars: getSignalBars(metrics),
-    signalDetails: getSignalDetails(snapshot, metrics, settings),
+    signals: signalCount,
+    signalTone: getEvidenceToneForProduct(snapshot.riskScore, { signalCount }, settings),
+    signalBars: getProductTableSignalBars(signalCount, sourceCount),
+    signalStrengthLabel: getEvidenceStrengthLabel({ signalCount, sourceCount }),
+    sourceCount,
     riskTrend: getProductRiskTrendForRow(metrics, scoreHistory),
     productMomentum: getProductTableMomentum(metrics),
     issue: snapshot.primaryIssue,
@@ -5149,6 +5106,14 @@ function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction
     shopifyAdminUrl: getShopifyProductAdminUrl(shop, snapshot.productGid),
     shopifyStorefrontUrl: getShopifyProductStorefrontUrl(shop, snapshot.handle),
   };
+}
+
+function getProductTableSignalBars(signalCount = 0, sourceCount = 0) {
+  const normalizedSignalCount = Math.max(0, Number(signalCount || 0));
+  if (!normalizedSignalCount) return [4, 4, 4];
+  const activeBars = Math.max(1, Math.min(3, Number(sourceCount || 1)));
+  const height = Math.min(100, Math.max(18, normalizedSignalCount * 8));
+  return Array.from({ length: 3 }, (_, index) => (index < activeBars ? height : 8));
 }
 
 function getProductTableMomentum(metrics = {}) {
@@ -7278,41 +7243,6 @@ function getSourceToken(source) {
   };
 }
 
-function getSignalBars(metrics) {
-  return getEvidenceFamilyBars(metrics).map((bar) => bar.value);
-}
-
-function getSignalDetails(snapshot, metrics, settings = undefined) {
-  const signalCount = Number(metrics.signalCount || 0);
-  const bars = getEvidenceFamilyBars(metrics);
-  const sourceCount = bars.filter((bar) => Number(bar.signalUnits || 0) > 0).length;
-  const conflicting = hasConflictingEvidence(metrics);
-  const strengthLabel = getEvidenceStrengthLabel({ signalCount, sourceCount, conflicting });
-  const topEvidence = bars
-    .filter((bar) => Number(bar.signalUnits || 0) > 0)
-    .sort((first, second) => Number(second.signalUnits || second.value || 0) - Number(first.signalUnits || first.value || 0))
-    .slice(0, 4)
-    .map((bar) => ({
-      label: bar.label,
-      detail: bar.detail,
-      icon: bar.icon,
-    }));
-  const recommendedAction = getPrimaryRecommendedActionLabel(snapshot, metrics);
-
-  return {
-    signalCount,
-    sourceCount,
-    strengthLabel,
-    conflicting,
-    tone: getEvidenceToneForProduct(snapshot.riskScore, metrics, settings),
-    mainIssue: snapshot.primaryIssue || "Product quality",
-    recommendedAction,
-    topEvidence,
-    summary: `${strengthLabel} evidence · ${signalCount} signal${signalCount === 1 ? "" : "s"} · ${sourceCount} source${sourceCount === 1 ? "" : "s"}`,
-    bars,
-  };
-}
-
 function getEvidenceFamilyBars(metrics = {}) {
   const normalizedMetrics = metrics || {};
   return [
@@ -7378,20 +7308,6 @@ function getEvidenceToneForProduct(riskScore, metrics = {}, settings = undefined
   if (label === "High") return "red";
   if (label === "Medium") return "orange";
   return "green";
-}
-
-function hasConflictingEvidence(metrics = {}) {
-  if (metrics.evidenceConflict || metrics.conflictingEvidence) return true;
-  const positive = Number(metrics.textInsights?.sentiment?.positive || metrics.positiveReviewCount || 0);
-  const negative = Number(metrics.textInsights?.sentiment?.negative || metrics.negativeReviewCount || 0);
-  return positive >= 3 && negative >= 3 && Math.abs(positive - negative) <= Math.max(2, Math.round(Math.max(positive, negative) * 0.35));
-}
-
-function getPrimaryRecommendedActionLabel(snapshot, metrics) {
-  const recommendations = Array.isArray(metrics.recommendations) ? metrics.recommendations : [];
-  const firstRecommendation = recommendations.find((item) => item?.label || item?.title);
-  if (firstRecommendation) return firstRecommendation.label || firstRecommendation.title;
-  return getSnapshotRecommendedActions(snapshot, metrics)[0]?.label || "Review Product Diagnosis";
 }
 
 function getProductContentEvidenceValue(metrics) {

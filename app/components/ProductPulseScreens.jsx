@@ -24337,177 +24337,42 @@ function getProductEvidenceSourceHref(product = {}, source = null, fallbackHref 
   return sourceLabel ? `${getProductDetailHref(product)}/evidence?source=${encodeURIComponent(sourceLabel)}` : baseEvidenceHref;
 }
 
-function getEvidenceToastSourceName(item = {}) {
-  const normalized = String(item.key || item.label || item.title || "").toLowerCase();
-  if (normalized.includes("language") || normalized.includes("customer") || normalized.includes("sentiment")) return "Customer language";
-  if (normalized.includes("review") || normalized.includes("rating")) return "Reviews";
-  if (normalized.includes("return")) return "Returns";
-  if (normalized.includes("refund") || normalized.includes("financial")) return "Refunds";
-  if (normalized.includes("product") || normalized.includes("pdp") || normalized.includes("content")) return "Products";
-  return item.label || "Evidence";
-}
-
-function getEvidenceToastIcon(item = {}) {
-  const normalized = String(item.key || item.label || item.title || "").toLowerCase();
-  if (normalized.includes("language") || normalized.includes("customer") || normalized.includes("sentiment")) return "customer-language-analysis";
-  if (normalized.includes("review") || normalized.includes("rating")) return "csv-reviews";
-  if (normalized.includes("return")) return "shopify-returns";
-  if (normalized.includes("refund") || normalized.includes("financial")) return "shopify-refunds";
-  if (normalized.includes("product") || normalized.includes("pdp") || normalized.includes("content")) return "shopify-product";
-  return item.icon || "main-issue";
-}
-
-function getEvidenceToastTone(item = {}) {
-  const normalized = String(item.key || item.label || item.title || "").toLowerCase();
-  if (normalized.includes("return")) return "red";
-  if (normalized.includes("refund") || normalized.includes("financial")) return "amber";
-  if (normalized.includes("review") || normalized.includes("rating")) return "violet";
-  if (normalized.includes("language") || normalized.includes("customer") || normalized.includes("sentiment")) return "blue";
-  if (normalized.includes("product") || normalized.includes("pdp") || normalized.includes("content")) return "teal";
-  return "blue";
-}
-
 function ProductSignalCell({ product }) {
-  const triggerRef = useRef(null);
-  const { open, showPopover, closePopover, hidePopover } = useFloatingPopoverState();
-  const details = normalizeProductEvidenceDetails(product);
-  const evidenceHref = details.fullEvidenceHref || `${product.href || `/app/products/${product.handle || product.slug || product.id}`}/evidence`;
-  const evidenceRows = details.topEvidence.length ? details.topEvidence : [];
+  const signalCount = Number(product.signals || product.signalCount || 0);
+  const sourceCount = getProductEvidenceSourceCount(product);
+  const strengthLabel = product.signalStrengthLabel || getEvidenceStrengthLabel({ signalCount, sourceCount });
+  const values = getProductSignalValues(product, signalCount, sourceCount);
+  const tone = product.signalTone || getEvidenceTone(product, signalCount);
+  const evidenceHref = `${getProductDetailHref(product)}/evidence`;
 
   return (
-    <span
-      className="ppSignalPopoverWrap"
-      ref={triggerRef}
-      onBlur={closePopover}
-      onFocus={showPopover}
-      onMouseEnter={showPopover}
-      onMouseLeave={closePopover}
-    >
-      <Link
-        className="ppSignalTrigger"
-        to={evidenceHref}
-          aria-label={`Open evidence for ${product.title}`}
-          onFocus={showPopover}
-          onMouseEnter={showPopover}
-          onMouseLeave={closePopover}
-      >
-        <span className="ppSignalTriggerMain">
-          <SignalBars tone={details.tone || product.signalTone} values={details.values || product.signalBars || []} />
-          <span>{details.signalCount}</span>
-        </span>
-        <span className="ppSignalStrengthLine">{details.strengthLabel} · {details.sourceCount} source{details.sourceCount === 1 ? "" : "s"}</span>
-      </Link>
-      <FloatingTablePopover
-        anchorRef={triggerRef}
-        open={open}
-        className="ppSignalPopover ppInsightToast ppEvidenceToast"
-        width={480}
-        estimatedHeight={430}
-        onMouseEnter={showPopover}
-        onMouseLeave={closePopover}
-      >
-        <div className="ppEvidenceToastTitlebar">
-          <span className={`ppEvidenceToastAlert ppEvidenceToastAlert-${details.tone || "blue"}`} aria-hidden="true">
-            <ProductPulseGlyph type="product-risk" />
-          </span>
-          <div>
-            <strong>{details.strengthLabel} evidence</strong>
-            <span>· {formatInteger(details.signalCount)} signal{details.signalCount === 1 ? "" : "s"} · {formatInteger(details.sourceCount)} source{details.sourceCount === 1 ? "" : "s"}</span>
-          </div>
-          <button type="button" aria-label="Close evidence summary" onClick={hidePopover}>
-            <s-icon type="x" size="small"></s-icon>
-          </button>
-        </div>
-        <div className="ppEvidenceToastSummary">
-          <span className="ppInsightToastIcon ppInsightToastIcon-blue" aria-hidden="true">
-            <ProductPulseGlyph type="main-issue" />
-          </span>
-          <span>
-            <b>Main issue</b>
-            <strong>{details.mainIssue}</strong>
-          </span>
-          <span className="ppEvidenceToastSummaryDivider" aria-hidden="true"></span>
-          <span className="ppInsightToastIcon ppInsightToastIcon-violet" aria-hidden="true">
-            <s-icon type="clipboard" size="small"></s-icon>
-          </span>
-          <span>
-            <b>Recommended action</b>
-            <strong>{details.recommendedAction}</strong>
-          </span>
-        </div>
-        {evidenceRows.length > 0 && (
-          <div className="ppEvidenceToastList">
-            <b>Top evidence</b>
-            {evidenceRows.map((item) => {
-              const itemHref = getProductEvidenceSourceHref(product, getEvidenceToastSourceName(item), evidenceHref);
-              return (
-                <Link className="ppEvidenceToastRow" to={itemHref} key={item.label}>
-                  <span className={`ppEvidenceToastRowIcon ppEvidenceToastRowIcon-${getEvidenceToastTone(item)}`} aria-hidden="true">
-                    <ProductPulseGlyph type={getEvidenceToastIcon(item)} />
-                  </span>
-                  <span>
-                    <b>{item.label}</b>
-                    <small>{item.detail}</small>
-                  </span>
-                  <s-icon type="chevron-right" size="small"></s-icon>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-        <Link className="ppEvidenceToastFooter" to={evidenceHref}>
-          <span aria-hidden="true"><s-icon type="info" size="small"></s-icon></span>
-          Click the Evidence cell to view full evidence.
-        </Link>
-      </FloatingTablePopover>
-    </span>
+    <Link className="ppSignalTrigger" to={evidenceHref} aria-label={`Open evidence for ${product.title}`}>
+      <span className="ppSignalTriggerMain">
+        <SignalBars tone={tone} values={values} />
+        <span>{signalCount}</span>
+      </span>
+      <span className="ppSignalStrengthLine">{strengthLabel} · {sourceCount} source{sourceCount === 1 ? "" : "s"}</span>
+    </Link>
   );
 }
 
-function normalizeProductEvidenceDetails(product) {
-  const rawDetails = product.signalDetails || buildFallbackSignalDetails(product);
-  const bars = Array.isArray(rawDetails.bars) ? rawDetails.bars : [];
-  const signalCount = Number(rawDetails.signalCount ?? product.signals ?? 0);
-  const sourceCount = Number(rawDetails.sourceCount ?? getEvidenceSourceCount(product, bars));
-  const strengthLabel = rawDetails.strengthLabel || getEvidenceStrengthLabel({ signalCount, sourceCount, conflicting: rawDetails.conflicting });
-  const tone = rawDetails.tone || getEvidenceTone(product, signalCount);
-  const values = bars.length ? bars.map((bar) => Number(bar.value || 0)) : product.signalBars || [];
-  const mainIssue = rawDetails.mainIssue || product.issue || "Product quality";
-  const recommendedAction = rawDetails.recommendedAction || product.recommendedAction || "Review Product Diagnosis";
-  const topEvidence = rawDetails.topEvidence?.length
-    ? rawDetails.topEvidence
-    : bars
-      .filter((bar) => Number(bar.signalUnits || bar.value || 0) > 0)
-      .sort((first, second) => Number(second.signalUnits || second.value || 0) - Number(first.signalUnits || first.value || 0))
-      .slice(0, 4)
-      .map((bar) => ({
-        label: bar.label,
-        detail: bar.detail,
-        icon: bar.icon,
-      }));
-
-  return {
-    ...rawDetails,
-    bars,
-    values,
-    signalCount,
-    sourceCount,
-    strengthLabel,
-    tone,
-    mainIssue,
-    recommendedAction,
-    topEvidence,
-    summary: rawDetails.summary || `${strengthLabel} evidence · ${signalCount} signal${signalCount === 1 ? "" : "s"} · ${sourceCount} source${sourceCount === 1 ? "" : "s"}`,
-  };
-}
-
-function getEvidenceSourceCount(product, bars = []) {
-  const activeFamilies = bars.filter((bar) => Number(bar.signalUnits || 0) > 0).length;
-  if (activeFamilies > 0) return activeFamilies;
+function getProductEvidenceSourceCount(product = {}) {
   const sourceCount = Number(product.sourceCount || 0);
   if (sourceCount > 0) return sourceCount;
   const sourceTokens = Array.isArray(product.sources) ? product.sources.length : 0;
   return Math.max(sourceTokens + Number(product.sourceOverflow || 0), 0);
+}
+
+function getProductSignalValues(product = {}, signalCount = 0, sourceCount = 0) {
+  if (Array.isArray(product.signalBars) && product.signalBars.length > 0) {
+    return product.signalBars.map((value) => Number(value || 0));
+  }
+
+  const normalizedSignalCount = Math.max(0, Number(signalCount || 0));
+  if (!normalizedSignalCount) return [4, 4, 4];
+  const activeBars = Math.max(1, Math.min(3, Number(sourceCount || 1)));
+  const height = Math.min(100, Math.max(18, normalizedSignalCount * 8));
+  return Array.from({ length: 3 }, (_, index) => (index < activeBars ? height : 8));
 }
 
 function getEvidenceStrengthLabel({ signalCount, sourceCount, conflicting = false }) {
@@ -24524,35 +24389,6 @@ function getEvidenceTone(product, signalCount) {
   if (normalized.includes("high") || normalized.includes("red") || normalized.includes("critical")) return "red";
   if (normalized.includes("medium") || normalized.includes("watch") || normalized.includes("orange") || normalized.includes("warning")) return "orange";
   return "green";
-}
-
-function buildFallbackSignalDetails(product) {
-  const values = product.signalBars || [];
-  const fallbackBars = [
-    ["Product / PDP content", "Product setup, product page copy and content-quality evidence."],
-    ["Reviews", "Connected review rating and negative-review pressure."],
-    ["Customer language", "Repeated customer phrases, return notes, review text or sentiment evidence."],
-    ["Returns", "Return units, return rate and return reasons."],
-    ["Refunds / financial", "Refund units, refund amount and financial pressure."],
-  ];
-  const signalCount = Number(product.signals || 0);
-  const sourceCount = getEvidenceSourceCount(product, fallbackBars.map((bar, index) => ({ label: bar[0], value: values[index] || 0, signalUnits: values[index] ? 1 : 0 })));
-  const strengthLabel = getEvidenceStrengthLabel({ signalCount, sourceCount });
-
-  return {
-    signalCount,
-    sourceCount,
-    strengthLabel,
-    mainIssue: product.issue || "Product quality",
-    recommendedAction: product.recommendedAction || "Review Product Diagnosis",
-    summary: `${strengthLabel} evidence · ${signalCount} signal${signalCount === 1 ? "" : "s"} · ${sourceCount} source${sourceCount === 1 ? "" : "s"}`,
-    bars: fallbackBars.map(([label, detail], index) => ({
-      label,
-      value: values[index] || 0,
-      detail,
-      signalUnits: values[index] ? 1 : 0,
-    })),
-  };
 }
 
 function SignalBars({ values, tone }) {

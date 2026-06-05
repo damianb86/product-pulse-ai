@@ -2110,13 +2110,6 @@ describe("ProductPulse screens", () => {
               recommendedUse: "Add to Watchlist",
             },
           },
-          signalDetails: {
-            summary: "Fit & sizing risk score 84/100 from 184 signals.",
-            bars: [
-              { label: "Return rate", value: 62, detail: "Return rate contribution." },
-              { label: "Refund rate", value: 82, detail: "Refund amount contribution." },
-            ],
-          },
         }],
         total: 1,
       },
@@ -2155,9 +2148,7 @@ describe("ProductPulse screens", () => {
     const evidenceLink = screen.getByRole("link", { name: "Open evidence for Linen Shirt" });
     expect(evidenceLink).toHaveAttribute("href", "/app/products/linen-shirt/evidence");
     fireEvent.mouseEnter(evidenceLink);
-    expect(await screen.findByText("Main issue")).toBeInTheDocument();
-    expect(screen.getByText("Recommended action")).toBeInTheDocument();
-    expect(await screen.findByText("Return rate contribution.")).toBeInTheDocument();
+    expect(document.body.querySelector(".ppEvidenceToast")).not.toBeInTheDocument();
     expect(screen.getByLabelText("3 sources used for this product")).toBeInTheDocument();
     fireEvent.mouseEnter(screen.getByLabelText("3 sources used for this product"));
     expect(await screen.findByText("Sources used")).toBeInTheDocument();
