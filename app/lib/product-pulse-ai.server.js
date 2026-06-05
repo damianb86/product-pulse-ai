@@ -61,7 +61,7 @@ const AI_TASKS = {
   final_report: {
     modelEnv: ["OPENAI_PREMIUM_MODEL", "OPENAI_PRO_MODEL", "OPENAI_BASIC_MODEL"],
     fallbackModel: "gpt-5.4",
-    maxOutputTokens: 3600,
+    maxOutputTokens: 5400,
     temperature: 0.2,
   },
   watch_change_report: {
@@ -217,7 +217,9 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
     basket_context_interpretation: "",
     evidence_synthesis_sections: [],
     recommendation_copy: {},
+    action_rationales: [],
   });
+  const actionRationales = normalizeFinalReportActionRationales(report);
 
   let contentCoverageValidationResponse = null;
   let contentCoverageValidation = { coverage: [], summary: "No product-content coverage validation was run." };
@@ -248,17 +250,6 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
     }
   }
 
-  const actionRationaleResponse = await generateAiText({
-    shop,
-    jobId,
-    task: "action_rationale",
-    prompt: buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report),
-    usageTracker,
-    onPerfEvent,
-  });
-  const actionRationales = parseAiJson(actionRationaleResponse.text, {
-    action_rationales: [],
-  });
   const compactChartInput = buildCompactProductChartInterpretationInput(input);
   let chartInterpretationsResponse = null;
   let chartInterpretations = normalizeProductChartInterpretations(null, compactChartInput);
@@ -342,7 +333,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
       emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
       contentGap: pickAiModelSummary(gapResponse),
       contentCoverageValidation: contentCoverageValidationResponse ? pickAiModelSummary(contentCoverageValidationResponse) : null,
-      actionRationale: pickAiModelSummary(actionRationaleResponse),
+      actionRationale: pickMergedAiModelSummary(reportResponse, "action_rationale", "final_report"),
       chartInterpretations: chartInterpretationsResponse ? pickAiModelSummary(chartInterpretationsResponse) : null,
       relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
       finalReport: pickAiModelSummary(reportResponse),
@@ -360,7 +351,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
       emergentSentiments: emergentSentimentResponse.text,
       contentGaps: gapResponse.text,
       contentCoverageValidation: contentCoverageValidationResponse?.text || "",
-      actionRationales: actionRationaleResponse.text,
+      actionRationales: JSON.stringify(actionRationales),
       chartInterpretations: chartInterpretationsResponse?.text || "",
       relationshipInsights: relationshipInsightsResponse?.text || "",
       report: reportResponse.text,
@@ -768,6 +759,10 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "For the four question blocks, keep the heading and answer together in the same paragraph, for example: What is wrong? The product is...",
     "Do not add extra questions, bullets, markdown headings, numbering, or more than five blocks.",
     "Do not let reviews consume the whole main finding when product description, title, tags, collections, returns, refunds, variants, or customer-language evidence also exists. Cover every relevant discovery group in descending evidence support, and skip only areas with no evidence.",
+    "Also write action_rationales in this same JSON. These are used in the recommended-action modal section named \"Why this action\".",
+    "For each recommendation candidate, write one concise action rationale. Explain what ProductPulse found, which evidence groups support it, and why that exact action is a reasonable next step.",
+    "Keep each action rationale consistent with main_finding_detail, evidence_summary, recommendation_copy, and the candidate action. Do not introduce a new cause, new metric, new date, new quote, or new recommendation that is not already supported by the supplied data.",
+    "Keep each action rationale to one short paragraph, ideally 35 to 75 words. Use a medium-depth explanation: clear and specific, but short.",
     "Return valid JSON only. No markdown.",
     "Schema:",
     JSON.stringify({
@@ -839,6 +834,10 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
         ],
         support_note: "short internal support note",
       },
+      action_rationales: [{
+        action_id: "add-product-description-guidance",
+        rationale: "ProductPulse recommends updating the description because return notes and content analysis point to the same buyer confusion: shoppers are missing a specific product detail before purchase. Adding that clarification to the PDP gives buyers the relevant context before checkout and can reduce avoidable returns.",
+      }],
     }, null, 2),
     "Product:",
     JSON.stringify(input?.product || {}, null, 2),
@@ -957,40 +956,6 @@ function buildContentCoverageValidationCandidates(report = {}) {
   }
 
   return candidates.slice(0, 14);
-}
-
-function buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report) {
-  return [
-    "You are ProductPulse AI explaining recommended actions to a merchant.",
-    "Use a medium-depth explanation: clear and specific, but short. Do not write generic text like \"signals indicate this\" without saying which signals and what they mean.",
-    "For each recommendation candidate, write one concise rationale for the modal section \"Why this action\".",
-    "Explain: what ProductPulse found, which evidence groups support it, and why this exact action is a reasonable next step.",
-    "Use only the supplied data. Do not invent counts, dates, quotes, sources, or product facts.",
-    "When quoting exact customer wording, return-note text, refund-note text, review text, product-description text, title text, tags, collections, SKUs, or variant names, wrap the exact excerpt in double quotation marks.",
-    "Keep each rationale to one short paragraph, ideally 35 to 75 words.",
-    "Return valid JSON only. No markdown.",
-    "Schema:",
-    JSON.stringify({
-      action_rationales: [{
-        action_id: "add-product-description-guidance",
-        rationale: "ProductPulse recommends updating the description because return notes and content analysis point to the same buyer confusion: shoppers are missing a specific product detail before purchase. Adding that clarification to the PDP gives buyers the relevant context before checkout and can reduce avoidable returns.",
-      }],
-    }, null, 2),
-    "Product:",
-    JSON.stringify(input?.product || {}, null, 2),
-    "Deterministic metrics:",
-    JSON.stringify(input?.deterministic || {}, null, 2),
-    "Recommendation candidates:",
-    JSON.stringify(input?.recommendationCandidates || [], null, 2),
-    "AI classification:",
-    JSON.stringify(classification || {}, null, 2),
-    "PDP content gaps:",
-    JSON.stringify(contentGaps || {}, null, 2),
-    "Emergent customer sentiments:",
-    JSON.stringify(emergentSentiments || {}, null, 2),
-    "Final report draft:",
-    JSON.stringify(report || {}, null, 2),
-  ].join("\n\n");
 }
 
 const PRODUCT_CHART_INTERPRETATION_DEFINITIONS = [
@@ -2386,6 +2351,30 @@ function pickAiModelSummary(response) {
     model: response.model,
     task: response.task,
     usage: response.usage || null,
+  };
+}
+
+function pickMergedAiModelSummary(response, task, mergedInto) {
+  return {
+    provider: response.provider,
+    model: response.model,
+    task,
+    mergedInto,
+    usage: response.usage || null,
+  };
+}
+
+function normalizeFinalReportActionRationales(report = {}) {
+  const entries = Array.isArray(report?.action_rationales)
+    ? report.action_rationales
+    : [];
+  return {
+    action_rationales: entries
+      .map((item) => ({
+        action_id: item?.action_id || item?.id || item?.actionId || "",
+        rationale: item?.rationale || item?.why_this_action || item?.why || "",
+      }))
+      .filter((item) => item.action_id && item.rationale),
   };
 }
 

@@ -418,8 +418,6 @@ describe("ProductPulse AI provider fallback", () => {
           evidence_summary: "Shopify return notes contain repeated emotional language.",
           basket_context_interpretation: "Purchase context should be read as a qualitative modifier alongside the final report, not as a separate numeric recap.",
           recommendation_copy: {},
-        }),
-        JSON.stringify({
           action_rationales: [],
         }),
       ][prompts.length - 1];
@@ -443,7 +441,7 @@ describe("ProductPulse AI provider fallback", () => {
       },
     });
 
-    expect(prompts).toHaveLength(5);
+    expect(prompts).toHaveLength(4);
     expect(prompts[0]).toContain("Predefined sentiment taxonomy");
     expect(prompts[1]).toContain("clustering customer emotions");
     expect(prompts[3]).toContain("Write main_finding_detail as exactly five merchant-facing text blocks");
@@ -451,7 +449,7 @@ describe("ProductPulse AI provider fallback", () => {
     expect(prompts[3]).toContain("Do not let reviews consume the whole main finding");
     expect(prompts[3]).toContain("basket_context_interpretation");
     expect(prompts[3]).toContain("as few numeric values as possible");
-    expect(prompts[4]).toContain("Why this action");
+    expect(prompts[3]).toContain("Why this action");
     expect(result.report.basket_context_interpretation).toContain("qualitative modifier");
     expect(result.emergentSentiments.emergent_sentiments[0]).toMatchObject({
       normalized_label: "superstitious_discomfort",
@@ -486,8 +484,8 @@ describe("ProductPulse AI provider fallback", () => {
         evidence_summary: "The chart data shows a recent change.",
         basket_context_interpretation: "",
         recommendation_copy: {},
+        action_rationales: [],
       },
-      { action_rationales: [] },
       {
         chart_interpretations: {
           monthly_order_activity: "Orders rose in May while returns and refunds also appeared, so the product has demand but operational outcomes should be watched closely.",
@@ -564,12 +562,11 @@ describe("ProductPulse AI provider fallback", () => {
       },
     });
 
-    expect(requests).toHaveLength(6);
+    expect(requests).toHaveLength(5);
     expect(requests[0].model).toBe("gpt-5.4-mini");
     expect(requests[1].model).toBe("gpt-5.4-nano");
     expect(requests[2].model).toBe("gpt-5.4-mini");
     expect(requests[3].model).toBe("gpt-5.4");
-    expect(requests[4].model).toBe("gpt-5.4-nano");
     const chartRequests = requests.filter((request) => String(request.input).includes("chart_interpretations"));
     expect(chartRequests).toHaveLength(1);
     expect(chartRequests[0].model).toBe("gpt-5.4-mini");
