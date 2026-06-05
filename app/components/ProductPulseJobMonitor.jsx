@@ -32,6 +32,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const lastJobStatusLoadAtRef = useRef(0);
   const lastCreditSummaryLoadAtRef = useRef(0);
   const pendingJobStatusLoadRef = useRef(null);
+  const handledCancelResponseRef = useRef("");
+  const locallyCancelledJobIdsRef = useRef(new Set());
   const lastSearchQueryRef = useRef("");
   const topbarRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -84,6 +86,10 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const requestJobStatusLoad = useCallback((options = {}) => {
     const { allowHidden = false, force = false, scope = "summary" } = options;
     if (!allowHidden && document.hidden) return;
+    if (force && pendingJobStatusLoadRef.current) {
+      window.clearTimeout(pendingJobStatusLoadRef.current);
+      pendingJobStatusLoadRef.current = null;
+    }
     if (fetcherStateRef.current !== "idle") return;
 
     const elapsedMs = Date.now() - lastJobStatusLoadAtRef.current;
@@ -178,18 +184,22 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       }
     });
 
-    const activeJobDisappeared = [...observedJobsRef.current.values()].some(
+    const disappearedActiveJobs = [...observedJobsRef.current.values()].filter(
       (job) => isActiveJobStatus(job.status) && !currentJobs.has(job.id),
     );
+    const externallyDisappearedActiveJobs = disappearedActiveJobs.filter(
+      (job) => !locallyCancelledJobIdsRef.current.has(job.id),
+    );
+    const externallyFinishedJobs = finishedJobs.filter((job) => !locallyCancelledJobIdsRef.current.has(job.id));
 
     observedJobsRef.current = currentJobs;
 
-    if (finishedJobs.length || activeJobDisappeared) {
-      if (finishedJobs.length) {
-        dispatchProductPulseJobsFinishedEvent(finishedJobs);
+    if (externallyFinishedJobs.length || externallyDisappearedActiveJobs.length) {
+      if (externallyFinishedJobs.length) {
+        dispatchProductPulseJobsFinishedEvent(externallyFinishedJobs);
       }
-      const completedAnalysisJob = finishedJobs.find((job) => isCompletionNoticeJob(job));
-      const failedJob = finishedJobs.find((job) => (
+      const completedAnalysisJob = externallyFinishedJobs.find((job) => isCompletionNoticeJob(job));
+      const failedJob = externallyFinishedJobs.find((job) => (
         job.status === "Failed" && !announcedFailedJobIdsRef.current.has(job.id)
       ));
       if (completedAnalysisJob) setCompletedJobNotice(completedAnalysisJob);
@@ -212,9 +222,18 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     if (cancelFetcher.state !== "idle" || cancelFetcher.data?.status !== "success") return;
+    const cancelledJobId = String(cancelFetcher.data?.job?.id || cancelFetcher.formData?.get("jobId") || "");
+    const responseKey = `${cancelledJobId}:${cancelFetcher.data?.job?.status || cancelFetcher.data?.message || "success"}`;
+    if (responseKey && handledCancelResponseRef.current === responseKey) return;
+    handledCancelResponseRef.current = responseKey;
+    if (cancelFetcher.data?.job) {
+      locallyCancelledJobIdsRef.current.add(cancelFetcher.data.job.id);
+      setMonitorSnapshot((current) => mergeCancelledJobIntoMonitor(current, cancelFetcher.data.job));
+      dispatchProductPulseJobsFinishedEvent([cancelFetcher.data.job]);
+      return;
+    }
     requestJobStatusLoad({ force: true });
-    revalidator.revalidate();
-  }, [cancelFetcher.data, cancelFetcher.state, requestJobStatusLoad, revalidator]);
+  }, [cancelFetcher.data, cancelFetcher.formData, cancelFetcher.state, requestJobStatusLoad]);
 
   useEffect(() => {
     if (completedJobNotice?.kind !== "product-diagnosis") return;
@@ -1155,6 +1174,26 @@ function mergeJobMonitorSnapshot(current = {}, incoming = {}) {
     pointBalance: incoming.pointSummaryLoaded !== false && (incoming.pointBalance !== undefined || incoming.pointSummary !== undefined)
       ? incoming.pointBalance || incoming.pointSummary?.balance || null
       : current.pointBalance || current.pointSummary?.balance || null,
+  };
+}
+
+function mergeCancelledJobIntoMonitor(current = {}, cancelledJob = null) {
+  if (!cancelledJob?.id) return current || {};
+  const previousActiveJobs = current.activeJobs || [];
+  const removedActiveJob = previousActiveJobs.some((job) => job?.id === cancelledJob.id);
+  const activeJobs = previousActiveJobs.filter((job) => job?.id !== cancelledJob.id);
+  const recentJobs = [
+    cancelledJob,
+    ...(current.recentJobs || []).filter((job) => job?.id !== cancelledJob.id),
+  ].slice(0, 6);
+
+  return {
+    ...current,
+    activeJobs,
+    activeJobCount: Math.max(0, Number(current.activeJobCount ?? previousActiveJobs.length ?? 0) - (removedActiveJob ? 1 : 0)),
+    recentJobs,
+    recentJobsLoaded: true,
+    updatedAt: new Date().toISOString(),
   };
 }
 

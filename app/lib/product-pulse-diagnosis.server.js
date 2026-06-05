@@ -138,54 +138,321 @@ const US_STATE_NAMES = {
   WY: "Wyoming",
 };
 
-export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
-  const settings = await getProductPulseSettings(shop);
-  const windowDays = getAnalysisLookbackDays(settings);
-  const storedReconstructedRiskHistory = await getReconstructedProductScoreHistoryForShop(shop, snapshot.productGid);
-  const shopifyData = await fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays });
-  const judgeMeData = await fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
-  const yotpoData = await fetchYotpoDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
-  const looxData = await fetchLooxDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
-  const csvReviewData = await fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays });
-  const momentumCatalogBaseline = await fetchProductMomentumCatalogBaseline({ shop, currentProductGid: snapshot.productGid });
-  const taxonomyCategorySuggestions = await fetchProductTaxonomyCategorySuggestions({ admin, product: shopifyData.product });
-  const baseDeterministic = calculateDeterministicDiagnosis({
-    snapshot,
-    shopifyData,
-    judgeMeData,
-    yotpoData,
-    looxData,
-    csvReviewData,
-    windowDays,
-    momentumCatalogBaseline,
-    taxonomyCategorySuggestions,
-    storedReconstructedRiskHistory,
-  });
-  const relationshipCollectionSuggestions = await fetchProductRelationshipCollectionSuggestions({
-    admin,
-    product: shopifyData.product,
-    relationshipSummary: baseDeterministic.metrics.productRelationshipIntelligenceSummary,
-  });
-  const relationshipEnrichedDeterministic = relationshipCollectionSuggestions.length
-    ? attachRelationshipCollectionSuggestionsToDeterministic(baseDeterministic, relationshipCollectionSuggestions)
-    : baseDeterministic;
-  const retentionPreview = await calculateProductRetentionPreviewForDiagnosis({
+function buildProductDiagnosisPerfContext({ shop, jobId, snapshot } = {}) {
+  return {
     shop,
     jobId,
-    admin,
-    snapshot,
-    windowDays,
-  });
-  const deterministic = attachProductRetentionPreviewToDeterministic(relationshipEnrichedDeterministic, retentionPreview?.payload);
-  const recommendationCandidates = buildRuleRecommendationCandidates(deterministic);
-  const aiInput = {
-    product: buildAiProductInput(shopifyData.product, snapshot),
-    deterministic: buildAiDeterministicInput(deterministic),
-    evidenceSnippets: deterministic.evidenceSnippets,
-    recommendationCandidates,
-    incremental: buildAiIncrementalDiagnosisInput(deterministic),
-    previousPrimaryIssue: snapshot.primaryIssue || null,
+    productGid: snapshot?.productGid || null,
+    handle: snapshot?.handle || null,
+    productTitle: snapshot?.productTitle || snapshot?.title || null,
   };
+}
+
+async function measureProductDiagnosisPerfStep(stage, context, callback, data = {}, summarizeResult = null) {
+  logProductDiagnosisPerf(`product_diagnosis.${stage}.started`, context, data);
+  const startedAt = Date.now();
+  try {
+    const result = await callback();
+    const resultData = typeof summarizeResult === "function" ? summarizeResult(result) : {};
+    logProductDiagnosisPerf(`product_diagnosis.${stage}.done`, context, {
+      durationMs: Date.now() - startedAt,
+      ...data,
+      ...resultData,
+    });
+    return result;
+  } catch (error) {
+    logProductDiagnosisPerf(`product_diagnosis.${stage}.failed`, context, {
+      durationMs: Date.now() - startedAt,
+      ...data,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    }, "error");
+    throw error;
+  }
+}
+
+function logProductDiagnosisPerf(event, context = {}, data = {}, level = "warn") {
+  if (process.env.NODE_ENV === "test") return;
+  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
+  console[method]("[product-pulse-diagnosis-perf]", {
+    event,
+    at: new Date().toISOString(),
+    ...getProductDiagnosisPerfMemorySnapshot(),
+    shop: context.shop,
+    jobId: context.jobId,
+    productGid: context.productGid,
+    handle: context.handle,
+    productTitle: context.productTitle,
+    ...data,
+  });
+}
+
+function getProductDiagnosisPerfMemorySnapshot() {
+  const memory = process.memoryUsage();
+  return {
+    heapUsedMb: productDiagnosisPerfToMb(memory.heapUsed),
+    heapTotalMb: productDiagnosisPerfToMb(memory.heapTotal),
+    rssMb: productDiagnosisPerfToMb(memory.rss),
+    externalMb: productDiagnosisPerfToMb(memory.external),
+  };
+}
+
+function productDiagnosisPerfToMb(value) {
+  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
+}
+
+function summarizeReconstructedRiskHistory(history) {
+  if (Array.isArray(history)) return { rawPoints: history.length, weeklyPoints: 0, monthlyPoints: 0 };
+  return {
+    rawPoints: history?.raw?.length || history?.points?.length || 0,
+    weeklyPoints: history?.weekly?.length || 0,
+    monthlyPoints: history?.monthly?.length || 0,
+  };
+}
+
+function summarizeShopifyDiagnosisData(data = {}) {
+  return {
+    productFound: Boolean(data.product?.id),
+    salesEvents: data.sales?.length || 0,
+    relationshipSalesEvents: data.relationshipSales?.length || 0,
+    refundEvents: data.refunds?.length || 0,
+    returnEvents: data.returns?.length || 0,
+    orderAccessDenied: Boolean(data.orderAccessDenied),
+    incrementalMode: data.incrementalSource?.mode || null,
+    sourceFetchComplete: data.incrementalSource?.fetchComplete ?? null,
+    rawFetchedCounts: data.incrementalSource?.rawFetchedCounts || null,
+    mergedCounts: data.incrementalSource?.mergedCounts || null,
+  };
+}
+
+function summarizeReviewDiagnosisData(data = {}) {
+  return {
+    connected: Boolean(data.connected),
+    reviews: data.reviews?.length || 0,
+    matchConfidence: data.matchConfidence || 0,
+    errors: data.errors?.length || 0,
+  };
+}
+
+function summarizeMomentumCatalogBaseline(data = {}) {
+  return {
+    hasBaseline: Boolean(data),
+    productCount: data?.productCount || data?.products?.length || data?.catalogProductCount || 0,
+    comparisonProducts: data?.comparisonProducts?.length || data?.peers?.length || 0,
+  };
+}
+
+function summarizeDeterministicDiagnosis(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  return {
+    riskScore: deterministic.riskScore ?? null,
+    confidence: deterministic.confidence ?? null,
+    estimatedImpact: deterministic.estimatedImpact ?? metrics.estimatedImpact ?? null,
+    mainIssue: deterministic.mainIssue || null,
+    sourceCoverage: deterministic.sourceCoverage?.length || 0,
+    evidenceSnippets: deterministic.evidenceSnippets?.length || 0,
+    soldUnits: metrics.soldUnits ?? null,
+    returnUnits: metrics.returnUnits ?? null,
+    refundUnits: metrics.refundUnits ?? null,
+    reviewCount: metrics.reviewCount ?? null,
+    negativeReviewCount: metrics.negativeReviewCount ?? null,
+    relationshipCandidates: metrics.productRelationshipIntelligenceSummary?.relationships?.length || 0,
+  };
+}
+
+function summarizeProductRetentionResult(result = {}) {
+  return {
+    status: result?.status || null,
+    retentionRunId: result?.retentionRunId || null,
+    hasPayload: Boolean(result?.payload),
+    hasEnoughData: result?.payload?.summary?.hasEnoughData ?? null,
+    orderCount: result?.payload?.summary?.orderCount ?? result?.orders?.length ?? null,
+    reusedPreviewOrders: Boolean(result?.reusedPreviewOrders),
+  };
+}
+
+function summarizeAiInput(input = {}) {
+  return {
+    evidenceSnippets: input.evidenceSnippets?.length || 0,
+    recommendationCandidates: input.recommendationCandidates?.length || 0,
+    classifiedSignals: input.deterministic?.classifiedSignals?.length || 0,
+    incrementalMode: input.incremental?.mode || null,
+    productGid: input.product?.id || input.product?.productGid || null,
+  };
+}
+
+function summarizeAiDiagnosisResult(ai = {}) {
+  return {
+    provider: ai.provider || null,
+    model: ai.model || null,
+    modelTasks: ai.modelsUsed ? Object.keys(ai.modelsUsed).filter((key) => ai.modelsUsed[key]).length : 0,
+    usageTotalTokens: ai.aiUsage?.totalTokens ?? ai.aiUsage?.total_tokens ?? null,
+    usageCallCount: ai.aiUsage?.knownTokenCallCount ?? ai.aiUsage?.calls?.length ?? null,
+    hasChartInterpretations: Boolean(ai.chartInterpretations?.available),
+    relationshipInsights: ai.relationshipInsights?.insights?.length || 0,
+  };
+}
+
+function summarizeDiagnosisPayload(payload = {}) {
+  return {
+    riskScore: payload.riskScore ?? null,
+    confidence: payload.confidence ?? null,
+    estimatedImpact: payload.metrics?.estimatedImpact ?? null,
+    issues: payload.issues?.length || 0,
+    evidence: payload.evidence?.length || 0,
+    recommendations: payload.recommendations?.length || 0,
+    metricKeys: payload.metrics ? Object.keys(payload.metrics).length : 0,
+  };
+}
+
+export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
+  const perfContext = buildProductDiagnosisPerfContext({ shop, jobId, snapshot });
+  const startedAt = Date.now();
+  logProductDiagnosisPerf("product_diagnosis.deep_analysis.started", perfContext, {
+    snapshotRiskScore: snapshot?.riskScore ?? null,
+    snapshotConfidence: snapshot?.confidence ?? null,
+    sourceCoverage: snapshot?.sourceCoverage || [],
+  });
+
+  try {
+  const settings = await measureProductDiagnosisPerfStep("settings", perfContext, () => getProductPulseSettings(shop));
+  const windowDays = getAnalysisLookbackDays(settings);
+  logProductDiagnosisPerf("product_diagnosis.window_resolved", perfContext, { windowDays });
+  const storedReconstructedRiskHistory = await measureProductDiagnosisPerfStep(
+    "reconstructed_risk_history",
+    perfContext,
+    () => getReconstructedProductScoreHistoryForShop(shop, snapshot.productGid),
+    { windowDays },
+    summarizeReconstructedRiskHistory,
+  );
+  const shopifyData = await measureProductDiagnosisPerfStep(
+    "shopify_data",
+    perfContext,
+    () => fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays }),
+    { windowDays },
+    summarizeShopifyDiagnosisData,
+  );
+  const judgeMeData = await measureProductDiagnosisPerfStep(
+    "judgeme_reviews",
+    perfContext,
+    () => fetchJudgeMeDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays }),
+    { windowDays },
+    summarizeReviewDiagnosisData,
+  );
+  const yotpoData = await measureProductDiagnosisPerfStep(
+    "yotpo_reviews",
+    perfContext,
+    () => fetchYotpoDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays }),
+    { windowDays },
+    summarizeReviewDiagnosisData,
+  );
+  const looxData = await measureProductDiagnosisPerfStep(
+    "loox_reviews",
+    perfContext,
+    () => fetchLooxDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays }),
+    { windowDays },
+    summarizeReviewDiagnosisData,
+  );
+  const csvReviewData = await measureProductDiagnosisPerfStep(
+    "csv_reviews",
+    perfContext,
+    () => fetchCsvReviewDiagnosisData({ shop, jobId, snapshot, shopifyProduct: shopifyData.product, windowDays }),
+    { windowDays },
+    summarizeReviewDiagnosisData,
+  );
+  const momentumCatalogBaseline = await measureProductDiagnosisPerfStep(
+    "momentum_catalog_baseline",
+    perfContext,
+    () => fetchProductMomentumCatalogBaseline({ shop, currentProductGid: snapshot.productGid }),
+    {},
+    summarizeMomentumCatalogBaseline,
+  );
+  const taxonomyCategorySuggestions = await measureProductDiagnosisPerfStep(
+    "taxonomy_category_suggestions",
+    perfContext,
+    () => fetchProductTaxonomyCategorySuggestions({ admin, product: shopifyData.product }),
+    {},
+    (result) => ({ suggestions: result?.length || 0 }),
+  );
+  const baseDeterministic = await measureProductDiagnosisPerfStep(
+    "deterministic_metrics",
+    perfContext,
+    () => calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData,
+      judgeMeData,
+      yotpoData,
+      looxData,
+      csvReviewData,
+      windowDays,
+      momentumCatalogBaseline,
+      taxonomyCategorySuggestions,
+      storedReconstructedRiskHistory,
+    }),
+    { windowDays },
+    summarizeDeterministicDiagnosis,
+  );
+  const relationshipCollectionSuggestions = await measureProductDiagnosisPerfStep(
+    "relationship_collection_suggestions",
+    perfContext,
+    () => fetchProductRelationshipCollectionSuggestions({
+      admin,
+      product: shopifyData.product,
+      relationshipSummary: baseDeterministic.metrics.productRelationshipIntelligenceSummary,
+    }),
+    {},
+    (result) => ({ suggestions: result?.length || 0 }),
+  );
+  const relationshipEnrichedDeterministic = await measureProductDiagnosisPerfStep(
+    "relationship_deterministic_enrichment",
+    perfContext,
+    () => (relationshipCollectionSuggestions.length
+      ? attachRelationshipCollectionSuggestionsToDeterministic(baseDeterministic, relationshipCollectionSuggestions)
+      : baseDeterministic),
+    { suggestions: relationshipCollectionSuggestions.length },
+    summarizeDeterministicDiagnosis,
+  );
+  const retentionPreview = await measureProductDiagnosisPerfStep(
+    "retention_preview",
+    perfContext,
+    () => calculateProductRetentionPreviewForDiagnosis({
+      shop,
+      jobId,
+      admin,
+      snapshot,
+      windowDays,
+    }),
+    { windowDays },
+    summarizeProductRetentionResult,
+  );
+  const deterministic = await measureProductDiagnosisPerfStep(
+    "retention_preview_attach",
+    perfContext,
+    () => attachProductRetentionPreviewToDeterministic(relationshipEnrichedDeterministic, retentionPreview?.payload),
+    {},
+    summarizeDeterministicDiagnosis,
+  );
+  const recommendationCandidates = await measureProductDiagnosisPerfStep(
+    "rule_recommendation_candidates",
+    perfContext,
+    () => buildRuleRecommendationCandidates(deterministic),
+    {},
+    (result) => ({ candidates: result?.length || 0 }),
+  );
+  const aiInput = await measureProductDiagnosisPerfStep(
+    "ai_input_build",
+    perfContext,
+    () => ({
+      product: buildAiProductInput(shopifyData.product, snapshot),
+      deterministic: buildAiDeterministicInput(deterministic),
+      evidenceSnippets: deterministic.evidenceSnippets,
+      recommendationCandidates,
+      incremental: buildAiIncrementalDiagnosisInput(deterministic),
+      previousPrimaryIssue: snapshot.primaryIssue || null,
+    }),
+    {},
+    summarizeAiInput,
+  );
 
   await recordJobLog({
     shop,
@@ -230,28 +497,81 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     },
   });
 
-  await ensureProductRelationshipCandidateSnapshots({
-    shop,
-    jobId,
-    sourceSnapshot: snapshot,
-    relationshipSummary: deterministic.metrics.productRelationshipIntelligenceSummary,
-  });
-
-  const reuseDecision = getNoChangeDiagnosisReuseDecision({ snapshot, deterministic });
-  if (reuseDecision.shouldReuse) {
-    const reusedDiagnosis = await buildNoChangeDiagnosisReuseResult({
+  await measureProductDiagnosisPerfStep(
+    "relationship_candidate_snapshots",
+    perfContext,
+    () => ensureProductRelationshipCandidateSnapshots({
       shop,
       jobId,
-      snapshot,
-      deterministic,
-      reuseDecision,
-    });
-    if (reusedDiagnosis) return reusedDiagnosis;
+      sourceSnapshot: snapshot,
+      relationshipSummary: deterministic.metrics.productRelationshipIntelligenceSummary,
+    }),
+    {},
+    (result) => ({
+      created: result?.created || 0,
+      updated: result?.updated || 0,
+    }),
+  );
+
+  const reuseDecision = await measureProductDiagnosisPerfStep(
+    "reuse_decision",
+    perfContext,
+    () => getNoChangeDiagnosisReuseDecision({ snapshot, deterministic }),
+    {},
+    (result) => ({
+      shouldReuse: Boolean(result?.shouldReuse),
+      reason: result?.reason || result?.skipReason || null,
+    }),
+  );
+  if (reuseDecision.shouldReuse) {
+    const reusedDiagnosis = await measureProductDiagnosisPerfStep(
+      "no_change_reuse",
+      perfContext,
+      () => buildNoChangeDiagnosisReuseResult({
+        shop,
+        jobId,
+        snapshot,
+        deterministic,
+        reuseDecision,
+      }),
+      {},
+      (result) => ({
+        reused: Boolean(result),
+        diagnosisId: result?.diagnosisId || null,
+        skipReason: result?.skipReason || null,
+      }),
+    );
+    if (reusedDiagnosis) {
+      logProductDiagnosisPerf("product_diagnosis.deep_analysis.done", perfContext, {
+        durationMs: Date.now() - startedAt,
+        skipped: true,
+        skipReason: reusedDiagnosis.skipReason,
+        diagnosisId: reusedDiagnosis.diagnosisId,
+      });
+      return reusedDiagnosis;
+    }
   }
 
-  const ai = await runProductDiagnosisAiAnalysis({ shop, jobId, input: aiInput });
-  const emergentSentiments = normalizeAiEmergentSentiments(ai);
-  const knownEmotions = normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights);
+  const ai = await measureProductDiagnosisPerfStep(
+    "ai_analysis",
+    perfContext,
+    () => runProductDiagnosisAiAnalysis({ shop, jobId, input: aiInput }),
+    summarizeAiInput(aiInput),
+    summarizeAiDiagnosisResult,
+  );
+  const { emergentSentiments, knownEmotions } = await measureProductDiagnosisPerfStep(
+    "ai_sentiment_normalization",
+    perfContext,
+    () => ({
+      emergentSentiments: normalizeAiEmergentSentiments(ai),
+      knownEmotions: normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights),
+    }),
+    {},
+    (result) => ({
+      emergentSentiments: result?.emergentSentiments?.length || 0,
+      knownEmotions: result?.knownEmotions?.length || 0,
+    }),
+  );
   await recordJobLog({
     shop,
     jobId,
@@ -266,17 +586,38 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       discardedSuggestions: ai.emergentSentiments?.discarded_suggestions || [],
     },
   });
-  const diagnosisPayload = buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, deterministic, ai });
-  const diagnosis = await persistDetailedDiagnosis({ shop, jobId, snapshot, payload: diagnosisPayload });
-  const retentionResult = await calculateAndAttachProductRetentionForDiagnosis({
-    shop,
-    jobId,
-    admin,
-    snapshot,
-    diagnosis,
-    windowDays,
-    retentionPreview,
-  });
+  const diagnosisPayload = await measureProductDiagnosisPerfStep(
+    "persisted_payload_build",
+    perfContext,
+    () => buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, deterministic, ai }),
+    {},
+    summarizeDiagnosisPayload,
+  );
+  const diagnosis = await measureProductDiagnosisPerfStep(
+    "persist_diagnosis",
+    perfContext,
+    () => persistDetailedDiagnosis({ shop, jobId, snapshot, payload: diagnosisPayload }),
+    summarizeDiagnosisPayload(diagnosisPayload),
+    (result) => ({
+      diagnosisId: result?.id || null,
+      completedAt: result?.completedAt || null,
+    }),
+  );
+  const retentionResult = await measureProductDiagnosisPerfStep(
+    "retention_full_attach",
+    perfContext,
+    () => calculateAndAttachProductRetentionForDiagnosis({
+      shop,
+      jobId,
+      admin,
+      snapshot,
+      diagnosis,
+      windowDays,
+      retentionPreview,
+    }),
+    { diagnosisId: diagnosis.id, windowDays },
+    summarizeProductRetentionResult,
+  );
 
   await recordJobLog({
     shop,
@@ -303,7 +644,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     },
   });
 
-  return {
+  const result = {
     status: "success",
     diagnosisId: diagnosis.id,
     riskScore: diagnosisPayload.riskScore,
@@ -315,12 +656,31 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     aiUsage: ai.aiUsage,
     productRetention: retentionResult?.payload || null,
   };
+  logProductDiagnosisPerf("product_diagnosis.deep_analysis.done", perfContext, {
+    durationMs: Date.now() - startedAt,
+    skipped: false,
+    diagnosisId: result.diagnosisId,
+    riskScore: result.riskScore,
+    confidence: result.confidence,
+    provider: result.provider,
+    model: result.model,
+  });
+  return result;
+  } catch (error) {
+    logProductDiagnosisPerf("product_diagnosis.deep_analysis.failed", perfContext, {
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    }, "error");
+    throw error;
+  }
 }
 
 async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
+  const perfContext = buildProductDiagnosisPerfContext({ shop, jobId, snapshot });
   const incrementalSource = getIncrementalSourceFetchContext({ snapshot, windowDays });
   const fetchStartedAt = new Date().toISOString();
-  const product = await fetchShopifyProduct({ admin, snapshot }).catch(async (error) => {
+  const product = await measureProductDiagnosisPerfStep("shopify_product_fetch", perfContext, () => fetchShopifyProduct({ admin, snapshot }).catch(async (error) => {
     await recordJobLog({
       shop,
       jobId,
@@ -330,7 +690,11 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       data: { error: serializeError(error), productGid: snapshot.productGid, handle: snapshot.handle },
     });
     return normalizeSnapshotProduct(snapshot);
-  });
+  }), { windowDays }, (result) => ({
+    productFound: Boolean(result?.id),
+    variantCount: result?.variants?.nodes?.length || result?.variants?.length || 0,
+    updatedAt: result?.updatedAt || null,
+  }));
 
   let sales = [];
   let relationshipSales = [];
@@ -342,24 +706,34 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   let returnFetchComplete = true;
 
   try {
-    const salesBundle = await fetchShopifySalesEventBundle({
+    const salesBundle = await measureProductDiagnosisPerfStep("shopify_sales_bundle", perfContext, () => fetchShopifySalesEventBundle({
       admin,
       product,
       snapshot,
       windowDays,
       sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
-    });
+    }), {
+      windowDays,
+      sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
+      incremental: Boolean(incrementalSource.shopifyCanReuse),
+    }, (result) => ({
+      salesEvents: result?.sales?.length || 0,
+      relationshipSalesEvents: result?.relationshipSales?.length || 0,
+    }));
     sales = salesBundle.sales;
     relationshipSales = salesBundle.relationshipSales;
     if (incrementalSource.shopifyCanReuse) {
       try {
-        const relationshipBundle = await fetchShopifySalesEventBundle({
+        const relationshipBundle = await measureProductDiagnosisPerfStep("shopify_relationship_sales_full_bundle", perfContext, () => fetchShopifySalesEventBundle({
           admin,
           product,
           snapshot,
           windowDays,
           sinceDate: null,
-        });
+        }), { windowDays, sinceDate: null }, (result) => ({
+          salesEvents: result?.sales?.length || 0,
+          relationshipSalesEvents: result?.relationshipSales?.length || 0,
+        }));
         relationshipSales = relationshipBundle.relationshipSales;
       } catch (relationshipError) {
         await recordJobLog({
@@ -389,7 +763,17 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   }
 
   try {
-    refunds = await fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null });
+    refunds = await measureProductDiagnosisPerfStep(
+      "shopify_refunds",
+      perfContext,
+      () => fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null }),
+      {
+        windowDays,
+        sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
+        incremental: Boolean(incrementalSource.shopifyCanReuse),
+      },
+      (result) => ({ refundEvents: result?.length || 0 }),
+    );
   } catch (error) {
     refundFetchComplete = false;
     const denied = isShopifyOrderAccessDenied(error);
@@ -407,7 +791,17 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   }
 
   try {
-    returns = await fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null });
+    returns = await measureProductDiagnosisPerfStep(
+      "shopify_returns",
+      perfContext,
+      () => fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null }),
+      {
+        windowDays,
+        sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
+        incremental: Boolean(incrementalSource.shopifyCanReuse),
+      },
+      (result) => ({ returnEvents: result?.length || 0 }),
+    );
   } catch (error) {
     returnFetchComplete = false;
     const denied = isShopifyOrderAccessDenied(error);
@@ -424,23 +818,59 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     });
   }
 
-  const mergedSourceEvents = incrementalSource.shopifyCanReuse
-    ? mergeIncrementalSourceEvents({
-      previous: incrementalSource.previousSourceEvents,
-      current: { sales, refunds, returns },
-      windowDays,
-    })
-    : { sales, refunds, returns };
-  const rawFetchedCounts = {
-    salesEvents: sales.length,
-    refundEvents: refunds.length,
-    returnEvents: returns.length,
-  };
-  sales = filterDiagnosisEventsForProduct(mergedSourceEvents.sales, product, snapshot);
-  refunds = filterDiagnosisEventsForProduct(mergedSourceEvents.refunds, product, snapshot);
-  returns = filterDiagnosisEventsForProduct(mergedSourceEvents.returns, product, snapshot);
-  sales = backfillMissingSalesFromOperationalEvents({ product, snapshot, sales, returns, refunds });
-  if (!relationshipSales.length) relationshipSales = sales;
+  const merged = await measureProductDiagnosisPerfStep(
+    "shopify_merge_filter",
+    perfContext,
+    () => {
+      const mergedSourceEvents = incrementalSource.shopifyCanReuse
+        ? mergeIncrementalSourceEvents({
+          previous: incrementalSource.previousSourceEvents,
+          current: { sales, refunds, returns },
+          windowDays,
+        })
+        : { sales, refunds, returns };
+      const rawFetchedCounts = {
+        salesEvents: sales.length,
+        refundEvents: refunds.length,
+        returnEvents: returns.length,
+      };
+      const filteredSales = filterDiagnosisEventsForProduct(mergedSourceEvents.sales, product, snapshot);
+      const filteredRefunds = filterDiagnosisEventsForProduct(mergedSourceEvents.refunds, product, snapshot);
+      const filteredReturns = filterDiagnosisEventsForProduct(mergedSourceEvents.returns, product, snapshot);
+      const backfilledSales = backfillMissingSalesFromOperationalEvents({
+        product,
+        snapshot,
+        sales: filteredSales,
+        returns: filteredReturns,
+        refunds: filteredRefunds,
+      });
+      return {
+        rawFetchedCounts,
+        sales: backfilledSales,
+        refunds: filteredRefunds,
+        returns: filteredReturns,
+        relationshipSales: relationshipSales.length ? relationshipSales : backfilledSales,
+      };
+    },
+    {
+      incremental: Boolean(incrementalSource.shopifyCanReuse),
+      previousSalesEvents: incrementalSource.previousSourceEvents?.sales?.length || 0,
+      previousRefundEvents: incrementalSource.previousSourceEvents?.refunds?.length || 0,
+      previousReturnEvents: incrementalSource.previousSourceEvents?.returns?.length || 0,
+    },
+    (result) => ({
+      rawFetchedCounts: result.rawFetchedCounts,
+      salesEvents: result.sales.length,
+      relationshipSalesEvents: result.relationshipSales.length,
+      refundEvents: result.refunds.length,
+      returnEvents: result.returns.length,
+    }),
+  );
+  const rawFetchedCounts = merged.rawFetchedCounts;
+  sales = merged.sales;
+  refunds = merged.refunds;
+  returns = merged.returns;
+  relationshipSales = merged.relationshipSales;
 
   await recordJobLog({
     shop,

@@ -27,7 +27,9 @@ function renderMonitor(initialMonitor, options = {}) {
       },
       action: async ({ request }) => {
         const formData = await request.formData();
-        options.onCancelJob?.(String(formData.get("jobId") || ""));
+        const jobId = String(formData.get("jobId") || "");
+        options.onCancelJob?.(jobId);
+        if (typeof options.cancelActionResponse === "function") return options.cancelActionResponse(jobId);
         return { status: "success", message: "Background job cancelled." };
       },
     },
@@ -36,6 +38,13 @@ function renderMonitor(initialMonitor, options = {}) {
       loader: ({ request }) => {
         options.onJobStatus?.(new URL(request.url));
         return { jobMonitor: getMonitor() };
+      },
+      action: async ({ request }) => {
+        const formData = await request.formData();
+        const jobId = String(formData.get("jobId") || "");
+        options.onCancelJob?.(jobId);
+        if (typeof options.cancelActionResponse === "function") return options.cancelActionResponse(jobId);
+        return { status: "success", message: "Background job cancelled." };
       },
     },
     {
@@ -368,33 +377,62 @@ describe("ProductPulseJobMonitor", () => {
 
   it("confirms before cancelling an active job from the top bar popover", async () => {
     const cancelledJobs = [];
+    const jobStatusRequests = [];
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    const runningJob = {
+      id: "job-running-cancel",
+      kind: "product-diagnosis",
+      name: "Running scan",
+      displayTitle: "Core Linen Trouser",
+      status: "Running",
+      productHref: "/app/products/core-linen-trouser",
+      startedAtIso: new Date(Date.now() - 5000).toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    const cancelledJob = {
+      ...runningJob,
+      status: "Failed",
+      errorMessage: "Canceled from Background processes.",
+      finishedAtIso: new Date().toISOString(),
+    };
+    let monitor = {
+      activeJobs: [runningJob],
+      recentJobs: [],
+      logs: [],
+    };
 
     renderMonitor(
+      () => monitor,
       {
-        activeJobs: [
-          {
-            id: "job-running-cancel",
-            kind: "product-diagnosis",
-            name: "Running scan",
-            displayTitle: "Core Linen Trouser",
-            status: "Running",
-            productHref: "/app/products/core-linen-trouser",
-            startedAtIso: new Date(Date.now() - 5000).toISOString(),
-            updatedAtIso: new Date().toISOString(),
+        onCancelJob: (jobId) => cancelledJobs.push(jobId),
+        onJobStatus: (url) => jobStatusRequests.push(url),
+        cancelActionResponse: (jobId) => ({
+          status: "success",
+          message: "Background job cancelled.",
+          job: {
+            ...cancelledJob,
+            id: jobId,
           },
-        ],
-        recentJobs: [],
-        logs: [],
+        }),
       },
-      { onCancelJob: (jobId) => cancelledJobs.push(jobId) },
     );
 
     fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+    await waitFor(() => expect(jobStatusRequests).toHaveLength(1));
+    jobStatusRequests.length = 0;
+    monitor = {
+      activeJobs: [],
+      recentJobs: [cancelledJob],
+      logs: [],
+    };
     fireEvent.click(screen.getByRole("button", { name: "Cancel Core Linen Trouser" }));
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Cancel Core Linen Trouser?"));
     await waitFor(() => expect(cancelledJobs).toEqual(["job-running-cancel"]));
+    await waitFor(() => expect(jobStatusRequests).toHaveLength(1));
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(jobStatusRequests).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /background processes/i })).not.toHaveTextContent("1");
   });
 
   it("caps History at six jobs without capping Current", () => {

@@ -307,6 +307,7 @@ const PRODUCT_TABLE_ROW_METRIC_KEYS = [
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
+const inlineWorkerSkipLogKeys = global.productPulseInlineWorkerSkipLogKeys || new Set();
 const staleFastProductScanSweeps = global.productPulseStaleFastProductScanSweeps || new Map();
 const dashboardCache = global.productPulseDashboardCache || new Map();
 const analyticsCache = global.productPulseAnalyticsCache || new Map();
@@ -343,6 +344,10 @@ if (!global.productPulseDiagnosisQueueWorkers) {
 
 if (!global.productPulseMockDatasetWorkers) {
   global.productPulseMockDatasetWorkers = activeMockDatasetWorkers;
+}
+
+if (!global.productPulseInlineWorkerSkipLogKeys) {
+  global.productPulseInlineWorkerSkipLogKeys = inlineWorkerSkipLogKeys;
 }
 
 function getBoundedIntegerEnv(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -528,6 +533,11 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
 
   const activeJob = await getActiveFastProductScan(shop);
   if (activeJob) {
+    logProductPulseWorkerProgress("quick_scan.start.reused_active_job", { job: activeJob }, {
+      inlineWorkersEnabled: getProductPulseResourceConfig().inlineWorkersEnabled,
+      status: activeJob.status,
+      source: activeJob.source,
+    });
     ensureFastProductScanWorker(activeJob, { admin, scopes });
     await recordJobLog({
       shop,
@@ -569,6 +579,12 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
       },
     },
   });
+  logProductPulseWorkerProgress("quick_scan.start.job_created", { job }, {
+    windowDays,
+    inlineWorkersEnabled: getProductPulseResourceConfig().inlineWorkersEnabled,
+    source: job.source,
+    status: job.status,
+  });
 
   const pointDebit = await debitStorePointsForShop(shop, {
     amount: 1,
@@ -590,6 +606,12 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
   }
 
   ensureFastProductScanWorker(job, { admin, scopes });
+  logProductPulseWorkerProgress("quick_scan.start.job_queued", { job }, {
+    windowDays,
+    inlineWorkersEnabled: getProductPulseResourceConfig().inlineWorkersEnabled,
+    pointDebitStatus: pointDebit.status,
+    workerMode: getProductPulseResourceConfig().inlineWorkersEnabled ? "inline" : "external-worker-required",
+  });
   await recordJobLog({
     shop,
     jobId: job.id,
@@ -2155,6 +2177,8 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
 
   const updatedJob = await prisma.catalogSignalJob.findUnique({ where: { id: normalizedJobId } });
   invalidateJobMonitorCache(shop);
+  invalidateProductPulseDashboardCache(shop);
+  invalidateBackgroundProcessCache(shop);
 
   return {
     status: "success",
@@ -5208,7 +5232,19 @@ async function clearJobLease(jobId, kind) {
 }
 
 function ensureFastProductScanWorker(job, options = {}) {
-  if (!shouldStartInlineWorkers(options) || !job?.id || activeWorkers.has(job.id) || !isActiveStatus(job.status)) return;
+  const inlineWorkersEnabled = shouldStartInlineWorkers(options);
+  if (!inlineWorkersEnabled || !job?.id || activeWorkers.has(job.id) || !isActiveStatus(job.status)) {
+    logInlineWorkerSkipOnce("quick_scan.inline_worker_not_started", job, {
+      inlineWorkersEnabled,
+      hasJobId: Boolean(job?.id),
+      alreadyActiveInProcess: Boolean(job?.id && activeWorkers.has(job.id)),
+      isActiveStatus: Boolean(isActiveStatus(job?.status)),
+      status: job?.status || null,
+      source: job?.source || null,
+      workerMode: inlineWorkersEnabled ? "inline" : "external-worker-required",
+    });
+    return;
+  }
 
   activeWorkers.add(job.id);
   logProductPulseWorkerProgress("quick_scan.inline_worker_scheduled", { job }, {
@@ -5507,12 +5543,24 @@ async function requeueExpiredProductPulseJobs(shop) {
 async function runProductDiagnosisJob(job) {
   const startedAt = Date.now();
   const productId = job.payload?.productGid || job.payload?.handle || job.payload?.productId;
-  const snapshot = await findProductRiskSnapshot(job.shop, productId);
+  const snapshot = await measureProductDiagnosisWorkerStep(
+    job,
+    "snapshot_lookup",
+    () => findProductRiskSnapshot(job.shop, productId),
+    { productId },
+    (result) => ({
+      found: Boolean(result),
+      productGid: result?.productGid || null,
+      handle: result?.handle || null,
+      riskScore: result?.riskScore ?? null,
+      confidence: result?.confidence ?? null,
+    }),
+  );
   if (!snapshot) throw new Error("Product snapshot was not found for queued diagnosis job.");
 
   const metrics = snapshot.metrics || {};
 
-  await recordJobLog({
+  await measureProductDiagnosisWorkerStep(job, "record_started_log", () => recordJobLog({
     shop: job.shop,
     jobId: job.id,
     event: "product_diagnosis.started",
@@ -5532,38 +5580,97 @@ async function runProductDiagnosisJob(job) {
         topReturnReasons: metrics.topReturnReasons,
       },
     },
-  });
+  }));
 
-  const pointDebit = await ensureProductDiagnosisPointDebit(job);
+  const pointDebit = await measureProductDiagnosisWorkerStep(
+    job,
+    "point_debit",
+    () => ensureProductDiagnosisPointDebit(job),
+    { productGid: snapshot.productGid },
+    (result) => ({
+      status: result?.status || null,
+      amount: result?.amount ?? null,
+      hasLedgerEntry: Boolean(result?.ledgerEntry?.id),
+      balance: result?.balance ?? null,
+    }),
+  );
 
-  await updateProductDiagnosisJob(job.id, {
+  await measureProductDiagnosisWorkerStep(job, "progress_preparing", () => updateProductDiagnosisJob(job.id, {
     progress: 18,
     source: `Preparing Product Diagnosis - ${snapshot.productTitle}`,
-  });
+  }));
 
-  await updateProductDiagnosisJob(job.id, {
+  await measureProductDiagnosisWorkerStep(job, "progress_analyzing", () => updateProductDiagnosisJob(job.id, {
     progress: 42,
     source: `Analyzing Shopify and Judge.me evidence - ${snapshot.productTitle}`,
-  });
+  }));
 
-  const admin = await getOfflineAdmin(job.shop);
-  const productImage = await resolveSnapshotProductImage(job.shop, snapshot, admin);
-  const diagnosis = await runDetailedProductDiagnosis({
-    shop: job.shop,
-    jobId: job.id,
-    admin,
-    snapshot,
-  });
-  const pointCharge = await finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit);
+  const admin = await measureProductDiagnosisWorkerStep(
+    job,
+    "offline_admin",
+    () => getOfflineAdmin(job.shop),
+    {},
+    (result) => ({
+      hasAdmin: Boolean(result),
+      hasGraphql: Boolean(result?.graphql),
+      hasScopes: Boolean(result?.productPulseScopes),
+    }),
+  );
+  const productImage = await measureProductDiagnosisWorkerStep(
+    job,
+    "product_image",
+    () => resolveSnapshotProductImage(job.shop, snapshot, admin),
+    { productGid: snapshot.productGid },
+    (result) => ({
+      hasImage: Boolean(result?.imageUrl),
+      imageSource: result?.source || null,
+    }),
+  );
+  const diagnosis = await measureProductDiagnosisWorkerStep(
+    job,
+    "detailed_analysis",
+    () => runDetailedProductDiagnosis({
+      shop: job.shop,
+      jobId: job.id,
+      admin,
+      snapshot,
+    }),
+    { productGid: snapshot.productGid },
+    (result) => ({
+      status: result?.status || null,
+      diagnosisId: result?.diagnosisId || null,
+      skipped: Boolean(result?.skipped),
+      skipReason: result?.skipReason || null,
+      riskScore: result?.riskScore ?? null,
+      confidence: result?.confidence ?? null,
+      provider: result?.provider || null,
+      model: result?.model || null,
+    }),
+  );
+  const pointCharge = await measureProductDiagnosisWorkerStep(
+    job,
+    "point_finalize",
+    () => finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit),
+    {
+      diagnosisId: diagnosis?.diagnosisId || null,
+      skipped: Boolean(diagnosis?.skipped),
+    },
+    (result) => ({
+      status: result?.status || null,
+      pointsConsumed: result?.pointsConsumed ?? null,
+      hasRefundLedgerEntry: Boolean(result?.refundLedgerEntry?.id),
+      balance: result?.balance ?? null,
+    }),
+  );
 
-  await updateProductDiagnosisJob(job.id, {
+  await measureProductDiagnosisWorkerStep(job, "progress_finalizing", () => updateProductDiagnosisJob(job.id, {
     progress: 92,
     source: diagnosis?.skipped
       ? `No product changes detected - reused diagnosis - ${snapshot.productTitle}`
       : `Finalizing Product Diagnosis - ${snapshot.productTitle}`,
-  });
+  }));
 
-  await updateProductDiagnosisJob(job.id, {
+  await measureProductDiagnosisWorkerStep(job, "job_complete_update", () => updateProductDiagnosisJob(job.id, {
     status: "Completed",
     progress: 100,
     source: diagnosis?.skipped
@@ -5582,9 +5689,12 @@ async function runProductDiagnosisJob(job) {
       pointDebitStatus: pointCharge.status || "not_charged",
     },
     finishedAt: new Date(),
+  }), {
+    diagnosisId: diagnosis?.diagnosisId || null,
+    skipped: Boolean(diagnosis?.skipped),
   });
 
-  await recordJobLog({
+  await measureProductDiagnosisWorkerStep(job, "record_completion_log", () => recordJobLog({
     shop: job.shop,
     jobId: job.id,
     event: "product_diagnosis.completed",
@@ -5610,9 +5720,12 @@ async function runProductDiagnosisJob(job) {
       modelsUsed: diagnosis?.modelsUsed,
       aiUsage: diagnosis?.aiUsage,
     },
+  }), {
+    durationMs: Date.now() - startedAt,
+    diagnosisId: diagnosis?.diagnosisId || null,
   });
 
-  await maybeSendWatchlistRunAlertForJob({
+  await measureProductDiagnosisWorkerStep(job, "watchlist_alert", () => maybeSendWatchlistRunAlertForJob({
     ...job,
     status: "Completed",
     payload: {
@@ -5623,6 +5736,8 @@ async function runProductDiagnosisJob(job) {
       pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
       pointDebitStatus: pointCharge.status || "not_charged",
     },
+  }), {
+    diagnosisId: diagnosis?.diagnosisId || null,
   });
 }
 
@@ -5832,6 +5947,37 @@ function logProductPulseWorkerProgress(event, context = {}, data = {}, level = "
     ...data,
   };
   console[method]("[product-pulse-worker]", payload);
+}
+
+function logInlineWorkerSkipOnce(event, job, data = {}) {
+  if (!job?.id) return;
+  const key = `${event}:${job.id}:${job.status || ""}:${data.workerMode || ""}`;
+  if (inlineWorkerSkipLogKeys.has(key)) return;
+  inlineWorkerSkipLogKeys.add(key);
+  logProductPulseWorkerProgress(event, { job }, data, "warn");
+}
+
+async function measureProductDiagnosisWorkerStep(job, stage, callback, data = {}, summarizeResult = null) {
+  logProductPulseWorkerProgress(`product_diagnosis.${stage}.started`, { job }, data);
+  const startedAt = Date.now();
+  try {
+    const result = await callback();
+    const resultData = typeof summarizeResult === "function" ? summarizeResult(result) : {};
+    logProductPulseWorkerProgress(`product_diagnosis.${stage}.done`, { job }, {
+      durationMs: Date.now() - startedAt,
+      ...data,
+      ...resultData,
+    });
+    return result;
+  } catch (error) {
+    logProductPulseWorkerProgress(`product_diagnosis.${stage}.failed`, { job }, {
+      durationMs: Date.now() - startedAt,
+      ...data,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    }, "error");
+    throw error;
+  }
 }
 
 function getProductPulseWorkerMemorySnapshot() {

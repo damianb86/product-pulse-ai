@@ -781,6 +781,7 @@ async function pollBulkOperation(admin, operationId, label, perf = null, logCont
 
   while (Date.now() - startedAt < BULK_OPERATION_TIMEOUT_MS) {
     pollCount += 1;
+    await ensureQuickScanJobActive(logContext?.jobId, logContext);
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -973,6 +974,7 @@ async function extractProductsWithPaginatedQueries({ admin, perf = null, logCont
 
   while (hasNextProductsPage) {
     pageCount += 1;
+    await ensureQuickScanJobActive(logContext?.jobId, logContext);
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -1090,6 +1092,7 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
 
   while (hasNextOrdersPage) {
     pageCount += 1;
+    await ensureQuickScanJobActive(logContext?.jobId, logContext);
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -1196,6 +1199,7 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays, perf
 
     while (hasNextOrdersPage) {
       pageCount += 1;
+      await ensureQuickScanJobActive(logContext?.jobId, logContext);
       const data = await shopifyGraphql(
         admin,
         buildPaginatedRefundsQuery(),
@@ -1431,6 +1435,7 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays, perf
 
   while (hasNextOrdersPage) {
     pageCount += 1;
+    await ensureQuickScanJobActive(logContext?.jobId, logContext);
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -2562,10 +2567,16 @@ function getQuickScanCompletionSource(persistence) {
 }
 
 async function updateQuickScanJob(jobId, data) {
-  await prisma.catalogSignalJob.update({
-    where: { id: jobId },
+  const updated = await prisma.catalogSignalJob.updateMany({
+    where: {
+      id: jobId,
+      status: { in: ["Queued", "Running"] },
+    },
     data,
   });
+  if (updated.count !== 1) {
+    throw new Error("Catalog Scan job is no longer active.");
+  }
 }
 
 async function shopifyGraphql(admin, query, variables) {
@@ -2829,6 +2840,7 @@ async function measureQuickScanStep(perf, stage, logContext, callback, data = {}
   logQuickScanProgress(`${stage}.start`, logContext, data);
   const startedAt = Date.now();
   try {
+    await ensureQuickScanJobActive(logContext?.jobId, logContext);
     const result = await measureProductPulseStep(perf, stage, callback, data);
     logQuickScanProgress(`${stage}.done`, logContext, {
       ...data,
@@ -2894,6 +2906,20 @@ function assertQuickScanPaginationProgress({ label, pageCount, currentCursor, ne
     }, "error");
     throw new Error(errorMessage);
   }
+}
+
+async function ensureQuickScanJobActive(jobId, logContext = null) {
+  if (!jobId) return;
+  const job = await prisma.catalogSignalJob.findUnique({
+    where: { id: jobId },
+    select: { status: true, source: true },
+  });
+  if (job && ["Queued", "Running"].includes(job.status)) return;
+  logQuickScanProgress("quick_scan.cancelled_or_inactive", logContext, {
+    status: job?.status || "missing",
+    source: job?.source || null,
+  }, "warn");
+  throw new Error(`Catalog Scan job is no longer active (${job?.status || "missing"}).`);
 }
 
 async function withTimeout(promise, timeoutMs, message = "Operation timed out.") {

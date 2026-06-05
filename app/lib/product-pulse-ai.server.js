@@ -1566,6 +1566,7 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
   const aiRouting = getProductPulseAiRouting();
   const provider = aiRouting.provider;
   const taskConfig = AI_TASKS[task] || AI_TASKS.final_report;
+  const startedAt = Date.now();
 
   await recordJobLog({
     shop,
@@ -1583,10 +1584,48 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
     },
   });
 
-  const response = provider === GEMINI_PROVIDER
-    ? generateWithGemini({ shop, jobId, task, taskConfig, prompt, usageTracker })
-    : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, usageTracker });
-  const resolvedResponse = await response;
+  logProductDiagnosisAiPerf("product_diagnosis.ai_task.started", {
+    shop,
+    jobId,
+    task,
+    provider,
+    aiLevel: aiRouting.level,
+    aiLevelLabel: aiRouting.label,
+    modelMode: aiRouting.modelMode,
+    promptChars: String(prompt || "").length,
+    maxOutputTokens: taskConfig.maxOutputTokens,
+  });
+
+  let resolvedResponse;
+  try {
+    const response = provider === GEMINI_PROVIDER
+      ? generateWithGemini({ shop, jobId, task, taskConfig, prompt, usageTracker })
+      : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, usageTracker });
+    resolvedResponse = await response;
+  } catch (error) {
+    logProductDiagnosisAiPerf("product_diagnosis.ai_task.failed", {
+      shop,
+      jobId,
+      task,
+      provider,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+      code: error?.code || null,
+      status: error?.status || null,
+    }, "error");
+    throw error;
+  }
+
+  logProductDiagnosisAiPerf("product_diagnosis.ai_task.done", {
+    shop,
+    jobId,
+    task,
+    provider: resolvedResponse.provider,
+    model: resolvedResponse.model,
+    durationMs: Date.now() - startedAt,
+    textChars: String(resolvedResponse.text || "").length,
+    usage: summarizeAiPerfUsage(resolvedResponse.usage),
+  });
 
   if (!usageTracker) {
     await recordAiUsageEvent({
@@ -1603,6 +1642,44 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
   }
 
   return resolvedResponse;
+}
+
+function logProductDiagnosisAiPerf(event, data = {}, level = "warn") {
+  if (process.env.NODE_ENV === "test") return;
+  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
+  console[method]("[product-pulse-diagnosis-perf]", {
+    event,
+    at: new Date().toISOString(),
+    ...getProductDiagnosisAiMemorySnapshot(),
+    ...data,
+  });
+}
+
+function getProductDiagnosisAiMemorySnapshot() {
+  const memory = process.memoryUsage();
+  return {
+    heapUsedMb: productDiagnosisAiToMb(memory.heapUsed),
+    heapTotalMb: productDiagnosisAiToMb(memory.heapTotal),
+    rssMb: productDiagnosisAiToMb(memory.rss),
+    externalMb: productDiagnosisAiToMb(memory.external),
+  };
+}
+
+function productDiagnosisAiToMb(value) {
+  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
+}
+
+function summarizeAiPerfUsage(usage = {}) {
+  if (!usage || typeof usage !== "object") return null;
+  return {
+    inputTokens: usage.inputTokens ?? usage.input_tokens ?? usage.promptTokens ?? usage.prompt_tokens ?? 0,
+    outputTokens: usage.outputTokens ?? usage.output_tokens ?? usage.completionTokens ?? usage.completion_tokens ?? 0,
+    totalTokens: usage.totalTokens ?? usage.total_tokens ?? 0,
+    cachedInputTokens: usage.cachedInputTokens ?? usage.cached_tokens ?? usage.cachedContentTokenCount ?? 0,
+    reasoningTokens: usage.reasoningTokens ?? usage.reasoning_tokens ?? usage.thoughtsTokenCount ?? 0,
+    usageSource: usage.usageSource || null,
+    requestContext: usage.requestContext || null,
+  };
 }
 
 function getUsageEventSourceForTask(task) {
