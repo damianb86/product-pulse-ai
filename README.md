@@ -98,7 +98,8 @@ ProductPulse AI is configured to deploy like Reply Pilot on the shared Zuam Dock
 
 - Shared Caddy and PostgreSQL live in `../shared-docker`.
 - The app joins the external Docker network `shared_apps`.
-- Keep `.env` for local development and `.env.production` for production runtime/deploy values. `deploy.sh` uses `.env.production` automatically when it exists; otherwise it falls back to `.env`. You can override this with `APP_ENV_FILE=/path/to/env ./deploy.sh`.
+- On the production server, keep runtime values in `.env`. `deploy.sh` uses `.env` by default. You can override this with `APP_ENV_FILE=/path/to/env ./deploy.sh`.
+- On a local machine, `deploy-production.local.sh` can build with a separate local production env. By default it uses `.env.production` if present, then `.production`, then `.env`; the server still runs with its own `.env`.
 - `deploy.sh` loads both the app env file and the shared `shared-docker/.env`, validates `docker-compose.yml`, then runs `docker compose up -d --build --remove-orphans`.
 - Docker publishes `SHOPIFY_APP_URL` from `PROD_SHOPIFY_APP_URL`; keep local `SHOPIFY_APP_URL` for development.
 - In Docker, use the shared PostgreSQL hostname in `DATABASE_URL`, for example `postgresql://zuam_dev:replace-with-app-db-password@postgres:5432/product_pulse_ai?schema=public&connection_limit=10&pool_timeout=30`.
@@ -123,11 +124,11 @@ ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && BUILD_APP_B
 After `deploy.sh` finishes successfully, no extra app command is required. The script validates env files, initializes the database role/database, starts `app` and `worker`, verifies selected env vars, and prints container status. To inspect the result manually:
 
 ```bash
-ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && docker compose --env-file ../shared-docker/.env --env-file .env.production ps app worker'
-ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && docker compose --env-file ../shared-docker/.env --env-file .env.production logs -f --tail=100 app worker'
+ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && docker compose --env-file ../shared-docker/.env --env-file .env ps app worker'
+ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && docker compose --env-file ../shared-docker/.env --env-file .env logs -f --tail=100 app worker'
 ```
 
-`build:production` loads `.env.production` but overrides runtime `NODE_OPTIONS` during the build with `BUILD_NODE_OPTIONS` so Vite/Rollup can use more local memory. Default build heap is 4 GB:
+`build:production` loads `.env.production` if present, then `.production`, then `.env`, but overrides runtime `NODE_OPTIONS` during the build with `BUILD_NODE_OPTIONS` so Vite/Rollup can use more local memory. Default build heap is 4 GB:
 
 ```bash
 BUILD_NODE_OPTIONS=--max-old-space-size=6144 npm run build:production

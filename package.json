@@ -14,6 +14,8 @@
     "env": "shopify app env",
     "start": "NODE_OPTIONS='--import ./instrument.server.mjs' react-router-serve ./build/server/index.js",
     "docker-start": "npm run setup && npm run start",
+    "docker-worker": "npm run setup && npm run worker",
+    "docker-worker:once": "npm run setup && npm run worker:once",
     "worker": "NODE_OPTIONS='--import ./instrument.server.mjs' node build/product-pulse-worker.mjs",
     "worker:once": "NODE_OPTIONS='--import ./instrument.server.mjs' node build/product-pulse-worker.mjs --once",
     "setup": "prisma generate && prisma migrate deploy",

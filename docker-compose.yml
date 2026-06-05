@@ -89,7 +89,7 @@ services:
     build: .
     restart: unless-stopped
     init: true
-    command: ["npm", "run", "worker"]
+    command: ["npm", "run", "docker-worker"]
     environment:
       APP_ENV: production
       NODE_ENV: production

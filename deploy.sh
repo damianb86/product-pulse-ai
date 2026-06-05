@@ -60,8 +60,6 @@ finish_step() {
 
 if [ -n "$APP_ENV_FILE" ]; then
   APP_ENV_FILE=$(resolve_file "$APP_ENV_FILE")
-elif [ -f "$APP_DIR/.env.production" ]; then
-  APP_ENV_FILE=$(resolve_file "$APP_DIR/.env.production")
 else
   APP_ENV_FILE=$(resolve_file "$APP_DIR/.env")
 fi
