@@ -11358,15 +11358,65 @@ const MAIN_FINDING_QUESTION_HEADINGS = [
   "¿Cuánto importa?",
 ];
 
-function getMainFindingParagraphs(value) {
+function getMainFindingParagraphs(value, context = {}) {
   const raw = String(value || "").replace(/\r/g, "\n").trim();
   if (!raw) return [];
   const paragraphs = raw.split(/\n{2,}/)
     .map((paragraph) => paragraph.replace(/\n+/g, " ").replace(/\s+/g, " ").trim())
     .filter(Boolean);
-  return (paragraphs.length ? paragraphs : [raw.replace(/\n+/g, " ").replace(/\s+/g, " ").trim()])
+  const normalized = (paragraphs.length ? paragraphs : [raw.replace(/\n+/g, " ").replace(/\s+/g, " ").trim()])
     .filter(Boolean)
     .slice(0, 5);
+  if (!context?.hasFullDiagnosis || hasMainFindingQuestionBlocks(normalized)) return normalized;
+  return buildMainFindingFallbackParagraphs(normalized, context);
+}
+
+function hasMainFindingQuestionBlocks(paragraphs = []) {
+  const text = paragraphs.join(" ").toLowerCase();
+  return MAIN_FINDING_QUESTION_HEADINGS.slice(0, 4).every((heading) => text.includes(heading.toLowerCase()));
+}
+
+function buildMainFindingFallbackParagraphs(paragraphs = [], context = {}) {
+  const overview = paragraphs.find((paragraph) => !MAIN_FINDING_QUESTION_HEADINGS.slice(0, 4).some((heading) => paragraph.toLowerCase().startsWith(heading.toLowerCase())))
+    || paragraphs[0]
+    || "ProductPulse found product-specific signals that need review.";
+  const issueLabel = context.issueCategory || context.riskLabel || "Product";
+  const evidence = buildMainFindingFallbackEvidenceText(context, overview);
+  const nextAction = context.recommendedFix && context.recommendedFix !== "No deterministic action yet"
+    ? context.recommendedFix
+    : "review the evidence and recommended actions";
+  return [
+    overview,
+    `What is wrong? ${issueLabel} signals need review based on the latest ProductPulse diagnosis.`,
+    `Why do we believe that? ${evidence}`,
+    `What should we do now? ${capitalizeSentence(nextAction)} before applying product or operational changes.`,
+    `How much does it matter? ${buildMainFindingFallbackImpactText(context)}`,
+  ];
+}
+
+function buildMainFindingFallbackEvidenceText(context = {}, overview = "") {
+  const pieces = [];
+  if (Number(context.returnUnits || 0) > 0) pieces.push(`${formatInteger(context.returnUnits)} returned unit${Number(context.returnUnits) === 1 ? "" : "s"}`);
+  if (Number(context.refundUnits || 0) > 0) pieces.push(`${formatInteger(context.refundUnits)} refunded unit${Number(context.refundUnits) === 1 ? "" : "s"}`);
+  if (Number(context.negativeReviewCount || 0) > 0) pieces.push(`${formatInteger(context.negativeReviewCount)} negative review${Number(context.negativeReviewCount) === 1 ? "" : "s"}`);
+  if (Number(context.sourceCount || 0) > 0) pieces.push(`${formatInteger(context.sourceCount)} source${Number(context.sourceCount) === 1 ? "" : "s"}`);
+  if (pieces.length) return `ProductPulse found ${pieces.join(", ")}.`;
+  return overview || "ProductPulse found stored diagnosis evidence for this product.";
+}
+
+function buildMainFindingFallbackImpactText(context = {}) {
+  const pieces = [];
+  if (Number.isFinite(Number(context.riskScore))) pieces.push(`risk score ${formatInteger(context.riskScore)} / 100`);
+  if (Number.isFinite(Number(context.confidence))) pieces.push(`${formatInteger(context.confidence)}% confidence`);
+  if (Number(context.estimatedImpact || 0) > 0) pieces.push(`${formatMoney(context.estimatedImpact)} estimated impact`);
+  if (!pieces.length) return "The issue is material enough to monitor because it appears in the stored diagnosis.";
+  return `The diagnosis currently shows ${pieces.join(", ")}.`;
+}
+
+function capitalizeSentence(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
 
 function renderMainFindingTextBlock(value = "") {
@@ -15048,7 +15098,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           <span>AI interpretation</span>
           <h2>{detail.mainFindingTitle}</h2>
           <div className="ppMainFindingText">
-            {getMainFindingParagraphs(detail.mainFindingDetail).map((paragraph, index) => (
+            {getMainFindingParagraphs(detail.mainFindingDetail, detail).map((paragraph, index) => (
               <p key={`${detail.slug}-main-finding-${index}`}>{renderMainFindingTextBlock(paragraph)}</p>
             ))}
           </div>

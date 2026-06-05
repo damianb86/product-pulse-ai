@@ -757,6 +757,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Block 1 must be one concise descriptive overview paragraph that summarizes the full diagnosis: the most important finding, the strongest supporting evidence, the relevant calculated context, and the practical merchant implication. Compress what used to be multiple overview paragraphs into this single paragraph.",
     "Blocks 2 through 5 must each answer one key question, using these exact English question headings followed by the answer in the same block: What is wrong? Why do we believe that? What should we do now? How much does it matter?",
     "For the four question blocks, keep the heading and answer together in the same paragraph, for example: What is wrong? The product is...",
+    "Do not omit, rename, translate, merge, or move the four question headings out of main_finding_detail. action_rationales is separate and must not replace these four question blocks.",
     "Do not add extra questions, bullets, markdown headings, numbering, or more than five blocks.",
     "Do not let reviews consume the whole main finding when product description, title, tags, collections, returns, refunds, variants, or customer-language evidence also exists. Cover every relevant discovery group in descending evidence support, and skip only areas with no evidence.",
     "Also write action_rationales in this same JSON. These are used in the recommended-action modal section named \"Why this action\".",

@@ -4364,6 +4364,39 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(summary.interpretation).toBeUndefined();
   });
 
+  it("normalizes main finding detail into the required question blocks when AI omits them", () => {
+    const detail = __productPulseDiagnosisTestHooks.buildMainFindingDetail(
+      "Returns and refunds point to a quality concern for this charging stand, and merchants should review the affected post-purchase signals before changing the product page.",
+      {
+        mainIssue: "quality_defect",
+        mainIssueLabel: "Product quality",
+        riskScore: 84,
+        confidence: 80,
+        sourceCoverage: ["Shopify products", "Shopify orders", "Shopify refunds", "Shopify returns"],
+        estimatedImpact: { estimatedImpact: 187 },
+        metrics: {
+          returnUnits: 3,
+          returnRate: 50,
+          refundUnits: 3,
+          refundAmount: 117,
+          reviewCount: 0,
+          negativeReviewCount: 0,
+          contentIssueCount: 0,
+          sourceCount: 4,
+        },
+      },
+      { issues: [] },
+    );
+
+    const paragraphs = detail.split(/\n{2,}/);
+    expect(paragraphs).toHaveLength(5);
+    expect(paragraphs[0]).toContain("Returns and refunds point to a quality concern");
+    expect(paragraphs[1]).toContain("What is wrong?");
+    expect(paragraphs[2]).toContain("Why do we believe that?");
+    expect(paragraphs[3]).toContain("What should we do now?");
+    expect(paragraphs[4]).toContain("How much does it matter?");
+  });
+
   it("creates relationship recommendations only from sufficiently confident actionable patterns", () => {
     const deterministic = {
       mainIssue: "product_quality",

@@ -15053,28 +15053,45 @@ function normalizeSeverity(value) {
 }
 
 function buildMainFindingDetail(aiDetail, deterministic, contentAnalysis) {
-  const base = normalizeMainFindingDetail(aiDetail || buildEvidenceSummary(deterministic));
+  const base = normalizeMainFindingDetail(aiDetail || buildEvidenceSummary(deterministic), deterministic);
   if (!contentAnalysis?.issues?.length) return base;
-  if (splitMainFindingParagraphs(base).length >= 5) return base;
   const contentLabels = contentAnalysis.issues
     .slice(0, 3)
     .map((issue) => issue.label || getContentIssueLabel(issue.code))
     .filter(Boolean);
   const contentSentence = `Product content analysis also found: ${contentLabels.join(", ") || "product content needs review"}.`;
-  return String(base || "").toLowerCase().includes("product content") ? base : appendMainFindingParagraph(base, contentSentence);
+  return String(base || "").toLowerCase().includes("product content")
+    ? base
+    : appendMainFindingQuestionDetail(base, "What is wrong?", contentSentence);
 }
 
-function normalizeMainFindingDetail(value) {
+const MAIN_FINDING_REQUIRED_QUESTIONS = [
+  "What is wrong?",
+  "Why do we believe that?",
+  "What should we do now?",
+  "How much does it matter?",
+];
+
+function normalizeMainFindingDetail(value, deterministic = {}) {
   const paragraphs = splitMainFindingParagraphs(value);
-  if (!paragraphs.length) return "";
-  return paragraphs.slice(0, 5).join("\n\n");
+  const fallbackSummary = buildMainFindingFallbackOverview(deterministic);
+  if (!paragraphs.length) return fallbackSummary
+    ? [fallbackSummary, ...MAIN_FINDING_REQUIRED_QUESTIONS.map((heading) => buildFallbackMainFindingQuestionBlock(heading, deterministic, fallbackSummary))].join("\n\n")
+    : "";
+
+  const questionBlocks = extractMainFindingQuestionBlocks(paragraphs);
+  const overview = getMainFindingOverviewParagraph(paragraphs, questionBlocks.firstHeadingIndex) || fallbackSummary || paragraphs[0];
+  return [
+    overview,
+    ...MAIN_FINDING_REQUIRED_QUESTIONS.map((heading) => questionBlocks.blocks.get(heading) || buildFallbackMainFindingQuestionBlock(heading, deterministic, overview)),
+  ].slice(0, 5).join("\n\n");
 }
 
 function appendMainFindingParagraph(value, paragraph) {
   const paragraphs = splitMainFindingParagraphs(value);
   const nextParagraph = String(paragraph || "").replace(/\s+/g, " ").trim();
   if (!nextParagraph) return normalizeMainFindingDetail(value);
-  if (paragraphs.length >= 5) return [...paragraphs.slice(0, 4), nextParagraph].join("\n\n");
+  if (paragraphs.length >= 5) return [...paragraphs.slice(0, 4), `${paragraphs[4]} ${nextParagraph}`.trim()].join("\n\n");
   return [...paragraphs, nextParagraph].slice(0, 5).join("\n\n");
 }
 
@@ -15088,13 +15105,121 @@ function splitMainFindingParagraphs(value) {
   return [raw.replace(/\n+/g, " ").replace(/\s+/g, " ").trim()].filter(Boolean);
 }
 
+function extractMainFindingQuestionBlocks(paragraphs = []) {
+  const text = paragraphs.join("\n\n");
+  const lowerText = text.toLowerCase();
+  const positions = MAIN_FINDING_REQUIRED_QUESTIONS
+    .map((heading) => ({
+      heading,
+      lowerHeading: heading.toLowerCase(),
+      index: lowerText.indexOf(heading.toLowerCase()),
+    }))
+    .filter((item) => item.index >= 0)
+    .sort((first, second) => first.index - second.index);
+  const blocks = new Map();
+  positions.forEach((position, index) => {
+    const answerStart = position.index + position.heading.length;
+    const answerEnd = positions[index + 1]?.index ?? text.length;
+    const answer = text.slice(answerStart, answerEnd)
+      .replace(/\n{2,}/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/^[:\-–—\s]+/, "")
+      .trim();
+    if (answer) blocks.set(position.heading, `${position.heading} ${answer}`);
+  });
+  return {
+    blocks,
+    firstHeadingIndex: positions[0]?.index ?? -1,
+  };
+}
+
+function getMainFindingOverviewParagraph(paragraphs = [], firstHeadingIndex = -1) {
+  const text = paragraphs.join("\n\n");
+  if (firstHeadingIndex > 0) {
+    const beforeHeading = text.slice(0, firstHeadingIndex).replace(/\s+/g, " ").trim();
+    if (beforeHeading) return beforeHeading;
+  }
+  return paragraphs.find((paragraph) => !MAIN_FINDING_REQUIRED_QUESTIONS.some((heading) => paragraph.toLowerCase().startsWith(heading.toLowerCase()))) || "";
+}
+
+function buildMainFindingFallbackOverview(deterministic = {}) {
+  const summary = buildEvidenceSummarySafe(deterministic);
+  const issueLabel = deterministic.mainIssueLabel || getHumanIssueLabel(deterministic.mainIssue || "product_quality");
+  if (summary) return `${issueLabel} signals need review because ProductPulse found ${summary}.`;
+  return `${issueLabel} signals need review for this product.`;
+}
+
+function buildFallbackMainFindingQuestionBlock(heading, deterministic = {}, overview = "") {
+  const metrics = deterministic.metrics || {};
+  const issueLabel = deterministic.mainIssueLabel || getHumanIssueLabel(deterministic.mainIssue || "product_quality");
+  const summary = buildEvidenceSummarySafe(deterministic) || overview || "stored product evidence";
+  if (heading === "What is wrong?") {
+    return `${heading} ${issueLabel} signals need review based on the latest ProductPulse diagnosis.`;
+  }
+  if (heading === "Why do we believe that?") {
+    return `${heading} ProductPulse found ${summary}.`;
+  }
+  if (heading === "What should we do now?") {
+    const contentIssues = Number(metrics.contentIssueCount || 0);
+    if (contentIssues > 0) return `${heading} Review the product page copy, variants, and the recommended content actions before applying changes.`;
+    if (Number(metrics.returnUnits || 0) > 0 || Number(metrics.refundUnits || 0) > 0) return `${heading} Review the post-purchase evidence and use the recommended actions to reduce avoidable returns or refunds.`;
+    return `${heading} Review the evidence and use the recommended actions before changing the product page or operations.`;
+  }
+  return `${heading} ${buildMainFindingImpactSentence(deterministic)}`;
+}
+
+function buildMainFindingImpactSentence(deterministic = {}) {
+  const metrics = deterministic.metrics || {};
+  const pieces = [];
+  if (Number.isFinite(Number(deterministic.riskScore))) pieces.push(`risk score ${Math.round(Number(deterministic.riskScore))}/100`);
+  if (Number.isFinite(Number(deterministic.confidence))) pieces.push(`${Math.round(Number(deterministic.confidence))}% confidence`);
+  const impact = getMainFindingEstimatedImpact(deterministic);
+  if (impact > 0) pieces.push(`${formatMoney(impact)} estimated impact`);
+  const sourceCount = Array.isArray(deterministic.sourceCoverage)
+    ? deterministic.sourceCoverage.length
+    : Number(metrics.sourceCount || 0);
+  if (sourceCount > 0) pieces.push(`${sourceCount} source${sourceCount === 1 ? "" : "s"}`);
+  if (!pieces.length) return "The issue matters enough to monitor because ProductPulse found product-specific evidence that should be reviewed.";
+  return `It matters because the diagnosis currently shows ${pieces.join(", ")}.`;
+}
+
+function getMainFindingEstimatedImpact(deterministic = {}) {
+  const candidates = [
+    deterministic.estimatedImpact?.estimatedImpact,
+    deterministic.estimatedImpact?.impactMid,
+    deterministic.estimatedImpact,
+    deterministic.metrics?.estimatedImpact,
+    deterministic.metrics?.impactScore,
+    deterministic.metrics?.revenueAtRisk,
+  ];
+  return candidates.map((value) => Number(value)).find((value) => Number.isFinite(value) && value > 0) || 0;
+}
+
+function buildEvidenceSummarySafe(deterministic = {}) {
+  if (!deterministic?.metrics) return "";
+  return buildEvidenceSummary(deterministic);
+}
+
+function appendMainFindingQuestionDetail(value, heading, detail) {
+  const paragraphs = splitMainFindingParagraphs(value);
+  const nextDetail = String(detail || "").replace(/\s+/g, " ").trim();
+  if (!paragraphs.length || !nextDetail) return value;
+  const normalizedHeading = String(heading || "").toLowerCase();
+  const nextParagraphs = paragraphs.map((paragraph) => (
+    paragraph.toLowerCase().startsWith(normalizedHeading)
+      ? `${paragraph} ${nextDetail}`.trim()
+      : paragraph
+  ));
+  return nextParagraphs.slice(0, 5).join("\n\n");
+}
+
 function adjustMainFindingForSignalStrength(mainFinding, deterministic) {
   const relevance = buildSignalRelevanceGuidance(deterministic);
   const hasContentIssues = Number(deterministic.metrics.contentIssueCount || 0) > 0;
   if (relevance.customerEvidence?.level === "isolated" && !hasContentIssues) {
     return {
       title: "Customer signal needs monitoring",
-      detail: normalizeMainFindingDetail(relevance.customerEvidence.guidance),
+      detail: normalizeMainFindingDetail(relevance.customerEvidence.guidance, deterministic),
       summary: relevance.customerEvidence.summary,
     };
   }
@@ -15113,7 +15238,7 @@ function adjustMainFindingForSignalStrength(mainFinding, deterministic) {
     title: relevance.reviewSignals.level === "emerging"
       ? "Review signal is emerging, not confirmed"
       : "Review signal is still early",
-    detail: normalizeMainFindingDetail(relevance.reviewSignals.guidance),
+    detail: normalizeMainFindingDetail(relevance.reviewSignals.guidance, deterministic),
     summary: relevance.reviewSignals.summary,
   };
 }
@@ -17718,6 +17843,7 @@ export const __productPulseDiagnosisTestHooks = {
   cleanProductDescription,
   buildCustomerFacingDescriptionAddendum,
   buildTargetedDescriptionEnhancementSentences,
+  buildMainFindingDetail,
 };
 
 function formatMoney(value) {

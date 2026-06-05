@@ -6756,6 +6756,25 @@ describe("ProductPulse screens", () => {
     ]);
   });
 
+  it("adds main finding question blocks for stored diagnosis text that omitted them", () => {
+    const selectedProduct = {
+      ...defaultView.products.find((product) => product.slug === "trail-run-vest"),
+      mainFinding: {
+        title: "Quality signals need review",
+        detail: "Returns and refunds point to a quality concern for this product, and the merchant should review the post-purchase evidence before changing the product page.",
+      },
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={selectedProduct} />);
+    const mainFindingText = container.querySelector(".ppMainFindingText")?.textContent || "";
+    expect(mainFindingText).toContain("Returns and refunds point to a quality concern");
+    expect(Array.from(container.querySelectorAll(".ppMainFindingQuestionHeading")).map((element) => element.textContent)).toEqual([
+      "What is wrong?",
+      "Why do we believe that?",
+      "What should we do now?",
+      "How much does it matter?",
+    ]);
+  });
+
   it("locks recommended actions until a Product Diagnosis runs", () => {
     const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);
