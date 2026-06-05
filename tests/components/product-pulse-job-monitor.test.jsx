@@ -5,14 +5,26 @@ import { ProductPulseJobMonitor } from "../../app/components/ProductPulseJobMoni
 
 function renderMonitor(initialMonitor, options = {}) {
   const getMonitor = typeof initialMonitor === "function" ? initialMonitor : () => initialMonitor;
+  const monitorElement = <ProductPulseJobMonitor initialMonitor={getMonitor()} developmentMode shop={options.shop} />;
   const router = createMemoryRouter([
     {
       path: "/",
-      element: <ProductPulseJobMonitor initialMonitor={getMonitor()} developmentMode />,
+      element: monitorElement,
+    },
+    {
+      path: "/app/dashboard",
+      element: monitorElement,
+    },
+    {
+      path: "/apps/product-pulse-ia/app/dashboard",
+      element: monitorElement,
     },
     {
       path: "/app/job-status",
-      loader: () => ({ jobMonitor: getMonitor() }),
+      loader: ({ request }) => {
+        options.onJobStatus?.(new URL(request.url));
+        return { jobMonitor: getMonitor() };
+      },
       action: async ({ request }) => {
         const formData = await request.formData();
         options.onCancelJob?.(String(formData.get("jobId") || ""));
@@ -20,8 +32,27 @@ function renderMonitor(initialMonitor, options = {}) {
       },
     },
     {
+      path: "/apps/product-pulse-ia/app/job-status",
+      loader: ({ request }) => {
+        options.onJobStatus?.(new URL(request.url));
+        return { jobMonitor: getMonitor() };
+      },
+    },
+    {
       path: "/app/credits-summary",
-      loader: () => {
+      loader: ({ request }) => {
+        options.onCreditSummary?.(new URL(request.url));
+        const monitor = getMonitor() || {};
+        return {
+          pointSummary: monitor.pointSummary || null,
+          pointBalance: monitor.pointBalance || monitor.pointSummary?.balance || null,
+        };
+      },
+    },
+    {
+      path: "/apps/product-pulse-ia/app/credits-summary",
+      loader: ({ request }) => {
+        options.onCreditSummary?.(new URL(request.url));
         const monitor = getMonitor() || {};
         return {
           pointSummary: monitor.pointSummary || null,
@@ -55,7 +86,33 @@ function renderMonitor(initialMonitor, options = {}) {
         };
       },
     },
-  ], { initialEntries: ["/"] });
+    {
+      path: "/apps/product-pulse-ia/app/product-search",
+      loader: ({ request }) => {
+        const query = new URL(request.url).searchParams.get("q") || "";
+        options.onProductSearch?.(query);
+        return {
+          status: "success",
+          query,
+          products: query.toLowerCase().includes("linen")
+            ? [
+              {
+                id: "gid://shopify/Product/1",
+                title: "Core Linen Trouser",
+                handle: "core-linen-trouser",
+                href: "/app/products/core-linen-trouser",
+                riskScore: 84,
+                primaryIssue: "Fit complaints",
+                detail: "ProductPulse Lab / Apparel",
+                imageUrl: "https://cdn.example.com/core-linen-trouser.jpg",
+                imageAlt: "Core Linen Trouser product photo",
+              },
+            ]
+            : [],
+        };
+      },
+    },
+  ], { initialEntries: options.initialEntries || ["/"] });
 
   return render(<RouterProvider router={router} />);
 }
@@ -76,6 +133,66 @@ describe("ProductPulseJobMonitor", () => {
     expect(await screen.findByRole("dialog", { name: /background processes/i })).toBeVisible();
     expect(screen.getByRole("button", { name: /background processes/i })).toHaveAttribute("aria-expanded", "true");
     expect(document.querySelector("[data-pp-background-process-popover]")).toBeInTheDocument();
+  });
+
+  it("does not force an extra job-status request when the background processes popover opens after a recent refresh", async () => {
+    const jobStatusRequests = [];
+    const runningJob = {
+      id: "job-recent-refresh",
+      kind: "product-diagnosis",
+      name: "Product Diagnosis",
+      displayTitle: "Core Linen Trouser",
+      displaySubtitle: "Running Product Diagnosis",
+      status: "Running",
+      productHref: "/app/products/core-linen-trouser",
+      startedAtIso: new Date(Date.now() - 5000).toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    let monitorReadCount = 0;
+    const getMonitor = () => {
+      monitorReadCount += 1;
+      if (monitorReadCount === 1) return { activeJobs: [], recentJobs: [], logs: [] };
+      return { activeJobs: [runningJob], recentJobs: [runningJob], logs: [] };
+    };
+
+    renderMonitor(getMonitor, { onJobStatus: (url) => jobStatusRequests.push(url) });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /background processes, 1 active/i })).toBeVisible();
+    });
+    expect(jobStatusRequests).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /background processes, 1 active/i }));
+
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(jobStatusRequests).toHaveLength(1);
+  });
+
+  it("loads credit summary with Shopify embedded params instead of dropping shop context", async () => {
+    const creditSummaryRequests = [];
+
+    renderMonitor(
+      {
+        activeJobs: [],
+        recentJobs: [],
+        logs: [],
+        pointBalance: { available: 95, label: "95.0" },
+      },
+      {
+        initialEntries: ["/apps/product-pulse-ia/app/dashboard?host=encoded-host&embedded=1&locale=en"],
+        shop: "demo-shop.myshopify.com",
+        onCreditSummary: (url) => creditSummaryRequests.push(url),
+      },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "95.0 Credits available" }));
+
+    await waitFor(() => expect(creditSummaryRequests).toHaveLength(1));
+    expect(creditSummaryRequests[0].pathname).toBe("/apps/product-pulse-ia/app/credits-summary");
+    expect(creditSummaryRequests[0].searchParams.get("shop")).toBe("demo-shop.myshopify.com");
+    expect(creditSummaryRequests[0].searchParams.get("host")).toBe("encoded-host");
+    expect(creditSummaryRequests[0].searchParams.get("embedded")).toBe("1");
+    expect(creditSummaryRequests[0].searchParams.get("locale")).toBe("en");
   });
 
   it("keeps a global top bar visible and searches stored products from a dropdown", async () => {

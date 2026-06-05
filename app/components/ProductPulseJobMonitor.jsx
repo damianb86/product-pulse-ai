@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useFetcher, useLocation, useRevalidator } from "react-router";
-import { buildEmbeddedAppPath } from "../lib/product-pulse-app-paths";
+import { buildEmbeddedAppHref } from "../lib/product-pulse-app-paths";
 
 const JOB_STATUS_MIN_REFRESH_MS = 10_000;
 const JOB_STATUS_ACTIVE_POLL_MS = 10_000;
@@ -8,7 +8,7 @@ const JOB_STATUS_IDLE_POLL_MS = 180_000;
 const JOB_STATUS_INITIAL_LOAD_MS = 30_000;
 const CREDIT_SUMMARY_REFRESH_MS = 60_000;
 
-export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
+export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false, shop = "" }) {
   const fetcher = useFetcher();
   const cancelFetcher = useFetcher();
   const searchFetcher = useFetcher();
@@ -24,6 +24,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const [now, setNow] = useState(null);
   const observedJobsRef = useRef(new Map());
   const announcedFailedJobIdsRef = useRef(new Set());
+  const fetcherLoadRef = useRef(fetcher.load);
   const fetcherStateRef = useRef(fetcher.state);
   const searchFetcherLoadRef = useRef(searchFetcher.load);
   const creditFetcherLoadRef = useRef(creditFetcher.load);
@@ -44,7 +45,14 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const pointBalance = pointSummary?.balance || creditFetcher.data?.pointBalance || monitor.pointBalance || initialMonitor?.pointBalance || null;
   const activeJobCount = Number(monitor.activeJobCount ?? initialMonitor?.activeJobCount ?? activeJobs.length) || 0;
   const hasActiveJobs = activeJobCount > 0;
-  const buildAppPath = useCallback((path) => buildEmbeddedAppPath(location.pathname, path), [location.pathname]);
+  const buildAppPath = useCallback(
+    (path, extraParams = {}) => buildEmbeddedAppHref(location.pathname, path, {
+      currentSearch: location.search,
+      shop,
+      extraParams,
+    }),
+    [location.pathname, location.search, shop],
+  );
   const jobStatusPath = buildAppPath("/app/job-status");
   const creditSummaryPath = buildAppPath("/app/credits-summary");
   const pendingCancelJobId = cancelFetcher.state !== "idle"
@@ -91,8 +99,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     }
 
     lastJobStatusLoadAtRef.current = Date.now();
-    fetcher.load(buildJobStatusRequestPath(jobStatusPath, scope));
-  }, [fetcher, jobStatusPath]);
+    fetcherLoadRef.current(buildJobStatusRequestPath(jobStatusPath, scope));
+  }, [jobStatusPath]);
 
   useEffect(() => {
     setNow(Date.now());
@@ -130,6 +138,10 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   useEffect(() => {
     fetcherStateRef.current = fetcher.state;
   }, [fetcher.state]);
+
+  useEffect(() => {
+    fetcherLoadRef.current = fetcher.load;
+  }, [fetcher.load]);
 
   useEffect(() => {
     searchFetcherLoadRef.current = searchFetcher.load;
@@ -218,7 +230,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     if (activePopover !== "jobs") return;
-    requestJobStatusLoad({ force: true, scope: "popover" });
+    requestJobStatusLoad({ scope: "popover" });
   }, [activePopover, requestJobStatusLoad]);
 
   useEffect(() => {

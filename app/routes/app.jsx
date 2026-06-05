@@ -66,7 +66,7 @@ export default function App() {
     <AppProvider embedded apiKey={apiKey}>
       <ProductPulseSentryContext config={observability?.sentry} activeSection={activeSection} />
       <BetaFeedbackProvider config={betaFeedback}>
-        <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} />
+        <ProductPulseJobMonitor initialMonitor={jobMonitor} developmentMode={developmentMode} shop={shop} />
         <s-app-nav>
           <s-link href={dashboardHref} data-active={activeSection === "dashboard" ? "true" : undefined}>Dashboard</s-link>
           <s-link href={buildHref("/app/products")} data-active={activeSection === "products" ? "true" : undefined}>Products</s-link>

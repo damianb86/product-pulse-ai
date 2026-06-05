@@ -4991,16 +4991,36 @@ export async function runProductPulseBackgroundWorkerCycle(options = {}) {
   const config = getProductPulseResourceConfig();
   const maxJobs = Number(options.maxJobsPerCycle || config.workerMaxJobsPerCycle);
   let processed = 0;
+  logProductPulseWorkerProgress("background_worker.cycle_started", { shop: options.shop }, {
+    maxJobs,
+    ownerId: JOB_WORKER_OWNER_ID,
+  });
 
   await requeueExpiredProductPulseJobs(options.shop);
 
   for (; processed < maxJobs; processed += 1) {
     const job = await claimNextProductPulseJob(options.shop);
     if (!job) break;
+    logProductPulseWorkerProgress("background_worker.job_claimed", { job }, {
+      processed,
+      maxJobs,
+      status: job.status,
+      source: job.source,
+      attempts: job.attempts,
+    });
 
     try {
       await processClaimedProductPulseJob(job, options);
+      logProductPulseWorkerProgress("background_worker.job_completed", { job }, {
+        processed: processed + 1,
+        kind: job.kind,
+      });
     } catch (error) {
+      logProductPulseWorkerProgress("background_worker.job_failed", { job }, {
+        kind: job.kind,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      }, "error");
       await recordJobLog({
         shop: job.shop,
         jobId: job.id,
@@ -5020,6 +5040,10 @@ export async function runProductPulseBackgroundWorkerCycle(options = {}) {
     }
   }
 
+  logProductPulseWorkerProgress("background_worker.cycle_finished", { shop: options.shop }, {
+    processed,
+    maxJobs,
+  });
   return { status: "ok", processed };
 }
 
@@ -5187,16 +5211,39 @@ function ensureFastProductScanWorker(job, options = {}) {
   if (!shouldStartInlineWorkers(options) || !job?.id || activeWorkers.has(job.id) || !isActiveStatus(job.status)) return;
 
   activeWorkers.add(job.id);
+  logProductPulseWorkerProgress("quick_scan.inline_worker_scheduled", { job }, {
+    activeWorkers: activeWorkers.size,
+    inlineWorkersEnabled: getProductPulseResourceConfig().inlineWorkersEnabled,
+  });
   setTimeout(async () => {
     try {
+      logProductPulseWorkerProgress("quick_scan.inline_worker_claiming", { job }, {
+        status: job.status,
+        source: job.source,
+      });
       const claimedJob = await claimSpecificCatalogSignalJob(job, {
         kind: FAST_PRODUCT_SCAN_KIND,
         progress: 12,
         source: "Running Shopify Catalog Scan",
       });
-      if (!claimedJob) return;
+      if (!claimedJob) {
+        logProductPulseWorkerProgress("quick_scan.inline_worker_claim_skipped", { job }, {
+          reason: "job_not_claimable",
+        }, "warn");
+        return;
+      }
+      logProductPulseWorkerProgress("quick_scan.inline_worker_claimed", { job: claimedJob }, {
+        status: claimedJob.status,
+        source: claimedJob.source,
+        attempts: claimedJob.attempts,
+      });
       await runFastProductScanJob(claimedJob, options);
+      logProductPulseWorkerProgress("quick_scan.inline_worker_completed", { job: claimedJob });
     } catch (error) {
+      logProductPulseWorkerProgress("quick_scan.inline_worker_failed", { job }, {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      }, "error");
       await recordJobLog({
         shop: job.shop,
         jobId: job.id,
@@ -5208,6 +5255,9 @@ function ensureFastProductScanWorker(job, options = {}) {
       await markJobFailed(job.id, error);
     } finally {
       activeWorkers.delete(job.id);
+      logProductPulseWorkerProgress("quick_scan.inline_worker_stopped", { job }, {
+        activeWorkers: activeWorkers.size,
+      });
       await recordJobLog({
         shop: job.shop,
         jobId: job.id,
@@ -5219,6 +5269,11 @@ function ensureFastProductScanWorker(job, options = {}) {
 }
 
 async function runFastProductScanJob(job, options = {}) {
+  logProductPulseWorkerProgress("quick_scan.worker_started", { job }, {
+    status: job.status,
+    source: job.source,
+    ownerId: JOB_WORKER_OWNER_ID,
+  });
   await recordJobLog({
     shop: job.shop,
     jobId: job.id,
@@ -5228,17 +5283,29 @@ async function runFastProductScanJob(job, options = {}) {
   });
 
   await withJobLeaseHeartbeat(job.id, FAST_PRODUCT_SCAN_KIND, async () => {
+    logProductPulseWorkerProgress("quick_scan.admin_resolving", { job }, {
+      hasProvidedAdmin: Boolean(options.admin),
+      hasSessionScopes: Boolean(options.session?.scope),
+    });
     const admin = options.admin || await getOfflineAdmin(job.shop);
     const scopes = options.scopes || options.session?.scope || admin.productPulseScopes || "";
+    logProductPulseWorkerProgress("quick_scan.admin_resolved", { job }, {
+      hasAdmin: Boolean(admin),
+      hasGraphql: Boolean(admin?.graphql),
+      hasScopes: Boolean(scopes),
+    });
+    logProductPulseWorkerProgress("quick_scan.run_started", { job });
     await runShopifyQuickScan({
       shop: job.shop,
       admin,
       jobId: job.id,
       scopes,
     });
+    logProductPulseWorkerProgress("quick_scan.run_finished", { job });
   });
 
   await clearJobLease(job.id, FAST_PRODUCT_SCAN_KIND);
+  logProductPulseWorkerProgress("quick_scan.lease_cleared", { job });
 }
 
 function ensureShopifyMockDatasetWorker(job, options = {}) {
@@ -5749,6 +5816,36 @@ function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function logProductPulseWorkerProgress(event, context = {}, data = {}, level = "warn") {
+  if (process.env.NODE_ENV === "test") return;
+  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
+  const job = context.job || null;
+  const payload = {
+    event,
+    at: new Date().toISOString(),
+    shop: context.shop || job?.shop,
+    jobId: job?.id,
+    kind: job?.kind,
+    ...getProductPulseWorkerMemorySnapshot(),
+    ...data,
+  };
+  console[method]("[product-pulse-worker]", payload);
+}
+
+function getProductPulseWorkerMemorySnapshot() {
+  const memory = process.memoryUsage();
+  return {
+    heapUsedMb: productPulseWorkerToMb(memory.heapUsed),
+    heapTotalMb: productPulseWorkerToMb(memory.heapTotal),
+    rssMb: productPulseWorkerToMb(memory.rss),
+    externalMb: productPulseWorkerToMb(memory.external),
+  };
+}
+
+function productPulseWorkerToMb(value) {
+  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
 }
 
 function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null, scoreHistory = []) {

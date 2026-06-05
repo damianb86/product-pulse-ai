@@ -24,13 +24,21 @@ import { buildReturnRefundRelationshipSummaries } from "./product-pulse-return-r
 import { buildProductPurchaseContextSummaries } from "./product-pulse-purchase-context.server";
 import { buildProductRelationshipSummaries } from "./product-pulse-product-relationships.server";
 import { upsertProductPulseProductRollups } from "./product-pulse-product-rollup.server";
+import { createProductPulsePerfLogger, measureProductPulseStep } from "./product-pulse-perf.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
-export const QUICK_SCAN_MINIMUM_DURATION_MS = 15_000;
+export const QUICK_SCAN_MINIMUM_DURATION_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_MINIMUM_DURATION_MS", 0, { min: 0, max: 60_000 });
 export const QUICK_SCAN_BULK_GROUP_OBJECTS = false;
 
 const BULK_OPERATION_TIMEOUT_MS = 10 * 60 * 1000;
-const BULK_OPERATION_POLL_INTERVAL_MS = process.env.NODE_ENV === "test" ? 10 : 2_000;
+const BULK_OPERATION_POLL_INTERVAL_MS = process.env.NODE_ENV === "test" ? 10 : getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_BULK_POLL_INTERVAL_MS", 1_000, { min: 500, max: 5_000 });
+const QUICK_SCAN_EXTRACTION_MODE = normalizeQuickScanExtractionMode(process.env.PRODUCT_PULSE_QUICK_SCAN_EXTRACTION_MODE || "auto");
+const QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT", 250, { min: 1, max: 5_000 });
+const QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT", 150, { min: 1, max: 10_000 });
+const QUICK_SCAN_PRODUCT_COUNT_TIMEOUT_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PRODUCT_COUNT_TIMEOUT_MS", 2_500, { min: 500, max: 10_000 });
+const QUICK_SCAN_ORDER_COUNT_TIMEOUT_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_ORDER_COUNT_TIMEOUT_MS", 2_500, { min: 500, max: 10_000 });
+const QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS", 5_000, { min: 1_000, max: 60_000 });
+const QUICK_SCAN_MAX_PAGINATED_PAGES = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_MAX_PAGINATED_PAGES", 1_000, { min: 10, max: 100_000 });
 const PAGINATED_PRODUCTS_PAGE_SIZE = 20;
 const PAGINATED_PRODUCT_COLLECTIONS_PAGE_SIZE = 5;
 const PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE = 20;
@@ -52,120 +60,193 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
   }
 
   const startedAt = Date.now();
-  const settings = await getProductPulseSettings(shop);
-  const windowDays = getQuickScanWindowDays(settings, scopes);
-  await recordJobLog({
-    shop,
-    jobId,
-    event: "quick_scan.started",
-    message: "Catalog Scan started using Shopify-native signals and connected CSV review ratings.",
-    data: { windowDays },
+  const perf = createProductPulsePerfLogger("quick_scan", { shop });
+  const logContext = createQuickScanLogContext({ shop, jobId, startedAt });
+  logQuickScanProgress("quick_scan.worker.entered", logContext, {
+    configuredExtractionMode: QUICK_SCAN_EXTRACTION_MODE,
+    minimumDurationMs: QUICK_SCAN_MINIMUM_DURATION_MS,
+    bulkPollIntervalMs: BULK_OPERATION_POLL_INTERVAL_MS,
+    paginatedAutoProductLimit: QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT,
+    paginatedAutoOrderLimit: QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT,
   });
 
-  await updateQuickScanJob(jobId, {
-    status: "Running",
-    progress: 12,
-    source: "Reading Shopify catalog",
-  });
-
-  const extraction = await extractQuickScanData({ admin, windowDays, shop, jobId });
-  await recordJobLog({
-    shop,
-    jobId,
-    event: "quick_scan.extracted",
-    message: "Shopify extraction completed.",
-    data: {
-      extractionMode: extraction.meta.extractionMode,
+  try {
+    const settings = await measureQuickScanStep(perf, "quick_scan.settings", logContext, () => getProductPulseSettings(shop));
+    const windowDays = getQuickScanWindowDays(settings, scopes);
+    logQuickScanProgress("quick_scan.started", logContext, {
       windowDays,
-      products: extraction.products.length,
-      events: extraction.events.length,
-      salesEvents: extraction.events.filter((event) => event.type === "sale").length,
-      refundEvents: extraction.events.filter((event) => event.type === "refund").length,
-      returnEvents: extraction.events.filter((event) => event.type === "return").length,
-      bulkError: extraction.meta.bulkError,
-      orderAccessDenied: extraction.meta.orderAccessDenied,
-    },
-  });
+      configuredExtractionMode: QUICK_SCAN_EXTRACTION_MODE,
+      minimumDurationMs: QUICK_SCAN_MINIMUM_DURATION_MS,
+    });
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "quick_scan.started",
+      message: "Catalog Scan started using Shopify-native signals and connected CSV review ratings.",
+      data: {
+        windowDays,
+        configuredExtractionMode: QUICK_SCAN_EXTRACTION_MODE,
+        minimumDurationMs: QUICK_SCAN_MINIMUM_DURATION_MS,
+      },
+    });
 
-  const csvReviewRatings = await loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays });
+    await measureQuickScanStep(perf, "quick_scan.job.running", logContext, () => updateQuickScanJob(jobId, {
+      status: "Running",
+      progress: 12,
+      source: "Reading Shopify catalog",
+    }));
 
-  await updateQuickScanJob(jobId, {
-    progress: 72,
-    source: "Calculating product risk and Sales Momentum",
-  });
+    const extraction = await measureQuickScanStep(
+      perf,
+      "quick_scan.extract",
+      logContext,
+      () => extractQuickScanData({ admin, windowDays, shop, jobId, perf, logContext }),
+    );
+    const extractionCounts = getQuickScanExtractionCounts(extraction);
+    markQuickScanProgress(perf, "quick_scan.extracted_counts", logContext, extractionCounts);
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "quick_scan.extracted",
+      message: "Shopify extraction completed.",
+      data: {
+        ...extractionCounts,
+        extractionMode: extraction.meta.extractionMode,
+        configuredExtractionMode: QUICK_SCAN_EXTRACTION_MODE,
+        windowDays,
+        bulkError: extraction.meta.bulkError,
+        orderAccessDenied: extraction.meta.orderAccessDenied,
+      },
+    });
 
-  const candidates = buildQuickScanCandidates({
-    products: extraction.products,
-    events: extraction.events,
-    csvReviewRatings,
-    windowDays,
-    extractionMode: extraction.meta.extractionMode,
-    settings,
-  });
-  await recordJobLog({
-    shop,
-    jobId,
-    event: "quick_scan.scored",
-    message: "Deterministic risk and Sales Momentum scoring completed.",
-    data: {
-      candidateCount: candidates.length,
-      topCandidates: candidates.slice(0, 5).map((candidate) => ({
-        productGid: candidate.productGid,
-        handle: candidate.handle,
-        title: candidate.productTitle,
-        riskScore: candidate.riskScore,
-        productMomentum: candidate.metrics.productMomentum?.score,
-        inclusionReason: candidate.metrics.quickScanInclusionReason,
-        primaryIssue: candidate.primaryIssue,
-        returnRate: candidate.metrics.returnRate,
-        refundRate: candidate.metrics.refundRate,
-        refundAmount: candidate.metrics.refundAmount,
-        reviewCount: candidate.metrics.reviewCount,
-        avgRating: candidate.metrics.avgRating,
-        topReturnReasons: candidate.metrics.topReturnReasons,
-      })),
-    },
-  });
+    const csvReviewRatings = await measureQuickScanStep(
+      perf,
+      "quick_scan.csv_reviews",
+      logContext,
+      () => loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays }),
+    );
 
-  const persistence = await persistQuickScanCandidates(shop, candidates);
-  await recordJobLog({
-    shop,
-    jobId,
-    event: "quick_scan.persisted",
-    message: "Catalog Scan persisted products above the product risk or Sales Momentum threshold and skipped products with Product Diagnosis results.",
-    data: {
+    await measureQuickScanStep(perf, "quick_scan.job.scoring", logContext, () => updateQuickScanJob(jobId, {
+      progress: 72,
+      source: "Calculating product risk and Sales Momentum",
+    }));
+
+    const candidates = await measureQuickScanStep(perf, "quick_scan.scoring", logContext, () => Promise.resolve(buildQuickScanCandidates({
+      products: extraction.products,
+      events: extraction.events,
+      csvReviewRatings,
+      windowDays,
+      extractionMode: extraction.meta.extractionMode,
+      settings,
+      perf,
+      logContext,
+    })));
+    markQuickScanProgress(perf, "quick_scan.scored_counts", logContext, { candidateCount: candidates.length });
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "quick_scan.scored",
+      message: "Deterministic risk and Sales Momentum scoring completed.",
+      data: {
+        candidateCount: candidates.length,
+        topCandidates: candidates.slice(0, 5).map((candidate) => ({
+          productGid: candidate.productGid,
+          handle: candidate.handle,
+          title: candidate.productTitle,
+          riskScore: candidate.riskScore,
+          productMomentum: candidate.metrics.productMomentum?.score,
+          inclusionReason: candidate.metrics.quickScanInclusionReason,
+          primaryIssue: candidate.primaryIssue,
+          returnRate: candidate.metrics.returnRate,
+          refundRate: candidate.metrics.refundRate,
+          refundAmount: candidate.metrics.refundAmount,
+          reviewCount: candidate.metrics.reviewCount,
+          avgRating: candidate.metrics.avgRating,
+          topReturnReasons: candidate.metrics.topReturnReasons,
+        })),
+      },
+    });
+
+    const persistence = await measureQuickScanStep(
+      perf,
+      "quick_scan.persist",
+      logContext,
+      () => persistQuickScanCandidates(shop, candidates, { jobId, perf, logContext }),
+    );
+    markQuickScanProgress(perf, "quick_scan.persisted_counts", logContext, {
       persistedCandidates: persistence.persistedCandidates,
       ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
       retainedFullDiagnosisProducts: persistence.retainedFullDiagnosisProducts,
-      persistenceRule: `risk_score >= ${getQuickScanMinimumRiskScore(settings)} OR product_momentum >= ${getQuickScanMinimumMomentumScore(settings)}`,
-    },
-  });
-  await waitForMinimumDuration(startedAt, QUICK_SCAN_MINIMUM_DURATION_MS);
+    });
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "quick_scan.persisted",
+      message: "Catalog Scan persisted products above the product risk or Sales Momentum threshold and skipped products with Product Diagnosis results.",
+      data: {
+        persistedCandidates: persistence.persistedCandidates,
+        ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
+        retainedFullDiagnosisProducts: persistence.retainedFullDiagnosisProducts,
+        persistenceRule: `risk_score >= ${getQuickScanMinimumRiskScore(settings)} OR product_momentum >= ${getQuickScanMinimumMomentumScore(settings)}`,
+      },
+    });
 
-  await updateQuickScanJob(jobId, {
-    status: "Completed",
-    progress: 100,
-    source: extraction.meta.orderAccessDenied
-      ? "Catalog Scan completed with catalog only - Shopify order access unavailable"
-      : getQuickScanCompletionSource(persistence),
-    finishedAt: new Date(),
-  });
-  await recordJobLog({
-    shop,
-    jobId,
-    event: "quick_scan.completed",
-    message: "Catalog Scan completed.",
-    data: {
+    await measureQuickScanStep(perf, "quick_scan.minimum_duration_wait", logContext, () => waitForMinimumDuration(startedAt, QUICK_SCAN_MINIMUM_DURATION_MS), {
+      minimumDurationMs: QUICK_SCAN_MINIMUM_DURATION_MS,
+    });
+
+    await measureQuickScanStep(perf, "quick_scan.job.completed", logContext, () => updateQuickScanJob(jobId, {
+      status: "Completed",
+      progress: 100,
+      source: extraction.meta.orderAccessDenied
+        ? "Catalog Scan completed with catalog only - Shopify order access unavailable"
+        : getQuickScanCompletionSource(persistence),
+      finishedAt: new Date(),
+    }));
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "quick_scan.completed",
+      message: "Catalog Scan completed.",
+      data: {
+        durationMs: Date.now() - startedAt,
+        candidateCount: candidates.length,
+        csvReviewRatings: csvReviewRatings.length,
+        persistedCandidates: persistence.persistedCandidates,
+        ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
+        orderAccessDenied: extraction.meta.orderAccessDenied,
+      },
+    });
+
+    perf.done({
+      jobId,
       durationMs: Date.now() - startedAt,
-      candidateCount: candidates.length,
-      csvReviewRatings: csvReviewRatings.length,
+      extractionMode: extraction.meta.extractionMode,
+      products: extraction.products.length,
+      events: extraction.events.length,
+      candidates: candidates.length,
       persistedCandidates: persistence.persistedCandidates,
-      ignoredFullDiagnosisProducts: persistence.ignoredFullDiagnosisProducts,
       orderAccessDenied: extraction.meta.orderAccessDenied,
-    },
-  });
-
-  return { candidates, extraction };
+    });
+    logQuickScanProgress("quick_scan.worker.completed", logContext, {
+      durationMs: Date.now() - startedAt,
+      extractionMode: extraction.meta.extractionMode,
+      products: extraction.products.length,
+      events: extraction.events.length,
+      candidates: candidates.length,
+      persistedCandidates: persistence.persistedCandidates,
+      orderAccessDenied: extraction.meta.orderAccessDenied,
+    });
+    return { candidates, extraction };
+  } catch (error) {
+    logQuickScanProgress("quick_scan.worker.failed", logContext, {
+      durationMs: Date.now() - startedAt,
+      error: getErrorMessage(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    }, "error");
+    perf.fail(error, { jobId, durationMs: Date.now() - startedAt });
+    throw error;
+  }
 }
 
 async function loadCsvReviewRatingsForQuickScan({ shop, jobId, windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS }) {
@@ -208,6 +289,8 @@ export function buildQuickScanCandidates({
   windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS,
   extractionMode = "bulk",
   settings = undefined,
+  perf = null,
+  logContext = null,
 }) {
   const productIndex = new Map();
   const variantIndex = new Map();
@@ -219,6 +302,10 @@ export function buildQuickScanCandidates({
     normalized.variants.forEach((variant) => {
       if (variant.id) variantIndex.set(variant.id, normalized.id);
     });
+  });
+  markQuickScanProgress(perf, "quick_scan.scoring.index_products", logContext, {
+    products: productIndex.size,
+    variants: variantIndex.size,
   });
 
   const aggregates = new Map();
@@ -243,18 +330,31 @@ export function buildQuickScanCandidates({
       getProductAggregate(aggregates, product);
     }
   });
+  markQuickScanProgress(perf, "quick_scan.scoring.aggregate_events", logContext, {
+    aggregates: aggregates.size,
+    events: events.length,
+  });
 
   applyCsvReviewRatingsToAggregates({ aggregates, productIndex, csvReviewRatings });
+  markQuickScanProgress(perf, "quick_scan.scoring.csv_applied", logContext, {
+    csvReviewRatings: csvReviewRatings.length,
+  });
 
   const aggregateList = Array.from(aggregates.values());
   const returnRefundRelationshipSummaries = buildReturnRefundRelationshipSummaries({
     products: Array.from(productIndex.values()),
     events,
   });
+  markQuickScanProgress(perf, "quick_scan.scoring.return_refund_relationships", logContext, {
+    summaries: returnRefundRelationshipSummaries.size,
+  });
   const productPurchaseContextSummaries = buildProductPurchaseContextSummaries({
     products: Array.from(productIndex.values()),
     events,
     assumeCompleteOrderEvents: true,
+  });
+  markQuickScanProgress(perf, "quick_scan.scoring.purchase_context", logContext, {
+    summaries: productPurchaseContextSummaries.size,
   });
   const productRelationshipSummaries = buildProductRelationshipSummaries({
     products: Array.from(productIndex.values()),
@@ -262,13 +362,19 @@ export function buildQuickScanCandidates({
     windowDays,
     assumeCompleteOrderEvents: true,
   });
+  markQuickScanProgress(perf, "quick_scan.scoring.product_relationships", logContext, {
+    summaries: productRelationshipSummaries.size,
+  });
   const storeTotals = getStoreTotals(aggregateList);
   const now = new Date();
   const momentumBaselineSnapshots = buildQuickScanMomentumBaselineSnapshots(aggregateList, windowDays, now);
+  markQuickScanProgress(perf, "quick_scan.scoring.momentum_baseline", logContext, {
+    products: momentumBaselineSnapshots.length,
+  });
   const riskMinimumScore = getQuickScanRuntimeMinimumRiskScore(settings);
   const momentumMinimumScore = getQuickScanRuntimeMinimumMomentumScore(settings);
 
-  return aggregateList
+  const candidates = aggregateList
     .map((aggregate) => scoreProductAggregate(aggregate, storeTotals, {
       windowDays,
       extractionMode,
@@ -283,24 +389,53 @@ export function buildQuickScanCandidates({
     .filter((candidate) => isPersistableCandidate(candidate, { riskMinimumScore, momentumMinimumScore }))
     .sort((a, b) => b.metrics.quickScanCandidateScore - a.metrics.quickScanCandidateScore)
     .slice(0, 50);
+  markQuickScanProgress(perf, "quick_scan.scoring.score_and_filter", logContext, {
+    candidates: candidates.length,
+    products: aggregateList.length,
+  });
+  return candidates;
 }
 
-async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
+async function extractQuickScanData({ admin, windowDays, shop, jobId, perf = null, logContext = null }) {
+  const extractionMode = await resolveQuickScanExtractionMode({ admin, windowDays, shop, jobId, perf, logContext });
+  if (extractionMode === "paginated") {
+    const paginated = await extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId, perf, logContext });
+    return {
+      ...paginated,
+      meta: {
+        extractionMode: "paginated",
+        configuredExtractionMode: QUICK_SCAN_EXTRACTION_MODE,
+        windowDays,
+        orderAccessDenied: false,
+      },
+    };
+  }
+
   try {
-    const catalogLines = await runBulkQuery(admin, PRODUCT_CATALOG_BULK_QUERY, "catalog", { shop, jobId });
+    const catalogLines = await runBulkQuery(admin, PRODUCT_CATALOG_BULK_QUERY, "catalog", { shop, jobId, perf, logContext });
     let orderLines = [];
     let orderAccessDenied = false;
 
     try {
-      orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId });
+      orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId, perf, logContext });
     } catch (orderError) {
       if (!isShopifyOrderAccessDeniedError(orderError, "orders")) throw orderError;
       orderAccessDenied = true;
       await recordOrderAccessUnavailableLog({ shop, jobId, mode: "bulk" });
+      logQuickScanProgress("quick_scan.orders_unavailable", logContext, {
+        mode: "bulk",
+        error: getErrorMessage(orderError),
+      }, "warn");
     }
 
     const bulkData = normalizeBulkQuickScanData(catalogLines, orderLines);
-    const refundEvents = orderAccessDenied ? [] : await extractSupplementalRefundEvents({ admin, windowDays, shop, jobId });
+    markQuickScanProgress(perf, "quick_scan.bulk.normalize", logContext, {
+      products: bulkData.products.length,
+      events: bulkData.events.length,
+      catalogLines: catalogLines.length,
+      orderLines: orderLines.length,
+    });
+    const refundEvents = orderAccessDenied ? [] : await extractSupplementalRefundEvents({ admin, windowDays, shop, jobId, perf, logContext });
 
     return {
       ...bulkData,
@@ -314,7 +449,10 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
   } catch (bulkError) {
     if (isShopifyOrderAccessDeniedError(bulkError, "orders")) {
       await recordOrderAccessUnavailableLog({ shop, jobId, mode: "bulk-recovery" });
-      const products = await extractProductsWithPaginatedQueries({ admin });
+      logQuickScanProgress("quick_scan.bulk.order_access_recovery", logContext, {
+        error: getErrorMessage(bulkError),
+      }, "warn");
+      const products = await extractProductsWithPaginatedQueries({ admin, perf, logContext });
       return {
         products: products.map(normalizeProduct),
         events: [],
@@ -326,6 +464,9 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
       };
     }
 
+    logQuickScanProgress("quick_scan.bulk_fallback", logContext, {
+      error: getErrorMessage(bulkError),
+    }, "warn");
     await recordJobLog({
       shop,
       jobId,
@@ -334,7 +475,7 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
       message: "Bulk operation extraction failed; falling back to paginated GraphQL queries.",
       data: { error: bulkError instanceof Error ? bulkError.message : String(bulkError) },
     });
-    const fallback = await extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId });
+    const fallback = await extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId, perf, logContext });
     return {
       ...fallback,
       meta: {
@@ -344,6 +485,119 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId }) {
       },
     };
   }
+}
+
+async function resolveQuickScanExtractionMode({ admin, windowDays, shop, jobId, perf = null, logContext = null } = {}) {
+  if (QUICK_SCAN_EXTRACTION_MODE === "bulk" || QUICK_SCAN_EXTRACTION_MODE === "paginated") {
+    markQuickScanProgress(perf, "quick_scan.extraction_mode.configured", logContext, { extractionMode: QUICK_SCAN_EXTRACTION_MODE });
+    return QUICK_SCAN_EXTRACTION_MODE;
+  }
+
+  try {
+    const productCount = await measureQuickScanStep(
+      perf,
+      "quick_scan.product_count",
+      logContext,
+      () => getShopifyQuickScanProductCount(admin),
+    );
+    let orderCount = null;
+    let orderCountUnavailable = false;
+    if (productCount !== null && productCount <= QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT) {
+      try {
+        orderCount = await measureQuickScanStep(
+          perf,
+          "quick_scan.order_count",
+          logContext,
+          () => getShopifyQuickScanOrderCount(admin, windowDays),
+        );
+      } catch (orderCountError) {
+        orderCountUnavailable = true;
+        markQuickScanProgress(perf, "quick_scan.order_count_unavailable", logContext, {
+          error: getErrorMessage(orderCountError),
+        }, "warn");
+      }
+    }
+    const productCountAllowsPaginated = productCount !== null && productCount <= QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT;
+    const orderCountAllowsPaginated = orderCount === null || orderCount <= QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT;
+    const usePaginated = productCountAllowsPaginated && orderCountAllowsPaginated;
+    const extractionMode = usePaginated ? "paginated" : "bulk";
+    markQuickScanProgress(perf, "quick_scan.extraction_mode.auto", logContext, {
+      extractionMode,
+      productCount,
+      orderCount,
+      orderCountUnavailable,
+      paginatedAutoProductLimit: QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT,
+      paginatedAutoOrderLimit: QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT,
+    });
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "quick_scan.extraction_mode_selected",
+      message: `Catalog Scan selected ${extractionMode} Shopify extraction.`,
+      data: {
+        configuredExtractionMode: QUICK_SCAN_EXTRACTION_MODE,
+        extractionMode,
+        productCount,
+        orderCount,
+        orderCountUnavailable,
+        paginatedAutoProductLimit: QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT,
+        paginatedAutoOrderLimit: QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT,
+      },
+    });
+    return extractionMode;
+  } catch (error) {
+    markQuickScanProgress(perf, "quick_scan.extraction_mode.auto_failed", logContext, {
+      extractionMode: "bulk",
+      error: getErrorMessage(error),
+    }, "warn");
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "quick_scan.extraction_mode_count_failed",
+      message: "Catalog product count failed; Catalog Scan will use Shopify bulk extraction.",
+      data: { error: getErrorMessage(error) },
+    });
+    return "bulk";
+  }
+}
+
+async function getShopifyQuickScanProductCount(admin) {
+  if (!admin?.graphql) return null;
+  const data = await withTimeout(
+    shopifyGraphql(admin, `#graphql
+      query ProductPulseQuickScanProductCount {
+        productsCount {
+          count
+        }
+      }
+    `),
+    QUICK_SCAN_PRODUCT_COUNT_TIMEOUT_MS,
+    "Catalog product count timed out.",
+  );
+  const count = Number(data?.productsCount?.count);
+  return Number.isFinite(count) && count >= 0 ? Math.round(count) : null;
+}
+
+async function getShopifyQuickScanOrderCount(admin, windowDays) {
+  if (!admin?.graphql) return null;
+  const data = await withTimeout(
+    shopifyGraphql(
+      admin,
+      `#graphql
+        query ProductPulseQuickScanOrderCount($query: String) {
+          ordersCount(query: $query) {
+            count
+          }
+        }
+      `,
+      { query: `processed_at:>=${getSinceDate(windowDays)}` },
+    ),
+    QUICK_SCAN_ORDER_COUNT_TIMEOUT_MS,
+    "Catalog order count timed out.",
+  );
+  const count = Number(data?.ordersCount?.count);
+  return Number.isFinite(count) && count >= 0 ? Math.round(count) : null;
 }
 
 async function recordOrderAccessUnavailableLog({ shop, jobId, mode }) {
@@ -362,15 +616,42 @@ async function recordOrderAccessUnavailableLog({ shop, jobId, mode }) {
 }
 
 async function runBulkQuery(admin, bulkQuery, label, context) {
+  const perf = context?.perf;
+  const logContext = context?.logContext;
+  logQuickScanProgress("quick_scan.bulk.started", logContext, { label });
   await recordJobLog({
     ...context,
     event: "quick_scan.bulk_started",
     message: `Started Shopify bulk operation for ${label}.`,
   });
-  const operation = await createBulkOperation(admin, bulkQuery);
-  const completed = await pollBulkOperation(admin, operation.id, label);
+  const operation = await measureQuickScanStep(
+    perf,
+    `quick_scan.bulk.${label}.create`,
+    logContext,
+    () => createBulkOperation(admin, bulkQuery),
+    { label },
+  );
+  logQuickScanProgress("quick_scan.bulk.created", logContext, {
+    label,
+    operationId: operation.id,
+    status: operation.status,
+  });
+  const completed = await measureQuickScanStep(
+    perf,
+    `quick_scan.bulk.${label}.poll`,
+    logContext,
+    () => pollBulkOperation(admin, operation.id, label, perf, logContext),
+    { label, operationId: operation.id },
+  );
   const url = completed.url || completed.partialDataUrl;
   if (!url) {
+    logQuickScanProgress("quick_scan.bulk.no_url", logContext, {
+      label,
+      operationId: operation.id,
+      status: completed.status,
+      objectCount: completed.objectCount,
+      rootObjectCount: completed.rootObjectCount,
+    }, "warn");
     await recordJobLog({
       ...context,
       level: "warn",
@@ -386,12 +667,30 @@ async function runBulkQuery(admin, bulkQuery, label, context) {
     return [];
   }
 
-  const response = await fetch(url);
+  const response = await measureQuickScanStep(
+    perf,
+    `quick_scan.bulk.${label}.download`,
+    logContext,
+    () => fetch(url),
+    { label, operationId: operation.id },
+  );
   if (!response.ok) {
     throw new Error(`Unable to download ${label} bulk results (${response.status}).`);
   }
 
-  const lines = await parseJsonlResponse(response);
+  const lines = await measureQuickScanStep(
+    perf,
+    `quick_scan.bulk.${label}.parse_jsonl`,
+    logContext,
+    () => parseJsonlResponse(response, { label, logContext }),
+    { label, operationId: operation.id },
+  );
+  markQuickScanProgress(perf, `quick_scan.bulk.${label}.completed_counts`, logContext, {
+    label,
+    objectCount: Number(completed.objectCount || 0),
+    rootObjectCount: Number(completed.rootObjectCount || 0),
+    lineCount: lines.length,
+  });
   await recordJobLog({
     ...context,
     event: "quick_scan.bulk_completed",
@@ -474,10 +773,14 @@ function getBulkOperationFromMutation(data) {
   return payload.bulkOperation;
 }
 
-async function pollBulkOperation(admin, operationId, label) {
+async function pollBulkOperation(admin, operationId, label, perf = null, logContext = null) {
   const startedAt = Date.now();
+  let pollCount = 0;
+  let lastStatus = null;
+  let lastLogAt = 0;
 
   while (Date.now() - startedAt < BULK_OPERATION_TIMEOUT_MS) {
+    pollCount += 1;
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -496,8 +799,34 @@ async function pollBulkOperation(admin, operationId, label) {
       }`,
     );
     const operation = data?.currentBulkOperation;
+    const status = operation?.status || "missing";
+    const shouldLog = pollCount === 1 || status !== lastStatus || Date.now() - lastLogAt >= QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS;
+    if (shouldLog) {
+      lastLogAt = Date.now();
+      lastStatus = status;
+      logQuickScanProgress("quick_scan.bulk.poll", logContext, {
+        label,
+        operationId,
+        currentOperationId: operation?.id || null,
+        status,
+        pollCount,
+        elapsedMs: Date.now() - startedAt,
+        objectCount: Number(operation?.objectCount || 0),
+        rootObjectCount: Number(operation?.rootObjectCount || 0),
+        hasUrl: Boolean(operation?.url || operation?.partialDataUrl),
+      });
+    }
 
-    if (operation?.id === operationId && operation.status === "COMPLETED") return operation;
+    if (operation?.id === operationId && operation.status === "COMPLETED") {
+      markQuickScanProgress(perf, `quick_scan.bulk.${label}.poll_completed`, logContext, {
+        label,
+        pollCount,
+        elapsedMs: Date.now() - startedAt,
+        objectCount: Number(operation.objectCount || 0),
+        rootObjectCount: Number(operation.rootObjectCount || 0),
+      });
+      return operation;
+    }
     if (operation?.id === operationId && ["FAILED", "CANCELED", "EXPIRED"].includes(operation.status)) {
       throw new Error(`${label} bulk operation ${operation.status.toLowerCase()}${operation.errorCode ? `: ${operation.errorCode}` : ""}.`);
     }
@@ -508,9 +837,14 @@ async function pollBulkOperation(admin, operationId, label) {
   throw new Error(`${label} bulk operation timed out.`);
 }
 
-async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId }) {
+async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId, perf = null, logContext = null }) {
   try {
-    const events = await extractRefundEventsWithPaginatedQueries({ admin, windowDays });
+    const events = await measureQuickScanStep(
+      perf,
+      "quick_scan.refunds_supplemental",
+      logContext,
+      () => extractRefundEventsWithPaginatedQueries({ admin, windowDays, perf, logContext }),
+    );
     await recordJobLog({
       shop,
       jobId,
@@ -520,6 +854,9 @@ async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId 
     });
     return events;
   } catch (error) {
+    logQuickScanProgress("quick_scan.refunds_supplemental.failed", logContext, {
+      error: getErrorMessage(error),
+    }, "warn");
     await recordJobLog({
       shop,
       jobId,
@@ -532,7 +869,13 @@ async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId 
   }
 }
 
-async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId }) {
+async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId, perf = null, logContext = null }) {
+  logQuickScanProgress("quick_scan.paginated.started", logContext, {
+    windowDays,
+    productsPageSize: PAGINATED_PRODUCTS_PAGE_SIZE,
+    ordersPageSize: PAGINATED_ORDERS_PAGE_SIZE,
+    maxPages: QUICK_SCAN_MAX_PAGINATED_PAGES,
+  });
   await recordJobLog({
     shop,
     jobId,
@@ -544,25 +887,45 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays, sho
     },
   });
 
-  const products = await extractProductsWithPaginatedQueries({ admin });
-  const salesEvents = await extractOptionalPaginatedEvents({
-    shop,
-    jobId,
-    label: "sales",
-    extractor: () => extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays }),
-  });
-  const refundEvents = await extractOptionalPaginatedEvents({
-    shop,
-    jobId,
-    label: "refunds",
-    extractor: () => extractRefundEventsWithPaginatedQueries({ admin, windowDays }),
-  });
-  const returnEvents = await extractOptionalPaginatedEvents({
-    shop,
-    jobId,
-    label: "returns",
-    extractor: () => extractReturnEventsWithPaginatedQueries({ admin, windowDays }),
-  });
+  const products = await measureQuickScanStep(
+    perf,
+    "quick_scan.paginated.products",
+    logContext,
+    () => extractProductsWithPaginatedQueries({ admin, perf, logContext }),
+  );
+  const salesEvents = await measureQuickScanStep(
+    perf,
+    "quick_scan.paginated.sales",
+    logContext,
+    () => extractOptionalPaginatedEvents({
+      shop,
+      jobId,
+      label: "sales",
+      extractor: () => extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays, perf, logContext }),
+    }),
+  );
+  const refundEvents = await measureQuickScanStep(
+    perf,
+    "quick_scan.paginated.refunds",
+    logContext,
+    () => extractOptionalPaginatedEvents({
+      shop,
+      jobId,
+      label: "refunds",
+      extractor: () => extractRefundEventsWithPaginatedQueries({ admin, windowDays, perf, logContext }),
+    }),
+  );
+  const returnEvents = await measureQuickScanStep(
+    perf,
+    "quick_scan.paginated.returns",
+    logContext,
+    () => extractOptionalPaginatedEvents({
+      shop,
+      jobId,
+      label: "returns",
+      extractor: () => extractReturnEventsWithPaginatedQueries({ admin, windowDays, perf, logContext }),
+    }),
+  );
 
   await recordJobLog({
     shop,
@@ -587,6 +950,9 @@ async function extractOptionalPaginatedEvents({ shop, jobId, label, extractor })
   try {
     return await extractor();
   } catch (error) {
+    if (isShopifyOrderAccessDeniedError(error, label)) {
+      await recordOrderAccessUnavailableLog({ shop, jobId, mode: `paginated-${label}` });
+    }
     await recordJobLog({
       shop,
       jobId,
@@ -599,12 +965,14 @@ async function extractOptionalPaginatedEvents({ shop, jobId, label, extractor })
   }
 }
 
-async function extractProductsWithPaginatedQueries({ admin }) {
+async function extractProductsWithPaginatedQueries({ admin, perf = null, logContext = null } = {}) {
   const products = [];
   let productsCursor;
   let hasNextProductsPage = true;
+  let pageCount = 0;
 
   while (hasNextProductsPage) {
+    pageCount += 1;
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -685,20 +1053,43 @@ async function extractProductsWithPaginatedQueries({ admin }) {
       },
     );
     products.push(...(data?.products?.nodes || []));
-    hasNextProductsPage = Boolean(data?.products?.pageInfo?.hasNextPage);
-    productsCursor = data?.products?.pageInfo?.endCursor;
+    const pageInfo = data?.products?.pageInfo || {};
+    const nextCursor = pageInfo.endCursor || null;
+    hasNextProductsPage = Boolean(pageInfo.hasNextPage);
+    logQuickScanProgress("quick_scan.paginated.products.page", logContext, {
+      page: pageCount,
+      fetched: data?.products?.nodes?.length || 0,
+      totalProducts: products.length,
+      hasNextPage: hasNextProductsPage,
+      cursorChanged: nextCursor !== (productsCursor || null),
+    });
+    assertQuickScanPaginationProgress({
+      label: "products",
+      pageCount,
+      currentCursor: productsCursor || null,
+      nextCursor,
+      hasNextPage: hasNextProductsPage,
+      logContext,
+    });
+    productsCursor = nextCursor;
   }
 
+  markQuickScanProgress(perf, "quick_scan.paginated.products_counts", logContext, {
+    pages: pageCount,
+    products: products.length,
+  });
   return products;
 }
 
-async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays }) {
+async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDays, perf = null, logContext = null }) {
   const events = [];
   let ordersCursor;
   let hasNextOrdersPage = true;
   const orderQuery = `processed_at:>=${getSinceDate(windowDays)}`;
+  let pageCount = 0;
 
   while (hasNextOrdersPage) {
+    pageCount += 1;
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -765,23 +1156,46 @@ async function extractOrderLineItemEventsWithPaginatedQueries({ admin, windowDay
         events.push(normalizeOrderLineItemEvent(lineItem, orderContext));
       });
     });
-    hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
-    ordersCursor = data?.orders?.pageInfo?.endCursor;
+    const pageInfo = data?.orders?.pageInfo || {};
+    const nextCursor = pageInfo.endCursor || null;
+    hasNextOrdersPage = Boolean(pageInfo.hasNextPage);
+    logQuickScanProgress("quick_scan.paginated.sales.page", logContext, {
+      page: pageCount,
+      fetchedOrders: data?.orders?.nodes?.length || 0,
+      totalEvents: events.length,
+      hasNextPage: hasNextOrdersPage,
+      cursorChanged: nextCursor !== (ordersCursor || null),
+    });
+    assertQuickScanPaginationProgress({
+      label: "sales",
+      pageCount,
+      currentCursor: ordersCursor || null,
+      nextCursor,
+      hasNextPage: hasNextOrdersPage,
+      logContext,
+    });
+    ordersCursor = nextCursor;
   }
 
+  markQuickScanProgress(perf, "quick_scan.paginated.sales_counts", logContext, {
+    pages: pageCount,
+    events: events.length,
+  });
   return events.filter(Boolean);
 }
 
-async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
+async function extractRefundEventsWithPaginatedQueries({ admin, windowDays, perf = null, logContext = null }) {
   const events = [];
   const seenRefundLineItemIds = new Set();
   const seenOrderLevelRefundLineItemIds = new Set();
+  let pageCount = 0;
 
   for (const orderQuery of buildRefundOrderQueries(windowDays)) {
     let ordersCursor;
     let hasNextOrdersPage = true;
 
     while (hasNextOrdersPage) {
+      pageCount += 1;
       const data = await shopifyGraphql(
         admin,
         buildPaginatedRefundsQuery(),
@@ -839,11 +1253,33 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays }) {
           }));
         }
       });
-      hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
-      ordersCursor = data?.orders?.pageInfo?.endCursor;
+      const pageInfo = data?.orders?.pageInfo || {};
+      const nextCursor = pageInfo.endCursor || null;
+      hasNextOrdersPage = Boolean(pageInfo.hasNextPage);
+      logQuickScanProgress("quick_scan.paginated.refunds.page", logContext, {
+        mode: orderQuery.mode,
+        page: pageCount,
+        fetchedOrders: data?.orders?.nodes?.length || 0,
+        totalEvents: events.length,
+        hasNextPage: hasNextOrdersPage,
+        cursorChanged: nextCursor !== (ordersCursor || null),
+      });
+      assertQuickScanPaginationProgress({
+        label: `refunds.${orderQuery.mode}`,
+        pageCount,
+        currentCursor: ordersCursor || null,
+        nextCursor,
+        hasNextPage: hasNextOrdersPage,
+        logContext,
+      });
+      ordersCursor = nextCursor;
     }
   }
 
+  markQuickScanProgress(perf, "quick_scan.paginated.refunds_counts", logContext, {
+    pages: pageCount,
+    events: events.length,
+  });
   return events.filter(Boolean);
 }
 
@@ -986,13 +1422,15 @@ function buildRefundOrderQueries(windowDays) {
   ];
 }
 
-async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
+async function extractReturnEventsWithPaginatedQueries({ admin, windowDays, perf = null, logContext = null }) {
   const events = [];
   let ordersCursor;
   let hasNextOrdersPage = true;
   const orderQuery = `updated_at:>=${getSinceDate(windowDays)}`;
+  let pageCount = 0;
 
   while (hasNextOrdersPage) {
+    pageCount += 1;
     const data = await shopifyGraphql(
       admin,
       `#graphql
@@ -1080,10 +1518,31 @@ async function extractReturnEventsWithPaginatedQueries({ admin, windowDays }) {
         });
       });
     });
-    hasNextOrdersPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
-    ordersCursor = data?.orders?.pageInfo?.endCursor;
+    const pageInfo = data?.orders?.pageInfo || {};
+    const nextCursor = pageInfo.endCursor || null;
+    hasNextOrdersPage = Boolean(pageInfo.hasNextPage);
+    logQuickScanProgress("quick_scan.paginated.returns.page", logContext, {
+      page: pageCount,
+      fetchedOrders: data?.orders?.nodes?.length || 0,
+      totalEvents: events.length,
+      hasNextPage: hasNextOrdersPage,
+      cursorChanged: nextCursor !== (ordersCursor || null),
+    });
+    assertQuickScanPaginationProgress({
+      label: "returns",
+      pageCount,
+      currentCursor: ordersCursor || null,
+      nextCursor,
+      hasNextPage: hasNextOrdersPage,
+      logContext,
+    });
+    ordersCursor = nextCursor;
   }
 
+  markQuickScanProgress(perf, "quick_scan.paginated.returns_counts", logContext, {
+    pages: pageCount,
+    events: events.length,
+  });
   return events.filter(Boolean);
 }
 
@@ -1958,13 +2417,25 @@ function getQuickScanLightweightTextSignalCount({ aggregate, topReasons }) {
   return Math.max(noteCount, repeatedReasonCount);
 }
 
-async function persistQuickScanCandidates(shop, candidates) {
-  const fullDiagnosisProductGids = await getFullDiagnosisProductGids(shop);
+async function persistQuickScanCandidates(shop, candidates, options = {}) {
+  const { jobId = null, perf = null, logContext = null } = options;
+  const fullDiagnosisProductGids = await measureQuickScanStep(
+    perf,
+    "quick_scan.persist.full_diagnosis_lookup",
+    logContext,
+    () => getFullDiagnosisProductGids(shop),
+  );
   const { persistableCandidates, ignoredFullDiagnosisProducts } = getPersistableQuickScanCandidates(candidates, fullDiagnosisProductGids);
   const productGids = persistableCandidates.map((candidate) => candidate.productGid);
   const retainedProductGids = Array.from(new Set([...productGids, ...fullDiagnosisProductGids]));
+  logQuickScanProgress("quick_scan.persist.plan", logContext, {
+    candidates: candidates.length,
+    persistableCandidates: persistableCandidates.length,
+    ignoredFullDiagnosisProducts,
+    retainedProductGids: retainedProductGids.length,
+  });
 
-  const persistedSnapshots = await prisma.$transaction(async (tx) => {
+  const persistedSnapshots = await measureQuickScanStep(perf, "quick_scan.persist.snapshot_transaction", logContext, () => prisma.$transaction(async (tx) => {
     if (retainedProductGids.length) {
       await tx.productRiskSnapshot.deleteMany({
         where: {
@@ -2018,18 +2489,39 @@ async function persistQuickScanCandidates(shop, candidates) {
       }));
     }
     return persisted;
+  }));
+  markQuickScanProgress(perf, "quick_scan.persist.snapshot_counts", logContext, {
+    persistedSnapshots: persistedSnapshots.length,
+    retainedProductGids: retainedProductGids.length,
   });
-  await upsertProductPulseProductRollups(persistedSnapshots).catch((error) => recordJobLog({
+  await measureQuickScanStep(
+    perf,
+    "quick_scan.persist.rollups",
+    logContext,
+    () => upsertProductPulseProductRollups(persistedSnapshots),
+  ).catch((error) => recordJobLog({
     shop,
+    jobId,
+    level: "warn",
     event: "quick_scan.product_rollup_failed",
     message: "Catalog Scan completed, but ProductPulse product rollup could not be refreshed.",
     data: { error: error instanceof Error ? error.message : String(error) },
   }).catch(() => null));
-  await recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" });
-  await Promise.all([
-    recordTimelineForLatestScoreSnapshots(shop, persistedSnapshots, { source: "quickscan" }),
-    recordWatchlistScanActivities(shop, persistedSnapshots, { source: "quickscan" }),
-  ]);
+  await measureQuickScanStep(
+    perf,
+    "quick_scan.persist.score_history",
+    logContext,
+    () => recordProductScoreHistoryBatch(shop, persistedSnapshots, { source: "quickscan" }),
+  );
+  await measureQuickScanStep(
+    perf,
+    "quick_scan.persist.timeline_watchlist",
+    logContext,
+    () => Promise.all([
+      recordTimelineForLatestScoreSnapshots(shop, persistedSnapshots, { source: "quickscan" }),
+      recordWatchlistScanActivities(shop, persistedSnapshots, { source: "quickscan" }),
+    ]),
+  );
 
   return {
     persistedCandidates: persistableCandidates.length,
@@ -2305,6 +2797,117 @@ function getNodes(connection) {
   return [];
 }
 
+function getBoundedIntegerEnv(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number.parseInt(process.env[name] || "", 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function normalizeQuickScanExtractionMode(value) {
+  const normalized = String(value || "auto").trim().toLowerCase();
+  if (["auto", "bulk", "paginated"].includes(normalized)) return normalized;
+  return "auto";
+}
+
+function getQuickScanExtractionCounts(extraction = {}) {
+  const products = Array.isArray(extraction.products) ? extraction.products : [];
+  const events = Array.isArray(extraction.events) ? extraction.events : [];
+  return {
+    products: products.length,
+    events: events.length,
+    salesEvents: events.filter((event) => event?.type === "sale").length,
+    refundEvents: events.filter((event) => event?.type === "refund").length,
+    returnEvents: events.filter((event) => event?.type === "return").length,
+  };
+}
+
+function createQuickScanLogContext({ shop, jobId, startedAt = Date.now() } = {}) {
+  return { shop, jobId, startedAt };
+}
+
+async function measureQuickScanStep(perf, stage, logContext, callback, data = {}) {
+  logQuickScanProgress(`${stage}.start`, logContext, data);
+  const startedAt = Date.now();
+  try {
+    const result = await measureProductPulseStep(perf, stage, callback, data);
+    logQuickScanProgress(`${stage}.done`, logContext, {
+      ...data,
+      durationMs: Date.now() - startedAt,
+    });
+    return result;
+  } catch (error) {
+    logQuickScanProgress(`${stage}.failed`, logContext, {
+      ...data,
+      durationMs: Date.now() - startedAt,
+      error: getErrorMessage(error),
+    }, "error");
+    throw error;
+  }
+}
+
+function markQuickScanProgress(perf, stage, logContext, data = {}, level = "warn") {
+  perf?.mark(stage, data);
+  logQuickScanProgress(stage, logContext, data, level);
+}
+
+function logQuickScanProgress(event, logContext, data = {}, level = "warn") {
+  if (process.env.NODE_ENV === "test") return;
+  if (!logContext?.shop && !logContext?.jobId) return;
+  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
+  const startedAt = Number(logContext?.startedAt || Date.now());
+  const payload = {
+    event,
+    at: new Date().toISOString(),
+    elapsedMs: Date.now() - startedAt,
+    shop: logContext?.shop,
+    jobId: logContext?.jobId,
+    ...getQuickScanMemorySnapshot(),
+    ...data,
+  };
+  console[method]("[product-pulse-quick-scan]", payload);
+}
+
+function getQuickScanMemorySnapshot() {
+  const memory = process.memoryUsage();
+  return {
+    heapUsedMb: toMb(memory.heapUsed),
+    heapTotalMb: toMb(memory.heapTotal),
+    rssMb: toMb(memory.rss),
+    externalMb: toMb(memory.external),
+  };
+}
+
+function assertQuickScanPaginationProgress({ label, pageCount, currentCursor, nextCursor, hasNextPage, logContext }) {
+  if (pageCount > QUICK_SCAN_MAX_PAGINATED_PAGES) {
+    throw new Error(`Catalog Scan paginated ${label} exceeded ${QUICK_SCAN_MAX_PAGINATED_PAGES} pages.`);
+  }
+  if (!hasNextPage) return;
+  if (!nextCursor || nextCursor === currentCursor) {
+    const errorMessage = `Catalog Scan paginated ${label} did not advance cursor on page ${pageCount}.`;
+    logQuickScanProgress("quick_scan.paginated.cursor_stalled", logContext, {
+      label,
+      page: pageCount,
+      currentCursor,
+      nextCursor,
+      hasNextPage,
+      maxPages: QUICK_SCAN_MAX_PAGINATED_PAGES,
+    }, "error");
+    throw new Error(errorMessage);
+  }
+}
+
+async function withTimeout(promise, timeoutMs, message = "Operation timed out.") {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function isProductLike(line) {
   return "handle" in line && "title" in line && !line.__parentId;
 }
@@ -2337,25 +2940,49 @@ function countCsvRatingProductKeys(ratings) {
   }).filter(Boolean)).size;
 }
 
-async function parseJsonlResponse(response) {
+async function parseJsonlResponse(response, { label = "unknown", logContext = null } = {}) {
   if (!response.body || typeof response.body.getReader !== "function") {
-    return parseJsonl(await response.text());
+    const text = await response.text();
+    const rows = parseJsonl(text);
+    logQuickScanProgress("quick_scan.bulk.parse_jsonl.text_completed", logContext, {
+      label,
+      rows: rows.length,
+      bytes: text.length,
+    });
+    return rows;
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const rows = [];
   let buffer = "";
+  let chunkCount = 0;
+  let lastLogAt = 0;
 
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    chunkCount += 1;
     buffer += decoder.decode(value, { stream: true });
     buffer = parseJsonlBuffer(buffer, rows);
+    if (Date.now() - lastLogAt >= QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS) {
+      lastLogAt = Date.now();
+      logQuickScanProgress("quick_scan.bulk.parse_jsonl.progress", logContext, {
+        label,
+        chunks: chunkCount,
+        rows: rows.length,
+        bufferedChars: buffer.length,
+      });
+    }
   }
 
   buffer += decoder.decode();
   parseJsonlBuffer(`${buffer}\n`, rows);
+  logQuickScanProgress("quick_scan.bulk.parse_jsonl.completed", logContext, {
+    label,
+    chunks: chunkCount,
+    rows: rows.length,
+  });
   return rows;
 }
 
@@ -2396,6 +3023,10 @@ function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function toMb(value) {
+  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
 }
 
 const PRODUCT_CATALOG_BULK_QUERY = `{
