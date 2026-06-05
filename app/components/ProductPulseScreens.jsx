@@ -769,11 +769,8 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const productTablesDeferred = Boolean(data.productTablesDeferred);
   const productTablesCacheScope = data.shop || data.shopDomain || data.storeDomain || "";
   const productTablesRequestKey = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    params.delete("_productTables");
-    params.set("tab", activeProductsTab || "full");
-    return params.toString();
-  }, [activeProductsTab, location.search]);
+    return buildProductTablesClientRequestKey(filters, activeProductsTab);
+  }, [activeProductsTab, filters]);
   const productTablesFetchHref = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.set("_productTables", "1");
@@ -791,10 +788,13 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const cachedProductTables = productTablesDeferred
     ? getCachedProductTablesForRequest(productTablesCacheScope, productTablesRequestKey)
     : null;
+  const fallbackProductTables = productTablesDeferred
+    ? getLatestCachedProductTablesForScope(productTablesCacheScope)
+    : null;
   const productTablesForRequest = fetchedProductTablesFresh ? fetchedProductTables : cachedProductTables;
-  const productTableData = productTablesForRequest ? productTablesForRequest.productTable : data.productTable;
-  const candidateProductTableData = productTablesForRequest ? productTablesForRequest.candidateProductTable : data.candidateProductTable;
-  const resolvedProductTableData = productTablesForRequest ? productTablesForRequest.resolvedProductTable : data.resolvedProductTable;
+  const productTableData = getProductTableDataForRender(productTablesForRequest, fallbackProductTables, data.productTable, "productTable");
+  const candidateProductTableData = getProductTableDataForRender(productTablesForRequest, fallbackProductTables, data.candidateProductTable, "candidateProductTable");
+  const resolvedProductTableData = getProductTableDataForRender(productTablesForRequest, fallbackProductTables, data.resolvedProductTable, "resolvedProductTable");
   const productTablesLoading = productTablesDeferred && !productTablesForRequest;
   const productTableRows = productTableData?.rows;
   const candidateTableRows = candidateProductTableData?.rows;
@@ -8258,6 +8258,15 @@ function getCachedProductTablesForRequest(scope, requestKey) {
   return productTablesClientCache.get(getProductTablesClientCacheKey(scope, requestKey)) || null;
 }
 
+function getLatestCachedProductTablesForScope(scope = "") {
+  const prefix = getProductTablesClientCacheKey(scope, "");
+  let latestProductTables = null;
+  for (const [key, productTables] of productTablesClientCache.entries()) {
+    if (key.startsWith(prefix)) latestProductTables = productTables;
+  }
+  return latestProductTables;
+}
+
 function setCachedProductTablesForRequest(scope, requestKey, productTables) {
   if (!requestKey || !productTables) return;
   const cacheKey = getProductTablesClientCacheKey(scope, requestKey);
@@ -8275,6 +8284,26 @@ function clearCachedProductTablesForScope(scope = "") {
   for (const key of productTablesClientCache.keys()) {
     if (key.startsWith(prefix)) productTablesClientCache.delete(key);
   }
+}
+
+function getProductTableDataForRender(exactProductTables, fallbackProductTables, defaultTable, tableKey) {
+  if (exactProductTables?.[tableKey]) return exactProductTables[tableKey];
+  if (fallbackProductTables?.[tableKey]) {
+    return {
+      ...fallbackProductTables[tableKey],
+      rows: [],
+    };
+  }
+  return defaultTable;
+}
+
+function buildProductTablesClientRequestKey(filters = {}, activeTab = "full") {
+  const params = new URLSearchParams(buildProductFilterFormData(
+    filters,
+    {},
+    getProductTableScopeForTab(normalizeProductsTab(activeTab) || "full"),
+  ));
+  return params.toString();
 }
 
 function getProductTableScopeForTab(tab = "full") {

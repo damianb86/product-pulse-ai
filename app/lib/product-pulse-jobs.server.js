@@ -174,7 +174,6 @@ const PRODUCT_TABLE_ROW_METRIC_KEYS = [
   "refundRate",
   "returnUnits",
   "refundUnits",
-  "recentSignalUnits",
   "windowDays",
   "soldUnits",
   "signalCount",
@@ -223,7 +222,6 @@ const PRODUCT_TABLE_ROW_METRIC_KEYS = [
   "customerTextSignals",
   "evidenceConflict",
   "conflictingEvidence",
-  "orderAccessDenied",
   "imageUrl",
   "productImageUrl",
   "featuredImageUrl",
@@ -552,72 +550,7 @@ function buildProductTableRowMetricsSql() {
     ));
   }
   const flatMetricsSql = joinJsonbObjectsSql(flatMetricObjects);
-  const nestedMetricsSql = Prisma.sql`jsonb_build_object(
-    'textInsights',
-    CASE
-      WHEN jsonb_typeof(metrics_json -> 'textInsights') = 'object'
-      THEN jsonb_strip_nulls(jsonb_build_object(
-        'sentiment', metrics_json #> '{textInsights,sentiment}',
-        'subjectiveNegativity', metrics_json #> '{textInsights,subjectiveNegativity}',
-        'repeatedLanguage', metrics_json #> '{textInsights,repeatedLanguage}'
-      ))
-      ELSE NULL
-    END,
-    'productMomentum',
-    CASE
-      WHEN jsonb_typeof(metrics_json -> 'productMomentum') = 'object'
-      THEN jsonb_strip_nulls(jsonb_build_object(
-        'source', metrics_json #> '{productMomentum,source}',
-        'score', metrics_json #> '{productMomentum,score}',
-        'tier', metrics_json #> '{productMomentum,tier}',
-        'direction', metrics_json #> '{productMomentum,direction}',
-        'confidence', metrics_json #> '{productMomentum,confidence}',
-        'confidenceLabel', metrics_json #> '{productMomentum,confidenceLabel}',
-        'calculatedAt', metrics_json #> '{productMomentum,calculatedAt}',
-        'windowDays', metrics_json #> '{productMomentum,windowDays}',
-        'baselineDays', metrics_json #> '{productMomentum,baselineDays}',
-        'components', jsonb_strip_nulls(jsonb_build_object(
-          'currentVelocityScore', metrics_json #> '{productMomentum,components,currentVelocityScore}',
-          'growthScore', metrics_json #> '{productMomentum,components,growthScore}',
-          'catalogShareScore', metrics_json #> '{productMomentum,components,catalogShareScore}',
-          'trendConsistencyScore', metrics_json #> '{productMomentum,components,trendConsistencyScore}',
-          'recencyScore', metrics_json #> '{productMomentum,components,recencyScore}'
-        )),
-        'inputs', jsonb_strip_nulls(jsonb_build_object(
-          'unitsLast7Days', metrics_json #> '{productMomentum,inputs,unitsLast7Days}',
-          'unitsLast14Days', metrics_json #> '{productMomentum,inputs,unitsLast14Days}',
-          'unitsLast30Days', metrics_json #> '{productMomentum,inputs,unitsLast30Days}',
-          'unitsPrevious30Days', metrics_json #> '{productMomentum,inputs,unitsPrevious30Days}',
-          'revenueLast30Days', metrics_json #> '{productMomentum,inputs,revenueLast30Days}',
-          'revenuePrevious30Days', metrics_json #> '{productMomentum,inputs,revenuePrevious30Days}',
-          'ordersLast30Days', metrics_json #> '{productMomentum,inputs,ordersLast30Days}',
-          'weeklyUnitsLast4Weeks', metrics_json #> '{productMomentum,inputs,weeklyUnitsLast4Weeks}',
-          'weeklyRevenueLast4Weeks', metrics_json #> '{productMomentum,inputs,weeklyRevenueLast4Weeks}',
-          'lastSaleAt', metrics_json #> '{productMomentum,inputs,lastSaleAt}'
-        )),
-        'catalog', jsonb_strip_nulls(jsonb_build_object(
-          'unitsVelocityScore', metrics_json #> '{productMomentum,catalog,unitsVelocityScore}',
-          'revenueVelocityScore', metrics_json #> '{productMomentum,catalog,revenueVelocityScore}',
-          'productShareLast30', metrics_json #> '{productMomentum,catalog,productShareLast30}',
-          'productShareBaseline', metrics_json #> '{productMomentum,catalog,productShareBaseline}',
-          'shareLiftRatio', metrics_json #> '{productMomentum,catalog,shareLiftRatio}',
-          'topCatalogPercent', metrics_json #> '{productMomentum,catalog,topCatalogPercent}',
-          'catalogProductCount', metrics_json #> '{productMomentum,catalog,catalogProductCount}',
-          'hasCatalogBaseline', metrics_json #> '{productMomentum,catalog,hasCatalogBaseline}'
-        )),
-        'display', jsonb_strip_nulls(jsonb_build_object(
-          'growthPercent', metrics_json #> '{productMomentum,display,growthPercent}',
-          'growthLabel', metrics_json #> '{productMomentum,display,growthLabel}',
-          'catalogPositionLabel', metrics_json #> '{productMomentum,display,catalogPositionLabel}',
-          'trendLabel', metrics_json #> '{productMomentum,display,trendLabel}',
-          'recommendedUse', metrics_json #> '{productMomentum,display,recommendedUse}'
-        ))
-      ))
-      ELSE NULL
-    END
-  )`;
-
-  return Prisma.sql`jsonb_strip_nulls(${flatMetricsSql} || ${nestedMetricsSql})`;
+  return Prisma.sql`jsonb_strip_nulls(${flatMetricsSql})`;
 }
 
 function buildProductRiskSnapshotMetricChunkSql(keys) {
@@ -795,7 +728,7 @@ export async function getProductsPageTablesForShop(shop, _admin, options = {}) {
   const scoreHistoryByProductGid = await measureProductPulseStep(
     perf,
     `products.${activeTab}.scoreHistory.light`,
-    () => getProductScoreHistoryForProductsLight(shop, pageProductGids, { take: 80 }),
+    () => getProductScoreHistoryForProductsLight(shop, pageProductGids, { take: 12 }),
   );
   const watchedItems = await measureProductPulseStep(
     perf,
@@ -1099,38 +1032,26 @@ async function getProductScoreHistoryForProductsLight(shop, productGids = [], op
   if (!shop) return new Map();
   const uniqueProductGids = [...new Set(productGids.filter(Boolean))];
   if (!uniqueProductGids.length) return new Map();
-  const take = Math.round(Math.max(1, Math.min(120, Number(options.take || 80))));
+  const take = Math.round(Math.max(1, Math.min(24, Number(options.take || 12))));
   const rows = await prisma.$queryRaw`
     SELECT
       id,
-      shop,
       "productGid",
-      "productTitle",
-      handle,
       source,
       "riskScore",
       "impactScore",
       confidence,
       "primaryIssue",
-      metrics,
-      "snapshotId",
-      "diagnosisId",
       "recordedAt"
     FROM (
       SELECT
         id,
-        shop,
         "productGid",
-        "productTitle",
-        handle,
         source,
         "riskScore",
         "impactScore",
         confidence,
         "primaryIssue",
-        metrics,
-        "snapshotId",
-        "diagnosisId",
         "recordedAt",
         row_number() OVER (PARTITION BY "productGid" ORDER BY "recordedAt" DESC) AS row_number
       FROM "ProductScoreHistory"

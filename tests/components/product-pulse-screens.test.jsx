@@ -820,15 +820,13 @@ describe("ProductPulse screens", () => {
         const url = new URL(request.url);
         if (url.searchParams.get("_productTables") !== "1") return null;
         productTableLoads.push(url.search);
-        const requestKeyParams = new URLSearchParams(url.searchParams);
-        requestKeyParams.delete("_productTables");
         const tab = url.searchParams.get("tab") || "full";
         return {
-          requestKey: requestKeyParams.toString(),
+          requestKey: `tab=${encodeURIComponent(tab)}`,
           productTables: responses[tab] || responses.full,
         };
       },
-    }], { initialEntries: ["/app/products"] });
+    }], { initialEntries: ["/app/products?embedded=1&hmac=test-hmac&host=test-host&shop=test-shop.myshopify.com&timestamp=1780592927"] });
 
     render(<RouterProvider router={router} />);
 

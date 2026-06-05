@@ -66,6 +66,7 @@ export const loader = async ({ request }) => {
     return {
       data: {
         ...appViewData,
+        shop: session.shop,
         productTable: buildEmptyProductTable(mainFilters),
         candidateProductTable: buildEmptyProductTable(candidateFilters),
         resolvedProductTable: buildEmptyProductTable(resolvedFilters),
@@ -176,8 +177,11 @@ function buildEmptyProductTable(filters = {}) {
 }
 
 function buildProductTablesRequestKey(url) {
-  const params = new URLSearchParams(url.searchParams);
-  params.delete("_productTables");
+  const params = new URLSearchParams();
+  appendProductTableSearchParams(params, parseProductTableFilters(url.searchParams));
+  appendProductTableSearchParams(params, parseProductTableFilters(url.searchParams, "candidate"), "candidate");
+  appendProductTableSearchParams(params, parseProductTableFilters(url.searchParams, "resolved"), "resolved");
+  params.set("tab", normalizeProductsTab(url.searchParams.get("tab")) || "full");
   return params.toString();
 }
 
@@ -213,6 +217,26 @@ function parseProductTableFilters(searchParams, prefix = "") {
 
 function normalizeProductRowsPerPage(value) {
   return Number(value) === 10 ? "10" : "5";
+}
+
+function appendProductTableSearchParams(params, filters = {}, prefix = "") {
+  const getParamName = (name) => {
+    if (!prefix) return name === "query" ? "q" : name;
+    if (name === "query") return `${prefix}Q`;
+    return `${prefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+  };
+
+  if (filters.query) params.set(getParamName("query"), filters.query);
+  ["risk", "status", "issue", "vendor", "collection"].forEach((name) => {
+    if (filters[name] && filters[name] !== "all") params.set(getParamName(name), filters[name]);
+  });
+  if (String(filters.page || "1") !== "1") params.set(getParamName("page"), String(filters.page));
+  const normalizedRows = normalizeProductRowsPerPage(filters.rows);
+  if (normalizedRows !== "5") params.set(getParamName("rows"), normalizedRows);
+  if (filters.sort) {
+    params.set(getParamName("sort"), filters.sort);
+    params.set(getParamName("direction"), filters.direction === "asc" ? "asc" : "desc");
+  }
 }
 
 function normalizePositiveInteger(value, fallback = 1) {

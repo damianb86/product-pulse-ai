@@ -598,6 +598,7 @@ model ProductAction {
 
   @@index([shop, status])
   @@index([shop, productGid])
+  @@index([shop, status, actionType, productGid, appliedAt, createdAt])
 }
 
 model ProductWatchlistItem {
@@ -718,6 +719,7 @@ model ProductScoreHistory {
   recordedAt   DateTime @default(now())
 
   @@index([shop, productGid, recordedAt])
+  @@index([shop, productGid, recordedAt(sort: Desc)], map: "ProductScoreHistory_shop_productGid_recordedAt_desc_idx")
   @@index([shop, recordedAt])
   @@index([shop, source])
 }
