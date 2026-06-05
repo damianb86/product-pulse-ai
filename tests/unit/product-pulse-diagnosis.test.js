@@ -99,6 +99,60 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(__productPulseDiagnosisTestHooks.lineItemMatchesProduct(lineItem, product, snapshot)).toBe(true);
   });
 
+  it("matches cached source events by SKU or title when Shopify omits product ids", () => {
+    const product = {
+      id: "gid://shopify/Product/123",
+      title: "THE NIGHT WATCH | REMBRANDT VAN RIJN",
+      handle: "the-night-watch-rembrandt-van-rijn",
+      variants: [{ id: "gid://shopify/ProductVariant/456", sku: "NIGHT-WATCH-XL" }],
+    };
+    const snapshot = {
+      productGid: product.id,
+      productTitle: product.title,
+      handle: product.handle,
+    };
+
+    const matched = __productPulseDiagnosisTestHooks.filterDiagnosisEventsForProduct([
+      { id: "sku-event", sku: "NIGHT-WATCH-XL", title: "Different title", createdAt: "2026-06-01T10:00:00.000Z" },
+      { id: "title-event", title: "The Night Watch", createdAt: "2026-06-01T11:00:00.000Z" },
+      { id: "other-event", sku: "OTHER-SKU", title: "Other Product", createdAt: "2026-06-01T12:00:00.000Z" },
+      { id: "title-only-other-event", title: "Other Product", createdAt: "2026-06-01T13:00:00.000Z" },
+    ], product, snapshot);
+
+    expect(matched.map((event) => event.id)).toEqual(["sku-event", "title-event"]);
+  });
+
+  it("builds compact shared shop source event rows from normalized events", () => {
+    const row = __productPulseDiagnosisTestHooks.buildShopSourceEventRow({
+      shop: "example.myshopify.com",
+      sourceType: "sales",
+      event: {
+        id: "line-1",
+        orderId: "order-1",
+        lineItemId: "line-1",
+        productId: "gid://shopify/Product/123",
+        variantId: "gid://shopify/ProductVariant/456",
+        createdAt: "2026-06-01T10:00:00.000Z",
+        quantity: 2,
+        amount: 42.5,
+        title: "The Night Watch",
+      },
+      now: new Date("2026-06-02T10:00:00.000Z"),
+    });
+
+    expect(row).toMatchObject({
+      shop: "example.myshopify.com",
+      sourceType: "sales",
+      productGid: "gid://shopify/Product/123",
+      variantGid: "gid://shopify/ProductVariant/456",
+      orderGid: "order-1",
+      quantity: 2,
+      amount: 42.5,
+    });
+    expect(row.cacheKey).toContain("sale");
+    expect(row.payload).toMatchObject({ productId: "gid://shopify/Product/123", title: "The Night Watch" });
+  });
+
   it("does not match different Shopify products only because titles overlap", () => {
     const lineItem = {
       title: "Transformers Generation Project Storm Autobot Optimus Prime",

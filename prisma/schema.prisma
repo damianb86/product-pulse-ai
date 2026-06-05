@@ -344,6 +344,47 @@ model ProductRiskSnapshot {
   @@index([shop, riskScore, updatedAt])
 }
 
+model ProductPulseShopSourceEventCache {
+  id                  String    @id @default(cuid())
+  shop                String
+  cacheKey            String
+  schemaVersion       Int
+  windowDays          Int
+  fetchComplete       Boolean   @default(true)
+  fetchedThroughAt    DateTime?
+  sourceFetchComplete Json?
+  counts              Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([shop, cacheKey])
+  @@index([shop, updatedAt])
+}
+
+model ProductPulseShopSourceEvent {
+  id              String    @id @default(cuid())
+  shop            String
+  sourceType      String
+  cacheKey        String
+  productGid      String?
+  variantGid      String?
+  orderGid        String?
+  lineItemGid     String?
+  eventAt         DateTime?
+  sourceUpdatedAt DateTime?
+  quantity        Int       @default(0)
+  amount          Float     @default(0)
+  payload         Json
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([shop, sourceType, cacheKey])
+  @@index([shop, sourceType, eventAt])
+  @@index([shop, productGid, sourceType, eventAt])
+  @@index([shop, variantGid, sourceType, eventAt])
+  @@index([shop, updatedAt])
+}
+
 model ProductPulseProductRollup {
   id                         String    @id @default(cuid())
   shop                       String

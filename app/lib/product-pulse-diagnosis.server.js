@@ -65,6 +65,9 @@ const RECONSTRUCTED_RISK_HISTORY_MIN_LOOKBACK_DAYS = 365;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
 const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 3;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
+const SHOP_SOURCE_EVENT_CACHE_KEY_PREFIX = "diagnosis-source-events";
+const SHOP_SOURCE_EVENT_CACHE_FRESH_MS = Math.max(30_000, Number(process.env.PRODUCT_PULSE_SHOPIFY_SOURCE_CACHE_FRESH_MS || 10 * 60 * 1000));
+const SHOP_SOURCE_EVENT_CACHE_WRITE_BATCH_SIZE = 400;
 const SEO_TITLE_MAX_LENGTH = 70;
 const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
@@ -883,10 +886,73 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   let relationshipSales = [];
   let refunds = [];
   let returns = [];
+  let sourceSalesEvents = [];
+  let sourceRefundEvents = [];
+  let sourceReturnEvents = [];
+  let rawFetchedCounts = { salesEvents: 0, refundEvents: 0, returnEvents: 0 };
+  let shopSourceCache = null;
+  let shopSourceCacheUsed = false;
+  let shopSourceCachePersisted = null;
+  let sourceFetchMode = incrementalSource.shopifyCanReuse ? "incremental_fetch" : "full_window_fetch";
+  let sourceFetchReason = incrementalSource.reason;
+  let sourceSinceDate = incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null;
+  let sourcePreviousCompletedAt = incrementalSource.previousCompletedAt;
+  let sourcePreviousWindowDays = incrementalSource.previousWindowDays;
   let orderAccessDenied = false;
   let salesFetchComplete = true;
   let refundFetchComplete = true;
   let returnFetchComplete = true;
+
+  try {
+    shopSourceCache = await measureProductDiagnosisPerfStep(
+      "shopify_source_event_cache",
+      diagnosisPerfContext,
+      () => getShopSourceEventCacheForDiagnosis({ shop, windowDays }),
+      { windowDays },
+      (result) => ({
+        usable: Boolean(result?.usable),
+        stale: Boolean(result?.stale),
+        reason: result?.reason || null,
+        salesEvents: result?.counts?.salesEvents || result?.events?.sales?.length || 0,
+        refundEvents: result?.counts?.refundEvents || result?.events?.refunds?.length || 0,
+        returnEvents: result?.counts?.returnEvents || result?.events?.returns?.length || 0,
+      }),
+    );
+  } catch (error) {
+    await recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.shop_source_event_cache_read_failed",
+      message: "Shared Shopify source event cache read failed; diagnosis will fetch source events from Shopify.",
+      data: { error: serializeError(error), productGid: snapshot.productGid },
+    });
+    shopSourceCache = { usable: false, reason: "shop_source_event_cache_read_failed", events: null };
+  }
+
+  if (shopSourceCache?.usable && shopSourceCache.events) {
+    shopSourceCacheUsed = true;
+    sourceFetchMode = "shop_shared_cache_hit";
+    sourceFetchReason = shopSourceCache.reason;
+    sourceSinceDate = null;
+    sourcePreviousCompletedAt = shopSourceCache.fetchedThroughAt || null;
+    sourcePreviousWindowDays = windowDays;
+    sourceSalesEvents = shopSourceCache.events.sales;
+    sourceRefundEvents = shopSourceCache.events.refunds;
+    sourceReturnEvents = shopSourceCache.events.returns;
+    relationshipSales = sourceSalesEvents;
+  } else {
+    const shouldUseShopCacheRefresh = Boolean(shopSourceCache?.stale && shopSourceCache.events);
+    const sharedCacheModelsAvailable = hasShopSourceEventCacheModels();
+    sourceSinceDate = shouldUseShopCacheRefresh
+      ? shopSourceCache.sinceDate
+      : (sharedCacheModelsAvailable ? null : (incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null));
+    sourceFetchMode = shouldUseShopCacheRefresh
+      ? "shop_shared_cache_incremental_refresh"
+      : (sourceSinceDate ? "incremental_fetch" : "full_window_fetch");
+    sourceFetchReason = shouldUseShopCacheRefresh ? shopSourceCache.reason : incrementalSource.reason;
+    sourcePreviousCompletedAt = shouldUseShopCacheRefresh ? shopSourceCache.fetchedThroughAt : incrementalSource.previousCompletedAt;
+    sourcePreviousWindowDays = shouldUseShopCacheRefresh ? windowDays : incrementalSource.previousWindowDays;
 
   try {
     const salesBundle = await measureProductDiagnosisPerfStep("shopify_sales_bundle", diagnosisPerfContext, () => fetchShopifySalesEventBundle({
@@ -894,18 +960,21 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       product,
       snapshot,
       windowDays,
-      sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
+      sinceDate: sourceSinceDate,
+      includeAllProductCandidates: sharedCacheModelsAvailable,
     }), {
       windowDays,
-      sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
-      incremental: Boolean(incrementalSource.shopifyCanReuse),
+      sinceDate: sourceSinceDate,
+      incremental: Boolean(sourceSinceDate),
+      shopSourceCacheRefresh: shouldUseShopCacheRefresh,
     }, (result) => ({
       salesEvents: result?.sales?.length || 0,
       relationshipSalesEvents: result?.relationshipSales?.length || 0,
     }));
     sales = salesBundle.sales;
     relationshipSales = salesBundle.relationshipSales;
-    if (incrementalSource.shopifyCanReuse) {
+    sourceSalesEvents = salesBundle.relationshipSales.length ? salesBundle.relationshipSales : salesBundle.sales;
+    if (!sharedCacheModelsAvailable && incrementalSource.shopifyCanReuse) {
       try {
         const relationshipBundle = await measureProductDiagnosisPerfStep("shopify_relationship_sales_full_bundle", diagnosisPerfContext, () => fetchShopifySalesEventBundle({
           admin,
@@ -918,6 +987,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
           relationshipSalesEvents: result?.relationshipSales?.length || 0,
         }));
         relationshipSales = relationshipBundle.relationshipSales;
+        sourceSalesEvents = relationshipBundle.relationshipSales.length ? relationshipBundle.relationshipSales : sourceSalesEvents;
       } catch (relationshipError) {
         await recordJobLog({
           shop,
@@ -949,14 +1019,16 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     refunds = await measureProductDiagnosisPerfStep(
       "shopify_refunds",
       diagnosisPerfContext,
-      () => fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null }),
+      () => fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: sourceSinceDate, includeAllProducts: sharedCacheModelsAvailable }),
       {
         windowDays,
-        sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
-        incremental: Boolean(incrementalSource.shopifyCanReuse),
+        sinceDate: sourceSinceDate,
+        incremental: Boolean(sourceSinceDate),
+        shopSourceCacheRefresh: shouldUseShopCacheRefresh,
       },
       (result) => ({ refundEvents: result?.length || 0 }),
     );
+    sourceRefundEvents = refunds;
   } catch (error) {
     refundFetchComplete = false;
     const denied = isShopifyOrderAccessDenied(error);
@@ -977,14 +1049,16 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     returns = await measureProductDiagnosisPerfStep(
       "shopify_returns",
       diagnosisPerfContext,
-      () => fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null }),
+      () => fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: sourceSinceDate, includeAllProducts: sharedCacheModelsAvailable }),
       {
         windowDays,
-        sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null,
-        incremental: Boolean(incrementalSource.shopifyCanReuse),
+        sinceDate: sourceSinceDate,
+        incremental: Boolean(sourceSinceDate),
+        shopSourceCacheRefresh: shouldUseShopCacheRefresh,
       },
       (result) => ({ returnEvents: result?.length || 0 }),
     );
+    sourceReturnEvents = returns;
   } catch (error) {
     returnFetchComplete = false;
     const denied = isShopifyOrderAccessDenied(error);
@@ -1001,22 +1075,70 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     });
   }
 
+    rawFetchedCounts = {
+      salesEvents: sourceSalesEvents.length,
+      refundEvents: sourceRefundEvents.length,
+      returnEvents: sourceReturnEvents.length,
+    };
+
+    if (shouldUseShopCacheRefresh) {
+      const mergedShopSourceEvents = mergeIncrementalSourceEvents({
+        previous: shopSourceCache.events,
+        current: { sales: sourceSalesEvents, refunds: sourceRefundEvents, returns: sourceReturnEvents },
+        windowDays,
+      });
+      sourceSalesEvents = mergedShopSourceEvents.sales;
+      sourceRefundEvents = mergedShopSourceEvents.refunds;
+      sourceReturnEvents = mergedShopSourceEvents.returns;
+    } else if (!sharedCacheModelsAvailable && incrementalSource.shopifyCanReuse) {
+      const mergedProductSourceEvents = mergeIncrementalSourceEvents({
+        previous: incrementalSource.previousSourceEvents,
+        current: { sales: sourceSalesEvents, refunds: sourceRefundEvents, returns: sourceReturnEvents },
+        windowDays,
+      });
+      sourceSalesEvents = mergedProductSourceEvents.sales;
+      sourceRefundEvents = mergedProductSourceEvents.refunds;
+      sourceReturnEvents = mergedProductSourceEvents.returns;
+    }
+
+    if (sharedCacheModelsAvailable && salesFetchComplete && refundFetchComplete && returnFetchComplete && !orderAccessDenied) {
+      try {
+        shopSourceCachePersisted = await measureProductDiagnosisPerfStep(
+          "shopify_source_event_cache_write",
+          diagnosisPerfContext,
+          () => persistShopSourceEventCache({
+            shop,
+            windowDays,
+            sourceEvents: { sales: sourceSalesEvents, refunds: sourceRefundEvents, returns: sourceReturnEvents },
+            fetchedThroughAt: fetchStartedAt,
+            sourceFetchComplete: { sales: salesFetchComplete, refunds: refundFetchComplete, returns: returnFetchComplete },
+          }),
+          { windowDays, mode: sourceFetchMode },
+          (result) => ({
+            skipped: Boolean(result?.skipped),
+            rows: result?.rows || 0,
+            reason: result?.reason || null,
+            counts: result?.counts || null,
+          }),
+        );
+      } catch (error) {
+        await recordJobLog({
+          shop,
+          jobId,
+          level: "warn",
+          event: "product_diagnosis.shop_source_event_cache_write_failed",
+          message: "Shared Shopify source event cache write failed; diagnosis results are still valid for this run.",
+          data: { error: serializeError(error), productGid: snapshot.productGid },
+        });
+      }
+    }
+  }
+
   const merged = await measureProductDiagnosisPerfStep(
     "shopify_merge_filter",
     diagnosisPerfContext,
     () => {
-      const mergedSourceEvents = incrementalSource.shopifyCanReuse
-        ? mergeIncrementalSourceEvents({
-          previous: incrementalSource.previousSourceEvents,
-          current: { sales, refunds, returns },
-          windowDays,
-        })
-        : { sales, refunds, returns };
-      const rawFetchedCounts = {
-        salesEvents: sales.length,
-        refundEvents: refunds.length,
-        returnEvents: returns.length,
-      };
+      const mergedSourceEvents = { sales: sourceSalesEvents, refunds: sourceRefundEvents, returns: sourceReturnEvents };
       const filteredSales = filterDiagnosisEventsForProduct(mergedSourceEvents.sales, product, snapshot);
       const filteredRefunds = filterDiagnosisEventsForProduct(mergedSourceEvents.refunds, product, snapshot);
       const filteredReturns = filterDiagnosisEventsForProduct(mergedSourceEvents.returns, product, snapshot);
@@ -1033,13 +1155,20 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
         refunds: filteredRefunds,
         returns: filteredReturns,
         relationshipSales: relationshipSales.length ? relationshipSales : backfilledSales,
+        sourceEventCounts: {
+          salesEvents: mergedSourceEvents.sales.length,
+          refundEvents: mergedSourceEvents.refunds.length,
+          returnEvents: mergedSourceEvents.returns.length,
+        },
       };
     },
     {
-      incremental: Boolean(incrementalSource.shopifyCanReuse),
-      previousSalesEvents: incrementalSource.previousSourceEvents?.sales?.length || 0,
-      previousRefundEvents: incrementalSource.previousSourceEvents?.refunds?.length || 0,
-      previousReturnEvents: incrementalSource.previousSourceEvents?.returns?.length || 0,
+      mode: sourceFetchMode,
+      incremental: Boolean(sourceSinceDate),
+      shopSourceCacheUsed,
+      previousSalesEvents: shopSourceCache?.events?.sales?.length || incrementalSource.previousSourceEvents?.sales?.length || 0,
+      previousRefundEvents: shopSourceCache?.events?.refunds?.length || incrementalSource.previousSourceEvents?.refunds?.length || 0,
+      previousReturnEvents: shopSourceCache?.events?.returns?.length || incrementalSource.previousSourceEvents?.returns?.length || 0,
     },
     (result) => ({
       rawFetchedCounts: result.rawFetchedCounts,
@@ -1049,7 +1178,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       returnEvents: result.returns.length,
     }),
   );
-  const rawFetchedCounts = merged.rawFetchedCounts;
+  rawFetchedCounts = merged.rawFetchedCounts;
   sales = merged.sales;
   refunds = merged.refunds;
   returns = merged.returns;
@@ -1069,16 +1198,26 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       windowDays,
       orderAccessDenied,
       incrementalSource: {
-        mode: incrementalSource.shopifyCanReuse ? "incremental_fetch" : "full_window_fetch",
-        sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : getSinceDate(windowDays),
-        previousCompletedAt: incrementalSource.previousCompletedAt,
-        previousWindowDays: incrementalSource.previousWindowDays,
+        mode: sourceFetchMode,
+        reason: sourceFetchReason,
+        sinceDate: sourceSinceDate || (shopSourceCacheUsed ? null : getSinceDate(windowDays)),
+        previousCompletedAt: sourcePreviousCompletedAt,
+        previousWindowDays: sourcePreviousWindowDays,
         fetchedThroughAt: fetchStartedAt,
         rawFetchedCounts,
         mergedCounts: {
           salesEvents: sales.length,
           refundEvents: refunds.length,
           returnEvents: returns.length,
+        },
+        sourceEventCounts: merged.sourceEventCounts,
+        shopSourceCache: {
+          used: shopSourceCacheUsed,
+          reason: shopSourceCache?.reason || null,
+          stale: Boolean(shopSourceCache?.stale),
+          fetchedThroughAt: shopSourceCache?.fetchedThroughAt || null,
+          counts: shopSourceCache?.counts || null,
+          persisted: shopSourceCachePersisted || null,
         },
         sourceFetchComplete: {
           sales: salesFetchComplete,
@@ -1099,13 +1238,26 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     orderAccessDenied,
     incrementalSource: {
       ...incrementalSource,
-      mode: incrementalSource.shopifyCanReuse ? "incremental_fetch" : "full_window_fetch",
+      mode: sourceFetchMode,
+      reason: sourceFetchReason,
+      sinceDate: sourceSinceDate || (shopSourceCacheUsed ? null : getSinceDate(windowDays)),
+      previousCompletedAt: sourcePreviousCompletedAt,
+      previousWindowDays: sourcePreviousWindowDays,
       fetchedThroughAt: fetchStartedAt,
       rawFetchedCounts,
       mergedCounts: {
         salesEvents: sales.length,
         refundEvents: refunds.length,
         returnEvents: returns.length,
+      },
+      sourceEventCounts: merged.sourceEventCounts,
+      shopSourceCache: {
+        used: shopSourceCacheUsed,
+        reason: shopSourceCache?.reason || null,
+        stale: Boolean(shopSourceCache?.stale),
+        fetchedThroughAt: shopSourceCache?.fetchedThroughAt || null,
+        counts: shopSourceCache?.counts || null,
+        persisted: shopSourceCachePersisted || null,
       },
       sourceFetchComplete: {
         sales: salesFetchComplete,
@@ -1754,7 +1906,7 @@ async function fetchShopifyProduct({ admin, snapshot }) {
   return normalizeShopifyProduct(data?.products?.nodes?.[0], snapshot);
 }
 
-async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProductCandidates = false }) {
   if (!admin?.graphql) return { sales: [], relationshipSales: [] };
   const sales = [];
   const relationshipSales = [];
@@ -1792,8 +1944,8 @@ async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDa
           basketFingerprint,
           geography,
         });
-        if (!event.productId) return;
-        relationshipSales.push(event);
+        if (!event.productId && !includeAllProductCandidates) return;
+        if (event.productId || event.variantId || event.sku || event.title) relationshipSales.push(event);
         if (lineItemMatchesProduct(lineItem, product, snapshot)) sales.push(event);
       });
     });
@@ -1823,7 +1975,7 @@ function normalizeDiagnosisOrderLineItemSaleEvent({
     id: lineItem?.id,
     orderId: order?.id,
     lineItemId: lineItem?.id,
-    productId: lineProduct.id || (lineItemMatchesProduct(lineItem, product, snapshot) ? product.id || snapshot.productGid : null),
+    productId: lineProduct.id || variant.product?.id || (lineItemMatchesProduct(lineItem, product, snapshot) ? product.id || snapshot.productGid : null),
     createdAt: orderDate,
     orderDate,
     orderProcessedAt: toIso(order?.processedAt),
@@ -1995,11 +2147,23 @@ function diagnosisEventMatchesProduct(event = {}, product = {}, snapshot = {}) {
   if (eventVariantId && (variantIds.has(eventVariantId) || variantIds.has(extractNumericShopifyId(eventVariantId)))) return true;
 
   if (eventProductId || eventVariantId) return false;
+
+  const eventSku = normalizeText(event.sku || "");
+  const productSkus = new Set((product.variants || []).map((variant) => normalizeText(variant.sku)).filter(Boolean));
+  if (eventSku && productSkus.has(eventSku)) return true;
+  if (eventSku) return false;
+
+  const eventTitle = normalizeText(event.title || "");
+  const productTitle = normalizeText(product.title || snapshot.productTitle || "");
+  if (eventTitle && productTitle && (eventTitle === productTitle || eventTitle.includes(productTitle) || productTitle.includes(eventTitle))) return true;
+  const handleAsTitle = normalizeText(product.handle || snapshot.handle || "").replace(/-/g, " ");
+  if (hasStrongTextOverlap(eventTitle, productTitle) || hasStrongTextOverlap(eventTitle, handleAsTitle)) return true;
+
   return false;
 }
 
 function hasStableDiagnosisEventProductIdentifier(event = {}) {
-  return Boolean(event.productId || event.variantId || event.sku);
+  return Boolean(event.productId || event.variantId || event.sku || event.title);
 }
 
 function buildDiagnosisSalesQuery() {
@@ -2102,10 +2266,10 @@ function normalizeGeographyCode(value = "") {
   return String(value || "").trim().toUpperCase();
 }
 
-async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProducts = false }) {
   for (const [index, queryPlan] of DIAGNOSIS_REFUND_QUERY_PLANS.entries()) {
     try {
-      return await fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan, windowDays, sinceDate });
+      return await fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan, windowDays, sinceDate, includeAllProducts });
     } catch (error) {
       const nextPlan = DIAGNOSIS_REFUND_QUERY_PLANS[index + 1];
       if (!isShopifyQueryCostLimitError(error) || !nextPlan) throw error;
@@ -2128,7 +2292,7 @@ async function fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot,
   return [];
 }
 
-async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, snapshot, queryPlan, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProducts = false }) {
   if (!admin?.graphql) return [];
   const events = [];
   const seenRefundLineItemIds = new Set();
@@ -2192,7 +2356,8 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
             if (refundLineItem.id) seenRefundLineItemIds.add(refundLineItem.id);
             stats.scannedRefundLineItems += 1;
             const lineItem = refundLineItem.lineItem || {};
-            if (!lineItemMatchesProduct(lineItem, product, snapshot)) {
+            const matchedProduct = lineItemMatchesProduct(lineItem, product, snapshot);
+            if (!matchedProduct) {
               if (stats.unmatchedSamples.length < 4) {
                 stats.unmatchedSamples.push({
                   title: lineItem.title || "",
@@ -2204,7 +2369,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
                   queryMode: orderQuery.mode,
                 });
               }
-              return;
+              if (!includeAllProducts) return;
             }
 
             const noteText = getRefundNoteText({ note: refund.note });
@@ -2213,7 +2378,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
               restockType: refundLineItem.restockType,
               adjustmentReasons,
             });
-            if (noteText) {
+            if (matchedProduct && noteText) {
               stats.matchedRefundLineItemsWithNotes += 1;
               if (stats.matchedNoteSamples.length < 5) {
                 stats.matchedNoteSamples.push({
@@ -2224,7 +2389,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
                 });
               }
             }
-            if (reasonText) {
+            if (matchedProduct && reasonText) {
               stats.matchedRefundLineItemsWithReasons += 1;
               if (stats.matchedReasonSamples.length < 5) {
                 stats.matchedReasonSamples.push({
@@ -2238,14 +2403,14 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
               }
             }
 
-            stats.matchedRefundLineItems += 1;
+            if (matchedProduct) stats.matchedRefundLineItems += 1;
             events.push({
               id: refundLineItem.id,
               refundId: refund.id,
               refundLineItemId: refundLineItem.id,
               orderId: order.id,
               lineItemId: lineItem.id || null,
-              productId: lineItem.product?.id || lineItem.variant?.product?.id || product.id || snapshot.productGid,
+              productId: lineItem.product?.id || lineItem.variant?.product?.id || (matchedProduct ? product.id || snapshot.productGid : null),
               orderDate: toIso(getShopifyOrderDate(order)),
               orderProcessedAt: toIso(order.processedAt),
               orderCreatedAt: toIso(order.createdAt),
@@ -2260,7 +2425,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
               reason: reasonText,
               reasonLabel: reasonText || normalizeRefundReasonLabel(refundLineItem.restockType || ""),
               note: noteText,
-              title: lineItem.title || product.title,
+              title: lineItem.title || (matchedProduct ? product.title : ""),
               sku: lineItem.sku || lineItem.variant?.sku || "",
               variantId: lineItem.variant?.id || null,
               variantTitle: lineItem.variant?.title || "",
@@ -2279,6 +2444,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
               seenOrderLevelRefundLineItemIds,
               stats,
               events,
+              includeAllProducts,
             });
           }
         });
@@ -2294,6 +2460,7 @@ async function fetchShopifyRefundEventsWithPlan({ shop, jobId, admin, product, s
             seenOrderLevelRefundLineItemIds,
             stats,
             events,
+            includeAllProducts,
           });
         }
       });
@@ -2329,6 +2496,7 @@ function addDiagnosisOrderLevelRefundFallbackEvents({
   seenOrderLevelRefundLineItemIds,
   stats,
   events,
+  includeAllProducts = false,
 }) {
   const lineItems = getNodes(order?.lineItems);
   if (!shouldUseDiagnosisOrderLevelRefundFallback(order, refund, lineItems)) return;
@@ -2356,7 +2524,8 @@ function addDiagnosisOrderLevelRefundFallbackEvents({
     const fallbackKey = [order?.id, refund?.id || "order-level", lineItem?.id].filter(Boolean).join(":");
     if (!fallbackKey || seenOrderLevelRefundLineItemIds.has(fallbackKey)) return;
 
-    if (!lineItemMatchesProduct(lineItem, product, snapshot)) {
+    const matchedProduct = lineItemMatchesProduct(lineItem, product, snapshot);
+    if (!matchedProduct) {
       if (stats.unmatchedSamples.length < 4) {
         stats.unmatchedSamples.push({
           title: lineItem.title || "",
@@ -2368,15 +2537,15 @@ function addDiagnosisOrderLevelRefundFallbackEvents({
           queryMode: orderQuery.mode,
         });
       }
-      return;
+      if (!includeAllProducts) return;
     }
 
     seenOrderLevelRefundLineItemIds.add(fallbackKey);
-    const event = normalizeDiagnosisOrderLevelRefundLineItemEvent(lineItem, context, product);
+    const event = normalizeDiagnosisOrderLevelRefundLineItemEvent(lineItem, context, matchedProduct ? product : null);
     const noteText = getRefundNoteText(event);
     const reasonText = getRefundReasonText(event);
-    stats.matchedOrderLevelRefundLineItems += 1;
-    if (noteText) {
+    if (matchedProduct) stats.matchedOrderLevelRefundLineItems += 1;
+    if (matchedProduct && noteText) {
       stats.matchedRefundLineItemsWithNotes += 1;
       if (stats.matchedNoteSamples.length < 5) {
         stats.matchedNoteSamples.push({
@@ -2388,7 +2557,7 @@ function addDiagnosisOrderLevelRefundFallbackEvents({
         });
       }
     }
-    if (reasonText) {
+    if (matchedProduct && reasonText) {
       stats.matchedRefundLineItemsWithReasons += 1;
       if (stats.matchedReasonSamples.length < 5) {
         stats.matchedReasonSamples.push({
@@ -2636,9 +2805,9 @@ function buildRefundOrderQueries(windowDays, sinceDate = null) {
   ];
 }
 
-async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProducts = false }) {
   try {
-    return await fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: true, windowDays, sinceDate });
+    return await fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: true, windowDays, sinceDate, includeAllProducts });
   } catch (error) {
     if (!isMissingReturnReasonDefinitionError(error)) throw error;
     await recordJobLog({
@@ -2649,14 +2818,14 @@ async function fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot,
       message: "Shopify API version did not expose returnReasonDefinition; retrying return extraction with legacy returnReason fields.",
       data: { error: serializeError(error), productGid: snapshot.productGid },
     });
-    return fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: false, windowDays, sinceDate });
+    return fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition: false, windowDays, sinceDate, includeAllProducts });
   }
 }
 
-async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product, snapshot, includeReasonDefinition, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProducts = false }) {
   for (const [index, queryPlan] of DIAGNOSIS_RETURN_QUERY_PLANS.entries()) {
     try {
-      return await fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan, windowDays, sinceDate });
+      return await fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan, windowDays, sinceDate, includeAllProducts });
     } catch (error) {
       const nextPlan = DIAGNOSIS_RETURN_QUERY_PLANS[index + 1];
       if (!isShopifyQueryCostLimitError(error) || !nextPlan) throw error;
@@ -2679,7 +2848,7 @@ async function fetchShopifyReturnEventsWithSchema({ shop, jobId, admin, product,
   return [];
 }
 
-async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null }) {
+async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, snapshot, includeReasonDefinition, queryPlan, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProducts = false }) {
   if (!admin?.graphql) return [];
   const events = [];
   let cursor = null;
@@ -2726,7 +2895,8 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
             if (returnLineItem.id) seenReturnLineItemIds.add(returnLineItem.id);
             stats.scannedReturnLineItems += 1;
             const lineItem = returnLineItem.fulfillmentLineItem?.lineItem || {};
-            if (!lineItemMatchesProduct(lineItem, product, snapshot)) {
+            const matchedProduct = lineItemMatchesProduct(lineItem, product, snapshot);
+            if (!matchedProduct) {
               if (stats.unmatchedSamples.length < 4) {
                 stats.unmatchedSamples.push({
                   title: lineItem.title || "",
@@ -2738,13 +2908,13 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
                   queryMode: orderQuery.mode,
                 });
               }
-              return;
+              if (!includeAllProducts) return;
             }
 
-            stats.matchedReturnLineItems += 1;
+            if (matchedProduct) stats.matchedReturnLineItems += 1;
             const reasonNote = getReturnLineItemReasonNote(returnLineItem);
             const customerNote = getReturnLineItemCustomerNote(returnLineItem);
-            if (reasonNote || customerNote) {
+            if (matchedProduct && (reasonNote || customerNote)) {
               stats.matchedReturnLineItemsWithNotes += 1;
               if (stats.matchedNoteSamples.length < 5) {
                 stats.matchedNoteSamples.push({
@@ -2766,7 +2936,7 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
               returnLineItemId: returnLineItem.id,
               orderId: order.id,
               lineItemId: lineItem.id || null,
-              productId: lineItem.product?.id || product.id || snapshot.productGid,
+              productId: lineItem.product?.id || lineItem.variant?.product?.id || (matchedProduct ? product.id || snapshot.productGid : null),
               orderDate: toIso(getShopifyOrderDate(order)),
               orderProcessedAt: toIso(order.processedAt),
               orderCreatedAt: toIso(order.createdAt),
@@ -2779,7 +2949,7 @@ async function fetchShopifyReturnEventsWithPlan({ shop, jobId, admin, product, s
               reasonLabel: getReturnReasonLabel(returnLineItem),
               reasonNote,
               customerNote,
-              title: lineItem.title || product.title,
+              title: lineItem.title || (matchedProduct ? product.title : ""),
               sku: lineItem.sku || lineItem.variant?.sku || "",
               variantId: lineItem.variant?.id || null,
               variantTitle: lineItem.variant?.title || "",
@@ -13399,6 +13569,205 @@ function limitSourceEventCacheItems(items = []) {
     : normalized;
 }
 
+function getShopSourceEventCacheKey(windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS) {
+  return `${SHOP_SOURCE_EVENT_CACHE_KEY_PREFIX}:v${SOURCE_EVENT_CACHE_SCHEMA_VERSION}:window:${Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS))}`;
+}
+
+function hasShopSourceEventCacheModels() {
+  return Boolean(prisma?.productPulseShopSourceEventCache && prisma?.productPulseShopSourceEvent);
+}
+
+function getShopSourceEventLookbackCutoffDate(windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS) {
+  return new Date(Date.now() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000);
+}
+
+function isShopSourceEventCacheFresh(fetchedThroughAt) {
+  const parsed = parseValidDate(fetchedThroughAt);
+  return Boolean(parsed && Date.now() - parsed.getTime() <= SHOP_SOURCE_EVENT_CACHE_FRESH_MS);
+}
+
+async function getShopSourceEventCacheForDiagnosis({ shop, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS } = {}) {
+  if (!shop || !hasShopSourceEventCacheModels()) {
+    return { usable: false, reason: "shop_source_event_cache_unavailable", events: null };
+  }
+
+  const normalizedWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const cacheKey = getShopSourceEventCacheKey(normalizedWindowDays);
+  const state = await prisma.productPulseShopSourceEventCache.findUnique({
+    where: { shop_cacheKey: { shop, cacheKey } },
+  });
+
+  if (!state) return { usable: false, reason: "shop_source_event_cache_missing", events: null, cacheKey };
+  if (Number(state.schemaVersion || 0) !== SOURCE_EVENT_CACHE_SCHEMA_VERSION) {
+    return { usable: false, reason: "shop_source_event_cache_schema_mismatch", state, events: null, cacheKey };
+  }
+  if (state.fetchComplete === false) {
+    return { usable: false, reason: "shop_source_event_cache_incomplete", state, events: null, cacheKey };
+  }
+  if (Number(state.windowDays || 0) < normalizedWindowDays) {
+    return { usable: false, reason: "shop_source_event_cache_window_too_short", state, events: null, cacheKey };
+  }
+
+  const events = await readShopSourceEventsForWindow({ shop, windowDays: normalizedWindowDays });
+  const counts = {
+    salesEvents: events.sales.length,
+    refundEvents: events.refunds.length,
+    returnEvents: events.returns.length,
+  };
+  const expectedCounts = state.counts || {};
+  const expectedRows = Number(expectedCounts.salesEvents || expectedCounts.refundEvents || expectedCounts.returnEvents || 0);
+  if (expectedRows > 0 && counts.salesEvents + counts.refundEvents + counts.returnEvents === 0) {
+    return { usable: false, reason: "shop_source_event_cache_rows_missing", state, events: null, cacheKey };
+  }
+
+  const fetchedThroughAt = toIso(state.fetchedThroughAt || state.updatedAt);
+  const fresh = isShopSourceEventCacheFresh(fetchedThroughAt);
+  return {
+    usable: fresh,
+    stale: !fresh,
+    reason: fresh ? "shop_source_event_cache_hit" : "shop_source_event_cache_stale",
+    state,
+    events,
+    counts,
+    cacheKey,
+    fetchedThroughAt,
+    sinceDate: fetchedThroughAt ? buildIncrementalSinceDate(fetchedThroughAt, normalizedWindowDays) : getSinceDate(normalizedWindowDays),
+  };
+}
+
+async function readShopSourceEventsForWindow({ shop, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS } = {}) {
+  const cutoff = getShopSourceEventLookbackCutoffDate(windowDays);
+  const readType = async (sourceType) => {
+    const rows = await prisma.productPulseShopSourceEvent.findMany({
+      where: {
+        shop,
+        sourceType,
+        eventAt: { gte: cutoff },
+      },
+      select: { payload: true },
+      orderBy: [{ eventAt: "desc" }, { updatedAt: "desc" }],
+      take: MAX_SOURCE_EVENT_CACHE_ITEMS,
+    });
+    return normalizeSourceEventList(rows.map((row) => row.payload).filter(Boolean), sourceType, windowDays);
+  };
+
+  const [sales, refunds, returns] = await Promise.all([
+    readType("sales"),
+    readType("refunds"),
+    readType("returns"),
+  ]);
+  return { sales, refunds, returns };
+}
+
+async function persistShopSourceEventCache({ shop, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sourceEvents = {}, fetchedThroughAt = null, sourceFetchComplete = {} } = {}) {
+  if (!shop || !hasShopSourceEventCacheModels()) return { skipped: true, reason: "shop_source_event_cache_unavailable" };
+  const normalizedWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const fetchComplete = sourceFetchComplete.sales !== false && sourceFetchComplete.refunds !== false && sourceFetchComplete.returns !== false;
+  if (!fetchComplete) return { skipped: true, reason: "source_fetch_incomplete" };
+
+  const normalized = normalizeSourceEventsCache(sourceEvents, normalizedWindowDays);
+  const cacheKey = getShopSourceEventCacheKey(normalizedWindowDays);
+  const cutoff = getShopSourceEventLookbackCutoffDate(normalizedWindowDays);
+  const sourceTypes = ["sales", "refunds", "returns"];
+  const now = new Date();
+  const fetchedThroughDate = parseValidDate(fetchedThroughAt) || now;
+  const rows = sourceTypes.flatMap((sourceType) => normalized[sourceType].map((event) => buildShopSourceEventRow({
+    shop,
+    sourceType,
+    event,
+    now,
+  }))).filter(Boolean);
+
+  await prisma.productPulseShopSourceEvent.deleteMany({
+    where: {
+      shop,
+      sourceType: { in: sourceTypes },
+      OR: [
+        { eventAt: { gte: cutoff } },
+        { eventAt: null },
+      ],
+    },
+  });
+
+  for (let index = 0; index < rows.length; index += SHOP_SOURCE_EVENT_CACHE_WRITE_BATCH_SIZE) {
+    await prisma.productPulseShopSourceEvent.createMany({
+      data: rows.slice(index, index + SHOP_SOURCE_EVENT_CACHE_WRITE_BATCH_SIZE),
+      skipDuplicates: true,
+    });
+  }
+
+  await prisma.productPulseShopSourceEvent.deleteMany({
+    where: {
+      shop,
+      sourceType: { in: sourceTypes },
+      eventAt: { lt: cutoff },
+    },
+  });
+
+  await prisma.productPulseShopSourceEventCache.upsert({
+    where: { shop_cacheKey: { shop, cacheKey } },
+    create: {
+      shop,
+      cacheKey,
+      schemaVersion: SOURCE_EVENT_CACHE_SCHEMA_VERSION,
+      windowDays: normalizedWindowDays,
+      fetchComplete: true,
+      fetchedThroughAt: fetchedThroughDate,
+      sourceFetchComplete,
+      counts: {
+        salesEvents: normalized.sales.length,
+        refundEvents: normalized.refunds.length,
+        returnEvents: normalized.returns.length,
+      },
+    },
+    update: {
+      schemaVersion: SOURCE_EVENT_CACHE_SCHEMA_VERSION,
+      windowDays: normalizedWindowDays,
+      fetchComplete: true,
+      fetchedThroughAt: fetchedThroughDate,
+      sourceFetchComplete,
+      counts: {
+        salesEvents: normalized.sales.length,
+        refundEvents: normalized.refunds.length,
+        returnEvents: normalized.returns.length,
+      },
+    },
+  });
+
+  return {
+    skipped: false,
+    cacheKey,
+    rows: rows.length,
+    counts: {
+      salesEvents: normalized.sales.length,
+      refundEvents: normalized.refunds.length,
+      returnEvents: normalized.returns.length,
+    },
+  };
+}
+
+function buildShopSourceEventRow({ shop, sourceType, event = {}, now = new Date() } = {}) {
+  const payload = trimSourceEventForCache(event, sourceType);
+  if (!payload) return null;
+  const eventAt = getSourceEventDate(payload) || parseValidDate(payload.orderDate) || now;
+  return {
+    shop,
+    sourceType,
+    cacheKey: getSourceEventCacheKey(sourceType, payload),
+    productGid: payload.productId || null,
+    variantGid: payload.variantId || null,
+    orderGid: payload.orderId || null,
+    lineItemGid: payload.lineItemId || payload.refundLineItemId || payload.returnLineItemId || null,
+    eventAt,
+    sourceUpdatedAt: parseValidDate(payload.updatedAt || payload.processedAt || payload.createdAt) || eventAt,
+    quantity: Math.max(0, Math.trunc(Number(payload.quantity || 0))),
+    amount: Number(payload.amount || payload.totalRefundedAmount || 0),
+    payload: jsonSafe(payload),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 function buildIncrementalSourceFetchSummary(source = null) {
   if (!source || typeof source !== "object") {
     return {
@@ -13416,6 +13785,8 @@ function buildIncrementalSourceFetchSummary(source = null) {
     fetchedThroughAt: source.fetchedThroughAt || null,
     rawFetchedCounts: source.rawFetchedCounts || null,
     mergedCounts: source.mergedCounts || null,
+    sourceEventCounts: source.sourceEventCounts || null,
+    shopSourceCache: source.shopSourceCache || null,
     fetchComplete: source.fetchComplete !== false,
   };
 }
@@ -17821,6 +18192,8 @@ export const __productPulseDiagnosisTestHooks = {
   shouldRecommendFullDescriptionRewrite,
   getNoChangeDiagnosisReuseDecision,
   getIncrementalSourceFetchContext,
+  getShopSourceEventCacheKey,
+  buildShopSourceEventRow,
   mergeIncrementalSourceEvents,
   filterDiagnosisEventsForProduct,
   backfillMissingSalesFromOperationalEvents,
