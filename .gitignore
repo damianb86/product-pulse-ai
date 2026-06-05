@@ -17,6 +17,10 @@ database.sqlite
 .env.*
 !.env.example
 
+# Local-only deploy helpers with private server/key paths.
+*.local.sh
+deploy-production.local.sh
+
 coverage
 playwright-report
 test-results

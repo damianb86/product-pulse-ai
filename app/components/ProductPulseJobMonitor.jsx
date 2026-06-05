@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useFetcher, useLocation, useRevalidator } from "react-router";
 import { buildEmbeddedAppPath } from "../lib/product-pulse-app-paths";
 
-const JOB_STATUS_ACTIVE_POLL_MS = 12_000;
+const JOB_STATUS_MIN_REFRESH_MS = 10_000;
+const JOB_STATUS_ACTIVE_POLL_MS = 10_000;
 const JOB_STATUS_IDLE_POLL_MS = 45_000;
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false }) {
@@ -22,6 +23,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const announcedFailedJobIdsRef = useRef(new Set());
   const fetcherStateRef = useRef(fetcher.state);
   const searchFetcherLoadRef = useRef(searchFetcher.load);
+  const lastJobStatusLoadAtRef = useRef(0);
+  const pendingJobStatusLoadRef = useRef(null);
   const lastSearchQueryRef = useRef("");
   const topbarRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -60,6 +63,26 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     () => (selectedJobId ? logs.filter((log) => log.jobId === selectedJobId) : logs),
     [logs, selectedJobId],
   );
+  const requestJobStatusLoad = useCallback((options = {}) => {
+    const { allowHidden = false } = options;
+    if (!allowHidden && document.hidden) return;
+    if (fetcherStateRef.current !== "idle") return;
+
+    const elapsedMs = Date.now() - lastJobStatusLoadAtRef.current;
+    const remainingMs = Math.max(0, JOB_STATUS_MIN_REFRESH_MS - elapsedMs);
+    if (remainingMs > 0) {
+      if (!pendingJobStatusLoadRef.current) {
+        pendingJobStatusLoadRef.current = window.setTimeout(() => {
+          pendingJobStatusLoadRef.current = null;
+          requestJobStatusLoad(options);
+        }, remainingMs);
+      }
+      return;
+    }
+
+    lastJobStatusLoadAtRef.current = Date.now();
+    fetcher.load(jobStatusPath);
+  }, [fetcher, jobStatusPath]);
 
   useEffect(() => {
     setNow(Date.now());
@@ -70,17 +93,24 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   useEffect(() => {
     if (initialMonitor || document.hidden) return undefined;
     const timeout = window.setTimeout(() => {
-      if (fetcherStateRef.current === "idle") fetcher.load(jobStatusPath);
-    }, 1_000);
+      requestJobStatusLoad();
+    }, JOB_STATUS_MIN_REFRESH_MS);
     return () => window.clearTimeout(timeout);
-  }, [fetcher, initialMonitor, jobStatusPath]);
+  }, [initialMonitor, requestJobStatusLoad]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      if (!document.hidden && fetcherStateRef.current === "idle") fetcher.load(jobStatusPath);
+      requestJobStatusLoad();
     }, hasActiveJobs ? JOB_STATUS_ACTIVE_POLL_MS : JOB_STATUS_IDLE_POLL_MS);
     return () => window.clearInterval(interval);
-  }, [fetcher, hasActiveJobs, jobStatusPath]);
+  }, [hasActiveJobs, requestJobStatusLoad]);
+
+  useEffect(() => () => {
+    if (pendingJobStatusLoadRef.current) {
+      window.clearTimeout(pendingJobStatusLoadRef.current);
+      pendingJobStatusLoadRef.current = null;
+    }
+  }, [jobStatusPath]);
 
   useEffect(() => {
     fetcherStateRef.current = fetcher.state;
@@ -138,9 +168,9 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     if (cancelFetcher.state !== "idle" || cancelFetcher.data?.status !== "success") return;
-    fetcher.load(jobStatusPath);
+    requestJobStatusLoad();
     revalidator.revalidate();
-  }, [cancelFetcher.data, cancelFetcher.state, fetcher, jobStatusPath, revalidator]);
+  }, [cancelFetcher.data, cancelFetcher.state, requestJobStatusLoad, revalidator]);
 
   useEffect(() => {
     if (completedJobNotice?.kind !== "product-diagnosis") return;
@@ -215,19 +245,19 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       });
       observedJobsRef.current = nextJobs;
 
-      if (fetcherStateRef.current === "idle") fetcher.load(jobStatusPath);
+      requestJobStatusLoad();
       revalidator.revalidate();
     };
 
     window.addEventListener("productpulse:jobs-queued", handleQueuedJobs);
     return () => window.removeEventListener("productpulse:jobs-queued", handleQueuedJobs);
-  }, [fetcher, jobStatusPath, revalidator]);
+  }, [requestJobStatusLoad, revalidator]);
 
   useEffect(() => {
     if (!hasActiveJobs && fetcher.state === "idle" && !fetcher.data) {
-      fetcher.load(jobStatusPath);
+      requestJobStatusLoad();
     }
-  }, [fetcher, hasActiveJobs, jobStatusPath]);
+  }, [fetcher.data, fetcher.state, hasActiveJobs, requestJobStatusLoad]);
 
   const groupedLogs = useMemo(() => {
     const byJob = new Map();

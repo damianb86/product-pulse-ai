@@ -339,6 +339,7 @@ model ProductRiskSnapshot {
 
   @@unique([shop, productGid])
   @@index([shop, riskScore])
+  @@index([shop, riskScore, updatedAt])
 }
 
 model ProductDiagnosis {
@@ -361,6 +362,7 @@ model ProductDiagnosis {
 
   @@index([shop, status])
   @@index([shop, productGid])
+  @@index([shop, status, productGid, completedAt, createdAt])
 }
 
 model ProductRetentionRun {

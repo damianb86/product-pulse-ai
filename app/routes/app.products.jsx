@@ -5,14 +5,13 @@ import { getAppViewData } from "../lib/product-pulse-data";
 import { getCsvReviewSourceStatusForShop } from "../lib/product-pulse-csv.server";
 import {
   addShopifyProductCandidateForShop,
-  getProductsQueueForShop,
+  getProductsPageTablesForShop,
   recordProductDetailActionForShop,
   deleteProductAnalysisForShop,
   runSelectedProductDiagnosesForShop,
   searchShopifyProductsForDiagnosis,
   startFastProductScan,
 } from "../lib/product-pulse-jobs.server";
-import { getProductPulseSettings } from "../lib/product-pulse-settings.server";
 import { addWatchedProductForShop, addWatchedProductsForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
 import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
@@ -21,7 +20,6 @@ export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
   perf.mark("authenticate", { shop: session.shop });
   const url = new URL(request.url);
-  const settings = await measureProductPulseStep(perf, "getProductPulseSettings", () => getProductPulseSettings(session.shop));
   const mainFilters = parseProductTableFilters(url.searchParams);
   const candidateFilters = parseProductTableFilters(url.searchParams, "candidate");
   const resolvedFilters = parseProductTableFilters(url.searchParams, "resolved");
@@ -37,7 +35,6 @@ export const loader = async ({ request }) => {
       const productTables = await loadProductsPageTables({
         shop: session.shop,
         admin,
-        settings,
         perf,
         mainFilters,
         candidateFilters,
@@ -148,28 +145,17 @@ export default function Products() {
   return <ProductsScreen data={data} filters={filters} actionData={actionData} />;
 }
 
-async function loadProductsPageTables({ shop, admin, settings, perf, mainFilters, candidateFilters, resolvedFilters }) {
-  const productTable = await measureProductPulseStep(
+async function loadProductsPageTables({ shop, admin, perf, mainFilters, candidateFilters, resolvedFilters }) {
+  return measureProductPulseStep(
     perf,
-    "getProductsQueueForShop.full",
-    () => getProductsQueueForShop(shop, admin, { ...mainFilters, analysis: "full", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.full" }),
+    "getProductsPageTablesForShop.shared",
+    () => getProductsPageTablesForShop(shop, admin, {
+      perf,
+      mainFilters,
+      candidateFilters,
+      resolvedFilters,
+    }),
   );
-  const candidateProductTable = await measureProductPulseStep(
-    perf,
-    "getProductsQueueForShop.candidates",
-    () => getProductsQueueForShop(shop, admin, { ...candidateFilters, analysis: "quickscan", resolution: "unresolved" }, { settings, perf, perfPrefix: "products.candidates" }),
-  );
-  const resolvedProductTable = await measureProductPulseStep(
-    perf,
-    "getProductsQueueForShop.resolved",
-    () => getProductsQueueForShop(shop, admin, { ...resolvedFilters, analysis: "all", resolution: "resolved" }, { settings, perf, perfPrefix: "products.resolved" }),
-  );
-
-  return {
-    productTable,
-    candidateProductTable,
-    resolvedProductTable,
-  };
 }
 
 function buildEmptyProductTable(filters = {}) {
