@@ -144,7 +144,7 @@ describe("ProductPulseJobMonitor", () => {
     expect(document.querySelector("[data-pp-background-process-popover]")).toBeInTheDocument();
   });
 
-  it("does not force an extra job-status request when the background processes popover opens after a recent refresh", async () => {
+  it("forces one immediate job-status request when the background processes popover opens after a recent refresh", async () => {
     const jobStatusRequests = [];
     const runningJob = {
       id: "job-recent-refresh",
@@ -173,8 +173,11 @@ describe("ProductPulseJobMonitor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /background processes, 1 active/i }));
 
+    await waitFor(() => expect(jobStatusRequests).toHaveLength(2));
+    expect(jobStatusRequests[1].searchParams.get("scope")).toBe("popover");
+
     await new Promise((resolve) => window.setTimeout(resolve, 50));
-    expect(jobStatusRequests).toHaveLength(1);
+    expect(jobStatusRequests).toHaveLength(2);
   });
 
   it("loads credit summary with Shopify embedded params instead of dropping shop context", async () => {

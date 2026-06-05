@@ -247,19 +247,25 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     setActivePopover(null);
   }, [location.pathname, location.search]);
 
-  useEffect(() => {
-    if (activePopover !== "jobs") return;
-    requestJobStatusLoad({ scope: "popover" });
+  const toggleJobsPopover = useCallback(() => {
+    if (activePopover === "jobs") {
+      setActivePopover(null);
+      return;
+    }
+
+    requestJobStatusLoad({ force: true, scope: "popover" });
+    setActivePopover("jobs");
   }, [activePopover, requestJobStatusLoad]);
 
   useEffect(() => {
     const handleWizardOpenBackgroundProcesses = () => {
+      requestJobStatusLoad({ force: true, scope: "popover" });
       setActivePopover("jobs");
     };
 
     window.addEventListener("productpulse:wizard-open-background-processes", handleWizardOpenBackgroundProcesses);
     return () => window.removeEventListener("productpulse:wizard-open-background-processes", handleWizardOpenBackgroundProcesses);
-  }, []);
+  }, [requestJobStatusLoad]);
 
   useEffect(() => {
     if (!activePopover) return undefined;
@@ -361,6 +367,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       creditsLoading={activePopover === "credits" && creditFetcher.state !== "idle"}
       now={now}
       pendingCancelJobId={pendingCancelJobId}
+      onToggleJobsPopover={toggleJobsPopover}
       onCancelJob={(job) => {
         if (!job?.id) return;
         const confirmed = window.confirm(
@@ -496,6 +503,7 @@ function ProductPulseGlobalTopbar({
   creditsLoading,
   now,
   pendingCancelJobId,
+  onToggleJobsPopover,
   onCancelJob,
   buildAppPath,
 }) {
@@ -541,7 +549,7 @@ function ProductPulseGlobalTopbar({
             aria-label={activeCount ? `Background processes, ${activeCount} active` : "Background processes"}
             aria-expanded={isJobsOpen}
             aria-controls="pp-global-jobs"
-            onClick={() => setActivePopover(isJobsOpen ? null : "jobs")}
+            onClick={onToggleJobsPopover}
           >
             <span className="ppGlobalTopbarIconWrap" aria-hidden="true">
               <s-icon type="refresh" size="small"></s-icon>
