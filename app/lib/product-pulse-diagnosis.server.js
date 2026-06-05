@@ -139,40 +139,64 @@ const US_STATE_NAMES = {
 };
 
 function buildProductDiagnosisPerfContext({ shop, jobId, snapshot } = {}) {
+  const memory = getProductDiagnosisPerfMemorySnapshot();
   return {
     shop,
     jobId,
     productGid: snapshot?.productGid || null,
     handle: snapshot?.handle || null,
     productTitle: snapshot?.productTitle || snapshot?.title || null,
+    startedAt: Date.now(),
+    steps: [],
+    events: [],
+    eventCounts: {},
+    droppedEvents: 0,
+    flushed: false,
+    peakMemory: {
+      ...memory,
+      stage: "product_diagnosis.context_created",
+      elapsedMs: 0,
+    },
   };
 }
 
 async function measureProductDiagnosisPerfStep(stage, context, callback, data = {}, summarizeResult = null) {
-  logProductDiagnosisPerf(`product_diagnosis.${stage}.started`, context, data);
   const startedAt = Date.now();
+  const memoryBefore = getProductDiagnosisPerfMemorySnapshot();
   try {
     const result = await callback();
     const resultData = typeof summarizeResult === "function" ? summarizeResult(result) : {};
-    logProductDiagnosisPerf(`product_diagnosis.${stage}.done`, context, {
+    recordProductDiagnosisPerfStep(context, {
+      stage,
+      status: "done",
       durationMs: Date.now() - startedAt,
-      ...data,
-      ...resultData,
+      data: { ...data, ...resultData },
+      memoryBefore,
+      memoryAfter: getProductDiagnosisPerfMemorySnapshot(),
     });
     return result;
   } catch (error) {
-    logProductDiagnosisPerf(`product_diagnosis.${stage}.failed`, context, {
+    recordProductDiagnosisPerfStep(context, {
+      stage,
+      status: "failed",
       durationMs: Date.now() - startedAt,
-      ...data,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    }, "error");
+      data: {
+        ...data,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      memoryBefore,
+      memoryAfter: getProductDiagnosisPerfMemorySnapshot(),
+    });
     throw error;
   }
 }
 
 function logProductDiagnosisPerf(event, context = {}, data = {}, level = "warn") {
   if (process.env.NODE_ENV === "test") return;
+  if (context?.steps && context?.eventCounts) {
+    recordProductDiagnosisPerfEvent(context, event, data, level);
+    return;
+  }
   const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
   console[method]("[product-pulse-diagnosis-perf]", {
     event,
@@ -187,6 +211,153 @@ function logProductDiagnosisPerf(event, context = {}, data = {}, level = "warn")
   });
 }
 
+function recordProductDiagnosisPerfStep(context, { stage, status, durationMs, data = {}, memoryBefore = null, memoryAfter = null } = {}) {
+  if (!context?.steps) return;
+  const after = memoryAfter || getProductDiagnosisPerfMemorySnapshot();
+  updateProductDiagnosisPeakMemory(context, after, stage);
+  context.steps.push({
+    stage,
+    status,
+    durationMs: productDiagnosisPerfRound(Number(durationMs || 0)),
+    heapDeltaMb: memoryBefore ? productDiagnosisPerfRound(after.heapUsedMb - memoryBefore.heapUsedMb) : null,
+    rssDeltaMb: memoryBefore ? productDiagnosisPerfRound(after.rssMb - memoryBefore.rssMb) : null,
+    memory: after,
+    data: sanitizeProductDiagnosisSummaryValue(data),
+  });
+}
+
+function recordProductDiagnosisPerfEvent(context, event, data = {}, level = "warn") {
+  if (!context?.eventCounts) return;
+  const memory = getProductDiagnosisPerfMemorySnapshot();
+  updateProductDiagnosisPeakMemory(context, memory, event);
+  context.eventCounts[event] = (context.eventCounts[event] || 0) + 1;
+  context.events.push({
+    event,
+    level,
+    elapsedMs: Date.now() - Number(context.startedAt || Date.now()),
+    memory,
+    data: sanitizeProductDiagnosisSummaryValue(data),
+  });
+  const maxEvents = 80;
+  if (context.events.length > maxEvents) {
+    context.events.shift();
+    context.droppedEvents += 1;
+  }
+}
+
+function flushProductDiagnosisSummaryLog(context, data = {}, level = "warn") {
+  if (process.env.NODE_ENV === "test") return;
+  if (!context || context.flushed) return;
+  context.flushed = true;
+  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
+  const finalMemory = getProductDiagnosisPerfMemorySnapshot();
+  updateProductDiagnosisPeakMemory(context, finalMemory, "product_diagnosis.summary");
+  const steps = Array.isArray(context.steps) ? context.steps : [];
+  const payload = {
+    event: level === "error" ? "product_diagnosis.summary.failed" : "product_diagnosis.summary.completed",
+    at: new Date().toISOString(),
+    shop: context.shop,
+    jobId: context.jobId,
+    productGid: context.productGid,
+    handle: context.handle,
+    productTitle: context.productTitle,
+    durationMs: Number(data.durationMs || 0) || Date.now() - Number(context.startedAt || Date.now()),
+    finalMemory,
+    peakMemory: context.peakMemory || finalMemory,
+    stepCount: steps.length,
+    steps: steps.slice(0, 120).map(formatProductDiagnosisStep),
+    droppedSteps: Math.max(0, steps.length - 120),
+    slowestSteps: buildProductDiagnosisTopSteps(steps, "durationMs"),
+    highestMemorySteps: buildProductDiagnosisTopSteps(steps, "memory.rssMb"),
+    slowestAiTasks: buildProductDiagnosisSlowestAiTasks(context.events || []),
+    eventCounts: context.eventCounts || {},
+    recentEvents: (context.events || []).slice(-20),
+    droppedEvents: context.droppedEvents || 0,
+    ...sanitizeProductDiagnosisSummaryValue(data),
+  };
+  console[method]("[product-pulse-diagnosis-summary]", JSON.stringify(payload));
+}
+
+function buildProductDiagnosisTopSteps(steps, sortKey) {
+  return [...(steps || [])]
+    .sort((a, b) => getProductDiagnosisSortValue(b, sortKey) - getProductDiagnosisSortValue(a, sortKey))
+    .slice(0, 10)
+    .map(formatProductDiagnosisStep);
+}
+
+function formatProductDiagnosisStep(step = {}) {
+  return {
+    stage: step.stage,
+    status: step.status,
+    durationMs: step.durationMs,
+    heapDeltaMb: step.heapDeltaMb,
+    rssDeltaMb: step.rssDeltaMb,
+    memory: step.memory,
+    data: step.data,
+  };
+}
+
+function buildProductDiagnosisSlowestAiTasks(events = []) {
+  return events
+    .filter((entry) => ["product_diagnosis.ai_task.done", "product_diagnosis.ai_task.failed", "product_diagnosis.ai_task.cached"].includes(entry?.event))
+    .map((entry) => ({
+      event: entry.event,
+      task: entry.data?.task || null,
+      provider: entry.data?.provider || null,
+      model: entry.data?.model || null,
+      durationMs: Number(entry.data?.durationMs || 0),
+      textChars: entry.data?.textChars ?? null,
+      usage: entry.data?.usage || null,
+      error: entry.data?.error || null,
+      memory: entry.memory || null,
+    }))
+    .sort((a, b) => b.durationMs - a.durationMs)
+    .slice(0, 10);
+}
+
+function getProductDiagnosisSortValue(value, key) {
+  if (key === "durationMs") return Number(value?.durationMs || 0);
+  if (key === "memory.rssMb") return Number(value?.memory?.rssMb || 0);
+  return 0;
+}
+
+function updateProductDiagnosisPeakMemory(context, memory, stage) {
+  if (!context || !memory) return;
+  const currentPeak = context.peakMemory || {};
+  const currentPeakValue = Math.max(Number(currentPeak.rssMb || 0), Number(currentPeak.heapUsedMb || 0));
+  const nextPeakValue = Math.max(Number(memory.rssMb || 0), Number(memory.heapUsedMb || 0));
+  if (!currentPeakValue || nextPeakValue >= currentPeakValue) {
+    context.peakMemory = {
+      ...memory,
+      stage,
+      elapsedMs: Date.now() - Number(context.startedAt || Date.now()),
+    };
+  }
+}
+
+function sanitizeProductDiagnosisSummaryValue(value, depth = 0) {
+  if (value == null) return value;
+  if (typeof value === "string") return value.length > 300 ? `${value.slice(0, 300)}...` : value;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) {
+    if (depth >= 2) return { count: value.length };
+    return {
+      count: value.length,
+      sample: value.slice(0, 5).map((item) => sanitizeProductDiagnosisSummaryValue(item, depth + 1)),
+    };
+  }
+  if (typeof value === "object") {
+    if (depth >= 3) return "[object]";
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 24)
+        .map(([key, item]) => [key, sanitizeProductDiagnosisSummaryValue(item, depth + 1)]),
+    );
+  }
+  return String(value);
+}
+
 function getProductDiagnosisPerfMemorySnapshot() {
   const memory = process.memoryUsage();
   return {
@@ -199,6 +370,10 @@ function getProductDiagnosisPerfMemorySnapshot() {
 
 function productDiagnosisPerfToMb(value) {
   return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
+}
+
+function productDiagnosisPerfRound(value) {
+  return Math.round(Number(value || 0) * 10) / 10;
 }
 
 function summarizeReconstructedRiskHistory(history) {
@@ -328,7 +503,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   const shopifyData = await measureProductDiagnosisPerfStep(
     "shopify_data",
     perfContext,
-    () => fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays }),
+    () => fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays, perfContext }),
     { windowDays },
     summarizeShopifyDiagnosisData,
   );
@@ -542,7 +717,8 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       }),
     );
     if (reusedDiagnosis) {
-      logProductDiagnosisPerf("product_diagnosis.deep_analysis.done", perfContext, {
+      flushProductDiagnosisSummaryLog(perfContext, {
+        status: "completed",
         durationMs: Date.now() - startedAt,
         skipped: true,
         skipReason: reusedDiagnosis.skipReason,
@@ -555,7 +731,12 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   const ai = await measureProductDiagnosisPerfStep(
     "ai_analysis",
     perfContext,
-    () => runProductDiagnosisAiAnalysis({ shop, jobId, input: aiInput }),
+    () => runProductDiagnosisAiAnalysis({
+      shop,
+      jobId,
+      input: aiInput,
+      onPerfEvent: (event, data, level) => recordProductDiagnosisPerfEvent(perfContext, event, data, level),
+    }),
     summarizeAiInput(aiInput),
     summarizeAiDiagnosisResult,
   );
@@ -656,7 +837,8 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     aiUsage: ai.aiUsage,
     productRetention: retentionResult?.payload || null,
   };
-  logProductDiagnosisPerf("product_diagnosis.deep_analysis.done", perfContext, {
+  flushProductDiagnosisSummaryLog(perfContext, {
+    status: "completed",
     durationMs: Date.now() - startedAt,
     skipped: false,
     diagnosisId: result.diagnosisId,
@@ -667,7 +849,8 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   });
   return result;
   } catch (error) {
-    logProductDiagnosisPerf("product_diagnosis.deep_analysis.failed", perfContext, {
+    flushProductDiagnosisSummaryLog(perfContext, {
+      status: "failed",
       durationMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
@@ -676,11 +859,11 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   }
 }
 
-async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS }) {
-  const perfContext = buildProductDiagnosisPerfContext({ shop, jobId, snapshot });
+async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, perfContext = null }) {
+  const diagnosisPerfContext = perfContext || buildProductDiagnosisPerfContext({ shop, jobId, snapshot });
   const incrementalSource = getIncrementalSourceFetchContext({ snapshot, windowDays });
   const fetchStartedAt = new Date().toISOString();
-  const product = await measureProductDiagnosisPerfStep("shopify_product_fetch", perfContext, () => fetchShopifyProduct({ admin, snapshot }).catch(async (error) => {
+  const product = await measureProductDiagnosisPerfStep("shopify_product_fetch", diagnosisPerfContext, () => fetchShopifyProduct({ admin, snapshot }).catch(async (error) => {
     await recordJobLog({
       shop,
       jobId,
@@ -706,7 +889,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   let returnFetchComplete = true;
 
   try {
-    const salesBundle = await measureProductDiagnosisPerfStep("shopify_sales_bundle", perfContext, () => fetchShopifySalesEventBundle({
+    const salesBundle = await measureProductDiagnosisPerfStep("shopify_sales_bundle", diagnosisPerfContext, () => fetchShopifySalesEventBundle({
       admin,
       product,
       snapshot,
@@ -724,7 +907,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     relationshipSales = salesBundle.relationshipSales;
     if (incrementalSource.shopifyCanReuse) {
       try {
-        const relationshipBundle = await measureProductDiagnosisPerfStep("shopify_relationship_sales_full_bundle", perfContext, () => fetchShopifySalesEventBundle({
+        const relationshipBundle = await measureProductDiagnosisPerfStep("shopify_relationship_sales_full_bundle", diagnosisPerfContext, () => fetchShopifySalesEventBundle({
           admin,
           product,
           snapshot,
@@ -765,7 +948,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   try {
     refunds = await measureProductDiagnosisPerfStep(
       "shopify_refunds",
-      perfContext,
+      diagnosisPerfContext,
       () => fetchShopifyRefundEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null }),
       {
         windowDays,
@@ -793,7 +976,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   try {
     returns = await measureProductDiagnosisPerfStep(
       "shopify_returns",
-      perfContext,
+      diagnosisPerfContext,
       () => fetchShopifyReturnEvents({ shop, jobId, admin, product, snapshot, windowDays, sinceDate: incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null }),
       {
         windowDays,
@@ -820,7 +1003,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
 
   const merged = await measureProductDiagnosisPerfStep(
     "shopify_merge_filter",
-    perfContext,
+    diagnosisPerfContext,
     () => {
       const mergedSourceEvents = incrementalSource.shopifyCanReuse
         ? mergeIncrementalSourceEvents({

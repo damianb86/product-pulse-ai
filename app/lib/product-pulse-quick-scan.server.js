@@ -218,17 +218,9 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
       },
     });
 
-    perf.done({
+    flushQuickScanSummaryLog(logContext, {
+      status: "completed",
       jobId,
-      durationMs: Date.now() - startedAt,
-      extractionMode: extraction.meta.extractionMode,
-      products: extraction.products.length,
-      events: extraction.events.length,
-      candidates: candidates.length,
-      persistedCandidates: persistence.persistedCandidates,
-      orderAccessDenied: extraction.meta.orderAccessDenied,
-    });
-    logQuickScanProgress("quick_scan.worker.completed", logContext, {
       durationMs: Date.now() - startedAt,
       extractionMode: extraction.meta.extractionMode,
       products: extraction.products.length,
@@ -239,12 +231,12 @@ export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
     });
     return { candidates, extraction };
   } catch (error) {
-    logQuickScanProgress("quick_scan.worker.failed", logContext, {
+    flushQuickScanSummaryLog(logContext, {
+      status: "failed",
       durationMs: Date.now() - startedAt,
       error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     }, "error");
-    perf.fail(error, { jobId, durationMs: Date.now() - startedAt });
     throw error;
   }
 }
@@ -2833,26 +2825,51 @@ function getQuickScanExtractionCounts(extraction = {}) {
 }
 
 function createQuickScanLogContext({ shop, jobId, startedAt = Date.now() } = {}) {
-  return { shop, jobId, startedAt };
+  const memory = getQuickScanMemorySnapshot();
+  return {
+    shop,
+    jobId,
+    startedAt,
+    steps: [],
+    events: [],
+    eventCounts: {},
+    droppedEvents: 0,
+    flushed: false,
+    peakMemory: {
+      ...memory,
+      stage: "quick_scan.context_created",
+      elapsedMs: 0,
+    },
+  };
 }
 
 async function measureQuickScanStep(perf, stage, logContext, callback, data = {}) {
-  logQuickScanProgress(`${stage}.start`, logContext, data);
   const startedAt = Date.now();
+  const memoryBefore = getQuickScanMemorySnapshot();
   try {
     await ensureQuickScanJobActive(logContext?.jobId, logContext);
     const result = await measureProductPulseStep(perf, stage, callback, data);
-    logQuickScanProgress(`${stage}.done`, logContext, {
-      ...data,
+    recordQuickScanStep(logContext, {
+      stage,
+      status: "done",
       durationMs: Date.now() - startedAt,
+      data,
+      memoryBefore,
+      memoryAfter: getQuickScanMemorySnapshot(),
     });
     return result;
   } catch (error) {
-    logQuickScanProgress(`${stage}.failed`, logContext, {
-      ...data,
+    recordQuickScanStep(logContext, {
+      stage,
+      status: "failed",
       durationMs: Date.now() - startedAt,
-      error: getErrorMessage(error),
-    }, "error");
+      data: {
+        ...data,
+        error: getErrorMessage(error),
+      },
+      memoryBefore,
+      memoryAfter: getQuickScanMemorySnapshot(),
+    });
     throw error;
   }
 }
@@ -2865,18 +2882,139 @@ function markQuickScanProgress(perf, stage, logContext, data = {}, level = "warn
 function logQuickScanProgress(event, logContext, data = {}, level = "warn") {
   if (process.env.NODE_ENV === "test") return;
   if (!logContext?.shop && !logContext?.jobId) return;
+  recordQuickScanEvent(logContext, event, data, level);
+}
+
+function recordQuickScanStep(logContext, { stage, status, durationMs, data = {}, memoryBefore = null, memoryAfter = null } = {}) {
+  if (!logContext) return;
+  const after = memoryAfter || getQuickScanMemorySnapshot();
+  updateQuickScanPeakMemory(logContext, after, stage);
+  logContext.steps.push({
+    stage,
+    status,
+    durationMs: Math.round(Number(durationMs || 0) * 10) / 10,
+    heapDeltaMb: memoryBefore ? roundQuickScanNumber(after.heapUsedMb - memoryBefore.heapUsedMb) : null,
+    rssDeltaMb: memoryBefore ? roundQuickScanNumber(after.rssMb - memoryBefore.rssMb) : null,
+    memory: after,
+    data: sanitizeQuickScanSummaryValue(data),
+  });
+}
+
+function recordQuickScanEvent(logContext, event, data = {}, level = "warn") {
+  if (!logContext) return;
+  const memory = getQuickScanMemorySnapshot();
+  updateQuickScanPeakMemory(logContext, memory, event);
+  logContext.eventCounts[event] = (logContext.eventCounts[event] || 0) + 1;
+
+  const entry = {
+    event,
+    level,
+    elapsedMs: Date.now() - Number(logContext.startedAt || Date.now()),
+    memory,
+    data: sanitizeQuickScanSummaryValue(data),
+  };
+  logContext.events.push(entry);
+  const maxEvents = 80;
+  if (logContext.events.length > maxEvents) {
+    logContext.events.shift();
+    logContext.droppedEvents += 1;
+  }
+}
+
+function flushQuickScanSummaryLog(logContext, data = {}, level = "warn") {
+  if (process.env.NODE_ENV === "test") return;
+  if (!logContext || logContext.flushed) return;
+  logContext.flushed = true;
   const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
   const startedAt = Number(logContext?.startedAt || Date.now());
+  const finalMemory = getQuickScanMemorySnapshot();
+  updateQuickScanPeakMemory(logContext, finalMemory, "quick_scan.summary");
+  const steps = Array.isArray(logContext.steps) ? logContext.steps : [];
   const payload = {
-    event,
+    event: level === "error" ? "quick_scan.summary.failed" : "quick_scan.summary.completed",
     at: new Date().toISOString(),
-    elapsedMs: Date.now() - startedAt,
     shop: logContext?.shop,
     jobId: logContext?.jobId,
-    ...getQuickScanMemorySnapshot(),
-    ...data,
+    durationMs: Number(data.durationMs || 0) || Date.now() - startedAt,
+    finalMemory,
+    peakMemory: logContext.peakMemory || finalMemory,
+    stepCount: steps.length,
+    steps: steps.slice(0, 120).map(formatQuickScanStep),
+    droppedSteps: Math.max(0, steps.length - 120),
+    slowestSteps: buildQuickScanTopSteps(steps, "durationMs"),
+    highestMemorySteps: buildQuickScanTopSteps(steps, "memory.rssMb"),
+    eventCounts: logContext.eventCounts || {},
+    recentEvents: (logContext.events || []).slice(-20),
+    droppedEvents: logContext.droppedEvents || 0,
+    ...sanitizeQuickScanSummaryValue(data),
   };
-  console[method]("[product-pulse-quick-scan]", payload);
+  console[method]("[product-pulse-quick-scan-summary]", JSON.stringify(payload));
+}
+
+function buildQuickScanTopSteps(steps, sortKey) {
+  return [...(steps || [])]
+    .sort((a, b) => getQuickScanSortValue(b, sortKey) - getQuickScanSortValue(a, sortKey))
+    .slice(0, 8)
+    .map(formatQuickScanStep);
+}
+
+function formatQuickScanStep(step = {}) {
+  return {
+    stage: step.stage,
+    status: step.status,
+    durationMs: step.durationMs,
+    heapDeltaMb: step.heapDeltaMb,
+    rssDeltaMb: step.rssDeltaMb,
+    memory: step.memory,
+    data: step.data,
+  };
+}
+
+function getQuickScanSortValue(value, key) {
+  if (key === "durationMs") return Number(value?.durationMs || 0);
+  if (key === "memory.rssMb") return Number(value?.memory?.rssMb || 0);
+  return 0;
+}
+
+function updateQuickScanPeakMemory(logContext, memory, stage) {
+  if (!logContext || !memory) return;
+  const currentPeak = logContext.peakMemory || {};
+  const currentPeakValue = Math.max(Number(currentPeak.rssMb || 0), Number(currentPeak.heapUsedMb || 0));
+  const nextPeakValue = Math.max(Number(memory.rssMb || 0), Number(memory.heapUsedMb || 0));
+  if (!currentPeakValue || nextPeakValue >= currentPeakValue) {
+    logContext.peakMemory = {
+      ...memory,
+      stage,
+      elapsedMs: Date.now() - Number(logContext.startedAt || Date.now()),
+    };
+  }
+}
+
+function sanitizeQuickScanSummaryValue(value, depth = 0) {
+  if (value == null) return value;
+  if (typeof value === "string") return value.length > 300 ? `${value.slice(0, 300)}...` : value;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) {
+    if (depth >= 2) return { count: value.length };
+    return {
+      count: value.length,
+      sample: value.slice(0, 5).map((item) => sanitizeQuickScanSummaryValue(item, depth + 1)),
+    };
+  }
+  if (typeof value === "object") {
+    if (depth >= 3) return "[object]";
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 24)
+        .map(([key, item]) => [key, sanitizeQuickScanSummaryValue(item, depth + 1)]),
+    );
+  }
+  return String(value);
+}
+
+function roundQuickScanNumber(value) {
+  return Math.round(Number(value || 0) * 10) / 10;
 }
 
 function getQuickScanMemorySnapshot() {

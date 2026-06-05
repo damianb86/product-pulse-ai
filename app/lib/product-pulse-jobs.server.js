@@ -5935,6 +5935,7 @@ function sleep(ms) {
 
 function logProductPulseWorkerProgress(event, context = {}, data = {}, level = "warn") {
   if (process.env.NODE_ENV === "test") return;
+  if (shouldSuppressAggregatedWorkerProgress(event)) return;
   const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
   const job = context.job || null;
   const payload = {
@@ -5947,6 +5948,11 @@ function logProductPulseWorkerProgress(event, context = {}, data = {}, level = "
     ...data,
   };
   console[method]("[product-pulse-worker]", payload);
+}
+
+function shouldSuppressAggregatedWorkerProgress(event) {
+  const normalized = String(event || "");
+  return normalized.startsWith("quick_scan.") || normalized.startsWith("product_diagnosis.");
 }
 
 function logInlineWorkerSkipOnce(event, job, data = {}) {

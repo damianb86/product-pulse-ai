@@ -94,7 +94,7 @@ const PREDEFINED_CUSTOMER_SENTIMENTS = [
   { code: "delight", polarity: "positive", description: "The customer expresses excitement or strong positive surprise." },
 ];
 
-export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
+export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerfEvent = null }) {
   const usageTracker = createAiUsageTracker({
     shop,
     jobId,
@@ -113,6 +113,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     task: "signal_classification",
     prompt: classificationPrompt,
     usageTracker,
+    onPerfEvent,
   });
   const classification = parseAiJson(classificationResponse.text, {
     classified_signals: [],
@@ -132,6 +133,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     task: "emergent_sentiment",
     prompt: buildEmergentSentimentPrompt(input, classification),
     usageTracker,
+    onPerfEvent,
   });
   const emergentSentiments = parseAiJson(emergentSentimentResponse.text, {
     emergent_sentiments: [],
@@ -174,6 +176,14 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
         productUpdatedAt: input?.incremental?.productContent?.productUpdatedAt || null,
       },
     });
+    emitProductDiagnosisAiPerf(onPerfEvent, "product_diagnosis.ai_task.cached", {
+      shop,
+      jobId,
+      task: "content_gap",
+      provider: "cache",
+      model: "previous-product-content-analysis",
+      durationMs: 0,
+    }, "info");
   } else {
     const gapPrompt = buildContentGapPrompt(input, classification);
     gapResponse = await generateAiText({
@@ -182,6 +192,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
       task: "content_gap",
       prompt: gapPrompt,
       usageTracker,
+      onPerfEvent,
     });
     contentGaps = parseAiJson(gapResponse.text, {
       missing: [],
@@ -197,6 +208,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     task: "final_report",
     prompt: reportPrompt,
     usageTracker,
+    onPerfEvent,
   });
   const report = parseAiJson(reportResponse.text, {
     main_finding_title: input?.deterministic?.mainIssueLabel || "Product issue needs review",
@@ -218,6 +230,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
         task: "content_coverage_validation",
         prompt: contentCoveragePrompt,
         usageTracker,
+        onPerfEvent,
       });
       contentCoverageValidation = parseAiJson(contentCoverageValidationResponse.text, {
         coverage: [],
@@ -241,6 +254,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
     task: "action_rationale",
     prompt: buildActionRationalePrompt(input, classification, contentGaps, emergentSentiments, report),
     usageTracker,
+    onPerfEvent,
   });
   const actionRationales = parseAiJson(actionRationaleResponse.text, {
     action_rationales: [],
@@ -256,6 +270,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
         task: "chart_interpretations",
         prompt: buildProductChartInterpretationsPrompt(compactChartInput),
         usageTracker,
+        onPerfEvent,
       });
       chartInterpretations = normalizeProductChartInterpretations(
         parseAiJson(chartInterpretationsResponse.text, { chart_interpretations: {} }),
@@ -288,6 +303,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input }) {
         task: "relationship_insights",
         prompt: buildProductRelationshipInsightsPrompt(compactRelationshipInput),
         usageTracker,
+        onPerfEvent,
       });
       relationshipInsights = normalizeProductRelationshipAiInsights(
         parseAiJson(relationshipInsightsResponse.text, { insights: [] }),
@@ -1562,7 +1578,7 @@ function buildProductDiagnosisPrompt(product) {
   ].join("\n");
 }
 
-async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }) {
+async function generateAiText({ shop, jobId, task, prompt, usageTracker = null, onPerfEvent = null }) {
   const aiRouting = getProductPulseAiRouting();
   const provider = aiRouting.provider;
   const taskConfig = AI_TASKS[task] || AI_TASKS.final_report;
@@ -1584,7 +1600,7 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
     },
   });
 
-  logProductDiagnosisAiPerf("product_diagnosis.ai_task.started", {
+  emitProductDiagnosisAiPerf(onPerfEvent, "product_diagnosis.ai_task.started", {
     shop,
     jobId,
     task,
@@ -1603,7 +1619,7 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
       : generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, usageTracker });
     resolvedResponse = await response;
   } catch (error) {
-    logProductDiagnosisAiPerf("product_diagnosis.ai_task.failed", {
+    emitProductDiagnosisAiPerf(onPerfEvent, "product_diagnosis.ai_task.failed", {
       shop,
       jobId,
       task,
@@ -1616,7 +1632,7 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
     throw error;
   }
 
-  logProductDiagnosisAiPerf("product_diagnosis.ai_task.done", {
+  emitProductDiagnosisAiPerf(onPerfEvent, "product_diagnosis.ai_task.done", {
     shop,
     jobId,
     task,
@@ -1642,6 +1658,17 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null }
   }
 
   return resolvedResponse;
+}
+
+function emitProductDiagnosisAiPerf(onPerfEvent, event, data = {}, level = "warn") {
+  if (typeof onPerfEvent === "function") {
+    onPerfEvent(event, {
+      ...getProductDiagnosisAiMemorySnapshot(),
+      ...data,
+    }, level);
+    return;
+  }
+  logProductDiagnosisAiPerf(event, data, level);
 }
 
 function logProductDiagnosisAiPerf(event, data = {}, level = "warn") {
