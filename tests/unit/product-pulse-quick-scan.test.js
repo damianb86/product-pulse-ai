@@ -464,7 +464,7 @@ describe("ProductPulse Catalog Scan", () => {
     expect(query).not.toContain("refundLineItems");
   });
 
-  it("uses paginated refund queries with refund reasons and refunded financial statuses", () => {
+  it("uses complete paginated refund queries with refund reasons and refunded financial statuses", () => {
     const query = __productPulseQuickScanTestHooks.buildPaginatedRefundsQuery();
     const modes = __productPulseQuickScanTestHooks.buildRefundOrderQueries(60).map((item) => item.mode);
 

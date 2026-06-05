@@ -185,6 +185,17 @@ export async function recordTimelineForDiagnosis({ shop, snapshot, diagnosis, pr
     },
     orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
     take: 80,
+    select: {
+      id: true,
+      productGid: true,
+      productTitle: true,
+      riskScore: true,
+      confidence: true,
+      likelyCause: true,
+      issues: true,
+      createdAt: true,
+      completedAt: true,
+    },
   });
   const issueHistory = buildDiagnosisIssueHistoryContext(previousDiagnoses);
   const previous = previousDiagnosis || issueHistory.previous || null;

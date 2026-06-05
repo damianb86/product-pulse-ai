@@ -39,6 +39,7 @@ const QUICK_SCAN_PRODUCT_COUNT_TIMEOUT_MS = getBoundedIntegerEnv("PRODUCT_PULSE_
 const QUICK_SCAN_ORDER_COUNT_TIMEOUT_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_ORDER_COUNT_TIMEOUT_MS", 2_500, { min: 500, max: 10_000 });
 const QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS", 5_000, { min: 1_000, max: 60_000 });
 const QUICK_SCAN_MAX_PAGINATED_PAGES = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_MAX_PAGINATED_PAGES", 1_000, { min: 10, max: 100_000 });
+const QUICK_SCAN_REFUND_BROAD_SCAN_ENABLED = getBooleanEnv(process.env.PRODUCT_PULSE_QUICK_SCAN_REFUND_BROAD_SCAN_ENABLED, true);
 const PAGINATED_PRODUCTS_PAGE_SIZE = 20;
 const PAGINATED_PRODUCT_COLLECTIONS_PAGE_SIZE = 5;
 const PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE = 20;
@@ -1184,8 +1185,15 @@ async function extractRefundEventsWithPaginatedQueries({ admin, windowDays, perf
   const seenRefundLineItemIds = new Set();
   const seenOrderLevelRefundLineItemIds = new Set();
   let pageCount = 0;
+  const orderQueries = buildRefundOrderQueries(windowDays);
 
-  for (const orderQuery of buildRefundOrderQueries(windowDays)) {
+  markQuickScanProgress(perf, "quick_scan.paginated.refunds_plan", logContext, {
+    broadScanEnabled: QUICK_SCAN_REFUND_BROAD_SCAN_ENABLED,
+    queryModes: orderQueries.map((query) => query.mode),
+    queryCount: orderQueries.length,
+  });
+
+  for (const orderQuery of orderQueries) {
     let ordersCursor;
     let hasNextOrdersPage = true;
 
@@ -1411,10 +1419,14 @@ function buildPaginatedRefundsQuery() {
 
 function buildRefundOrderQueries(windowDays) {
   const since = getSinceDate(windowDays);
-  return [
-    { mode: "updated_at", query: `updated_at:>=${since}` },
+  const targetedQueries = [
     { mode: "partially_refunded", query: `financial_status:partially_refunded updated_at:>=${since}` },
     { mode: "refunded", query: `financial_status:refunded updated_at:>=${since}` },
+  ];
+  if (!QUICK_SCAN_REFUND_BROAD_SCAN_ENABLED) return targetedQueries;
+  return [
+    { mode: "updated_at", query: `updated_at:>=${since}` },
+    ...targetedQueries,
   ];
 }
 
@@ -2804,6 +2816,14 @@ function getBoundedIntegerEnv(name, fallback, { min = 0, max = Number.MAX_SAFE_I
   const parsed = Number.parseInt(process.env[name] || "", 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, min), max);
+}
+
+function getBooleanEnv(value, fallback = false) {
+  if (value == null || String(value).trim() === "") return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on", "enabled"].includes(normalized)) return true;
+  if (["0", "false", "no", "off", "disabled"].includes(normalized)) return false;
+  return fallback;
 }
 
 function normalizeQuickScanExtractionMode(value) {

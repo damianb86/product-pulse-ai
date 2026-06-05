@@ -4599,6 +4599,19 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       creditsConsumed: 1,
       completedAt: new Date(),
     },
+    select: {
+      id: true,
+      shop: true,
+      productGid: true,
+      productTitle: true,
+      status: true,
+      riskScore: true,
+      confidence: true,
+      likelyCause: true,
+      issues: true,
+      createdAt: true,
+      completedAt: true,
+    },
   });
 
   const updatedSnapshot = await prisma.productRiskSnapshot.update({
@@ -4691,6 +4704,7 @@ async function calculateAndAttachProductRetentionForDiagnosis({
       windowStartDate: canReusePreviewOrders ? retentionPreview.windowStartDate : null,
       windowEndDate: canReusePreviewOrders ? retentionPreview.windowEndDate : null,
     });
+    result.reusedPreviewOrders = canReusePreviewOrders;
     await attachProductRetentionPayloadToDiagnosis({
       shopId: shop,
       productGid: snapshot.productGid,

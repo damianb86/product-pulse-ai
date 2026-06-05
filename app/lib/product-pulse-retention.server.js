@@ -148,6 +148,8 @@ export async function calculateProductRetentionMetrics({
       rows,
       payload,
       dataQuality: rows.dataQuality,
+      fetchStats,
+      reusedPreviewOrders: Array.isArray(orders),
     };
   } catch (error) {
     const safeError = serializeError(error);
@@ -510,6 +512,10 @@ export async function attachProductRetentionPayloadToDiagnosis({
       productGid: normalizedProductGid,
       id: normalizedDiagnosisId,
     },
+    select: {
+      id: true,
+      metrics: true,
+    },
   });
   if (!diagnosis) return null;
 
@@ -527,6 +533,9 @@ export async function attachProductRetentionPayloadToDiagnosis({
 
   const snapshot = await db.productRiskSnapshot.findUnique({
     where: { shop_productGid: { shop: normalizedShopId, productGid: normalizedProductGid } },
+    select: {
+      metrics: true,
+    },
   }).catch(() => null);
   if (!snapshot) return metrics;
 
