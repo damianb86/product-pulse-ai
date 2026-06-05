@@ -29,6 +29,34 @@ describe("ProductPulse product job helpers", () => {
     expect(row.shopifyAdminUrl).toBe("https://admin.shopify.com/store/damian-xdcxxupp/products/1234567890");
   });
 
+  it("uses stored product image metrics for product table rows", () => {
+    const row = productPulseJobsTestHooks.formatProductRow("damian-xdcxxupp.myshopify.com", {
+      productGid: "gid://shopify/Product/1234567890",
+      handle: "linen-shirt",
+      productTitle: "Linen Shirt",
+      primaryIssue: "Product content",
+      riskScore: 64,
+      confidence: 82,
+      updatedAt: "2026-05-18T12:00:00.000Z",
+      sourceCoverage: ["Shopify products"],
+      metrics: {
+        product: {
+          featuredMedia: {
+            preview: {
+              image: {
+                url: "https://cdn.shopify.com/s/files/linen-shirt.jpg",
+                altText: "Linen Shirt photo",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(row.imageUrl).toBe("https://cdn.shopify.com/s/files/linen-shirt.jpg");
+    expect(row.imageAlt).toBe("Linen Shirt photo");
+  });
+
   it("adds Shopify admin review metadata for applied product changes", () => {
     const metadata = productPulseJobsTestHooks.getAppliedProductReviewToastMetadata({
       shop: "damian-xdcxxupp.myshopify.com",

@@ -118,6 +118,10 @@ export async function upsertProductPulseProductRollup(snapshot, options = {}) {
   if (!data) return null;
   const updateData = { ...data };
   delete updateData.id;
+  if (!data.imageUrl) {
+    delete updateData.imageUrl;
+    delete updateData.imageAlt;
+  }
   return prisma.productPulseProductRollup.upsert({
     where: {
       shop_productGid: {
@@ -400,22 +404,62 @@ function buildRollupProductMomentum(metrics = {}) {
 
 function getSnapshotProductImage(snapshot = {}) {
   const metrics = isPlainObject(snapshot.metrics) ? snapshot.metrics : {};
+  const product = isPlainObject(metrics.product) ? metrics.product : {};
   const imageUrl = [
+    snapshot.imageUrl,
+    snapshot.productImageUrl,
+    snapshot.featuredImageUrl,
     metrics.imageUrl,
     metrics.productImageUrl,
     metrics.featuredImageUrl,
+    product.imageUrl,
+    product.productImageUrl,
+    product.featuredImageUrl,
+    product.featuredMedia?.image?.url,
+    product.featuredMedia?.preview?.image?.url,
+    product.featuredImage?.url,
     typeof metrics.image === "string" ? metrics.image : metrics.image?.url,
     metrics.featuredImage?.url,
+    getFirstMediaImageUrl(metrics.media),
+    getFirstMediaImageUrl(product.media),
   ].map(normalizeString).find(Boolean) || "";
   const imageAlt = [
+    snapshot.imageAlt,
+    snapshot.productImageAlt,
+    snapshot.featuredImageAlt,
     metrics.imageAlt,
     metrics.productImageAlt,
     metrics.featuredImageAlt,
+    product.imageAlt,
+    product.productImageAlt,
+    product.featuredImageAlt,
+    product.featuredMedia?.image?.altText,
+    product.featuredMedia?.preview?.image?.altText,
+    product.featuredImage?.altText,
     metrics.image?.altText,
     metrics.featuredImage?.altText,
+    getFirstMediaImageAlt(metrics.media),
+    getFirstMediaImageAlt(product.media),
     snapshot.productTitle,
   ].map(normalizeString).find(Boolean) || "";
   return { imageUrl, imageAlt };
+}
+
+function getFirstMediaImageUrl(media) {
+  const item = getFirstMediaItem(media);
+  return item?.imageUrl || item?.url || item?.image?.url || item?.preview?.image?.url || "";
+}
+
+function getFirstMediaImageAlt(media) {
+  const item = getFirstMediaItem(media);
+  return item?.imageAlt || item?.alt || item?.altText || item?.image?.altText || item?.preview?.image?.altText || "";
+}
+
+function getFirstMediaItem(media) {
+  if (Array.isArray(media)) return media[0] || null;
+  if (Array.isArray(media?.nodes)) return media.nodes[0] || null;
+  if (Array.isArray(media?.edges)) return media.edges[0]?.node || null;
+  return null;
 }
 
 function buildRollupSearchText(parts = {}) {

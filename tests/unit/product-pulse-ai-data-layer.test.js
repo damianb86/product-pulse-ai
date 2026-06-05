@@ -22,6 +22,40 @@ const context = {
 };
 
 describe("ProductPulse AI data repositories", () => {
+  it("uses ProductPulse product rollups for compact product lists when rollups are complete", async () => {
+    const db = createRepositoryDbMock();
+    const rollup = buildRollup({
+      productGid: "gid://shopify/Product/rollup",
+      productTitle: "Rollup product",
+      riskScore: 88,
+      confidence: 92,
+      latestDiagnosisId: "diagnosis-rollup",
+      isWatched: true,
+      watchlistStatus: "Watching",
+    });
+    db.productPulseProductRollup.count.mockResolvedValue(1);
+    db.productPulseProductRollup.findMany.mockResolvedValue([rollup]);
+    db.productRiskSnapshot.count.mockResolvedValue(1);
+
+    const repository = new ProductPulseAiRepository(db);
+    const result = await repository.listProductRiskSummaries(context, { limit: 10 });
+
+    expect(db.productPulseProductRollup.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ shop: context.shop, isResolved: false }),
+      select: expect.objectContaining({ productGid: true, riskScore: true }),
+    }));
+    expect(db.productRiskSnapshot.findMany).not.toHaveBeenCalled();
+    expect(db.productAction.findMany).not.toHaveBeenCalled();
+    expect(result.products[0]).toMatchObject({
+      productGid: rollup.productGid,
+      riskScore: 88,
+      riskLabel: "High",
+      latestDiagnosisId: "diagnosis-rollup",
+      isWatched: true,
+      watchlistStatus: "Watching",
+    });
+  });
+
   it("scopes product list queries by server context and returns compact safe summaries", async () => {
     const db = createRepositoryDbMock();
     const snapshot = buildSnapshot({
@@ -810,6 +844,10 @@ function createRepositoryDbMock() {
       count: vi.fn().mockResolvedValue(0),
       findFirst: vi.fn().mockResolvedValue(null),
     },
+    productPulseProductRollup: {
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    },
     productDiagnosis: {
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: vi.fn().mockResolvedValue(null),
@@ -845,6 +883,87 @@ function createRepositoryDbMock() {
     productScoreHistory: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+  };
+}
+
+function buildRollup(overrides = {}) {
+  return {
+    id: "rollup-1",
+    shop: context.shop,
+    productGid: "gid://shopify/Product/1",
+    productTitle: "Stored product",
+    handle: "stored-product",
+    imageUrl: "https://cdn.shopify.com/product.jpg",
+    imageAlt: "Stored product",
+    vendor: "Zuam",
+    productType: "Accessory",
+    primaryCollection: "Featured",
+    collections: ["Featured"],
+    tags: ["tag-a"],
+    sku: "SKU-1",
+    riskScore: 66,
+    impactScore: 12,
+    confidence: 84,
+    primaryIssue: "Fit issue",
+    sourceCoverage: ["Shopify products", "Shopify returns"],
+    sourceCount: 2,
+    signalCount: 8,
+    analysisDepth: "quickscan",
+    latestDiagnosisId: null,
+    latestDiagnosisAt: null,
+    isResolved: false,
+    resolvedAt: null,
+    isWatched: false,
+    watchlistStatus: null,
+    reviewRating: 3.7,
+    avgRating: 3.7,
+    reviewCount: 12,
+    negativeReviewCount: 2,
+    negativeReviewRate: 16.7,
+    recentNegativeReviewCount: 1,
+    revenueAtRisk: 100,
+    marginAtRisk: 45,
+    estimatedImpact: 100,
+    salesAmount: 900,
+    refundAmount: 20,
+    avgUnitRevenue: 30,
+    marginRate: 0.45,
+    returnRate: 12,
+    refundRate: 2,
+    returnUnits: 4,
+    refundUnits: 1,
+    recentSignalUnits: 2,
+    windowDays: 60,
+    soldUnits: 30,
+    soldOrders: 20,
+    storeAvgReturnRate: 5,
+    storeAvgRefundRate: 1,
+    lastSignalAt: new Date("2026-05-17T12:00:00.000Z"),
+    customerTextSignals: 0,
+    contentIssueCount: 0,
+    descriptionWordCount: 120,
+    csvReviewCount: 0,
+    csvReviewRatingCount: 0,
+    csvNegativeReviewCount: 0,
+    csvAverageRating: 0,
+    judgeMeReviewCount: 0,
+    judgeMeNegativeReviewCount: 0,
+    judgeMeAverageRating: 0,
+    yotpoReviewCount: 0,
+    looxReviewCount: 0,
+    productMomentumScore: 55,
+    productMomentumTier: "Watch",
+    momentumDirection: "stable",
+    momentumConfidence: 70,
+    momentumConfidenceLabel: "Medium confidence",
+    signalTrend: [1, 2, 3],
+    riskTrend: [66, 68, 70],
+    topReturnReasons: ["Too small"],
+    affectedVariants: ["M"],
+    snapshotUpdatedAt: new Date("2026-05-18T12:00:00.000Z"),
+    calculatedAt: new Date("2026-05-18T12:00:00.000Z"),
+    updatedAt: new Date("2026-05-18T12:00:00.000Z"),
+    ...overrides,
   };
 }
 

@@ -132,7 +132,7 @@ export function createProductPulseAiToolDefinitions(
       permissionLevel: "merchant",
       metadata: {
         resultType: "AiProductRiskSummary[]",
-        dataSources: ["ProductRiskSnapshot", "ProductDiagnosis", "ProductWatchlistItem"],
+        dataSources: ["ProductPulseProductRollup", "ProductRiskSnapshot", "ProductDiagnosis", "ProductWatchlistItem"],
         maxResultCount: AI_MAX_LIMIT,
         providerAgnostic: true,
       },
@@ -611,7 +611,7 @@ export function createProductPulseAiToolDefinitions(
       permissionLevel: "merchant",
       metadata: {
         resultType: "AiAnalyticsSnapshot",
-        dataSources: ["ProductRiskSnapshot", "ProductPulseSource", "ProductDiagnosis", "ProductAction"],
+        dataSources: ["ProductPulseProductRollup", "ProductRiskSnapshot", "ProductPulseSource", "ProductDiagnosis", "ProductAction"],
         maxResultCount: 1,
         providerAgnostic: true,
       },
@@ -638,7 +638,7 @@ export function createProductPulseAiToolDefinitions(
       permissionLevel: "merchant",
       metadata: {
         resultType: "AiWatchlistSnapshot",
-        dataSources: ["ProductWatchlistItem", "ProductRiskSnapshot", "ProductWatchSettings", "ProductWatchActivity"],
+        dataSources: ["ProductWatchlistItem", "ProductPulseProductRollup", "ProductRiskSnapshot", "ProductWatchSettings", "ProductWatchActivity"],
         maxResultCount: AI_MAX_LIMIT,
         providerAgnostic: true,
       },

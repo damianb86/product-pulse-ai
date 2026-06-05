@@ -1577,6 +1577,8 @@ function normalizeBulkProducts(lines) {
         tags: line.tags,
         status: line.status,
         options: line.options,
+        featuredMedia: line.featuredMedia,
+        media: line.media,
         variants: [],
         collections: [],
       });
@@ -1596,6 +1598,13 @@ function normalizeBulkProducts(lines) {
       product.variants.push(normalizeVariant(line));
     } else if (line.__typename === "Collection" || "handle" in line) {
       product.collections.push({ id: line.id, handle: line.handle || "", title: line.title || "" });
+    } else if (isProductMediaLine(line)) {
+      const media = normalizeProductMedia(line);
+      if (media.image?.url || media.preview?.image?.url) {
+        product.media = product.media && typeof product.media === "object" ? product.media : { nodes: [] };
+        product.media.nodes = Array.isArray(product.media.nodes) ? product.media.nodes : [];
+        product.media.nodes.push(media);
+      }
     }
   });
 
@@ -1970,6 +1979,9 @@ function normalizeReturnLineItemEvent(returnLineItem, itemReturn) {
 }
 
 function normalizeProduct(product) {
+  const mediaNodes = getNodes(product.media)
+    .map(normalizeProductMedia)
+    .filter((media) => media.image?.url || media.preview?.image?.url);
   return {
     id: product.id,
     handle: product.handle || getHandleFromTitle(product.title),
@@ -1980,6 +1992,8 @@ function normalizeProduct(product) {
     tags: Array.isArray(product.tags) ? product.tags : [],
     status: product.status || "",
     options: Array.isArray(product.options) ? product.options : [],
+    featuredMedia: normalizeProductFeaturedMedia(product.featuredMedia),
+    media: { nodes: mediaNodes },
     variants: getNodes(product.variants).map(normalizeVariant),
     collections: getNodes(product.collections).map((collection) => ({
       id: collection.id,
@@ -1987,6 +2001,42 @@ function normalizeProduct(product) {
       title: collection.title || "",
     })),
   };
+}
+
+function normalizeProductFeaturedMedia(media = {}) {
+  const normalized = normalizeProductMedia(media);
+  if (!normalized.image?.url && !normalized.preview?.image?.url) return null;
+  return normalized;
+}
+
+function normalizeProductMedia(media = {}) {
+  media = media && typeof media === "object" ? media : {};
+  const image = media.image || media.preview?.image || {};
+  const url = typeof image.url === "string" ? image.url : "";
+  const altText = typeof image.altText === "string" ? image.altText : typeof media.alt === "string" ? media.alt : "";
+  return {
+    id: media.id || "",
+    alt: typeof media.alt === "string" ? media.alt : altText,
+    mediaContentType: media.mediaContentType || media.__typename || "",
+    status: media.status || "",
+    preview: {
+      image: {
+        url,
+        altText,
+      },
+    },
+    image: {
+      url,
+      altText,
+    },
+  };
+}
+
+function isProductMediaLine(line = {}) {
+  return line.__typename === "MediaImage"
+    || "mediaContentType" in line
+    || "preview" in line
+    || "image" in line;
 }
 
 function normalizeVariant(variant) {
@@ -2196,8 +2246,18 @@ function buildQuickScanMomentumBaselineSnapshots(aggregateList = [], windowDays 
 }
 
 function getQuickScanProductImage(product = {}) {
-  const mediaNode = Array.isArray(product.media?.nodes) ? product.media.nodes[0] || {} : {};
-  const image = product.featuredMedia?.preview?.image || mediaNode.image || mediaNode.preview?.image || {};
+  const mediaNodes = Array.isArray(product.media?.nodes)
+    ? product.media.nodes
+    : Array.isArray(product.media)
+      ? product.media
+      : [];
+  const mediaNode = mediaNodes[0] || {};
+  const image = product.featuredMedia?.image
+    || product.featuredMedia?.preview?.image
+    || product.featuredImage
+    || mediaNode.image
+    || mediaNode.preview?.image
+    || {};
   return {
     imageUrl: typeof image.url === "string" ? image.url : "",
     imageAlt: typeof image.altText === "string" ? image.altText : product.title || "",
@@ -3226,6 +3286,22 @@ const PRODUCT_CATALOG_BULK_QUERY = `{
         productType
         tags
         status
+        featuredMedia {
+          __typename
+          preview {
+            image {
+              url
+              altText
+            }
+          }
+          ... on MediaImage {
+            id
+            image {
+              url
+              altText
+            }
+          }
+        }
         options {
           name
           values
@@ -3358,6 +3434,7 @@ export const __productPulseQuickScanTestHooks = {
   buildPaginatedRefundsQuery,
   buildRefundOrderQueries,
   buildOrderLevelRefundFallbackEvents,
+  productCatalogBulkQuery: PRODUCT_CATALOG_BULK_QUERY,
   normalizeBulkQuickScanData,
   normalizeBulkProducts,
   normalizeBulkOrderEvents,

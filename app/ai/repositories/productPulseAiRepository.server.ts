@@ -31,6 +31,7 @@ import { filterDisabledProductActions } from "../../lib/product-pulse-disabled-a
 type AiPrismaClient = Pick<
   PrismaClient,
   | "productRiskSnapshot"
+  | "productPulseProductRollup"
   | "productDiagnosis"
   | "productAction"
   | "productPulseSource"
@@ -57,6 +58,83 @@ export const AI_MAX_EVIDENCE_LIMIT = 12;
 const SETTINGS_SOURCE_KEY = "__productpulse_settings";
 const ANALYTICS_SAMPLE_LIMIT = 1000;
 const WATCHLIST_MAX_PRODUCTS = 99;
+const AI_ROLLUP_METRIC_FIELDS = {
+  id: true,
+  shop: true,
+  productGid: true,
+  productTitle: true,
+  handle: true,
+  imageUrl: true,
+  imageAlt: true,
+  vendor: true,
+  productType: true,
+  primaryCollection: true,
+  collections: true,
+  tags: true,
+  sku: true,
+  riskScore: true,
+  impactScore: true,
+  confidence: true,
+  primaryIssue: true,
+  sourceCoverage: true,
+  sourceCount: true,
+  signalCount: true,
+  analysisDepth: true,
+  latestDiagnosisId: true,
+  latestDiagnosisAt: true,
+  isResolved: true,
+  resolvedAt: true,
+  isWatched: true,
+  watchlistStatus: true,
+  reviewRating: true,
+  avgRating: true,
+  reviewCount: true,
+  negativeReviewCount: true,
+  negativeReviewRate: true,
+  recentNegativeReviewCount: true,
+  revenueAtRisk: true,
+  marginAtRisk: true,
+  estimatedImpact: true,
+  salesAmount: true,
+  refundAmount: true,
+  avgUnitRevenue: true,
+  marginRate: true,
+  returnRate: true,
+  refundRate: true,
+  returnUnits: true,
+  refundUnits: true,
+  recentSignalUnits: true,
+  windowDays: true,
+  soldUnits: true,
+  soldOrders: true,
+  storeAvgReturnRate: true,
+  storeAvgRefundRate: true,
+  lastSignalAt: true,
+  customerTextSignals: true,
+  contentIssueCount: true,
+  descriptionWordCount: true,
+  csvReviewCount: true,
+  csvReviewRatingCount: true,
+  csvNegativeReviewCount: true,
+  csvAverageRating: true,
+  judgeMeReviewCount: true,
+  judgeMeNegativeReviewCount: true,
+  judgeMeAverageRating: true,
+  yotpoReviewCount: true,
+  looxReviewCount: true,
+  productMomentumScore: true,
+  productMomentumTier: true,
+  momentumDirection: true,
+  momentumConfidence: true,
+  momentumConfidenceLabel: true,
+  signalTrend: true,
+  riskTrend: true,
+  topReturnReasons: true,
+  affectedVariants: true,
+  snapshotUpdatedAt: true,
+  calculatedAt: true,
+  updatedAt: true,
+} as const;
 const DEFAULT_RISK_SETTINGS = {
   minimumScore: 18,
   mediumThreshold: 55,
@@ -95,6 +173,9 @@ export interface WatchlistSnapshotOptions {
 
 export class ProductPulseAiRepository {
   protected db: AiPrismaClient;
+  private riskSettingsByShop = new Map<string, typeof DEFAULT_RISK_SETTINGS>();
+  private completeRollupsByShop = new Map<string, boolean>();
+  private snapshotByShopAndRef = new Map<string, Promise<DbRecord | null>>();
 
   constructor(db: AiPrismaClient = prisma as unknown as AiPrismaClient) {
     this.db = db;
@@ -114,6 +195,9 @@ export class ProductPulseAiRepository {
     const limit = normalizeLimit(options.limit);
     const offset = normalizeOffset(options.offset);
     const settings = await this.getRiskSettings(context);
+    const rollupResult = await this.listProductRiskSummariesFromRollups(context, options, settings);
+    if (rollupResult) return rollupResult;
+
     const baseWhere = buildProductSnapshotWhere(context.shop, options.query, options.risk, settings);
     const includeResolved = options.includeResolved === true;
     const resolvedProductGids = includeResolved ? [] : await this.getResolvedProductGids(context);
@@ -172,6 +256,81 @@ export class ProductPulseAiRepository {
       resolvedProductsExcluded: !includeResolved,
       excludedResolvedCount: excludedResolvedCount ?? 0,
     };
+  }
+
+  private async listProductRiskSummariesFromRollups(
+    context: AiToolContext,
+    options: ListProductRiskSummariesOptions,
+    settings: typeof DEFAULT_RISK_SETTINGS,
+  ): Promise<{
+    products: AiProductRiskSummary[];
+    totalCount: number;
+    hasMore: boolean;
+    freshness: AiDataFreshness[];
+    resolvedProductsExcluded: boolean;
+    excludedResolvedCount: number;
+  } | null> {
+    if (!await this.hasCompleteProductRollups(context)) return null;
+
+    const limit = normalizeLimit(options.limit);
+    const offset = normalizeOffset(options.offset);
+    const includeResolved = options.includeResolved === true;
+    const baseWhere = buildProductRollupWhere(context.shop, options.query, options.risk, settings);
+    const where = includeResolved ? baseWhere : { ...baseWhere, isResolved: false };
+    const resolvedWhere = includeResolved ? null : { ...baseWhere, isResolved: true };
+    const orderBy = buildProductRollupOrderBy(options.sortBy, options.sortDirection);
+    const fetchTake = Math.min(limit + 1, AI_MAX_LIMIT + 1);
+
+    const [rollups, totalCount, excludedResolvedCount] = await Promise.all([
+      this.db.productPulseProductRollup.findMany({
+        where,
+        orderBy,
+        skip: offset,
+        take: fetchTake,
+        select: AI_ROLLUP_METRIC_FIELDS,
+      }),
+      safeCount(() => this.db.productPulseProductRollup.count({ where })),
+      resolvedWhere ? safeCount(() => this.db.productPulseProductRollup.count({ where: resolvedWhere })) : Promise.resolve(0),
+    ]);
+
+    const products = (rollups as unknown as DbRecord[])
+      .slice(0, limit)
+      .map((rollup) => mapProductSummary({
+        snapshot: mapRollupToSnapshotRecord(rollup),
+        settings,
+        watchedItem: rollup.isWatched
+          ? { status: optionalText(rollup.watchlistStatus) || "Watching" }
+          : null,
+      }));
+    const resolvedTotalCount = totalCount ?? Math.max(offset + products.length, products.length);
+
+    return {
+      products,
+      totalCount: resolvedTotalCount,
+      hasMore: rollups.length > limit || offset + products.length < resolvedTotalCount,
+      freshness: buildFreshness(products.map((product) => product.updatedAt || product.calculatedAt)),
+      resolvedProductsExcluded: !includeResolved,
+      excludedResolvedCount: excludedResolvedCount ?? 0,
+    };
+  }
+
+  protected async hasCompleteProductRollups(context: AiToolContext): Promise<boolean> {
+    const cached = this.completeRollupsByShop.get(context.shop);
+    if (cached !== undefined) return cached;
+
+    const rollupCount = await safeCount(() => this.db.productPulseProductRollup.count({
+      where: { shop: context.shop },
+    }));
+    if (!rollupCount) {
+      this.completeRollupsByShop.set(context.shop, false);
+      return false;
+    }
+    const snapshotCount = await safeCount(() => this.db.productRiskSnapshot.count({
+      where: { shop: context.shop },
+    }));
+    const hasCompleteRollups = Boolean(snapshotCount && rollupCount === snapshotCount);
+    this.completeRollupsByShop.set(context.shop, hasCompleteRollups);
+    return hasCompleteRollups;
   }
 
   private async getResolvedProductGids(context: AiToolContext): Promise<string[]> {
@@ -427,6 +586,10 @@ export class ProductPulseAiRepository {
   protected async findSnapshotByProductRef(context: AiToolContext, productRef: string): Promise<DbRecord | null> {
     const normalized = normalizeProductRef(productRef);
     if (!normalized) return null;
+    const cacheKey = `${context.shop}:${normalized}`;
+    const cached = this.snapshotByShopAndRef.get(cacheKey);
+    if (cached) return cached;
+
     const where = normalized.startsWith("gid://")
       ? { shop: context.shop, productGid: normalized }
       : {
@@ -437,15 +600,26 @@ export class ProductPulseAiRepository {
           ],
         };
 
-    return this.db.productRiskSnapshot.findFirst({ where });
+    const lookup = (this.db.productRiskSnapshot.findFirst({ where }) as Promise<DbRecord | null>)
+      .catch((error) => {
+        this.snapshotByShopAndRef.delete(cacheKey);
+        throw error;
+      });
+    this.snapshotByShopAndRef.set(cacheKey, lookup);
+    return lookup;
   }
 
   protected async getRiskSettings(context: AiToolContext): Promise<typeof DEFAULT_RISK_SETTINGS> {
+    const cached = this.riskSettingsByShop.get(context.shop);
+    if (cached) return cached;
+
     const settings = await this.db.productPulseSource.findUnique({
       where: { shop_sourceKey: { shop: context.shop, sourceKey: SETTINGS_SOURCE_KEY } },
       select: { config: true },
     }).catch(() => null);
-    return normalizeRiskSettings(settings?.config);
+    const normalized = normalizeRiskSettings(settings?.config);
+    this.riskSettingsByShop.set(context.shop, normalized);
+    return normalized;
   }
 
   protected async getLatestCompletedDiagnoses(
@@ -474,6 +648,9 @@ export class ProductPulseAiRepository {
 export class ProductPulseAnalyticsAiRepository extends ProductPulseAiRepository {
   async getAnalyticsSnapshot(context: AiToolContext): Promise<AiAnalyticsSnapshot & { freshness: AiDataFreshness[] }> {
     const settings = await this.getRiskSettings(context);
+    const rollupAnalytics = await this.getAnalyticsSnapshotFromRollups(context, settings);
+    if (rollupAnalytics) return rollupAnalytics;
+
     const where = { shop: context.shop };
     const [snapshots, productCount, sources, recentDiagnosisCount, openRecommendationCount, appliedActionCount] = await Promise.all([
       this.db.productRiskSnapshot.findMany({
@@ -556,6 +733,96 @@ export class ProductPulseAnalyticsAiRepository extends ProductPulseAiRepository 
       freshness,
     };
   }
+
+  private async getAnalyticsSnapshotFromRollups(
+    context: AiToolContext,
+    settings: typeof DEFAULT_RISK_SETTINGS,
+  ): Promise<(AiAnalyticsSnapshot & { freshness: AiDataFreshness[] }) | null> {
+    if (!await this.hasCompleteProductRollups(context)) return null;
+
+    const where = { shop: context.shop };
+    const [rollups, productCount, sources, recentDiagnosisCount, openRecommendationCount, appliedActionCount] = await Promise.all([
+      this.db.productPulseProductRollup.findMany({
+        where,
+        orderBy: [{ riskScore: "desc" }, { snapshotUpdatedAt: "desc" }, { updatedAt: "desc" }],
+        take: ANALYTICS_SAMPLE_LIMIT,
+        select: AI_ROLLUP_METRIC_FIELDS,
+      }),
+      safeCount(() => this.db.productPulseProductRollup.count({ where })),
+      this.db.productPulseSource.findMany({
+        where: { shop: context.shop, sourceKey: { not: SETTINGS_SOURCE_KEY } },
+        orderBy: [{ category: "asc" }, { sourceKey: "asc" }],
+      }),
+      safeCount(() => this.db.productDiagnosis.count({
+        where: {
+          shop: context.shop,
+          status: "Completed",
+          completedAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+        },
+      })),
+      safeCount(() => this.db.productAction.count({
+        where: { shop: context.shop, status: { in: ["draft", "active", "reviewed"] } },
+      })),
+      safeCount(() => this.db.productAction.count({
+        where: { shop: context.shop, status: "applied" },
+      })),
+    ]);
+
+    const products = (rollups as unknown as DbRecord[]).map(mapRollupToSnapshotRecord);
+    const resolvedProductCount = productCount ?? products.length;
+    const riskDistribution = { high: 0, medium: 0, low: 0 };
+    const issueStats = new Map<string, { count: number; highestRiskScore: number }>();
+    let riskTotal = 0;
+    let confidenceTotal = 0;
+    let confidenceCount = 0;
+
+    products.forEach((snapshot) => {
+      const riskScore = toInteger(snapshot.riskScore, 0);
+      riskTotal += riskScore;
+      const label = getRiskLabel(riskScore, settings).toLowerCase();
+      if (label === "high") riskDistribution.high += 1;
+      else if (label === "medium") riskDistribution.medium += 1;
+      else riskDistribution.low += 1;
+
+      const confidence = toNullableNumber(snapshot.confidence);
+      if (confidence !== null) {
+        confidenceTotal += confidence;
+        confidenceCount += 1;
+      }
+
+      const issue = optionalText(snapshot.primaryIssue);
+      if (issue) {
+        const current = issueStats.get(issue) || { count: 0, highestRiskScore: 0 };
+        current.count += 1;
+        current.highestRiskScore = Math.max(current.highestRiskScore, riskScore);
+        issueStats.set(issue, current);
+      }
+    });
+
+    const sourceCoverage = (sources as unknown as DbRecord[]).map(mapSourceSummary);
+    const freshness = buildFreshness([
+      ...products.map((snapshot) => toIso(snapshot.updatedAt) || toIso(snapshot.calculatedAt)),
+      ...sourceCoverage.map((source) => source.lastSyncedAt || source.connectedAt),
+    ]);
+
+    return {
+      productCount: resolvedProductCount,
+      sampledProductCount: products.length,
+      sampled: resolvedProductCount > products.length,
+      averageRiskScore: products.length ? round(riskTotal / products.length, 1) : null,
+      averageConfidence: confidenceCount ? round(confidenceTotal / confidenceCount, 1) : null,
+      riskDistribution,
+      topIssues: Array.from(issueStats.entries())
+        .map(([issue, stats]) => ({ issue, ...stats }))
+        .sort((first, second) => second.count - first.count || second.highestRiskScore - first.highestRiskScore)
+        .slice(0, 8),
+      sourceCoverage,
+      recentDiagnosisCount: recentDiagnosisCount ?? 0,
+      openRecommendationCount: openRecommendationCount ?? 0,
+      appliedActionCount: appliedActionCount ?? 0,
+      freshness,
+    };
+  }
 }
 
 export class ProductPulseWatchlistAiRepository extends ProductPulseAiRepository {
@@ -583,9 +850,7 @@ export class ProductPulseWatchlistAiRepository extends ProductPulseAiRepository 
     const watchlistRows = items as unknown as DbRecord[];
     const productGids = uniqueStrings(watchlistRows.map((item) => item.productGid));
     const snapshots = productGids.length
-      ? await this.db.productRiskSnapshot.findMany({
-          where: { shop: context.shop, productGid: { in: productGids } },
-        })
+      ? await this.getWatchlistProductSnapshots(context, productGids)
       : [];
     const snapshotRows = snapshots as unknown as DbRecord[];
     const snapshotByProductGid = new Map(snapshotRows.map((snapshot) => [String(snapshot.productGid || ""), snapshot]));
@@ -614,6 +879,19 @@ export class ProductPulseWatchlistAiRepository extends ProductPulseAiRepository 
         ...recentActivity.map((activity) => activity.createdAt),
       ]),
     };
+  }
+
+  private async getWatchlistProductSnapshots(context: AiToolContext, productGids: string[]): Promise<DbRecord[]> {
+    const rollups = await this.db.productPulseProductRollup.findMany({
+      where: { shop: context.shop, productGid: { in: productGids } },
+      select: AI_ROLLUP_METRIC_FIELDS,
+    }).catch(() => []);
+    if ((rollups as unknown[]).length === productGids.length) {
+      return (rollups as unknown as DbRecord[]).map(mapRollupToSnapshotRecord);
+    }
+    return this.db.productRiskSnapshot.findMany({
+      where: { shop: context.shop, productGid: { in: productGids } },
+    }) as Promise<DbRecord[]>;
   }
 }
 
@@ -655,6 +933,33 @@ function buildProductSnapshotWhere(
   return where;
 }
 
+function buildProductRollupWhere(
+  shop: string,
+  rawQuery: string | undefined,
+  risk: "all" | "high" | "medium" | "low" | undefined,
+  settings: typeof DEFAULT_RISK_SETTINGS,
+): Record<string, unknown> {
+  const where: Record<string, unknown> = { shop };
+  const query = String(rawQuery || "").trim();
+  if (query.length >= 2) {
+    where.OR = [
+      { productTitle: { contains: query, mode: "insensitive" } },
+      { handle: { contains: query, mode: "insensitive" } },
+      { primaryIssue: { contains: query, mode: "insensitive" } },
+      { searchText: { contains: query.toLowerCase(), mode: "insensitive" } },
+    ];
+  }
+
+  if (risk === "high") {
+    where.riskScore = { gte: settings.highThreshold };
+  } else if (risk === "medium") {
+    where.riskScore = { gte: settings.mediumThreshold, lt: settings.highThreshold };
+  } else if (risk === "low") {
+    where.riskScore = { lt: settings.mediumThreshold };
+  }
+  return where;
+}
+
 function buildProductSnapshotWhereWithResolvedFilter(
   where: Record<string, unknown>,
   productGids: string[],
@@ -669,6 +974,26 @@ function buildProductSnapshotWhereWithResolvedFilter(
   };
 }
 
+function buildProductRollupOrderBy(
+  sortBy: ListProductRiskSummariesOptions["sortBy"] = "riskScore",
+  sortDirection: ListProductRiskSummariesOptions["sortDirection"] = "desc",
+): Array<Record<string, "asc" | "desc">> {
+  const safeSortBy = ["riskScore", "updatedAt", "confidence"].includes(String(sortBy)) ? String(sortBy) : "riskScore";
+  const direction = sortDirection === "asc" ? "asc" : "desc";
+  if (safeSortBy === "updatedAt") {
+    return [
+      { snapshotUpdatedAt: direction },
+      { updatedAt: direction },
+      { riskScore: "desc" },
+    ];
+  }
+  return [
+    { [safeSortBy]: direction },
+    { snapshotUpdatedAt: "desc" },
+    { updatedAt: "desc" },
+  ];
+}
+
 function buildProductSnapshotOrderBy(
   sortBy: ListProductRiskSummariesOptions["sortBy"] = "riskScore",
   sortDirection: ListProductRiskSummariesOptions["sortDirection"] = "desc",
@@ -679,6 +1004,106 @@ function buildProductSnapshotOrderBy(
     { [safeSortBy]: direction },
     { updatedAt: "desc" },
   ];
+}
+
+function mapRollupToSnapshotRecord(rollup: DbRecord): DbRecord {
+  const updatedAt = rollup.snapshotUpdatedAt || rollup.updatedAt || rollup.calculatedAt;
+  const latestDiagnosisAt = toIso(rollup.latestDiagnosisAt);
+  const metrics = {
+    imageUrl: optionalText(rollup.imageUrl) || "",
+    productImageUrl: optionalText(rollup.imageUrl) || "",
+    imageAlt: optionalText(rollup.imageAlt) || "",
+    productImageAlt: optionalText(rollup.imageAlt) || "",
+    vendor: optionalText(rollup.vendor) || "",
+    productType: optionalText(rollup.productType) || "",
+    primaryCollection: optionalText(rollup.primaryCollection) || "",
+    collections: arrayOfStrings(rollup.collections),
+    tags: arrayOfStrings(rollup.tags),
+    sku: optionalText(rollup.sku) || "",
+    latestDiagnosisId: optionalText(rollup.latestDiagnosisId),
+    lastDetailedDiagnosisAt: latestDiagnosisAt,
+    reviewRating: toNullableNumber(rollup.reviewRating) ?? 0,
+    avgRating: toNullableNumber(rollup.avgRating) ?? 0,
+    reviewCount: toInteger(rollup.reviewCount, 0),
+    negativeReviewCount: toInteger(rollup.negativeReviewCount, 0),
+    negativeReviewRate: toNullableNumber(rollup.negativeReviewRate) ?? 0,
+    recentNegativeReviewCount: toInteger(rollup.recentNegativeReviewCount, 0),
+    returnRate: toNullableNumber(rollup.returnRate) ?? 0,
+    refundRate: toNullableNumber(rollup.refundRate) ?? 0,
+    returnUnits: toInteger(rollup.returnUnits, 0),
+    refundUnits: toInteger(rollup.refundUnits, 0),
+    recentSignalUnits: toInteger(rollup.recentSignalUnits, 0),
+    windowDays: toInteger(rollup.windowDays, 60),
+    soldUnits: toInteger(rollup.soldUnits, 0),
+    soldOrders: toInteger(rollup.soldOrders, 0),
+    storeAvgReturnRate: toNullableNumber(rollup.storeAvgReturnRate) ?? 0,
+    storeAvgRefundRate: toNullableNumber(rollup.storeAvgRefundRate) ?? 0,
+    lastSignalAt: toIso(rollup.lastSignalAt),
+    signalCount: toInteger(rollup.signalCount, 0),
+    issueCount: toInteger(rollup.signalCount, 0),
+    sourceCount: toInteger(rollup.sourceCount, 0),
+    revenueAtRisk: toNullableNumber(rollup.revenueAtRisk) ?? 0,
+    estimatedImpact: toNullableNumber(rollup.estimatedImpact) ?? 0,
+    marginAtRisk: toNullableNumber(rollup.marginAtRisk) ?? 0,
+    salesAmount: toNullableNumber(rollup.salesAmount) ?? 0,
+    avgUnitRevenue: toNullableNumber(rollup.avgUnitRevenue) ?? 0,
+    refundAmount: toNullableNumber(rollup.refundAmount) ?? 0,
+    marginRate: toNullableNumber(rollup.marginRate),
+    customerTextSignals: toInteger(rollup.customerTextSignals, 0),
+    contentIssueCount: toInteger(rollup.contentIssueCount, 0),
+    descriptionWordCount: toInteger(rollup.descriptionWordCount, 0),
+    csvReviewCount: toInteger(rollup.csvReviewCount, 0),
+    csvReviewRatingCount: toInteger(rollup.csvReviewRatingCount, 0),
+    csvNegativeReviewCount: toInteger(rollup.csvNegativeReviewCount, 0),
+    csvAverageRating: toNullableNumber(rollup.csvAverageRating) ?? 0,
+    judgeMeReviewCount: toInteger(rollup.judgeMeReviewCount, 0),
+    judgeMeNegativeReviewCount: toInteger(rollup.judgeMeNegativeReviewCount, 0),
+    judgeMeAverageRating: toNullableNumber(rollup.judgeMeAverageRating) ?? 0,
+    yotpoReviewCount: toInteger(rollup.yotpoReviewCount, 0),
+    looxReviewCount: toInteger(rollup.looxReviewCount, 0),
+    productMomentumScore: toNullableNumber(rollup.productMomentumScore),
+    productMomentumTier: optionalText(rollup.productMomentumTier),
+    momentumDirection: optionalText(rollup.momentumDirection),
+    momentumConfidence: toNullableNumber(rollup.momentumConfidence),
+    momentumConfidenceLabel: optionalText(rollup.momentumConfidenceLabel),
+    productMomentum: {
+      source: "product-rollup",
+      score: toNullableNumber(rollup.productMomentumScore) ?? 0,
+      tier: optionalText(rollup.productMomentumTier) || "",
+      direction: optionalText(rollup.momentumDirection) || "",
+      confidence: toNullableNumber(rollup.momentumConfidence) ?? 0,
+      confidenceLabel: optionalText(rollup.momentumConfidenceLabel) || "",
+      windowDays: toInteger(rollup.windowDays, 60),
+    },
+    signalTrend: numberArray(rollup.signalTrend),
+    riskTrend: numberArray(rollup.riskTrend),
+    topReturnReasons: arrayOfStrings(rollup.topReturnReasons),
+    affectedVariants: arrayOfStrings(rollup.affectedVariants),
+    sourceCoverage: arrayOfStrings(rollup.sourceCoverage),
+    monthlyOrderActivity: {
+      summary: {
+        totalOrderUnits: toInteger(rollup.soldUnits, 0),
+        returnRate: toNullableNumber(rollup.returnRate) ?? 0,
+        refundRate: toNullableNumber(rollup.refundRate) ?? 0,
+      },
+    },
+  };
+
+  return {
+    id: rollup.id,
+    shop: rollup.shop,
+    productGid: rollup.productGid,
+    productTitle: rollup.productTitle,
+    handle: rollup.handle,
+    riskScore: rollup.riskScore,
+    impactScore: rollup.impactScore,
+    confidence: rollup.confidence,
+    primaryIssue: rollup.primaryIssue,
+    sourceCoverage: arrayOfStrings(rollup.sourceCoverage),
+    metrics,
+    calculatedAt: rollup.calculatedAt,
+    updatedAt,
+  };
 }
 
 function mapProductSummary(input: {
@@ -1526,6 +1951,11 @@ function arrayOfRecords(value: unknown): Array<Record<string, unknown>> {
 function arrayOfStrings(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.map(optionalText).filter((item): item is string => Boolean(item));
+}
+
+function numberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => Number(item)).filter(Number.isFinite);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

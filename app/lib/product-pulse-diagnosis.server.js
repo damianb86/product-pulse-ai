@@ -3946,10 +3946,17 @@ function calculateDeterministicDiagnosis({
     reviews: evidenceSnippetInputs.reviews,
     product,
   });
+  const productImage = getNormalizedProductImage(product, snapshotMetrics);
 
   return {
     product,
     metrics: {
+      imageUrl: productImage.imageUrl,
+      productImageUrl: productImage.imageUrl,
+      featuredImageUrl: productImage.imageUrl,
+      imageAlt: productImage.imageAlt,
+      productImageAlt: productImage.imageAlt,
+      featuredImageAlt: productImage.imageAlt,
       returnRate,
       refundRate,
       reviewRating: avgRating,
@@ -4071,6 +4078,7 @@ function calculateDeterministicDiagnosis({
         alt: media.alt,
         mediaContentType: media.mediaContentType,
         status: media.status,
+        url: media.url,
         width: media.width,
         height: media.height,
       })),
@@ -11837,12 +11845,15 @@ function normalizeShopifyProduct(product, snapshot) {
       height: Number(image.height || 0),
     };
   });
+  const primaryImage = media.find((item) => item.url) || media[0] || {};
 
   return {
     id: product.id || snapshot.productGid,
     numericId: String(product.legacyResourceId || extractNumericShopifyId(product.id) || ""),
     title: product.title || snapshot.productTitle,
     handle: product.handle || snapshot.handle,
+    imageUrl: primaryImage.url || "",
+    imageAlt: primaryImage.alt || product.title || snapshot.productTitle || "",
     createdAt: toIso(product.createdAt),
     updatedAt: toIso(product.updatedAt || product.createdAt),
     description: cleanProductDescription(product),
@@ -11869,6 +11880,43 @@ function normalizeShopifyProduct(product, snapshot) {
   };
 }
 
+function getNormalizedProductImage(product = {}, fallbackMetrics = {}) {
+  const firstMedia = Array.isArray(product.media) ? product.media.find((item) => item?.url) || product.media[0] || {} : {};
+  const imageUrl = [
+    product.imageUrl,
+    product.productImageUrl,
+    product.featuredImageUrl,
+    product.featuredImage?.url,
+    product.featuredMedia?.image?.url,
+    product.featuredMedia?.preview?.image?.url,
+    firstMedia.url,
+    firstMedia.imageUrl,
+    firstMedia.image?.url,
+    firstMedia.preview?.image?.url,
+    fallbackMetrics.imageUrl,
+    fallbackMetrics.productImageUrl,
+    fallbackMetrics.featuredImageUrl,
+  ].map((value) => String(value || "").trim()).find(Boolean) || "";
+  const imageAlt = [
+    product.imageAlt,
+    product.productImageAlt,
+    product.featuredImageAlt,
+    product.featuredImage?.altText,
+    product.featuredMedia?.image?.altText,
+    product.featuredMedia?.preview?.image?.altText,
+    firstMedia.alt,
+    firstMedia.imageAlt,
+    firstMedia.image?.altText,
+    firstMedia.preview?.image?.altText,
+    fallbackMetrics.imageAlt,
+    fallbackMetrics.productImageAlt,
+    fallbackMetrics.featuredImageAlt,
+    product.title,
+  ].map((value) => String(value || "").trim()).find(Boolean) || "";
+
+  return { imageUrl, imageAlt };
+}
+
 function normalizeSnapshotProduct(snapshot) {
   const metrics = snapshot.metrics || {};
   const collectionRecords = getProductCollectionRecords(metrics.collectionRecords || metrics.collections || []);
@@ -11877,6 +11925,8 @@ function normalizeSnapshotProduct(snapshot) {
     numericId: extractNumericShopifyId(snapshot.productGid),
     title: snapshot.productTitle,
     handle: snapshot.handle,
+    imageUrl: metrics.imageUrl || metrics.productImageUrl || metrics.featuredImageUrl || "",
+    imageAlt: metrics.imageAlt || metrics.productImageAlt || metrics.featuredImageAlt || snapshot.productTitle || "",
     createdAt: null,
     updatedAt: null,
     description: "",

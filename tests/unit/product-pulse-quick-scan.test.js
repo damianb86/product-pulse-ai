@@ -8,6 +8,72 @@ import {
 } from "../../app/lib/product-pulse-quick-scan.server";
 
 describe("ProductPulse Catalog Scan", () => {
+  it("keeps Shopify bulk product image data in Catalog Scan candidates", () => {
+    expect(__productPulseQuickScanTestHooks.productCatalogBulkQuery).toContain("featuredMedia");
+    expect(__productPulseQuickScanTestHooks.productCatalogBulkQuery).toContain("altText");
+
+    const productId = "gid://shopify/Product/1";
+    const products = __productPulseQuickScanTestHooks.normalizeBulkProducts([
+      {
+        __typename: "Product",
+        id: productId,
+        handle: "linen-shirt",
+        title: "Linen Shirt",
+        productType: "Apparel",
+        variants: [],
+        collections: [],
+      },
+      {
+        __typename: "MediaImage",
+        __parentId: productId,
+        id: "gid://shopify/MediaImage/1",
+        image: {
+          url: "https://cdn.shopify.com/s/files/linen-shirt.jpg",
+          altText: "Linen Shirt photo",
+        },
+      },
+    ]);
+
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products,
+      events: [
+        ...Array.from({ length: 20 }, () => ({
+          type: "sale",
+          productId,
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 80,
+        })),
+        ...Array.from({ length: 7 }, () => ({
+          type: "return",
+          productId,
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          reason: "SIZE_TOO_SMALL",
+          note: "too small",
+          occurredAt: new Date().toISOString(),
+        })),
+        ...Array.from({ length: 4 }, () => ({
+          type: "refund",
+          productId,
+          variantId: "gid://shopify/ProductVariant/1",
+          quantity: 1,
+          amount: 320,
+          occurredAt: new Date().toISOString(),
+        })),
+      ],
+    });
+
+    expect(products[0].media.nodes[0].image.url).toBe("https://cdn.shopify.com/s/files/linen-shirt.jpg");
+    expect(candidates[0].metrics).toMatchObject({
+      imageUrl: "https://cdn.shopify.com/s/files/linen-shirt.jpg",
+      productImageUrl: "https://cdn.shopify.com/s/files/linen-shirt.jpg",
+      imageAlt: "Linen Shirt photo",
+      productImageAlt: "Linen Shirt photo",
+    });
+  });
+
   it("keeps only deterministic high-risk candidates from Shopify-native events", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,

@@ -1032,7 +1032,7 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
   };
 }
 
-export async function getProductsPageTablesForShop(shop, _admin, options = {}) {
+export async function getProductsPageTablesForShop(shop, admin, options = {}) {
   const perf = options.perf;
   const activeTab = normalizeProductTableActiveTab(options.activeTab);
   const activeTableKey = getProductTableKeyForTab(activeTab);
@@ -1088,13 +1088,18 @@ export async function getProductsPageTablesForShop(shop, _admin, options = {}) {
     rowMetricsByProductGid,
   );
   perf?.mark(`products.${activeTab}.formatRows`, { rows: activeRows.length });
-  perf?.mark(`products.${activeTab}.storedImages`, { rows: activeRows.length });
+  const backfilledImagesByProductGid = await measureProductPulseStep(
+    perf,
+    `products.${activeTab}.storedImages`,
+    () => backfillMissingProductImagesForSnapshots(shop, activeContext.pageSnapshots, admin, { limit: 10 }),
+  );
+  const activeRowsWithImages = mergeBackfilledImagesIntoRows(activeRows, backfilledImagesByProductGid);
 
   return Object.fromEntries(Object.values(tableContexts).map((context) => [
     context.key,
     buildProductsQueueResultForContext(
       context,
-      context.key === activeTableKey ? activeRows : [],
+      context.key === activeTableKey ? activeRowsWithImages : [],
       activeBase,
     ),
   ]));
@@ -1645,6 +1650,11 @@ export async function getDashboardDataForShop(shop, admin, options = {}) {
     actions: actions.length,
     catalogProductCount,
   });
+  await measureProductPulseStep(
+    perf,
+    "dashboard.storedImages",
+    () => backfillMissingProductImagesForSnapshots(shop, snapshots, admin, { limit: 8 }),
+  );
 
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
@@ -6432,27 +6442,156 @@ async function resolveSnapshotProductImage(shop, snapshot, admin) {
   return { imageUrl, imageAlt };
 }
 
+async function backfillMissingProductImagesForSnapshots(shop, snapshots = [], admin, options = {}) {
+  if (!shop || !admin?.graphql) return new Map();
+  const limit = Math.max(1, Math.min(25, Number(options.limit || 10)));
+  const candidates = [];
+  const seen = new Set();
+
+  for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
+    if (!snapshot?.productGid || seen.has(snapshot.productGid)) continue;
+    if (getSnapshotProductImage(snapshot).imageUrl) continue;
+    seen.add(snapshot.productGid);
+    candidates.push(snapshot);
+    if (candidates.length >= limit) break;
+  }
+
+  if (!candidates.length) return new Map();
+
+  const rows = await attachProductImages(candidates.map((snapshot) => ({ productGid: snapshot.productGid })), admin);
+  const imageByProductGid = new Map(rows
+    .map((row) => {
+      const imageUrl = normalizeJobPayloadString(row?.imageUrl);
+      if (!row?.productGid || !imageUrl) return null;
+      return [row.productGid, {
+        imageUrl,
+        imageAlt: normalizeJobPayloadString(row.imageAlt),
+      }];
+    })
+    .filter(Boolean));
+
+  if (imageByProductGid.size) {
+    for (const snapshot of candidates) {
+      const image = imageByProductGid.get(snapshot.productGid);
+      if (!image?.imageUrl) continue;
+      snapshot.metrics = buildSnapshotMetricsWithProductImage(snapshot, image);
+    }
+    persistBackfilledSnapshotImages(shop, candidates, imageByProductGid).catch(() => null);
+  }
+
+  return imageByProductGid;
+}
+
+async function persistBackfilledSnapshotImages(shop, snapshots = [], imageByProductGid = new Map()) {
+  for (const snapshot of snapshots) {
+    const image = imageByProductGid.get(snapshot.productGid);
+    if (!image?.imageUrl) continue;
+    const nextMetrics = buildSnapshotMetricsWithProductImage(snapshot, image);
+
+    await prisma.productRiskSnapshot.update({
+      where: {
+        shop_productGid: {
+          shop,
+          productGid: snapshot.productGid,
+        },
+      },
+      data: { metrics: nextMetrics },
+    }).catch(() => null);
+
+    snapshot.metrics = nextMetrics;
+    await upsertProductPulseProductRollup(snapshot).catch(() => null);
+  }
+}
+
+function buildSnapshotMetricsWithProductImage(snapshot = {}, image = {}) {
+  const imageUrl = normalizeJobPayloadString(image.imageUrl);
+  const imageAlt = normalizeJobPayloadString(image.imageAlt) || snapshot.productTitle || "";
+  return {
+    ...(snapshot.metrics || {}),
+    imageUrl,
+    productImageUrl: imageUrl,
+    featuredImageUrl: imageUrl,
+    imageAlt,
+    productImageAlt: imageAlt,
+    featuredImageAlt: imageAlt,
+  };
+}
+
+function mergeBackfilledImagesIntoRows(rows = [], imageByProductGid = new Map()) {
+  if (!imageByProductGid?.size) return rows;
+  return rows.map((row) => {
+    if (row.imageUrl) return row;
+    const image = imageByProductGid.get(row.productGid);
+    if (!image?.imageUrl) return row;
+    return {
+      ...row,
+      imageUrl: image.imageUrl,
+      imageAlt: image.imageAlt || row.imageAlt || row.title || "",
+    };
+  });
+}
+
 function getSnapshotProductImage(snapshot = {}) {
   const metrics = snapshot.metrics || {};
+  const product = metrics.product && typeof metrics.product === "object" ? metrics.product : {};
   const candidates = [
+    snapshot.imageUrl,
+    snapshot.productImageUrl,
+    snapshot.featuredImageUrl,
     metrics.imageUrl,
     metrics.productImageUrl,
     metrics.featuredImageUrl,
+    product.imageUrl,
+    product.productImageUrl,
+    product.featuredImageUrl,
+    product.featuredMedia?.image?.url,
+    product.featuredMedia?.preview?.image?.url,
+    product.featuredImage?.url,
     typeof metrics.image === "string" ? metrics.image : metrics.image?.url,
     metrics.featuredImage?.url,
+    getFirstProductMediaImageUrl(metrics.media),
+    getFirstProductMediaImageUrl(product.media),
   ];
   const altCandidates = [
+    snapshot.imageAlt,
+    snapshot.productImageAlt,
+    snapshot.featuredImageAlt,
     metrics.imageAlt,
     metrics.productImageAlt,
     metrics.featuredImageAlt,
+    product.imageAlt,
+    product.productImageAlt,
+    product.featuredImageAlt,
+    product.featuredMedia?.image?.altText,
+    product.featuredMedia?.preview?.image?.altText,
+    product.featuredImage?.altText,
     metrics.image?.altText,
     metrics.featuredImage?.altText,
+    getFirstProductMediaImageAlt(metrics.media),
+    getFirstProductMediaImageAlt(product.media),
     snapshot.productTitle,
   ];
   return {
     imageUrl: candidates.map(normalizeJobPayloadString).find(Boolean) || "",
     imageAlt: altCandidates.map(normalizeJobPayloadString).find(Boolean) || "",
   };
+}
+
+function getFirstProductMediaImageUrl(media) {
+  const item = getFirstProductMediaItem(media);
+  return item?.imageUrl || item?.url || item?.image?.url || item?.preview?.image?.url || "";
+}
+
+function getFirstProductMediaImageAlt(media) {
+  const item = getFirstProductMediaItem(media);
+  return item?.imageAlt || item?.alt || item?.altText || item?.image?.altText || item?.preview?.image?.altText || "";
+}
+
+function getFirstProductMediaItem(media) {
+  if (Array.isArray(media)) return media[0] || null;
+  if (Array.isArray(media?.nodes)) return media.nodes[0] || null;
+  if (Array.isArray(media?.edges)) return media.edges[0]?.node || null;
+  return null;
 }
 
 async function attachProductImages(rows, admin) {
