@@ -77,6 +77,8 @@ const SHOPIFY_PRODUCT_IMAGE_TIMEOUT_MS = 4 * 1000;
 const DASHBOARD_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_DASHBOARD_CACHE_TTL_MS", 15 * 1000, { min: 0, max: 5 * 60 * 1000 });
 const DASHBOARD_ACTIVE_JOB_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_DASHBOARD_ACTIVE_JOB_CACHE_TTL_MS", 5 * 1000, { min: 0, max: 60 * 1000 });
 const DASHBOARD_CACHE_MAX_SHOPS = getBoundedIntegerEnv("PRODUCT_PULSE_DASHBOARD_CACHE_MAX_SHOPS", 25, { min: 1, max: 200 });
+const JOB_MONITOR_CACHE_TTL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_JOB_MONITOR_CACHE_TTL_MS", 10 * 1000, { min: 0, max: 60 * 1000 });
+const JOB_MONITOR_CACHE_MAX_SHOPS = getBoundedIntegerEnv("PRODUCT_PULSE_JOB_MONITOR_CACHE_MAX_SHOPS", 50, { min: 1, max: 200 });
 const ANALYTICS_RETROACTIVE_HISTORY_DAYS = 365;
 const ANALYTICS_SCORE_HISTORY_TAKE = 520;
 const ANALYTICS_HISTORY_BASELINE_BUFFER_DAYS = 7;
@@ -162,11 +164,79 @@ const PRODUCT_RISK_SNAPSHOT_LIST_METRIC_KEYS = [
   "productRetentionSummary",
 ];
 const PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE = 40;
+const PRODUCT_TABLE_ROW_METRIC_KEYS = [
+  "reviewRating",
+  "avgRating",
+  "reviewCount",
+  "negativeReviewCount",
+  "negativeReviewRate",
+  "returnRate",
+  "refundRate",
+  "returnUnits",
+  "refundUnits",
+  "recentSignalUnits",
+  "windowDays",
+  "soldUnits",
+  "signalCount",
+  "signalsCount",
+  "issueCount",
+  "refundAmount",
+  "latestDiagnosisId",
+  "lastDetailedDiagnosisAt",
+  "productType",
+  "vendor",
+  "tags",
+  "collections",
+  "variantCount",
+  "skuCount",
+  "topReturnReasons",
+  "topRefundReasons",
+  "riskTrend",
+  "productMomentumScore",
+  "productMomentumTier",
+  "momentumDirection",
+  "momentumConfidence",
+  "momentumConfidenceLabel",
+  "contentQualityScore",
+  "contentQualityRisk",
+  "contentIssueCount",
+  "mediaCount",
+  "mediaWithoutAltCount",
+  "descriptionWordCount",
+  "descriptionLength",
+  "hasDescription",
+  "titleNeedsReview",
+  "variantNamingAdvisory",
+  "productStatus",
+  "optionNames",
+  "csvAverageRating",
+  "csvReviewCount",
+  "csvNegativeReviewCount",
+  "csvLowRatingCount",
+  "csvNegativeRatingRate",
+  "csvCriticalRatingCount",
+  "csvRatingRisk",
+  "csvReviewRatingCount",
+  "judgeMeAverageRating",
+  "judgeMeReviewCount",
+  "judgeMeNegativeReviewCount",
+  "customerTextSignals",
+  "evidenceConflict",
+  "conflictingEvidence",
+  "orderAccessDenied",
+  "imageUrl",
+  "productImageUrl",
+  "featuredImageUrl",
+  "imageAlt",
+  "productImageAlt",
+  "featuredImageAlt",
+];
 const activeWorkers = global.productPulseJobWorkers || new Set();
 const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || new Set();
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
 const staleFastProductScanSweeps = global.productPulseStaleFastProductScanSweeps || new Map();
 const dashboardCache = global.productPulseDashboardCache || new Map();
+const jobMonitorCache = global.productPulseJobMonitorCache || new Map();
 
 if (!global.productPulseJobWorkers) {
   global.productPulseJobWorkers = activeWorkers;
@@ -178,6 +248,10 @@ if (!global.productPulseStaleFastProductScanSweeps) {
 
 if (!global.productPulseDashboardCache) {
   global.productPulseDashboardCache = dashboardCache;
+}
+
+if (!global.productPulseJobMonitorCache) {
+  global.productPulseJobMonitorCache = jobMonitorCache;
 }
 
 if (!global.productPulseDiagnosisQueueWorkers) {
@@ -230,6 +304,39 @@ function setCachedProductPulseDashboard(shop, dashboard, { activeJob = null, act
 export function invalidateProductPulseDashboardCache(shop) {
   const key = normalizeDashboardCacheKey(shop);
   if (key) dashboardCache.delete(key);
+}
+
+function getCachedJobMonitor(shop) {
+  if (JOB_MONITOR_CACHE_TTL_MS <= 0) return null;
+  const key = normalizeDashboardCacheKey(shop);
+  if (!key) return null;
+  const entry = jobMonitorCache.get(key);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    jobMonitorCache.delete(key);
+    return null;
+  }
+  return entry.monitor;
+}
+
+function setCachedJobMonitor(shop, monitor) {
+  if (JOB_MONITOR_CACHE_TTL_MS <= 0 || !monitor) return;
+  const key = normalizeDashboardCacheKey(shop);
+  if (!key) return;
+  while (jobMonitorCache.size >= JOB_MONITOR_CACHE_MAX_SHOPS) {
+    const oldestKey = jobMonitorCache.keys().next().value;
+    if (!oldestKey) break;
+    jobMonitorCache.delete(oldestKey);
+  }
+  jobMonitorCache.set(key, {
+    monitor,
+    expiresAt: Date.now() + JOB_MONITOR_CACHE_TTL_MS,
+  });
+}
+
+function invalidateJobMonitorCache(shop) {
+  const key = normalizeDashboardCacheKey(shop);
+  if (key) jobMonitorCache.delete(key);
 }
 
 function normalizeDashboardCacheKey(shop) {
@@ -437,6 +544,82 @@ function buildProductRiskSnapshotListMetricsSql() {
   return Prisma.sql`jsonb_strip_nulls(${flatMetricsSql} || ${nestedMetricsSql})`;
 }
 
+function buildProductTableRowMetricsSql() {
+  const flatMetricObjects = [];
+  for (let index = 0; index < PRODUCT_TABLE_ROW_METRIC_KEYS.length; index += PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE) {
+    flatMetricObjects.push(buildProductRiskSnapshotMetricChunkSql(
+      PRODUCT_TABLE_ROW_METRIC_KEYS.slice(index, index + PRODUCT_RISK_SNAPSHOT_LIST_METRIC_CHUNK_SIZE),
+    ));
+  }
+  const flatMetricsSql = joinJsonbObjectsSql(flatMetricObjects);
+  const nestedMetricsSql = Prisma.sql`jsonb_build_object(
+    'textInsights',
+    CASE
+      WHEN jsonb_typeof(metrics_json -> 'textInsights') = 'object'
+      THEN jsonb_strip_nulls(jsonb_build_object(
+        'sentiment', metrics_json #> '{textInsights,sentiment}',
+        'subjectiveNegativity', metrics_json #> '{textInsights,subjectiveNegativity}',
+        'repeatedLanguage', metrics_json #> '{textInsights,repeatedLanguage}'
+      ))
+      ELSE NULL
+    END,
+    'productMomentum',
+    CASE
+      WHEN jsonb_typeof(metrics_json -> 'productMomentum') = 'object'
+      THEN jsonb_strip_nulls(jsonb_build_object(
+        'source', metrics_json #> '{productMomentum,source}',
+        'score', metrics_json #> '{productMomentum,score}',
+        'tier', metrics_json #> '{productMomentum,tier}',
+        'direction', metrics_json #> '{productMomentum,direction}',
+        'confidence', metrics_json #> '{productMomentum,confidence}',
+        'confidenceLabel', metrics_json #> '{productMomentum,confidenceLabel}',
+        'calculatedAt', metrics_json #> '{productMomentum,calculatedAt}',
+        'windowDays', metrics_json #> '{productMomentum,windowDays}',
+        'baselineDays', metrics_json #> '{productMomentum,baselineDays}',
+        'components', jsonb_strip_nulls(jsonb_build_object(
+          'currentVelocityScore', metrics_json #> '{productMomentum,components,currentVelocityScore}',
+          'growthScore', metrics_json #> '{productMomentum,components,growthScore}',
+          'catalogShareScore', metrics_json #> '{productMomentum,components,catalogShareScore}',
+          'trendConsistencyScore', metrics_json #> '{productMomentum,components,trendConsistencyScore}',
+          'recencyScore', metrics_json #> '{productMomentum,components,recencyScore}'
+        )),
+        'inputs', jsonb_strip_nulls(jsonb_build_object(
+          'unitsLast7Days', metrics_json #> '{productMomentum,inputs,unitsLast7Days}',
+          'unitsLast14Days', metrics_json #> '{productMomentum,inputs,unitsLast14Days}',
+          'unitsLast30Days', metrics_json #> '{productMomentum,inputs,unitsLast30Days}',
+          'unitsPrevious30Days', metrics_json #> '{productMomentum,inputs,unitsPrevious30Days}',
+          'revenueLast30Days', metrics_json #> '{productMomentum,inputs,revenueLast30Days}',
+          'revenuePrevious30Days', metrics_json #> '{productMomentum,inputs,revenuePrevious30Days}',
+          'ordersLast30Days', metrics_json #> '{productMomentum,inputs,ordersLast30Days}',
+          'weeklyUnitsLast4Weeks', metrics_json #> '{productMomentum,inputs,weeklyUnitsLast4Weeks}',
+          'weeklyRevenueLast4Weeks', metrics_json #> '{productMomentum,inputs,weeklyRevenueLast4Weeks}',
+          'lastSaleAt', metrics_json #> '{productMomentum,inputs,lastSaleAt}'
+        )),
+        'catalog', jsonb_strip_nulls(jsonb_build_object(
+          'unitsVelocityScore', metrics_json #> '{productMomentum,catalog,unitsVelocityScore}',
+          'revenueVelocityScore', metrics_json #> '{productMomentum,catalog,revenueVelocityScore}',
+          'productShareLast30', metrics_json #> '{productMomentum,catalog,productShareLast30}',
+          'productShareBaseline', metrics_json #> '{productMomentum,catalog,productShareBaseline}',
+          'shareLiftRatio', metrics_json #> '{productMomentum,catalog,shareLiftRatio}',
+          'topCatalogPercent', metrics_json #> '{productMomentum,catalog,topCatalogPercent}',
+          'catalogProductCount', metrics_json #> '{productMomentum,catalog,catalogProductCount}',
+          'hasCatalogBaseline', metrics_json #> '{productMomentum,catalog,hasCatalogBaseline}'
+        )),
+        'display', jsonb_strip_nulls(jsonb_build_object(
+          'growthPercent', metrics_json #> '{productMomentum,display,growthPercent}',
+          'growthLabel', metrics_json #> '{productMomentum,display,growthLabel}',
+          'catalogPositionLabel', metrics_json #> '{productMomentum,display,catalogPositionLabel}',
+          'trendLabel', metrics_json #> '{productMomentum,display,trendLabel}',
+          'recommendedUse', metrics_json #> '{productMomentum,display,recommendedUse}'
+        ))
+      ))
+      ELSE NULL
+    END
+  )`;
+
+  return Prisma.sql`jsonb_strip_nulls(${flatMetricsSql} || ${nestedMetricsSql})`;
+}
+
 function buildProductRiskSnapshotMetricChunkSql(keys) {
   const flatFields = keys.flatMap((key) => [
     Prisma.raw(`'${key}'`),
@@ -578,86 +761,95 @@ export async function getProductsQueueForShop(shop, admin, filters = {}, options
   };
 }
 
-export async function getProductsPageTablesForShop(shop, admin, options = {}) {
+export async function getProductsPageTablesForShop(shop, _admin, options = {}) {
   const perf = options.perf;
+  const activeTab = normalizeProductTableActiveTab(options.activeTab);
+  const activeTableKey = getProductTableKeyForTab(activeTab);
   const settings = options.settings || await measureProductPulseStep(
     perf,
-    "products.shared.settings",
+    `products.${activeTab}.settings`,
     () => getProductPulseSettings(shop),
   );
   const base = await loadProductsQueueSharedBaseForShop(shop, {
     settings,
     perf,
   });
-  const tableContexts = [
-    buildProductsQueueTableContext("productTable", { ...(options.mainFilters || {}), analysis: "full", resolution: "unresolved" }, base),
-    buildProductsQueueTableContext("candidateProductTable", { ...(options.candidateFilters || {}), analysis: "quickscan", resolution: "unresolved" }, base),
-    buildProductsQueueTableContext("resolvedProductTable", { ...(options.resolvedFilters || {}), analysis: "all", resolution: "resolved" }, base),
-  ];
-  perf?.mark("products.shared.filterAndSort", {
-    productTable: tableContexts[0].filteredSnapshots.length,
-    candidateProductTable: tableContexts[1].filteredSnapshots.length,
-    resolvedProductTable: tableContexts[2].filteredSnapshots.length,
+  const tableContexts = {
+    productTable: buildProductsQueueTableContext("productTable", { ...(options.mainFilters || {}), analysis: "full", resolution: "unresolved" }, base),
+    candidateProductTable: buildProductsQueueTableContext("candidateProductTable", { ...(options.candidateFilters || {}), analysis: "quickscan", resolution: "unresolved" }, base),
+    resolvedProductTable: buildProductsQueueTableContext("resolvedProductTable", { ...(options.resolvedFilters || {}), analysis: "all", resolution: "resolved" }, base),
+  };
+  perf?.mark(`products.${activeTab}.filterAndSort`, {
+    productTable: tableContexts.productTable.filteredSnapshots.length,
+    candidateProductTable: tableContexts.candidateProductTable.filteredSnapshots.length,
+    resolvedProductTable: tableContexts.resolvedProductTable.filteredSnapshots.length,
   });
 
-  const pageProductGids = [
-    ...new Set(tableContexts.flatMap((context) => context.pageSnapshots.map((snapshot) => snapshot.productGid).filter(Boolean))),
-  ];
+  const activeContext = tableContexts[activeTableKey] || tableContexts.productTable;
+  const pageProductGids = [...new Set(activeContext.pageSnapshots.map((snapshot) => snapshot.productGid).filter(Boolean))];
+  const rowMetricsByProductGid = await measureProductPulseStep(
+    perf,
+    `products.${activeTab}.rowMetrics.light`,
+    () => getProductTableRowMetricsForProducts(shop, pageProductGids),
+  );
   const scoreHistoryByProductGid = await measureProductPulseStep(
     perf,
-    "products.shared.scoreHistory.light",
+    `products.${activeTab}.scoreHistory.light`,
     () => getProductScoreHistoryForProductsLight(shop, pageProductGids, { take: 80 }),
   );
-  const rowsByTable = Object.fromEntries(tableContexts.map((context) => [
-    context.key,
-    buildProductsQueueRowsForContext(shop, context, base, scoreHistoryByProductGid),
-  ]));
-  const rowsWithImagesByTable = await measureProductPulseStep(
+  const watchedItems = await measureProductPulseStep(
     perf,
-    "products.shared.attachProductImages",
-    () => attachProductTableImages(rowsByTable, admin),
+    `products.${activeTab}.watchlistItems`,
+    () => pageProductGids.length ? prisma.productWatchlistItem.findMany({
+      where: { shop, productGid: { in: pageProductGids } },
+      select: { productGid: true, status: true },
+    }) : [],
   );
+  const activeBase = {
+    ...base,
+    watchedByProductGid: new Map(watchedItems.map((item) => [item.productGid, item])),
+  };
+  const activeRows = buildProductsQueueRowsForContext(
+    shop,
+    activeContext,
+    activeBase,
+    scoreHistoryByProductGid,
+    rowMetricsByProductGid,
+  );
+  perf?.mark(`products.${activeTab}.formatRows`, { rows: activeRows.length });
+  perf?.mark(`products.${activeTab}.storedImages`, { rows: activeRows.length });
 
-  return Object.fromEntries(tableContexts.map((context) => [
+  return Object.fromEntries(Object.values(tableContexts).map((context) => [
     context.key,
-    buildProductsQueueResultForContext(context, rowsWithImagesByTable[context.key] || [], base),
+    buildProductsQueueResultForContext(
+      context,
+      context.key === activeTableKey ? activeRows : [],
+      activeBase,
+    ),
   ]));
 }
 
 async function loadProductsQueueSharedBaseForShop(shop, { settings, perf } = {}) {
-  await measureProductPulseStep(perf, "products.shared.failStaleFastProductScans", () => failStaleFastProductScans(shop));
-  const { snapshots, latestDiagnosisByProductGid } = await getProductRiskSnapshotsWithLatestDiagnosisMap(
-    shop,
+  await measureProductPulseStep(perf, "products.base.failStaleFastProductScans", () => failStaleFastProductScans(shop));
+  const baseRows = await measureProductPulseStep(
     perf,
-    "products.shared",
+    "products.base.rows.light",
+    () => getProductTableBaseRowsForShop(shop),
   );
+  const { snapshots, latestDiagnosisByProductGid, resolvedActionsByProductGid } = splitProductTableBaseRows(baseRows);
   const { activeJob, activeDiagnosisJobs } = await measureProductPulseStep(
     perf,
-    "products.shared.activeJobs",
+    "products.base.activeJobs",
     () => getActiveDashboardJobs(shop),
-  );
-  const watchedItems = await measureProductPulseStep(
-    perf,
-    "products.shared.watchlistItems",
-    () => prisma.productWatchlistItem.findMany({
-      where: { shop },
-      select: { productGid: true, status: true },
-    }),
-  );
-  const resolvedActionsByProductGid = await measureProductPulseStep(
-    perf,
-    "products.shared.resolvedActionsMap",
-    () => getResolvedProductActionsMap(shop, snapshots),
   );
   if (activeJob) ensureFastProductScanWorker(activeJob);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
 
   const activeDiagnosisProductKeys = getActiveDiagnosisProductKeySet(activeDiagnosisJobs);
   const filterOptions = getProductTableFilterOptions(snapshots, settings, latestDiagnosisByProductGid, activeDiagnosisProductKeys);
-  perf?.mark("products.shared.baseData.loaded", {
+  perf?.mark("products.base.loaded", {
     snapshots: snapshots.length,
     activeDiagnosisJobs: activeDiagnosisJobs.length,
-    watchedItems: watchedItems.length,
     resolvedActions: resolvedActionsByProductGid.size,
   });
 
@@ -670,7 +862,7 @@ async function loadProductsQueueSharedBaseForShop(shop, { settings, perf } = {})
     resolvedActionsByProductGid,
     settings,
     snapshots,
-    watchedByProductGid: new Map(watchedItems.map((item) => [item.productGid, item])),
+    watchedByProductGid: new Map(),
   };
 }
 
@@ -703,16 +895,204 @@ function buildProductsQueueTableContext(key, filters = {}, base = {}) {
   };
 }
 
-function buildProductsQueueRowsForContext(shop, context, base, scoreHistoryByProductGid) {
-  return context.pageSnapshots.map((snapshot) => formatProductRow(
-    shop,
-    snapshot,
-    base.latestDiagnosisByProductGid.get(snapshot.productGid),
-    base.resolvedActionsByProductGid.get(snapshot.productGid),
-    base.settings,
-    base.watchedByProductGid.get(snapshot.productGid),
-    scoreHistoryByProductGid.get(snapshot.productGid) || [],
-  ));
+function buildProductsQueueRowsForContext(shop, context, base, scoreHistoryByProductGid, rowMetricsByProductGid = new Map()) {
+  return context.pageSnapshots.map((snapshot) => {
+    const rowMetrics = rowMetricsByProductGid.get(snapshot.productGid) || {};
+    const rowSnapshot = {
+      ...snapshot,
+      metrics: {
+        ...(snapshot.metrics || {}),
+        ...rowMetrics,
+      },
+    };
+    return formatProductRow(
+      shop,
+      rowSnapshot,
+      base.latestDiagnosisByProductGid.get(snapshot.productGid),
+      base.resolvedActionsByProductGid.get(snapshot.productGid),
+      base.settings,
+      base.watchedByProductGid.get(snapshot.productGid),
+      scoreHistoryByProductGid.get(snapshot.productGid) || [],
+    );
+  });
+}
+
+function normalizeProductTableActiveTab(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["full", "candidates", "resolved"].includes(normalized) ? normalized : "full";
+}
+
+function getProductTableKeyForTab(tab) {
+  if (tab === "candidates") return "candidateProductTable";
+  if (tab === "resolved") return "resolvedProductTable";
+  return "productTable";
+}
+
+async function getProductTableBaseRowsForShop(shop) {
+  return prisma.$queryRaw`
+    WITH latest_diagnosis AS (
+      SELECT DISTINCT ON ("productGid")
+        id,
+        shop,
+        "productGid",
+        "productTitle",
+        status,
+        "riskScore",
+        confidence,
+        "likelyCause",
+        "createdAt",
+        "completedAt"
+      FROM "ProductDiagnosis"
+      WHERE shop = ${shop}
+        AND status = 'Completed'
+      ORDER BY "productGid", "completedAt" DESC NULLS LAST, "createdAt" DESC
+    ),
+    latest_resolution_action AS (
+      SELECT DISTINCT ON ("productGid")
+        "productGid",
+        "actionType",
+        "createdAt",
+        "appliedAt"
+      FROM "ProductAction"
+      WHERE shop = ${shop}
+        AND status = 'applied'
+        AND "actionType" IN ('mark-resolved', 'mark-unresolved')
+      ORDER BY "productGid", "appliedAt" DESC NULLS LAST, "createdAt" DESC
+    ),
+    snapshot_rows AS (
+      SELECT
+        id,
+        shop,
+        "productGid",
+        "productTitle",
+        handle,
+        "riskScore",
+        "impactScore",
+        confidence,
+        "primaryIssue",
+        "sourceCoverage",
+        "calculatedAt",
+        "updatedAt",
+        metrics::jsonb AS metrics_json
+      FROM "ProductRiskSnapshot"
+      WHERE shop = ${shop}
+    )
+    SELECT
+      snapshot_rows.id,
+      snapshot_rows.shop,
+      snapshot_rows."productGid",
+      snapshot_rows."productTitle",
+      snapshot_rows.handle,
+      snapshot_rows."riskScore",
+      snapshot_rows."impactScore",
+      snapshot_rows.confidence,
+      snapshot_rows."primaryIssue",
+      snapshot_rows."sourceCoverage",
+      jsonb_strip_nulls(jsonb_build_object(
+        'vendor', snapshot_rows.metrics_json -> 'vendor',
+        'productType', snapshot_rows.metrics_json -> 'productType',
+        'tags', snapshot_rows.metrics_json -> 'tags',
+        'collections', snapshot_rows.metrics_json -> 'collections',
+        'latestDiagnosisId', snapshot_rows.metrics_json -> 'latestDiagnosisId',
+        'lastDetailedDiagnosisAt', snapshot_rows.metrics_json -> 'lastDetailedDiagnosisAt'
+      )) AS metrics,
+      snapshot_rows."calculatedAt",
+      snapshot_rows."updatedAt",
+      latest_diagnosis.id AS "tableLatestDiagnosisId",
+      latest_diagnosis.shop AS "tableLatestDiagnosisShop",
+      latest_diagnosis."productGid" AS "tableLatestDiagnosisProductGid",
+      latest_diagnosis."productTitle" AS "tableLatestDiagnosisProductTitle",
+      latest_diagnosis.status AS "tableLatestDiagnosisStatus",
+      latest_diagnosis."riskScore" AS "tableLatestDiagnosisRiskScore",
+      latest_diagnosis.confidence AS "tableLatestDiagnosisConfidence",
+      latest_diagnosis."likelyCause" AS "tableLatestDiagnosisLikelyCause",
+      latest_diagnosis."createdAt" AS "tableLatestDiagnosisCreatedAt",
+      latest_diagnosis."completedAt" AS "tableLatestDiagnosisCompletedAt",
+      latest_resolution_action."actionType" AS "tableResolutionActionType",
+      latest_resolution_action."createdAt" AS "tableResolutionCreatedAt",
+      latest_resolution_action."appliedAt" AS "tableResolutionAppliedAt"
+    FROM snapshot_rows
+    LEFT JOIN latest_diagnosis
+      ON latest_diagnosis.shop = snapshot_rows.shop
+      AND latest_diagnosis."productGid" = snapshot_rows."productGid"
+    LEFT JOIN latest_resolution_action
+      ON latest_resolution_action."productGid" = snapshot_rows."productGid"
+    ORDER BY snapshot_rows."riskScore" DESC, snapshot_rows."updatedAt" DESC
+  `;
+}
+
+function splitProductTableBaseRows(rows = []) {
+  const latestDiagnosisByProductGid = new Map();
+  const resolvedActionsByProductGid = new Map();
+  const snapshots = (Array.isArray(rows) ? rows : []).map((row) => {
+    const {
+      tableLatestDiagnosisId,
+      tableLatestDiagnosisShop,
+      tableLatestDiagnosisProductGid,
+      tableLatestDiagnosisProductTitle,
+      tableLatestDiagnosisStatus,
+      tableLatestDiagnosisRiskScore,
+      tableLatestDiagnosisConfidence,
+      tableLatestDiagnosisLikelyCause,
+      tableLatestDiagnosisCreatedAt,
+      tableLatestDiagnosisCompletedAt,
+      tableResolutionActionType,
+      tableResolutionCreatedAt,
+      tableResolutionAppliedAt,
+      ...snapshot
+    } = row;
+
+    if (tableLatestDiagnosisId && snapshot.productGid) {
+      latestDiagnosisByProductGid.set(snapshot.productGid, {
+        id: tableLatestDiagnosisId,
+        shop: tableLatestDiagnosisShop || snapshot.shop,
+        productGid: tableLatestDiagnosisProductGid || snapshot.productGid,
+        productTitle: tableLatestDiagnosisProductTitle || snapshot.productTitle,
+        status: tableLatestDiagnosisStatus || "Completed",
+        riskScore: tableLatestDiagnosisRiskScore,
+        confidence: tableLatestDiagnosisConfidence,
+        likelyCause: tableLatestDiagnosisLikelyCause,
+        createdAt: tableLatestDiagnosisCreatedAt,
+        completedAt: tableLatestDiagnosisCompletedAt,
+      });
+    }
+
+    if (snapshot.productGid && tableResolutionActionType === "mark-resolved") {
+      resolvedActionsByProductGid.set(snapshot.productGid, {
+        actionType: tableResolutionActionType,
+        status: "applied",
+        createdAt: tableResolutionCreatedAt,
+        appliedAt: tableResolutionAppliedAt,
+      });
+    }
+
+    return snapshot;
+  });
+
+  return { snapshots, latestDiagnosisByProductGid, resolvedActionsByProductGid };
+}
+
+async function getProductTableRowMetricsForProducts(shop, productGids = []) {
+  if (!shop) return new Map();
+  const uniqueProductGids = [...new Set(productGids.filter(Boolean))];
+  if (!uniqueProductGids.length) return new Map();
+
+  const rows = await prisma.$queryRaw`
+    WITH snapshot_rows AS (
+      SELECT
+        "productGid",
+        metrics::jsonb AS metrics_json
+      FROM "ProductRiskSnapshot"
+      WHERE shop = ${shop}
+        AND "productGid" IN (${Prisma.join(uniqueProductGids)})
+    )
+    SELECT
+      "productGid",
+      ${buildProductTableRowMetricsSql()} AS metrics
+    FROM snapshot_rows
+  `;
+
+  return new Map(rows.map((row) => [row.productGid, row.metrics || {}]));
 }
 
 async function getProductScoreHistoryForProductsLight(shop, productGids = [], options = {}) {
@@ -767,29 +1147,6 @@ async function getProductScoreHistoryForProductsLight(shop, productGids = [], op
     historyByProductGid.set(row.productGid, history);
   });
   return historyByProductGid;
-}
-
-async function attachProductTableImages(rowsByTable, admin) {
-  const uniqueRows = [];
-  const seenProductGids = new Set();
-  Object.values(rowsByTable).flat().forEach((row) => {
-    if (!row?.productGid || seenProductGids.has(row.productGid)) return;
-    seenProductGids.add(row.productGid);
-    uniqueRows.push(row);
-  });
-  const rowsWithImages = await attachProductImages(uniqueRows, admin);
-  const imageByProductGid = new Map(rowsWithImages.map((row) => [row.productGid, {
-    imageAlt: row.imageAlt,
-    imageUrl: row.imageUrl,
-  }]));
-
-  return Object.fromEntries(Object.entries(rowsByTable).map(([key, rows]) => [
-    key,
-    rows.map((row) => {
-      const image = imageByProductGid.get(row.productGid);
-      return image ? { ...row, ...image } : row;
-    }),
-  ]));
 }
 
 function buildProductsQueueResultForContext(context, rows, base) {
@@ -1154,6 +1511,9 @@ export async function getRecentJobsForShop(shop) {
 }
 
 export async function getJobMonitorForShop(shop) {
+  const cachedMonitor = getCachedJobMonitor(shop);
+  if (cachedMonitor) return cachedMonitor;
+
   await failStaleFastProductScans(shop);
   const [recentJobs, activeJobs, logs, pointSummary] = await Promise.all([
     prisma.catalogSignalJob.findMany({
@@ -1170,7 +1530,7 @@ export async function getJobMonitorForShop(shop) {
   ]);
   ensureWorkersForJobs(shop, activeJobs);
 
-  return {
+  const monitor = {
     activeJobs: activeJobs.map(formatJob),
     recentJobs: recentJobs.map(formatJob),
     logs: logs.map(formatJobLog),
@@ -1178,6 +1538,8 @@ export async function getJobMonitorForShop(shop) {
     pointSummary,
     updatedAt: new Date().toISOString(),
   };
+  setCachedJobMonitor(shop, monitor);
+  return monitor;
 }
 
 export async function cancelBackgroundJobForShop(shop, jobId) {
@@ -1245,6 +1607,7 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
   });
 
   const updatedJob = await prisma.catalogSignalJob.findUnique({ where: { id: normalizedJobId } });
+  invalidateJobMonitorCache(shop);
 
   return {
     status: "success",
@@ -4819,6 +5182,7 @@ function sleep(ms) {
 
 function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null, scoreHistory = []) {
   const metrics = snapshot.metrics || {};
+  const image = getSnapshotProductImage(snapshot);
   const sources = Array.isArray(snapshot.sourceCoverage) ? snapshot.sourceCoverage : [];
   const analysisState = getProductAnalysisState(snapshot, latestDiagnosis);
   const resolvedAt = resolvedAction?.appliedAt || resolvedAction?.createdAt || null;
@@ -4830,6 +5194,8 @@ function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction
     handle: snapshot.handle,
     title: snapshot.productTitle,
     variant: getProductArtVariant(snapshot.handle),
+    imageUrl: image.imageUrl || "",
+    imageAlt: image.imageAlt || snapshot.productTitle || "",
     selected: false,
     risk: riskLabel,
     riskTone,
@@ -4851,7 +5217,7 @@ function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction
     signalBars: getSignalBars(metrics),
     signalDetails: getSignalDetails(snapshot, metrics, settings),
     riskTrend: getProductRiskTrendForRow(metrics, scoreHistory),
-    productMomentum: metrics.productMomentum || null,
+    productMomentum: getProductTableMomentum(metrics),
     issue: snapshot.primaryIssue,
     sources: sources.map(getSourceToken),
     sourceOverflow: Math.max(0, sources.length - 3),
@@ -4862,6 +5228,96 @@ function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction
     shopifyAdminUrl: getShopifyProductAdminUrl(shop, snapshot.productGid),
     shopifyStorefrontUrl: getShopifyProductStorefrontUrl(shop, snapshot.handle),
   };
+}
+
+function getProductTableMomentum(metrics = {}) {
+  if (metrics.productMomentum && typeof metrics.productMomentum === "object" && !Array.isArray(metrics.productMomentum)) {
+    return metrics.productMomentum;
+  }
+
+  const scoreValue = Number(metrics.productMomentumScore);
+  const confidenceValue = Number(metrics.momentumConfidence);
+  const hasCompactMomentum = Number.isFinite(scoreValue)
+    || hasText(metrics.productMomentumTier)
+    || hasText(metrics.momentumDirection)
+    || Number.isFinite(confidenceValue);
+  if (!hasCompactMomentum) return null;
+
+  const score = Number.isFinite(scoreValue) ? Math.round(scoreValue) : 0;
+  const confidence = Number.isFinite(confidenceValue) ? Math.round(confidenceValue) : 0;
+  const direction = hasText(metrics.momentumDirection) ? String(metrics.momentumDirection) : "Steady";
+
+  return {
+    source: "product-table",
+    score,
+    tier: hasText(metrics.productMomentumTier) ? String(metrics.productMomentumTier) : getProductTableMomentumTier(score),
+    direction,
+    confidence,
+    confidenceLabel: hasText(metrics.momentumConfidenceLabel)
+      ? String(metrics.momentumConfidenceLabel)
+      : getProductTableMomentumConfidenceLabel(confidence),
+    calculatedAt: null,
+    windowDays: Number(metrics.windowDays || 30),
+    baselineDays: 30,
+    components: {
+      currentVelocityScore: score,
+      growthScore: 0,
+      catalogShareScore: 0,
+      trendConsistencyScore: 0,
+      recencyScore: 0,
+    },
+    inputs: {
+      unitsLast7Days: 0,
+      unitsLast14Days: 0,
+      unitsLast30Days: Number(metrics.soldUnits || 0),
+      unitsPrevious30Days: 0,
+      unitsPrevious90Days: 0,
+      revenueLast30Days: Number(metrics.salesAmount || 0),
+      revenuePrevious30Days: 0,
+      revenuePrevious90Days: 0,
+      ordersLast30Days: 0,
+      weeklyUnitsLast4Weeks: [],
+      weeklyRevenueLast4Weeks: [],
+      weeklyUnitsLast8Weeks: [],
+      weeklyRevenueLast8Weeks: [],
+      lastSaleAt: null,
+    },
+    catalog: {
+      unitsVelocityScore: 0,
+      revenueVelocityScore: 0,
+      productShareLast30: 0,
+      productShareBaseline: 0,
+      shareLiftRatio: 0,
+      topCatalogPercent: null,
+      catalogProductCount: 0,
+      hasCatalogBaseline: false,
+    },
+    display: {
+      growthPercent: 0,
+      growthLabel: "0%",
+      catalogPositionLabel: "Catalog baseline pending",
+      trendLabel: direction,
+      recommendedUse: "Open Product Diagnosis for full Sales Momentum context.",
+    },
+    flags: {},
+  };
+}
+
+function getProductTableMomentumTier(score) {
+  const value = Number(score || 0);
+  if (value >= 80) return "Hot";
+  if (value >= 60) return "Rising";
+  if (value >= 40) return "Stable";
+  if (value >= 20) return "Cooling";
+  return "Low activity";
+}
+
+function getProductTableMomentumConfidenceLabel(confidence) {
+  const value = Number(confidence || 0);
+  if (value >= 80) return "High confidence";
+  if (value >= 60) return "Medium confidence";
+  if (value >= 40) return "Low confidence";
+  return "Very low confidence";
 }
 
 function getProductRiskTrendForRow(metrics = {}, scoreHistory = []) {

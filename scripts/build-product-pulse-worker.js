@@ -1,4 +1,5 @@
 import { build } from "esbuild";
+import process from "node:process";
 
 await build({
   entryPoints: ["scripts/run-product-pulse-worker.js"],
@@ -7,7 +8,7 @@ await build({
   platform: "node",
   format: "esm",
   target: "node20",
-  sourcemap: true,
+  sourcemap: process.env.BUILD_WORKER_SOURCEMAP === "1",
   logLevel: "info",
   loader: {
     ".js": "jsx",

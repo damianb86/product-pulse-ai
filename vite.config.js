@@ -69,6 +69,8 @@ export default defineConfig((config) => ({
 }));
 
 function getSentryBuildConfig(env) {
+  if (!isTruthyEnv(env.BUILD_SENTRY_SOURCEMAPS)) return null;
+
   const authToken = stringEnv(env.SENTRY_AUTH_TOKEN);
   const org = stringEnv(env.SENTRY_ORG);
   const project = stringEnv(env.SENTRY_PROJECT);
@@ -101,4 +103,8 @@ function getSentryRelease(env) {
 
 function stringEnv(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isTruthyEnv(value) {
+  return ["1", "true", "yes", "on"].includes(stringEnv(value).toLowerCase());
 }

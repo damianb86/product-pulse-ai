@@ -29,6 +29,7 @@ export const loader = async ({ request }) => {
     resolved: resolvedFilters,
     activeTab: normalizeProductsTab(url.searchParams.get("tab")),
   };
+  const activeTab = filters.activeTab || "full";
 
   try {
     if (url.searchParams.get("_productTables") === "1") {
@@ -36,11 +37,12 @@ export const loader = async ({ request }) => {
         shop: session.shop,
         admin,
         perf,
+        activeTab,
         mainFilters,
         candidateFilters,
         resolvedFilters,
       });
-      perf.done({ shop: session.shop, mode: "tables" });
+      perf.done({ shop: session.shop, mode: "tables", activeTab });
       return {
         requestKey: buildProductTablesRequestKey(url),
         productTables,
@@ -145,12 +147,13 @@ export default function Products() {
   return <ProductsScreen data={data} filters={filters} actionData={actionData} />;
 }
 
-async function loadProductsPageTables({ shop, admin, perf, mainFilters, candidateFilters, resolvedFilters }) {
+async function loadProductsPageTables({ shop, admin, perf, activeTab, mainFilters, candidateFilters, resolvedFilters }) {
   return measureProductPulseStep(
     perf,
-    "getProductsPageTablesForShop.shared",
+    `getProductsPageTablesForShop.${activeTab || "full"}`,
     () => getProductsPageTablesForShop(shop, admin, {
       perf,
+      activeTab,
       mainFilters,
       candidateFilters,
       resolvedFilters,

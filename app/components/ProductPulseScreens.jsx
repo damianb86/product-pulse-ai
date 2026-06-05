@@ -38,6 +38,7 @@ import {
 import { BetaFeedbackPanelControls, BetaFeedbackPanelFrame } from "./beta-feedback/BetaFeedbackLayer";
 
 const PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS = 12_000;
+const PRODUCT_TABLE_CLIENT_CACHE_MAX_ENTRIES = 24;
 const RISK_THRESHOLD_HANDLE_GAP = 5;
 const PRODUCT_PULSE_MIN_RISK_THRESHOLD = 10;
 const PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD = 50;
@@ -53,6 +54,7 @@ const PRODUCT_RISK_HISTORY_NEGATIVE_REVIEW_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_RETURN_UNIT_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_REFUND_UNIT_MILESTONE_MIN = 2;
 const PRODUCT_RISK_HISTORY_RATE_ONLY_MILESTONE_MIN = 8;
+const productTablesClientCache = new Map();
 const PRODUCT_RISK_HISTORY_REFUND_AMOUNT_ONLY_MILESTONE_MIN = 50;
 const PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MAX = 4;
 const PRODUCT_RISK_HISTORY_TIMELINE_MILESTONE_MIN_SPACING_DAYS = 14;
@@ -756,6 +758,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [diagnosisQueueOverlayTimedOut, setDiagnosisQueueOverlayTimedOut] = useState(false);
   const [diagnosisQueueOverlayDismissed, setDiagnosisQueueOverlayDismissed] = useState(false);
   const productTablesLoadRef = useRef(productTablesFetcher.load);
+  const lastProductTablesRequestKeyRef = useRef("");
   const requestedProductsTab = normalizeProductsTab(filters.activeTab);
   const [activeProductsTab, setActiveProductsTab] = useState(() => {
     if (requestedProductsTab) return requestedProductsTab;
@@ -764,25 +767,35 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     return "full";
   });
   const productTablesDeferred = Boolean(data.productTablesDeferred);
+  const productTablesCacheScope = data.shop || data.shopDomain || data.storeDomain || "";
   const productTablesRequestKey = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.delete("_productTables");
+    params.set("tab", activeProductsTab || "full");
     return params.toString();
-  }, [location.search]);
+  }, [activeProductsTab, location.search]);
   const productTablesFetchHref = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.set("_productTables", "1");
+    params.set("tab", activeProductsTab || "full");
     const query = params.toString();
     return `${location.pathname || "/app/products"}${query ? `?${query}` : ""}`;
-  }, [location.pathname, location.search]);
+  }, [activeProductsTab, location.pathname, location.search]);
   const fetchedProductTables = productTablesFetcher.data?.productTables;
   const fetchedProductTablesFresh = productTablesDeferred
     && fetchedProductTables
     && productTablesFetcher.data?.requestKey === productTablesRequestKey;
-  const productTableData = fetchedProductTablesFresh ? fetchedProductTables.productTable : data.productTable;
-  const candidateProductTableData = fetchedProductTablesFresh ? fetchedProductTables.candidateProductTable : data.candidateProductTable;
-  const resolvedProductTableData = fetchedProductTablesFresh ? fetchedProductTables.resolvedProductTable : data.resolvedProductTable;
-  const productTablesLoading = productTablesDeferred && !fetchedProductTablesFresh;
+  if (fetchedProductTablesFresh) {
+    setCachedProductTablesForRequest(productTablesCacheScope, productTablesRequestKey, fetchedProductTables);
+  }
+  const cachedProductTables = productTablesDeferred
+    ? getCachedProductTablesForRequest(productTablesCacheScope, productTablesRequestKey)
+    : null;
+  const productTablesForRequest = fetchedProductTablesFresh ? fetchedProductTables : cachedProductTables;
+  const productTableData = productTablesForRequest ? productTablesForRequest.productTable : data.productTable;
+  const candidateProductTableData = productTablesForRequest ? productTablesForRequest.candidateProductTable : data.candidateProductTable;
+  const resolvedProductTableData = productTablesForRequest ? productTablesForRequest.resolvedProductTable : data.resolvedProductTable;
+  const productTablesLoading = productTablesDeferred && !productTablesForRequest;
   const productTableRows = productTableData?.rows;
   const candidateTableRows = candidateProductTableData?.rows;
   const resolvedTableRows = resolvedProductTableData?.rows;
@@ -877,14 +890,37 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     submit(buildProductFilterFormData(filters, { rows: String(rowCount), ...overrides }, table), { method: "get", replace: true });
   };
 
+  const handleProductsTabChange = (tabId) => {
+    const nextTab = normalizeProductsTab(tabId) || "full";
+    if (nextTab === activeProductsTab) return;
+    setActiveProductsTab(nextTab);
+    setSelectedProducts(new Set());
+    submit(buildProductFilterFormData(filters, {}, getProductTableScopeForTab(nextTab)), { method: "get", replace: true });
+  };
+
   useEffect(() => {
     productTablesLoadRef.current = productTablesFetcher.load;
   }, [productTablesFetcher.load]);
 
   useEffect(() => {
     if (!productTablesDeferred) return;
+    const requestKey = productTablesFetcher.data?.requestKey;
+    const productTables = productTablesFetcher.data?.productTables;
+    if (!requestKey || !productTables) return;
+
+    setCachedProductTablesForRequest(productTablesCacheScope, requestKey, productTables);
+    if (lastProductTablesRequestKeyRef.current === requestKey) {
+      lastProductTablesRequestKeyRef.current = "";
+    }
+  }, [productTablesCacheScope, productTablesDeferred, productTablesFetcher.data]);
+
+  useEffect(() => {
+    if (!productTablesDeferred) return;
+    if (getCachedProductTablesForRequest(productTablesCacheScope, productTablesRequestKey)) return;
+    if (lastProductTablesRequestKeyRef.current === productTablesRequestKey) return;
+    lastProductTablesRequestKeyRef.current = productTablesRequestKey;
     productTablesLoadRef.current(productTablesFetchHref);
-  }, [productTablesDeferred, productTablesFetchHref]);
+  }, [productTablesCacheScope, productTablesDeferred, productTablesFetchHref, productTablesRequestKey]);
 
   useEffect(() => {
     const hasProductDiagnosisJobs = activeDiagnosisJobs.length > 0 || allVisibleRows.some((product) => product.diagnosisJob);
@@ -892,13 +928,14 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     const interval = window.setInterval(() => {
       if (document.hidden) return;
       if (productTablesDeferred) {
+        lastProductTablesRequestKeyRef.current = productTablesRequestKey;
         productTablesLoadRef.current(productTablesFetchHref);
       } else {
         revalidator.revalidate();
       }
     }, PRODUCT_TABLE_ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(interval);
-  }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, productTablesDeferred, productTablesFetchHref, revalidator]);
+  }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, productTablesDeferred, productTablesFetchHref, productTablesRequestKey, revalidator]);
 
   useEffect(() => {
     if (!pendingBulkAnalyze) {
@@ -1141,8 +1178,12 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
         "mark-unresolved",
         "delete-product-analysis",
       ].includes(actionId);
-    if (shouldRefreshTables) productTablesLoadRef.current(productTablesFetchHref);
-  }, [actionData, productTablesDeferred, productTablesFetchHref]);
+    if (shouldRefreshTables) {
+      clearCachedProductTablesForScope(productTablesCacheScope);
+      lastProductTablesRequestKeyRef.current = productTablesRequestKey;
+      productTablesLoadRef.current(productTablesFetchHref);
+    }
+  }, [actionData, productTablesCacheScope, productTablesDeferred, productTablesFetchHref, productTablesRequestKey]);
 
   const handleLocalFastScan = () => {
     setLocalFastScan(true);
@@ -1756,7 +1797,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
               role="tab"
               aria-selected={active}
               key={tab.id}
-              onClick={() => setActiveProductsTab(tab.id)}
+              onClick={() => handleProductsTabChange(tab.id)}
             >
               <span className="ppProductsTableTabIcon" aria-hidden="true"><s-icon type={tab.icon} size="small"></s-icon></span>
               <span>{tab.label}</span>
@@ -8209,6 +8250,45 @@ function normalizeProductsTab(value) {
   return ["full", "candidates", "resolved"].includes(normalized) ? normalized : "";
 }
 
+function getProductTablesClientCacheKey(scope = "", requestKey = "") {
+  return `${String(scope || "").trim()}::${String(requestKey || "")}`;
+}
+
+function getCachedProductTablesForRequest(scope, requestKey) {
+  return productTablesClientCache.get(getProductTablesClientCacheKey(scope, requestKey)) || null;
+}
+
+function setCachedProductTablesForRequest(scope, requestKey, productTables) {
+  if (!requestKey || !productTables) return;
+  const cacheKey = getProductTablesClientCacheKey(scope, requestKey);
+  productTablesClientCache.delete(cacheKey);
+  productTablesClientCache.set(cacheKey, productTables);
+  while (productTablesClientCache.size > PRODUCT_TABLE_CLIENT_CACHE_MAX_ENTRIES) {
+    const oldestKey = productTablesClientCache.keys().next().value;
+    if (!oldestKey) break;
+    productTablesClientCache.delete(oldestKey);
+  }
+}
+
+function clearCachedProductTablesForScope(scope = "") {
+  const prefix = getProductTablesClientCacheKey(scope, "");
+  for (const key of productTablesClientCache.keys()) {
+    if (key.startsWith(prefix)) productTablesClientCache.delete(key);
+  }
+}
+
+function getProductTableScopeForTab(tab = "full") {
+  if (tab === "candidates") return "candidates";
+  if (tab === "resolved") return "resolved";
+  return "main";
+}
+
+function getProductTabForTableScope(table = "main") {
+  if (table === "candidates") return "candidates";
+  if (table === "resolved") return "resolved";
+  return "full";
+}
+
 function hasActiveProductTableFilters(values = {}) {
   return Object.entries(PRODUCT_FILTER_DEFAULTS).some(([key, fallback]) => {
     const value = values?.[key];
@@ -8238,6 +8318,7 @@ function buildProductFilterFormData(current = {}, overrides = {}, table = "main"
   appendProductFilterFormValues(formData, mainValues);
   appendProductFilterFormValues(formData, candidateValues, "candidate");
   appendProductFilterFormValues(formData, resolvedValues, "resolved");
+  formData.set("tab", getProductTabForTableScope(table));
 
   return formData;
 }

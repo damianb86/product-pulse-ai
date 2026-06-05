@@ -133,10 +133,16 @@ ssh -i ssh.pem ubuntu@3.135.94.213 'cd /opt/apps/product-pulse-ai && docker comp
 BUILD_NODE_OPTIONS=--max-old-space-size=6144 npm run build:production
 ```
 
-Sentry runtime error reporting only needs `SENTRY_DSN` and `VITE_SENTRY_DSN`. Source map upload is disabled by default during local production builds because it requires a valid `SENTRY_AUTH_TOKEN`. To upload source maps intentionally:
+Sentry runtime error reporting only needs `SENTRY_DSN` and `VITE_SENTRY_DSN`. Source map upload is disabled by default, including direct `npm run build`, because it increases build memory and can leave source maps in public artifacts if misconfigured. To upload source maps intentionally:
 
 ```bash
 BUILD_SENTRY_SOURCEMAPS=1 npm run build:production
+```
+
+Worker source maps are also disabled by default. Generate them only for a local debugging build:
+
+```bash
+BUILD_WORKER_SOURCEMAP=1 npm run build:worker
 ```
 
 Resource controls for the worker:

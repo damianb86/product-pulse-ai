@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
-import { createMemoryRouter, RouterProvider, useActionData } from "react-router";
+import { createMemoryRouter, RouterProvider, useActionData, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AnalyticsScreen,
@@ -45,6 +45,19 @@ function renderWithAction(element, action) {
 function ProductsActionHarness({ data, filters }) {
   const actionData = useActionData();
   return <ProductsScreen data={data} filters={filters} actionData={actionData} />;
+}
+
+function ProductsDeferredHarness({ data }) {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  return <ProductsScreen
+    data={data}
+    filters={{
+      query: "",
+      risk: "all",
+      activeTab: params.get("tab") || "",
+    }}
+  />;
 }
 
 function ProductDiagnosisActionHarness({ data, product }) {
@@ -752,6 +765,87 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search by title, handle, product ID or SKU")).toBeInTheDocument();
     expect(screen.getByText(/Type at least 2 characters/)).toBeInTheDocument();
+  });
+
+  it("reuses loaded product table tabs without requesting the same table again", async () => {
+    const makeTable = (rows = [], total = rows.length) => ({
+      rows,
+      total,
+      totalAll: total,
+      totalPages: 1,
+      page: 1,
+      rowsPerPage: 5,
+      filterOptions: defaultView.productTable?.filterOptions || {},
+      activeScanJob: null,
+      activeDiagnosisJobs: [],
+    });
+    const emptyTable = makeTable([]);
+    const responses = {
+      full: {
+        productTable: makeTable([makeTableProduct({
+          title: "Cached Diagnosis Shirt",
+          productGid: "gid://shopify/Product/cached-diagnosis",
+          handle: "cached-diagnosis-shirt",
+          href: "/app/products/cached-diagnosis-shirt",
+        })]),
+        candidateProductTable: makeTable([], 1),
+        resolvedProductTable: emptyTable,
+      },
+      candidates: {
+        productTable: makeTable([], 1),
+        candidateProductTable: makeTable([makeTableProduct({
+          title: "Cached Candidate Jacket",
+          productGid: "gid://shopify/Product/cached-candidate",
+          handle: "cached-candidate-jacket",
+          href: "/app/products/cached-candidate-jacket",
+          analysisDepth: "quickscan",
+          analysisLabel: "Catalog Scan",
+        })]),
+        resolvedProductTable: emptyTable,
+      },
+    };
+    const productTableLoads = [];
+    const deferredData = {
+      ...defaultView,
+      productTablesDeferred: true,
+      persistProductJobs: false,
+      productTable: emptyTable,
+      candidateProductTable: emptyTable,
+      resolvedProductTable: emptyTable,
+    };
+    const router = createMemoryRouter([{
+      path: "/app/products",
+      element: <ProductsDeferredHarness data={deferredData} />,
+      loader: async ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("_productTables") !== "1") return null;
+        productTableLoads.push(url.search);
+        const requestKeyParams = new URLSearchParams(url.searchParams);
+        requestKeyParams.delete("_productTables");
+        const tab = url.searchParams.get("tab") || "full";
+        return {
+          requestKey: requestKeyParams.toString(),
+          productTables: responses[tab] || responses.full,
+        };
+      },
+    }], { initialEntries: ["/app/products"] });
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByText("Cached Diagnosis Shirt")).toBeInTheDocument();
+    expect(productTableLoads).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("tab", { name: /Candidates/ }));
+    expect(await screen.findByText("Cached Candidate Jacket")).toBeInTheDocument();
+    expect(productTableLoads).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("tab", { name: /Product Diagnosis/ }));
+    expect(await screen.findByText("Cached Diagnosis Shirt")).toBeInTheDocument();
+    expect(productTableLoads).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("tab", { name: /Candidates/ }));
+    expect(await screen.findByText("Cached Candidate Jacket")).toBeInTheDocument();
+    expect(productTableLoads).toHaveLength(2);
   });
 
   it("shows clear filters only when product filters are active", () => {
