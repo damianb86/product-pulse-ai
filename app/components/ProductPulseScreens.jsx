@@ -11897,16 +11897,24 @@ function getIssueActionLabel(issue, issueCategory) {
 
 function getIssueIcon(issue) {
   const normalized = String(issue || "").toLowerCase();
-  if (normalized.includes("return")) return "return";
+  if (normalized.includes("return")) return "shopify-returns";
   if (normalized.includes("refund")) return "refund-leakage";
-  if (normalized.includes("sentiment") || normalized.includes("language") || normalized.includes("negative review")) return "negative-review-pressure";
-  if (normalized.includes("fear") || normalized.includes("safety") || normalized.includes("scare")) return "alert-circle";
-  if (normalized.includes("variant")) return "product";
-  if (normalized.includes("expectation") || normalized.includes("description") || normalized.includes("color")) return "tag";
-  if (normalized.includes("content") || normalized.includes("metadata")) return "note";
-  if (normalized.includes("fit") || normalized.includes("sizing")) return "person";
-  if (normalized.includes("defect") || normalized.includes("durability")) return "alert-circle";
-  return "product";
+  if (normalized.includes("review") || normalized.includes("rating") || normalized.includes("sentiment") || normalized.includes("language")) return "negative-review-pressure";
+  if (normalized.includes("fear") || normalized.includes("safety") || normalized.includes("scare")) return "product-risk";
+  if (normalized.includes("variant") || normalized.includes("compatibility")) return "variants";
+  if (normalized.includes("expectation") || normalized.includes("description") || normalized.includes("color") || normalized.includes("title") || normalized.includes("seo") || normalized.includes("tag")) return "tag";
+  if (normalized.includes("content") || normalized.includes("metadata") || normalized.includes("classification") || normalized.includes("template")) return "evidence";
+  if (normalized.includes("fit") || normalized.includes("sizing")) return "users";
+  if (normalized.includes("setup") || normalized.includes("instruction") || normalized.includes("install") || normalized.includes("assembly")) return "method";
+  if (normalized.includes("quality") || normalized.includes("defect") || normalized.includes("durability") || normalized.includes("broken") || normalized.includes("leak")) return "product-risk";
+  if (normalized.includes("price") || normalized.includes("value") || normalized.includes("margin") || normalized.includes("revenue")) return "financial-exposure";
+  if (normalized.includes("order") || normalized.includes("sales")) return "shopify-orders";
+  if (normalized.includes("source") || normalized.includes("integrity") || normalized.includes("evidence")) return "evidence";
+  return "main-issue";
+}
+
+function ProductIssueIcon({ issue }) {
+  return <ProductPulseGlyph type={getIssueIcon(issue)} />;
 }
 
 function getProductRecommendedActions(product) {
@@ -15460,7 +15468,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                 <td>
                                   <span className="ppIssueNameCell">
                                     <span className="ppIssueIcon" aria-hidden="true">
-                                      <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                                      <ProductIssueIcon issue={issue.issue} />
                                     </span>
                                     <span>
                                       <IssueTitleWithEvidence title={issue.issue} evidence={issueEvidenceText} />
@@ -15476,27 +15484,33 @@ export function ProductDiagnosisScreen({ product, actionData }) {
                                     <span>{issue.action}</span>
                                     <span className="ppIssueActionButtons">
                                       <button
-                                        className="ppIssueActionButton"
+                                        className="ppIssueActionButton ppIssueActionButton-iconOnly"
                                         type="button"
+                                        aria-label={`Review evidence for ${issue.issue}`}
+                                        title={`Review evidence for ${issue.issue}`}
                                         onClick={() => handleReviewEvidence(issue)}
                                       >
-                                        Review evidence for {issue.issue}
+                                        <s-icon type="view" size="small"></s-icon>
                                       </button>
                                       {ignored ? (
                                         <button
-                                          className="ppIssueActionButton"
+                                          className="ppIssueActionButton ppIssueActionButton-iconOnly"
                                           type="button"
+                                          aria-label={`Unignore ${issue.issue}`}
+                                          title={`Unignore ${issue.issue}`}
                                           onClick={() => handleSubmitIssueAction(issue, "unignore-issue")}
                                         >
-                                          Unignore {issue.issue}
+                                          <s-icon type="refresh" size="small"></s-icon>
                                         </button>
                                       ) : (
                                         <button
-                                          className="ppIssueActionButton"
+                                          className="ppIssueActionButton ppIssueActionButton-iconOnly"
                                           type="button"
+                                          aria-label={`Ignore ${issue.issue}`}
+                                          title={`Ignore ${issue.issue}`}
                                           onClick={() => handleSubmitIssueAction(issue, "ignore-issue")}
                                         >
-                                          Ignore {issue.issue}
+                                          <s-icon type="x" size="small"></s-icon>
                                         </button>
                                       )}
                                     </span>
@@ -29058,7 +29072,7 @@ export function ProductEvidenceReportScreen({ product, source = "" }) {
               <article className="ppEvidenceReportIssue" key={issue.issue}>
                 <div>
                   <span className={`ppIssueIcon ppIssueIcon-${issue.tone}`} aria-hidden="true">
-                    <s-icon type={getIssueIcon(issue.issue)} size="small"></s-icon>
+                    <ProductIssueIcon issue={issue.issue} />
                   </span>
                   <div>
                     <h3>{issue.issue}</h3>
