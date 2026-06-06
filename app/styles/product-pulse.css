@@ -32459,21 +32459,26 @@ s-page[inline-size="large-500"] {
   text-align: center;
 }
 
-.ppProductsEmptyState .ppDashboardIcon {
-  --pp-icon-badge-size: 64px;
-  --pp-icon-badge-glyph-size: 46px;
-  align-self: center;
-}
-
-.ppProductsEmptyState .ppDashboardIcon .ppProductPulseIconBadgeGlyph {
+.ppProductsEmptySearchIcon {
+  width: 128px;
+  height: 128px;
   display: grid;
   place-items: center;
+  align-self: center;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--pp-slate-700);
 }
 
-.ppProductsEmptyState .ppDashboardIcon .ppProductPulseIconBadgeGlyph > s-icon {
+.ppProductsEmptySearchIcon svg {
+  width: 56px;
+  height: 56px;
   display: block;
-  margin: 0;
-  transform-origin: top left;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
 }
 
 .ppProductsEmptyState h2 {

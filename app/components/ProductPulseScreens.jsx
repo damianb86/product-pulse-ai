@@ -1796,7 +1796,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                 <tr className="ppProductsEmptyRow">
                   <td colSpan="10">
                     <div className="ppProductsEmptyState">
-                      <DashboardIcon type="search" tone="blue" />
+                      <ProductsTableEmptyIcon />
                       <div>
                         <h2>{emptyTitle}</h2>
                         <p>{emptyDescription}</p>
@@ -24206,6 +24206,17 @@ function DashboardIcon({ type, tone = "blue", size = "base", className = "" }) {
       size={badgeSize}
       tone={tone}
     />
+  );
+}
+
+function ProductsTableEmptyIcon() {
+  return (
+    <span className="ppProductsEmptySearchIcon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <circle cx="10.4" cy="10.4" r="5.8" />
+        <path d="M14.8 14.8 19.4 19.4" />
+      </svg>
+    </span>
   );
 }
 
