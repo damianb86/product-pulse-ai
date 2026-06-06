@@ -5777,6 +5777,58 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
   });
 
+  it("explains missing source coverage with a concrete Connect action", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "connect-missing-source",
+        label: "Review source coverage in Connect",
+        type: "Evidence coverage",
+        effort: "Medium",
+        status: "Manual setup required",
+        payload: {
+          missingSources: ["Judge.me reviews", "Shopify returns"],
+          trigger: "Diagnosis coverage is limited by missing sources: Judge.me reviews, Shopify returns.",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Review source coverage in Connect" }));
+
+    expect(screen.getAllByText(/ProductPulse suggests this because Diagnosis coverage is limited by missing sources/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Confirm whether this store actually uses Judge.me reviews and Shopify returns.")).toBeInTheDocument();
+    expect(screen.getByText("Rerun Product Diagnosis so the product uses the new evidence")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Connect" })).toHaveAttribute("href", "/app/connect");
+    expect(screen.getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
+  });
+
+  it("gives grouped evidence reviews specific verification steps", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "review-product-evidence",
+        label: "Review product evidence",
+        type: "Workflow",
+        effort: "Low",
+        status: "Ready",
+        payload: {
+          reviewSections: [
+            { key: "returns", label: "Return patterns", source: "Shopify returns", count: 4 },
+            { key: "reviews", label: "Negative reviews", source: "Connected reviews", count: 3 },
+          ],
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Review product evidence" }));
+
+    expect(screen.getByText(/Review return reasons and notes/)).toBeInTheDocument();
+    expect(screen.getByText(/Read the negative review language/)).toBeInTheDocument();
+    expect(screen.getByText("Apply the specific PDP, QA, variant or workflow action only when the evidence supports it")).toBeInTheDocument();
+  });
+
   it("minimizes investigation actions after opening evidence", () => {
     const product = {
       ...defaultView.startHere,

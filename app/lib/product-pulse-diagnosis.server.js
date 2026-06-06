@@ -6707,7 +6707,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.structuredMetafields.shouldRecommend && !isDisabledProductAction("add-structured-metafields")) candidates.push({ id: "add-structured-metafields", type: "Product metafield", reason: recipeSignals.structuredMetafields.reason });
   if (recipeSignals.template.shouldRecommend && !isDisabledProductAction("switch-product-template")) candidates.push({ id: "switch-product-template", type: "Product template", reason: recipeSignals.template.reason });
   if (recipeSignals.sourceMismatch.shouldRecommend) candidates.push({ id: "fix-source-review-mismatch", type: "Source integrity", reason: recipeSignals.sourceMismatch.reason });
-  if (recipeSignals.missingSource.shouldRecommend) candidates.push({ id: "connect-missing-source", type: "Source connection", reason: recipeSignals.missingSource.reason });
+  if (recipeSignals.missingSource.shouldRecommend) candidates.push({ id: "connect-missing-source", type: "Evidence coverage", reason: recipeSignals.missingSource.reason });
   if (recipeSignals.monitoringCoverage.shouldRecommend) candidates.push({ id: "improve-monitoring-coverage", type: "Monitoring coverage", reason: recipeSignals.monitoringCoverage.reason });
   if (recipeSignals.baselineScan.shouldRecommend) candidates.push({ id: "create-baseline-scan", type: "Baseline scan", reason: recipeSignals.baselineScan.reason });
   if (recipeSignals.watchlist.shouldRecommend) candidates.push({ id: "add-to-watchlist", type: "Watchlist", reason: recipeSignals.watchlist.reason });
@@ -7432,6 +7432,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (reviewSections.length > 0) {
+    const reviewSectionLabels = reviewSections.map((section) => section.label).filter(Boolean);
     recommendations.push({
       id: "review-product-evidence",
       label: "Review product evidence",
@@ -7450,6 +7451,10 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         refundUnits: deterministic.metrics.refundUnits,
         refundRate: deterministic.metrics.refundRate,
         refundInsights: deterministic.metrics.refundInsights,
+        whyThisAction: reviewSectionLabels.length
+          ? `ProductPulse grouped ${reviewSectionLabels.join(", ")} because these evidence areas are attached to the same product diagnosis. Review them together before applying a PDP, QA, variant or operational fix.`
+          : "ProductPulse found enough product evidence to justify a manual review before applying a product change.",
+        expectedAction: "Open the evidence, confirm whether the signals describe a repeatable product issue, then choose the specific Shopify change, QA follow-up, internal workflow or dismissal that matches what you verified.",
       },
     });
   }
@@ -7466,6 +7471,19 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         reviewSections,
         issue: "source_integrity",
         trigger: recipeSignals.sourceMismatch.reason,
+        whyThisAction: "ProductPulse is warning that some evidence may belong to another product, SKU, feed row or variant. Confirm the source mapping before changing this Shopify product.",
+        expectedAction: "Check the raw review, return, refund or imported row against the product title, handle, SKU and variant. Fix the source mapping or dismiss the action if the evidence is correctly attached.",
+        reviewChecklist: [
+          "Compare the cited evidence text with this product title, handle, SKU and variant list.",
+          "Look for references to another product, collection, bundle, feed item or variant.",
+          "Fix the source import or mapping before applying PDP, QA or operational changes.",
+        ],
+        nextSteps: [
+          "Open the supporting evidence for the suspicious source",
+          "Correct the source mapping or import if the evidence belongs elsewhere",
+          "Rerun Product Diagnosis after the source is corrected",
+          "Dismiss only if the evidence is correctly attached to this product",
+        ],
       },
     });
   }
@@ -7624,21 +7642,41 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.missingSource.shouldRecommend) {
+    const missingSources = recipeSignals.missingSource.sources || [];
+    const missingSourceText = missingSources.join(", ") || "the missing evidence source";
+    const missingSourceVerb = missingSources.length === 1 ? "is" : "are";
     recommendations.push({
       id: "connect-missing-source",
-      label: "Connect missing source",
-      type: "Source connection",
+      label: "Review source coverage in Connect",
+      type: "Evidence coverage",
       effort: "Medium",
       status: "Manual setup required",
       payload: {
-        missingSources: recipeSignals.missingSource.sources || [],
+        missingSources,
         issue: "coverage",
         trigger: recipeSignals.missingSource.reason,
+        whyThisAction: `ProductPulse has enough product signal or commercial activity to care about this product, but diagnosis confidence is limited because ${missingSourceText} ${missingSourceVerb} not connected or imported.`,
+        expectedAction: `Open Connect and confirm whether ${missingSourceText} should exist for this shop. If it should, connect the provider or upload/import the source, then rerun Product Diagnosis for this product.`,
+        reviewChecklist: [
+          `Confirm whether this store actually uses ${missingSourceText}.`,
+          "If the source exists, connect the provider or upload the latest file in Connect.",
+          "If the source does not exist for this store, dismiss this action so it does not block product decisions.",
+        ],
+        nextSteps: [
+          "Open Connect and inspect the missing source",
+          "Connect or import the source when it exists for this shop",
+          "Rerun Product Diagnosis so the product uses the new evidence",
+          "Dismiss if the shop does not use that source",
+        ],
+        destinationHref: "/app/connect",
+        destinationLabel: "Open Connect",
       },
     });
   }
 
   if (recipeSignals.monitoringCoverage.shouldRecommend) {
+    const missingSources = recipeSignals.missingSource.sources || [];
+    const missingSourceText = missingSources.join(", ") || "additional source coverage";
     recommendations.push({
       id: "improve-monitoring-coverage",
       label: "Improve monitoring coverage",
@@ -7646,10 +7684,25 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       effort: "Medium",
       status: "Manual setup required",
       payload: {
-        missingSources: recipeSignals.missingSource.sources || [],
+        missingSources,
         productMomentumScore: deterministic.metrics.productMomentumScore,
         issue: "coverage",
         trigger: recipeSignals.monitoringCoverage.reason,
+        whyThisAction: `This product has high Sales Momentum, so missing coverage from ${missingSourceText} can hide expensive problems until they are already visible in returns, refunds or reviews.`,
+        expectedAction: `Check whether ${missingSourceText} can be connected or imported. If yes, add it to ProductPulse monitoring and rerun the diagnosis; if not, keep the action dismissed after confirming the source is unavailable.`,
+        reviewChecklist: [
+          "Confirm the product is commercially important enough to justify stronger monitoring.",
+          `Check whether ${missingSourceText} can provide product-level evidence.`,
+          "Connect/import the missing source before relying on this diagnosis as complete.",
+        ],
+        nextSteps: [
+          "Open Connect and verify missing monitoring sources",
+          "Connect or import any available product-level source",
+          "Rerun Product Diagnosis and keep the product on Watchlist if needed",
+          "Dismiss if no additional source is available",
+        ],
+        destinationHref: "/app/connect",
+        destinationLabel: "Open Connect",
       },
     });
   }
@@ -9695,7 +9748,7 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
     return {
       ...common,
       proposedChange: `Connect or enable missing source coverage: ${(payload.missingSources || []).join(", ") || "missing sources"}.`,
-      shopifyField: "ProductPulse source connections",
+      shopifyField: "ProductPulse evidence coverage",
       expectedImpact: "Increase diagnosis confidence before taking bigger product changes.",
       applicationRisk: "Low",
       approval: "Manual setup required",

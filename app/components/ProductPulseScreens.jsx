@@ -13154,6 +13154,198 @@ function normalizeEvidenceLabel(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function getActionIdentityText(action = {}) {
+  const payload = action.payload || {};
+  return [
+    action.id,
+    action.actionId,
+    action.type,
+    action.label,
+    action.title,
+    action.status,
+    payload.issue,
+    payload.recommendationKind,
+    payload.retentionActionKind,
+  ].map((value) => String(value || "")).join(" ").toLowerCase();
+}
+
+function getMissingSourceLabels(payload = {}) {
+  return uniqueStrings([
+    ...(Array.isArray(payload.missingSources) ? payload.missingSources : []),
+    ...(Array.isArray(payload.sources) ? payload.sources : []),
+  ]);
+}
+
+function formatEvidenceSourceList(sources = []) {
+  const labels = uniqueStrings(sources);
+  return labels.length ? formatInlineList(labels) : "the missing evidence source";
+}
+
+function isSourceCoverageRecommendedAction(action = {}) {
+  const payload = action.payload || {};
+  const normalized = getActionIdentityText(action);
+  return normalized.includes("connect-missing-source")
+    || normalized.includes("missing source")
+    || normalized.includes("source connection")
+    || normalized.includes("evidence coverage")
+    || normalized.includes("monitoring coverage")
+    || Boolean(getMissingSourceLabels(payload).length && normalized.includes("coverage"));
+}
+
+function isSourceIntegrityRecommendedAction(action = {}) {
+  const normalized = getActionIdentityText(action);
+  return normalized.includes("fix-source-review-mismatch")
+    || normalized.includes("source/review mismatch")
+    || normalized.includes("source integrity")
+    || normalized.includes("review feed integrity")
+    || normalized.includes("source mismatch");
+}
+
+function isEvidenceReviewRecommendedAction(action = {}) {
+  const payload = action.payload || {};
+  const normalized = getActionIdentityText(action);
+  return isSourceCoverageRecommendedAction(action)
+    || isSourceIntegrityRecommendedAction(action)
+    || normalized.includes("review-product-evidence")
+    || normalized.includes("review-return")
+    || normalized.includes("review-refund")
+    || normalized.includes("review-negative-review")
+    || normalized.includes("review-affected-variant")
+    || Boolean(Array.isArray(payload.reviewSections) && payload.reviewSections.length);
+}
+
+function getEvidenceReviewReason(action = {}, product = {}) {
+  if (!isEvidenceReviewRecommendedAction(action)) return "";
+  const payload = action.payload || {};
+  const configured = String(payload.whyThisAction || payload.actionRationale || payload.rationale || "").trim();
+  if (configured) return configured;
+
+  if (isSourceCoverageRecommendedAction(action)) {
+    const sources = formatEvidenceSourceList(getMissingSourceLabels(payload));
+    const trigger = payload.trigger || "the current diagnosis does not have full source coverage";
+    return `ProductPulse suggests this because ${trigger} Check ${sources} in Connect before treating this product diagnosis as complete.`;
+  }
+
+  if (isSourceIntegrityRecommendedAction(action)) {
+    return "ProductPulse suggests this because some reviews, returns, refunds or imported rows may be attached to the wrong product, SKU or variant. Verify the source mapping before changing Shopify content or escalating QA.";
+  }
+
+  if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
+    const labels = payload.reviewSections.map((section) => section.label || section.source).filter(Boolean);
+    const sectionText = formatEvidenceSourceList(labels);
+    return `ProductPulse suggests this because ${sectionText} are all attached to this product. Review them together to decide whether they describe the same product problem, separate operational noise, or evidence that should be dismissed.`;
+  }
+
+  const productTitle = product?.title ? ` for ${product.title}` : "";
+  return `ProductPulse suggests this evidence review${productTitle} because the diagnosis found a signal that should be verified before a Shopify change, QA follow-up or internal escalation.`;
+}
+
+function getEvidenceReviewApplicationIntro(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const reason = getEvidenceReviewReason(action, product);
+  const expectedAction = String(payload.expectedAction || payload.concreteAction || "").trim();
+  if (expectedAction) return `${reason} Expected action: ${expectedAction}`;
+  return reason;
+}
+
+function getEvidenceReviewOperation(action = {}) {
+  if (isSourceCoverageRecommendedAction(action)) return "Review source coverage";
+  if (isSourceIntegrityRecommendedAction(action)) return "Verify source mapping";
+  const payload = action.payload || {};
+  if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) return "Review related evidence";
+  return "Review evidence";
+}
+
+function getEvidenceReviewTarget(action = {}) {
+  if (isSourceCoverageRecommendedAction(action)) return "Connect and evidence coverage";
+  if (isSourceIntegrityRecommendedAction(action)) return "Evidence source integrity";
+  return "Product evidence";
+}
+
+function getReviewSectionChecklistItem(section = {}) {
+  const key = normalizeEvidenceLabel(`${section.key || ""} ${section.label || ""} ${section.source || ""}`);
+  const label = section.label || section.source || "this source";
+  if (key.includes("return")) {
+    return "Review return reasons and notes, then decide whether they show a product issue, expectation mismatch, fulfillment noise, or a one-off return.";
+  }
+  if (key.includes("refund")) {
+    return "Compare refund notes, refund value and refund units to see whether the loss is preventable or only policy/payment noise.";
+  }
+  if (key.includes("variant") || key.includes("sku") || key.includes("option")) {
+    return "Check whether one variant, SKU, size, color or option concentrates the issue before changing the whole product.";
+  }
+  if (key.includes("review") || key.includes("rating")) {
+    return "Read the negative review language and identify the exact customer expectation, defect, setup issue or confusion being repeated.";
+  }
+  if (key.includes("content") || key.includes("description") || key.includes("pdp")) {
+    return "Compare the current PDP copy with the evidence and confirm which shopper-facing statement needs to be clarified.";
+  }
+  return `Open ${label} and confirm whether it supports a concrete product fix or should be dismissed.`;
+}
+
+function getEvidenceReviewChecklistItems(action = {}) {
+  const payload = action.payload || {};
+  if (Array.isArray(payload.reviewChecklist) && payload.reviewChecklist.length) return uniqueStrings(payload.reviewChecklist).slice(0, 6);
+
+  if (isSourceCoverageRecommendedAction(action)) {
+    const sources = formatEvidenceSourceList(getMissingSourceLabels(payload));
+    return [
+      `Confirm whether this store actually uses ${sources}.`,
+      "If the source exists, connect the provider or import the latest source file in Connect.",
+      "If the source does not exist for this store, dismiss this action so it does not block product decisions.",
+      "Rerun Product Diagnosis after connecting the source so this product uses the new evidence.",
+    ];
+  }
+
+  if (isSourceIntegrityRecommendedAction(action)) {
+    return [
+      "Compare the suspicious evidence with this product title, handle, SKU and variants.",
+      "Look for text that names another product, collection, bundle, feed item or variant.",
+      "Correct the source mapping or import before applying PDP, QA or operational changes.",
+      "Dismiss only after confirming the evidence belongs to this exact product.",
+    ];
+  }
+
+  const sectionItems = Array.isArray(payload.reviewSections)
+    ? payload.reviewSections.map(getReviewSectionChecklistItem)
+    : [];
+  const fallbackItems = [
+    "Open the supporting evidence and confirm which signal is real enough to act on.",
+    "Decide whether the next step is a product content change, internal tag, QA check, supplier escalation, or dismissal.",
+  ];
+  return uniqueStrings([...sectionItems, ...fallbackItems]).slice(0, 6);
+}
+
+function getEvidenceReviewNextSteps(action = {}) {
+  const payload = action.payload || {};
+  if (Array.isArray(payload.nextSteps) && payload.nextSteps.length) return uniqueStrings(payload.nextSteps).slice(0, 4);
+
+  if (isSourceCoverageRecommendedAction(action)) {
+    return [
+      "Open Connect and inspect the missing source",
+      "Connect or import the source when it exists for this shop",
+      "Rerun Product Diagnosis so the product uses the new evidence",
+      "Dismiss if the shop does not use that source",
+    ];
+  }
+
+  if (isSourceIntegrityRecommendedAction(action)) {
+    return [
+      "Open the evidence that looks mismatched",
+      "Fix the source mapping or import if it belongs elsewhere",
+      "Rerun Product Diagnosis after the correction",
+      "Dismiss only if the mapping is already correct",
+    ];
+  }
+
+  return [
+    "Open the grouped evidence sources",
+    "Confirm the strongest product-level signal",
+    "Apply the specific PDP, QA, variant or workflow action only when the evidence supports it",
+    "Dismiss if the evidence is weak, unrelated or operational noise",
+  ];
+}
+
 function getRecommendedActionDetail(action) {
   const payload = action.payload || {};
   if (payload.draftTitle) return payload.draftTitle;
@@ -13790,18 +13982,22 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
     });
   }
 
+  const evidenceReview = isEvidenceReviewRecommendedAction(action);
+  const externalEditUrl = payload.destinationHref || (isSourceCoverageRecommendedAction(action) ? "/app/connect" : "");
   return {
     ...withRecipeApplicationFields(action, {
     kind: "review",
     editable: false,
-    target: "Product evidence",
-    operation: Array.isArray(payload.reviewSections) && payload.reviewSections.length ? "Review related evidence" : "Review",
-    intro: Array.isArray(payload.reviewSections) && payload.reviewSections.length
-      ? "This groups the related review tasks into one evidence pass: returns, variants, refunds, reviews and content alignment when those signals exist."
+    target: evidenceReview ? getEvidenceReviewTarget(action) : "Product evidence",
+    operation: evidenceReview ? getEvidenceReviewOperation(action) : "Review",
+    intro: evidenceReview
+      ? getEvidenceReviewApplicationIntro(action, product)
       : "This action opens the supporting evidence so you can inspect the signal before deciding whether to change the product.",
     applyLabel: "Review evidence",
     valueLabel: "Evidence",
-    value: getRecommendedActionDetail(action),
+    value: payload.expectedAction || getRecommendedActionDetail(action),
+    externalEditUrl,
+    externalEditLabel: payload.destinationLabel || (externalEditUrl ? "Open Connect" : ""),
     }),
   };
 }
@@ -14175,6 +14371,11 @@ function getRecommendedActionReason(action, product) {
   const metrics = product.metrics || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""}`.toLowerCase();
   const contentIssueLabels = getContentIssueLabels(payload.contentIssues);
+
+  if (isEvidenceReviewRecommendedAction(action)) {
+    const narrative = getEvidenceReviewReason(action, product);
+    if (narrative) return narrative;
+  }
 
   if (payload.mediaGuidance || Array.isArray(payload.mediaUpdates) || normalized.includes("media") || normalized.includes("image")) {
     const narrative = getMediaActionWhyNarrative(action, product);
@@ -14599,6 +14800,7 @@ function getRecommendedActionMode(action, index) {
   if (hasDirectVariantOptionUpdates(payload)) return "apply-product";
   if (payload.draftTitle || payload.productStatus || payload.draftHandle || payload.templateSuffix || payload.field === "classification" || payload.field === "seo.title" || payload.field === "seo.description" || (Array.isArray(payload.metafields) && payload.metafields.length)) return "apply-product";
   if (hasMetafieldApplyPayload) return "apply-product";
+  if (isEvidenceReviewRecommendedAction(action) || normalizedType.includes("source") || normalizedType.includes("coverage") || normalizedType.includes("integrity")) return "review";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
   if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
@@ -31539,7 +31741,7 @@ function RecommendedActionInvestigationBody({ action, application, product }) {
 
       <RecommendedActionReviewSection icon="target" title="Suggested next steps">
         <ol className="ppInvestigationNextSteps">
-          {getInvestigationNextSteps(action).map((item) => (
+          {getInvestigationNextSteps(action, product).map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ol>
@@ -31620,6 +31822,9 @@ function getInvestigationFollowupText(action = {}, application = {}, product = {
     const relatedTitle = action.payload?.relatedProductTitle || "the related product";
     return `Use this as the evidence review behind the customer-facing fix: confirm whether buying this product with ${relatedTitle} is creating expectation mismatch, then apply the product-description or FAQ action that explains what is included, what the companion item changes, and how returns/exchanges should be interpreted.`;
   }
+  if (isEvidenceReviewRecommendedAction(action)) {
+    return getEvidenceReviewApplicationIntro(action, product);
+  }
   if (normalized.includes("variant") && application.variantUpdates?.length > 0) {
     return "Review the suggested variant or option labels, then update the Shopify variant values directly when the mapping is safe or open Shopify to edit option names.";
   }
@@ -31674,6 +31879,10 @@ function getInvestigationChecklistItems(action = {}, product = {}) {
     ];
   }
 
+  if (isEvidenceReviewRecommendedAction(action)) {
+    return getEvidenceReviewChecklistItems(action, product);
+  }
+
   if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
     items.push("Open each supporting evidence source and confirm which signals are tied to this product.");
   }
@@ -31697,7 +31906,7 @@ function getInvestigationChecklistItems(action = {}, product = {}) {
   return uniqueStrings(items).slice(0, 6);
 }
 
-function getInvestigationNextSteps(action = {}) {
+function getInvestigationNextSteps(action = {}, product = {}) {
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
   if (isRetentionRecommendedAction(action)) {
     if (isRetentionDropAction(action)) {
@@ -31722,6 +31931,9 @@ function getInvestigationNextSteps(action = {}) {
       "Avoid promoting the pair as a cross-sell until the expectation copy is clear",
       "Mark reviewed after the relationship evidence is verified",
     ];
+  }
+  if (isEvidenceReviewRecommendedAction(action)) {
+    return getEvidenceReviewNextSteps(action, product);
   }
   const steps = ["Open supporting evidence"];
   if (normalized.includes("qa") || normalized.includes("supplier") || normalized.includes("quality")) {
@@ -33150,7 +33362,7 @@ function RecommendedActionWhyItems({ action, product }) {
 function getRecommendedActionWhyNarrative(action = {}, product = {}) {
   const payload = action.payload || {};
   const aiRationale = String(payload.whyThisAction || payload.actionRationale || payload.rationale || "").trim();
-  return aiRationale || getDescriptionActionWhyNarrative(action, product) || getMediaActionWhyNarrative(action, product);
+  return aiRationale || getEvidenceReviewReason(action, product) || getDescriptionActionWhyNarrative(action, product) || getMediaActionWhyNarrative(action, product);
 }
 
 function getRecommendedActionWhyItems(action = {}, product = {}) {
@@ -33166,6 +33378,7 @@ function getRecommendedActionWhyItems(action = {}, product = {}) {
   const affectedVariants = Array.isArray(payload.affectedVariants) ? payload.affectedVariants.length : 0;
   const mediaWithoutAlt = Number(payload.mediaWithoutAltCount ?? metrics.mediaWithoutAltCount ?? 0);
   const mediaUpdates = Array.isArray(payload.mediaUpdates) ? payload.mediaUpdates.length : 0;
+  const missingSources = getMissingSourceLabels(payload);
 
   if (returnUnits > 0 || returnRate > 0) {
     items.push({
@@ -33209,6 +33422,15 @@ function getRecommendedActionWhyItems(action = {}, product = {}) {
       tone: "blue",
       value: `${formatInteger(mediaUpdates || mediaWithoutAlt)} media update${(mediaUpdates || mediaWithoutAlt) === 1 ? "" : "s"}`,
       label: "recommended for visual clarity",
+    });
+  }
+
+  if (missingSources.length) {
+    items.push({
+      icon: "external",
+      tone: "blue",
+      value: `${formatInteger(missingSources.length)} source gap${missingSources.length === 1 ? "" : "s"}`,
+      label: formatEvidenceSourceList(missingSources),
     });
   }
 
