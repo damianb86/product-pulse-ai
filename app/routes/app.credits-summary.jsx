@@ -1,13 +1,14 @@
+/* global globalThis */
 import { authenticate } from "../shopify.server";
 import { getStorePointBalanceForShop, getStorePointSummaryForShop } from "../lib/product-pulse-points.server";
 import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 const CREDIT_SUMMARY_CACHE_TTL_MS = 30_000;
 const CREDIT_SUMMARY_CACHE_MAX_SHOPS = 50;
-const creditSummaryCache = global.productPulseCreditSummaryCache || new Map();
+const creditSummaryCache = globalThis.productPulseCreditSummaryCache || new Map();
 
-if (!global.productPulseCreditSummaryCache) {
-  global.productPulseCreditSummaryCache = creditSummaryCache;
+if (!globalThis.productPulseCreditSummaryCache) {
+  globalThis.productPulseCreditSummaryCache = creditSummaryCache;
 }
 
 export const shouldRevalidate = () => false;
