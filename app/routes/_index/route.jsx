@@ -1,4 +1,5 @@
 import { Link, useLoaderData } from "react-router";
+import { buildEmbeddedAppHref, buildEmbeddedAppPath } from "../../lib/product-pulse-app-paths";
 import styles from "./styles.module.css";
 
 export const meta = () => [
@@ -60,10 +61,10 @@ export default function App() {
         </div>
 
         <nav className={styles.topbar} aria-label="ProductPulse AI public links">
-          <Link className={styles.brand} to={homeHref}>
+          <a className={styles.brand} href={homeHref}>
             <span className={styles.brandMark}>P</span>
             <span>ProductPulse AI</span>
-          </Link>
+          </a>
           <Link className={styles.textLink} to="/privacy-policy">Privacy policy</Link>
           <Link className={styles.textLink} to="/privacy">Privacy policy</Link>
         </nav>
@@ -80,11 +81,11 @@ export default function App() {
             ProductPulse AI turns catalog, order, return, refund, review, retention, and basket signals into product risk diagnostics, evidence, watchlist monitoring, and reviewed catalog actions.
           </p>
           <div className={styles.heroActions}>
-            <Link className={styles.primaryButton} to={wizardHref}>
+            <a className={styles.primaryButton} href={wizardHref}>
               <span>Start guided setup</span>
               <span aria-hidden="true">-&gt;</span>
-            </Link>
-            <Link className={styles.secondaryButton} to={dashboardHref}>Open dashboard</Link>
+            </a>
+            <a className={styles.secondaryButton} href={dashboardHref}>Open dashboard</a>
           </div>
           {!hasShopContext ? (
             <p className={styles.shopContextNote}>
@@ -138,28 +139,23 @@ export default function App() {
   );
 }
 
-function buildAppRouteHref(url, pathname, extraParams = {}) {
-  const params = new URLSearchParams();
-
-  url.searchParams.forEach((value, key) => {
-    if (key === "wizard" || key === "startWizard") return;
-    params.append(key, value);
-  });
-
-  Object.entries(extraParams).forEach(([key, value]) => {
-    if (value !== null && value !== undefined && value !== "") params.set(key, String(value));
-  });
-
-  if (!params.get("shop")) return "/auth/login";
-  const query = params.toString();
-  return query ? `${pathname}?${query}` : pathname;
+export function buildAppRouteHref(url, pathname, extraParams = {}) {
+  if (!url.searchParams.get("shop")) return "/auth/login";
+  return appendLandingParams(buildEmbeddedAppPath(url.pathname, pathname), url.search, extraParams);
 }
 
-function buildPublicRouteHref(url, pathname) {
-  const params = new URLSearchParams();
-  ["shop", "host", "embedded", "locale"].forEach((key) => {
-    const value = url.searchParams.get(key);
-    if (value) params.set(key, value);
+export function buildPublicRouteHref(url, pathname) {
+  return buildEmbeddedAppHref(url.pathname, pathname, {
+    currentSearch: url.search,
+  });
+}
+
+function appendLandingParams(pathname, search, extraParams = {}) {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  params.delete("wizard");
+  params.delete("startWizard");
+  Object.entries(extraParams).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") params.set(key, String(value));
   });
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;

@@ -17,6 +17,18 @@ describe("product pulse embedded app paths", () => {
     expect(buildEmbeddedApiPath(currentPathname, "/api/beta-feedback")).toBe("/apps/product-pulse-ia/api/beta-feedback");
   });
 
+  it("preserves Shopify app proxy prefixes from the public landing path", () => {
+    const currentPathname = "/apps/product-pulse-ia";
+    const currentSearch = "?shop=demo-shop.myshopify.com&host=encoded-host&embedded=1&locale=en";
+
+    expect(getEmbeddedAppBasePath(currentPathname)).toBe("/apps/product-pulse-ia");
+    expect(buildEmbeddedAppPath(currentPathname, "/app/dashboard")).toBe("/apps/product-pulse-ia/app/dashboard");
+    expect(buildEmbeddedAppHref(currentPathname, "/app/dashboard", { currentSearch, extraParams: { wizard: "start" } }))
+      .toBe("/apps/product-pulse-ia/app/dashboard?shop=demo-shop.myshopify.com&host=encoded-host&embedded=1&locale=en&wizard=start");
+    expect(buildEmbeddedAppHref(currentPathname, "/", { currentSearch }))
+      .toBe("/apps/product-pulse-ia/?shop=demo-shop.myshopify.com&host=encoded-host&embedded=1&locale=en");
+  });
+
   it("preserves Shopify embedded params when building internal app hrefs", () => {
     const currentPathname = "/apps/product-pulse-ia/app/dashboard";
     const currentSearch = "?shop=demo-shop.myshopify.com&host=encoded-host&embedded=1&locale=en";

@@ -1,11 +1,13 @@
 const EMBEDDED_APP_ROUTE_PATTERN = /(?:^|\/)app(?:\/|$)/;
+const SHOPIFY_APP_PROXY_BASE_PATTERN = /^\/apps\/[^/]+(?:\/|$)/;
 const SHOPIFY_EMBEDDED_PARAM_KEYS = ["shop", "host", "embedded", "locale"];
 
 export function getEmbeddedAppBasePath(pathname = "") {
   const normalizedPathname = normalizePathname(pathname);
   const match = normalizedPathname.match(EMBEDDED_APP_ROUTE_PATTERN);
-  if (!match || match.index <= 0) return "";
-  return normalizedPathname.slice(0, match.index);
+  if (match?.index > 0) return normalizedPathname.slice(0, match.index);
+  const proxyMatch = normalizedPathname.match(SHOPIFY_APP_PROXY_BASE_PATTERN);
+  return proxyMatch ? proxyMatch[0].replace(/\/$/, "") : "";
 }
 
 export function getEmbeddedAppPathname(pathname = "") {
