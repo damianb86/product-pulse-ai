@@ -7431,34 +7431,6 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     });
   }
 
-  if (reviewSections.length > 0) {
-    const reviewSectionLabels = reviewSections.map((section) => section.label).filter(Boolean);
-    recommendations.push({
-      id: "review-product-evidence",
-      label: "Review product evidence",
-      type: "Workflow",
-      effort: "Low",
-      status: "Ready",
-      payload: {
-        reviewSections,
-        focusSources: reviewSections.map((section) => section.source),
-        contentQualityScore: contentAnalysis.score,
-        topReturnReasons: topReasons,
-        affectedVariants,
-        negativeReviewCount: deterministic.metrics.negativeReviewCount,
-        avgRating: deterministic.metrics.avgRating,
-        refundAmount: deterministic.metrics.refundAmount,
-        refundUnits: deterministic.metrics.refundUnits,
-        refundRate: deterministic.metrics.refundRate,
-        refundInsights: deterministic.metrics.refundInsights,
-        whyThisAction: reviewSectionLabels.length
-          ? `ProductPulse grouped ${reviewSectionLabels.join(", ")} because these evidence areas are attached to the same product diagnosis. Review them together before applying a PDP, QA, variant or operational fix.`
-          : "ProductPulse found enough product evidence to justify a manual review before applying a product change.",
-        expectedAction: "Open the evidence, confirm whether the signals describe a repeatable product issue, then choose the specific Shopify change, QA follow-up, internal workflow or dismissal that matches what you verified.",
-      },
-    });
-  }
-
   if (recipeSignals.sourceMismatch.shouldRecommend) {
     recommendations.push({
       id: "fix-source-review-mismatch",

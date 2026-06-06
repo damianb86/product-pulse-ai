@@ -5854,7 +5854,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
   });
 
-  it("gives grouped evidence reviews specific verification steps", () => {
+  it("does not render generic product evidence review actions", () => {
     const product = {
       ...defaultView.startHere,
       recommendedActions: [{
@@ -5873,11 +5873,8 @@ describe("ProductPulse screens", () => {
     };
 
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Review product evidence" }));
 
-    expect(screen.getByText(/Review return reasons and notes/)).toBeInTheDocument();
-    expect(screen.getByText(/Read the negative review language/)).toBeInTheDocument();
-    expect(screen.getByText("Apply the specific PDP, QA, variant or workflow action only when the evidence supports it")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open recommended action Review product evidence" })).not.toBeInTheDocument();
   });
 
   it("minimizes investigation actions after opening evidence", () => {

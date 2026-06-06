@@ -2845,6 +2845,7 @@ function getSyntheticProductActionForRecord(actionId, payloadOverride = {}) {
   const label = String(payloadOverride.label || "").trim();
   const normalized = `${id} ${label}`.toLowerCase();
   if (!id && !label) return null;
+  if (id === "review-product-evidence") return null;
 
   if (id === "product-description-changes" || /\b(description|pdp|copy|expectation|quality note)\b/.test(normalized)) {
     return {
@@ -2857,20 +2858,6 @@ function getSyntheticProductActionForRecord(actionId, payloadOverride = {}) {
         descriptionChangeGroup: id === "product-description-changes",
         operation: "replace",
         shopifyField: "Product description",
-      },
-    };
-  }
-
-  if (id === "review-product-evidence" || /\b(evidence|inspect|verify|investigation|review)\b/.test(normalized)) {
-    return {
-      id: id || "review-product-evidence",
-      label: label || "Review product evidence",
-      type: "Workflow",
-      effort: "Low",
-      status: "Ready",
-      payload: {
-        reviewSections: [],
-        shopifyField: "Product evidence",
       },
     };
   }
@@ -2959,9 +2946,6 @@ function getProductActionEquivalentIds(action = {}, actionId = "", payloadOverri
   const matchText = `${action.id || ""} ${action.actionId || ""} ${action.actionType || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payloadOverride.label || ""} ${payloadOverride.field || ""} ${payload.operation || ""} ${payload.field || ""} ${payload.shopifyField || ""}`.toLowerCase();
   if (isProductDescriptionEquivalentAction(action, payloadOverride, matchText)) {
     aliases.add("product-description-changes");
-  }
-  if (action.id === "review-product-evidence" || Array.isArray(payload.reviewSections) || /\b(evidence|inspect|verify|investigation|review)\b/.test(matchText)) {
-    aliases.add("review-product-evidence");
   }
   if (/\b(faq)\b/.test(matchText)) aliases.add("create-product-faq");
   if (/\b(title|seo|metadata)\b/.test(matchText)) aliases.add("title-metadata");
@@ -7963,7 +7947,6 @@ function getReturnPredictionActionAliases(action = {}, key = "") {
     .filter(Boolean));
   const normalized = `${action.id || ""} ${action.actionId || ""} ${action.label || ""} ${action.title || ""} ${action.type || ""} ${JSON.stringify(action.payload || {})}`.toLowerCase();
   if (/\b(description|pdp|copy|faq|fit note|expectation note|content)\b/.test(normalized)) aliases.add("product-description-changes");
-  if (/\b(review|evidence|investigation|workflow|return pattern)\b/.test(normalized)) aliases.add("review-product-evidence");
   return aliases;
 }
 

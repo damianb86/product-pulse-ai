@@ -346,7 +346,7 @@ describe("ProductPulse actions", () => {
         signalCount: 11,
       },
       recommendedActions: [
-        { id: "review-product-evidence", label: "Review product evidence", type: "Workflow", status: "Ready" },
+        { id: "recommend-qa-review", label: "Supplier / QA review", type: "Operational QA", status: "Ready" },
       ],
       actionHistory: [],
     };
@@ -388,6 +388,32 @@ describe("ProductPulse actions", () => {
       title: "Customer Facing Product",
       actionLabel: "Update product description",
     });
+  });
+
+  it("excludes generic product evidence review actions from the dashboard queue", () => {
+    const product = {
+      id: "gid://shopify/Product/generic-review",
+      handle: "generic-review-product",
+      title: "Generic Review Product",
+      riskScore: 88,
+      confidence: 84,
+      analysisDepth: "full",
+      primaryIssue: "Return pressure",
+      metrics: {
+        latestDiagnosisId: "diagnosis-generic-review",
+        marginAtRisk: 900,
+        signalCount: 8,
+      },
+      recommendedActions: [
+        { id: "review-product-evidence", label: "Review product evidence", type: "Workflow", status: "Ready" },
+      ],
+      actionHistory: [],
+    };
+
+    const dashboard = buildDashboardViewData([product]);
+
+    expect(dashboard.actionQueue.total).toBe(0);
+    expect(dashboard.totals.pendingActions).toBe(0);
   });
 
   it("uses configured analysis lookback for analytics trend windows", () => {

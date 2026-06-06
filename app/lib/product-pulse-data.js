@@ -870,7 +870,6 @@ function shouldUseDashboardActionFamilyFallback(family = "") {
 
 const BROAD_DASHBOARD_ACTION_ALIASES = new Set([
   "product-description-changes",
-  "review-product-evidence",
   "product-evidence",
   "product-faq",
   "create-product-faq",

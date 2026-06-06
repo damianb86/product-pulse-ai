@@ -1,5 +1,6 @@
 export const DISABLED_PRODUCT_ACTION_IDS = new Set([
   "add-structured-metafields",
+  "review-product-evidence",
   "switch-product-template",
 ]);
 

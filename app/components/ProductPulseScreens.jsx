@@ -11981,7 +11981,8 @@ function getProductRecommendedActions(product) {
   if (!product.recommendedActions?.length) return [];
   const ignoredIssues = getIgnoredIssueRecords(product);
   const filteredActions = product.recommendedActions.filter((action) => !isRecommendedActionRelatedToIgnoredIssues(action, ignoredIssues, product));
-  const normalizedActions = consolidateDescriptionRecommendedActions(consolidateReviewRecommendedActions(filteredActions), product);
+  const filteredGenericReviewActions = filteredActions.filter((action) => !isGenericProductEvidenceReviewAction(action));
+  const normalizedActions = consolidateDescriptionRecommendedActions(filteredGenericReviewActions, product);
   const rankedActions = rankRecommendedActionsForDisplay(normalizedActions, product);
 
   return rankedActions.map((action, index) => ({
@@ -12435,7 +12436,6 @@ function normalizeRecommendedActionMatchKey(value) {
 
 const BROAD_STORED_RECOMMENDED_ACTION_ALIASES = new Set([
   "product-description-changes",
-  "review-product-evidence",
   "product-evidence",
   "product-faq",
   "create-product-faq",
@@ -12460,7 +12460,7 @@ function getRecommendedActionPersistenceFamily(action = {}) {
   const payload = action.payload || {};
   const normalized = normalizeActionMatchText([action.id, action.actionId, action.actionType, action.label, action.title, action.type, payload]);
   if (action.id === "product-description-changes" || action.actionId === "product-description-changes" || payload.descriptionChangeGroup || isDescriptionChangeAction(action)) return "product-description";
-  if (action.id === "review-product-evidence" || action.actionId === "review-product-evidence" || Array.isArray(payload.reviewSections) || /\b(evidence|inspect|verify|investigation|review)\b/.test(normalized)) return "product-evidence";
+  if (Array.isArray(payload.reviewSections) || /\b(evidence|inspect|verify|investigation|review)\b/.test(normalized)) return "product-evidence";
   if (isFaqRecommendedAction(action)) return "product-faq";
   if (payload.draftTitle || /\b(title|seo|metadata|meta description)\b/.test(normalized)) return "product-metadata";
   if (payload.productStatus || /\b(status|draft|archive|unlisted)\b/.test(normalized)) return "product-status";
@@ -12610,30 +12610,8 @@ function isPrimaryIssueRecommendedAction(action = {}) {
   return /\b(pdp|description|copy|support|note|tag|faq|fit|quality)\b/.test(normalized);
 }
 
-function consolidateReviewRecommendedActions(actions = []) {
-  const consolidated = actions.find((action) => action.id === "review-product-evidence");
-  if (consolidated) {
-    return actions.filter((action) => action.id === consolidated.id || !isLegacyReviewAction(action));
-  }
-
-  const reviewActions = actions.filter(isLegacyReviewAction);
-  if (reviewActions.length <= 1) return actions;
-
-  const firstReviewIndex = actions.findIndex(isLegacyReviewAction);
-  const mergedReviewAction = {
-    id: "review-product-evidence",
-    label: "Review product evidence",
-    type: "Workflow",
-    effort: "Low",
-    status: "Ready",
-    payload: mergeReviewActionPayloads(reviewActions),
-  };
-  const withoutReviews = actions.filter((action) => !isLegacyReviewAction(action));
-  return [
-    ...withoutReviews.slice(0, firstReviewIndex),
-    mergedReviewAction,
-    ...withoutReviews.slice(firstReviewIndex),
-  ];
+function isGenericProductEvidenceReviewAction(action = {}) {
+  return action.id === "review-product-evidence" || action.actionId === "review-product-evidence";
 }
 
 function consolidateDescriptionRecommendedActions(actions = [], product = {}) {
@@ -13053,83 +13031,6 @@ function getHighestActionEffort(actions = []) {
   return highest.charAt(0).toUpperCase() + highest.slice(1);
 }
 
-function isLegacyReviewAction(action) {
-  const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
-  if (action.id === "review-product-evidence") return false;
-  return normalized.includes("workflow") && normalized.includes("review");
-}
-
-function mergeReviewActionPayloads(actions = []) {
-  const payloads = actions.map((action) => action.payload || {});
-  const reviewSections = actions.map((action) => buildReviewSectionFromAction(action)).filter(Boolean);
-  return {
-    reviewSections,
-    focusSources: reviewSections.map((section) => section.source).filter(Boolean),
-    topReturnReasons: uniqueStrings(payloads.flatMap((payload) => payload.topReturnReasons || [])),
-    affectedVariants: uniqueStrings(payloads.flatMap((payload) => payload.affectedVariants || [])),
-    contentIssues: payloads.flatMap((payload) => payload.contentIssues || []),
-    negativeReviewCount: payloads.reduce((max, payload) => Math.max(max, Number(payload.negativeReviewCount || 0)), 0),
-    avgRating: payloads.find((payload) => payload.avgRating)?.avgRating || 0,
-    refundAmount: payloads.reduce((max, payload) => Math.max(max, Number(payload.refundAmount || 0)), 0),
-    refundUnits: payloads.reduce((max, payload) => Math.max(max, Number(payload.refundUnits || 0)), 0),
-    refundRate: payloads.reduce((max, payload) => Math.max(max, Number(payload.refundRate || 0)), 0),
-  };
-}
-
-function buildReviewSectionFromAction(action) {
-  const payload = action.payload || {};
-  const normalized = `${action.id || ""} ${action.label || ""}`.toLowerCase();
-  if (normalized.includes("return")) {
-    const reasons = Array.isArray(payload.topReturnReasons) ? payload.topReturnReasons : [];
-    return {
-      key: "returns",
-      label: "Return reasons",
-      source: "Shopify returns",
-      count: payload.returnUnits || reasons.length,
-      items: reasons.map((reason) => ({ label: reason, evidence: "Stored return reason" })),
-    };
-  }
-  if (normalized.includes("variant")) {
-    const variants = Array.isArray(payload.affectedVariants) ? payload.affectedVariants : [];
-    return {
-      key: "variants",
-      label: "Affected variants",
-      source: "Shopify variants",
-      count: variants.length,
-      items: variants.map((variant) => ({ label: variant, evidence: "Affected scope" })),
-    };
-  }
-  if (normalized.includes("refund")) {
-    return {
-      key: "refunds",
-      label: "Refund impact",
-      source: "Shopify refunds",
-      count: payload.refundUnits || 0,
-      items: [{ label: `${payload.refundUnits || 0} refunded units`, evidence: `${payload.refundRate || 0}% refund rate` }],
-    };
-  }
-  if (normalized.includes("content") || normalized.includes("title") || normalized.includes("tag") || normalized.includes("collection")) {
-    const contentIssues = Array.isArray(payload.contentIssues) ? payload.contentIssues : [];
-    return {
-      key: "content",
-      label: "Title, tags and collection alignment",
-      source: "Product content",
-      count: contentIssues.length,
-      items: contentIssues.map((issue) => (typeof issue === "string" ? { label: issue } : issue)),
-    };
-  }
-  if (normalized.includes("review")) {
-    return {
-      key: "reviews",
-      label: "Negative review evidence",
-      source: "Connected reviews",
-      count: payload.negativeReviewCount || 0,
-      items: [{ label: `${payload.negativeReviewCount || 0} negative reviews`, evidence: `${payload.avgRating || 0} average rating` }],
-    };
-  }
-  return null;
-}
-
 function uniqueStrings(values = []) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
@@ -13206,7 +13107,6 @@ function isEvidenceReviewRecommendedAction(action = {}) {
   const normalized = getActionIdentityText(action);
   return isSourceCoverageRecommendedAction(action)
     || isSourceIntegrityRecommendedAction(action)
-    || normalized.includes("review-product-evidence")
     || normalized.includes("review-return")
     || normalized.includes("review-refund")
     || normalized.includes("review-negative-review")
@@ -13410,7 +13310,7 @@ function getManualProductReviewOperation(action = {}) {
   if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("commercial")) return "Review commercial evidence";
   if (normalized.includes("inventory") || normalized.includes("availability")) return "Review inventory scope";
   if (normalized.includes("workflow") || normalized.includes("metadata")) return "Review product workflow";
-  return "Review product evidence";
+  return "Review product follow-up";
 }
 
 function getManualProductReviewTarget(action = {}) {
