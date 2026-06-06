@@ -33,6 +33,28 @@ export function buildEmbeddedApiPath(currentPathname, targetPath) {
   return `${getEmbeddedAppBasePath(currentPathname)}${normalizedTargetPath}`;
 }
 
+export function buildLandingAppRouteHref(url, pathname, extraParams = {}) {
+  if (!url.searchParams.get("shop")) return "/auth/login";
+  return appendLandingParams(buildEmbeddedAppPath(url.pathname, pathname), url.search, extraParams);
+}
+
+export function buildLandingPublicRouteHref(url, pathname) {
+  return buildEmbeddedAppHref(url.pathname, pathname, {
+    currentSearch: url.search,
+  });
+}
+
+export function getDefaultRootAppTargetPath(hasStoredProducts) {
+  return hasStoredProducts ? "/app/products" : "/app/dashboard";
+}
+
+export function buildRootAppRedirectHref(url, targetPath, shop = "") {
+  return buildEmbeddedAppHref(url.pathname, targetPath, {
+    currentSearch: url.search,
+    shop,
+  });
+}
+
 function isExternalUrl(value) {
   return /^[a-z][a-z0-9+.-]*:|^\/\//i.test(String(value || ""));
 }
@@ -59,6 +81,17 @@ function appendEmbeddedAppParams(path, currentSearch, shop, extraParams) {
 
   const query = params.toString();
   return `${pathname}${query ? `?${query}` : ""}${hash}`;
+}
+
+function appendLandingParams(pathname, search, extraParams = {}) {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  params.delete("wizard");
+  params.delete("startWizard");
+  Object.entries(extraParams).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") params.set(key, String(value));
+  });
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 function getEmbeddedAppParams(search, shop) {
