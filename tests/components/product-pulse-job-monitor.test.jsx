@@ -51,6 +51,7 @@ function renderMonitor(initialMonitor, options = {}) {
       path: "/app/credits-summary",
       loader: ({ request }) => {
         options.onCreditSummary?.(new URL(request.url));
+        if (options.creditSummaryResponse) return options.creditSummaryResponse;
         const monitor = getMonitor() || {};
         return {
           pointSummary: monitor.pointSummary || null,
@@ -62,6 +63,7 @@ function renderMonitor(initialMonitor, options = {}) {
       path: "/apps/product-pulse-ia/app/credits-summary",
       loader: ({ request }) => {
         options.onCreditSummary?.(new URL(request.url));
+        if (options.creditSummaryResponse) return options.creditSummaryResponse;
         const monitor = getMonitor() || {};
         return {
           pointSummary: monitor.pointSummary || null,
@@ -197,7 +199,7 @@ describe("ProductPulseJobMonitor", () => {
       },
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "95.0 Credits available" }));
+    fireEvent.click(screen.getByRole("button", { name: "95 Credits available" }));
 
     await waitFor(() => expect(creditSummaryRequests).toHaveLength(1));
     expect(creditSummaryRequests[0].pathname).toBe("/apps/product-pulse-ia/app/credits-summary");
@@ -266,7 +268,7 @@ describe("ProductPulseJobMonitor", () => {
       { onProductSearch: (query) => productSearchQueries.push(query) },
     );
 
-    const creditsButton = screen.getByRole("button", { name: "95.0 Credits available" });
+    const creditsButton = screen.getByRole("button", { name: "95 Credits available" });
     expect(creditsButton).toBeVisible();
 
     fireEvent.click(creditsButton);
@@ -309,6 +311,35 @@ describe("ProductPulseJobMonitor", () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 400));
     expect(productSearchQueries).toEqual(["linen"]);
+  });
+
+  it("keeps the credits dropdown open when activity fails but a balance is available", async () => {
+    renderMonitor(
+      {
+        activeJobs: [],
+        recentJobs: [],
+        logs: [],
+        pointBalance: { available: 12.4, label: "12.4" },
+      },
+      {
+        onCreditSummary: () => {},
+        creditSummaryResponse: {
+          status: "error",
+          message: "Credit activity could not be loaded.",
+          pointSummary: null,
+          pointBalance: { available: 12.4, label: "12.4" },
+        },
+      },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "12 Credits available" }));
+
+    const creditsDialog = screen.getByRole("dialog", { name: "Credit details" });
+    expect(within(creditsDialog).getByText("12")).toBeVisible();
+    await waitFor(() => {
+      expect(within(creditsDialog).getByText("Credit activity could not be loaded.")).toBeVisible();
+    });
+    expect(screen.getByRole("button", { name: "12 Credits available" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("shows active and past jobs from the top bar with product navigation", () => {
@@ -370,9 +401,9 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getByText("Trail Run Vest")).toBeVisible();
     expect(screen.getByText(/Started /)).toBeVisible();
     expect(screen.getByText(/Completed /)).toBeVisible();
-    expect(screen.getAllByText("1.0 credit").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 credit").length).toBeGreaterThan(0);
     expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobElapsed")).not.toBeInTheDocument();
-    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1\.0 credit.*s/);
+    expect(document.querySelector(".ppGlobalTopbarJobItem.isCurrent .ppGlobalTopbarJobMeta")).toHaveTextContent(/1 credit.*s/);
     expect(screen.getByRole("link", { name: /View all background processes/i })).toHaveAttribute("href", "/app/background-processes");
     expect(document.querySelector(".ppGlobalTopbarJobProgress")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");

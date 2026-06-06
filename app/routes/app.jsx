@@ -17,6 +17,7 @@ import { getBetaFeedbackClientConfig } from "../lib/beta-feedback-config.server"
 import { buildEmbeddedAppPath, getEmbeddedAppPathname } from "../lib/product-pulse-app-paths";
 import { isProductPulseDevelopment } from "../lib/product-pulse-dev.server";
 import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
+import { getStorePointBalanceForShop } from "../lib/product-pulse-points.server";
 
 export const loader = async ({ request }) => {
   const perf = createProductPulsePerfLogger("loader.app", { route: "/app" });
@@ -25,13 +26,16 @@ export const loader = async ({ request }) => {
   setSentrySessionContext(session);
   const developmentMode = isProductPulseDevelopment();
   const aiChatConfig = getAiChatConfig();
-  const chatQuota = await measureProductPulseStep(perf, "getAiChatMonthlyQuotaForShop", () => getAiChatMonthlyQuotaForShop(session.shop, {
-    userId: session.userId,
-    defaultModel: aiChatConfig.defaultModel,
-    cheapModel: aiChatConfig.cheapModel,
-    standardMonthlyMessageLimit: aiChatConfig.standardMonthlyMessageLimit,
-    cheapMonthlyMessageLimit: aiChatConfig.cheapMonthlyMessageLimit,
-  }));
+  const [chatQuota, pointBalance] = await Promise.all([
+    measureProductPulseStep(perf, "getAiChatMonthlyQuotaForShop", () => getAiChatMonthlyQuotaForShop(session.shop, {
+      userId: session.userId,
+      defaultModel: aiChatConfig.defaultModel,
+      cheapModel: aiChatConfig.cheapModel,
+      standardMonthlyMessageLimit: aiChatConfig.standardMonthlyMessageLimit,
+      cheapMonthlyMessageLimit: aiChatConfig.cheapMonthlyMessageLimit,
+    })),
+    measureProductPulseStep(perf, "getInitialStorePointBalance", () => getInitialStorePointBalance(session.shop)),
+  ]);
   // eslint-disable-next-line no-undef
   const apiKey = process.env.SHOPIFY_API_KEY || "";
   // eslint-disable-next-line no-undef
@@ -45,7 +49,11 @@ export const loader = async ({ request }) => {
     aiCostDashboardEnabled: isAiCostDashboardEnabled(),
     chatKit: getAiChatKitClientConfig(),
     chatQuota: serializeChatQuotaForClient(chatQuota),
-    jobMonitor: null,
+    jobMonitor: {
+      pointBalance,
+      pointSummary: null,
+      pointSummaryLoaded: false,
+    },
     betaFeedback: getBetaFeedbackClientConfig({ session }),
     observability: {
       sentry: getSentryClientRuntimeConfig(session, env),
@@ -87,6 +95,14 @@ export default function App() {
       </BetaFeedbackProvider>
     </AppProvider>
   );
+}
+
+async function getInitialStorePointBalance(shop) {
+  try {
+    return await getStorePointBalanceForShop(shop);
+  } catch {
+    return null;
+  }
 }
 
 function ProductPulseSentryContext({ config, activeSection }) {

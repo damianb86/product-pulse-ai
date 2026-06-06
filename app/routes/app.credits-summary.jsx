@@ -1,5 +1,5 @@
 import { authenticate } from "../shopify.server";
-import { getStorePointSummaryForShop } from "../lib/product-pulse-points.server";
+import { getStorePointBalanceForShop, getStorePointSummaryForShop } from "../lib/product-pulse-points.server";
 import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 const CREDIT_SUMMARY_CACHE_TTL_MS = 30_000;
@@ -36,9 +36,28 @@ export const loader = async ({ request }) => {
     return buildCreditSummaryResponse(pointSummary);
   } catch (error) {
     perf.fail(error, { shop: session.shop });
-    throw error;
+    const fallbackBalance = await getCreditSummaryFallbackBalance(session.shop);
+    return Response.json({
+      status: "error",
+      message: "Credit activity could not be loaded.",
+      pointSummary: null,
+      pointBalance: fallbackBalance,
+    }, {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
   }
 };
+
+async function getCreditSummaryFallbackBalance(shop) {
+  try {
+    return await getStorePointBalanceForShop(shop);
+  } catch {
+    return null;
+  }
+}
 
 function buildCreditSummaryResponse(pointSummary) {
   return Response.json({

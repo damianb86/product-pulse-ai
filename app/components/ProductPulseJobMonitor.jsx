@@ -45,6 +45,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const creditSummary = creditFetcher.data?.pointSummary || null;
   const pointSummary = creditSummary || monitor.pointSummary || initialMonitor?.pointSummary || null;
   const pointBalance = pointSummary?.balance || creditFetcher.data?.pointBalance || monitor.pointBalance || initialMonitor?.pointBalance || null;
+  const creditSummaryError = creditFetcher.data?.status === "error" ? creditFetcher.data?.message : "";
   const activeJobCount = Number(monitor.activeJobCount ?? initialMonitor?.activeJobCount ?? activeJobs.length) || 0;
   const hasActiveJobs = activeJobCount > 0;
   const buildAppPath = useCallback(
@@ -365,6 +366,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       pointBalance={pointBalance}
       pointSummary={pointSummary}
       creditsLoading={activePopover === "credits" && creditFetcher.state !== "idle"}
+      creditsError={creditSummaryError}
       now={now}
       pendingCancelJobId={pendingCancelJobId}
       onToggleJobsPopover={toggleJobsPopover}
@@ -501,6 +503,7 @@ function ProductPulseGlobalTopbar({
   pointBalance,
   pointSummary,
   creditsLoading,
+  creditsError,
   now,
   pendingCancelJobId,
   onToggleJobsPopover,
@@ -587,7 +590,7 @@ function ProductPulseGlobalTopbar({
             <strong>{pointLabel}</strong>
           </button>
           {isCreditsOpen ? (
-            <CreditsPopover id="pp-global-credits" pointBalance={pointBalance} pointSummary={pointSummary} loading={creditsLoading} buildAppPath={buildAppPath} />
+            <CreditsPopover id="pp-global-credits" pointBalance={pointBalance} pointSummary={pointSummary} loading={creditsLoading} error={creditsError} buildAppPath={buildAppPath} />
           ) : null}
         </div>
       </div>
@@ -595,7 +598,7 @@ function ProductPulseGlobalTopbar({
   );
 }
 
-function CreditsPopover({ id, pointSummary, pointBalance, loading = false, buildAppPath = defaultBuildAppPath }) {
+function CreditsPopover({ id, pointSummary, pointBalance, loading = false, error = "", buildAppPath = defaultBuildAppPath }) {
   const summary = normalizeCreditPopoverSummary(pointSummary, pointBalance);
   const activity = summary.activity;
 
@@ -626,6 +629,8 @@ function CreditsPopover({ id, pointSummary, pointBalance, loading = false, build
         <h2>Recent credit activity</h2>
         {loading && !pointSummary ? (
           <p className="ppCreditsActivityEmpty">Loading credit activity...</p>
+        ) : error ? (
+          <p className="ppCreditsActivityEmpty">{error}</p>
         ) : activity.length ? (
           <ul>
             {activity.map((item) => (
@@ -708,7 +713,7 @@ function getCreditActivityIcon(item) {
 function normalizeCreditValue(value, fallback = 0) {
   const number = Number(value);
   const normalized = Number.isFinite(number) ? number : Number(fallback);
-  return Math.round(Math.max(0, Number.isFinite(normalized) ? normalized : 0) * 10) / 10;
+  return Math.round(Math.max(0, Number.isFinite(normalized) ? normalized : 0));
 }
 
 function formatCompactCreditValue(value) {
@@ -976,10 +981,10 @@ function formatPointBalanceLabel(pointBalance) {
     ? pointBalance
     : pointBalance?.available ?? pointBalance?.balance ?? 0;
   const value = Number(rawValue);
-  const normalized = Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+  const normalized = Number.isFinite(value) ? Math.round(value) : 0;
   return normalized.toLocaleString("en-US", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
 }
 
