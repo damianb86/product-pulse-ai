@@ -37,6 +37,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const lastSearchQueryRef = useRef("");
   const topbarRef = useRef(null);
   const searchInputRef = useRef(null);
+  const activePopoverRef = useRef(activePopover);
   const [monitorSnapshot, setMonitorSnapshot] = useState(() => initialMonitor || {});
   const monitor = monitorSnapshot || {};
   const activeJobs = useMemo(() => monitor.activeJobs || [], [monitor.activeJobs]);
@@ -203,14 +204,16 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       const failedJob = externallyFinishedJobs.find((job) => (
         job.status === "Failed" && !announcedFailedJobIdsRef.current.has(job.id)
       ));
-      if (completedAnalysisJob) setCompletedJobNotice(completedAnalysisJob);
+      if (completedAnalysisJob && !shouldPreserveWizardProductDiagnosisNotice(completedJobNotice)) {
+        setCompletedJobNotice(completedAnalysisJob);
+      }
       if (failedJob) {
         announcedFailedJobIdsRef.current.add(failedJob.id);
         setFailedJobNotice(failedJob);
       }
       revalidator.revalidate();
     }
-  }, [activeJobs, recentJobs, revalidator]);
+  }, [activeJobs, completedJobNotice, recentJobs, revalidator]);
 
   useEffect(() => {
     if (!completedJobNotice) return undefined;
@@ -237,6 +240,10 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }, [cancelFetcher.data, cancelFetcher.formData, cancelFetcher.state, requestJobStatusLoad]);
 
   useEffect(() => {
+    activePopoverRef.current = activePopover;
+  }, [activePopover]);
+
+  useEffect(() => {
     if (completedJobNotice?.kind !== "product-diagnosis") return;
     dispatchProductPulseWizardJobEvent({
       type: "deep-scan-completed",
@@ -245,11 +252,24 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }, [completedJobNotice]);
 
   useEffect(() => {
+    if (activePopoverRef.current === "jobs" && isWizardBackgroundProcessPopoverLockActive()) return;
     setActivePopover(null);
   }, [location.pathname, location.search]);
 
+  const setActivePopoverWithWizardLock = useCallback((nextPopover) => {
+    if (nextPopover !== "jobs" && isWizardBackgroundProcessPopoverLockActive()) {
+      setActivePopover("jobs");
+      return;
+    }
+    setActivePopover(nextPopover);
+  }, []);
+
   const toggleJobsPopover = useCallback(() => {
     if (activePopover === "jobs") {
+      if (isWizardBackgroundProcessPopoverLockActive()) {
+        setActivePopover("jobs");
+        return;
+      }
       setActivePopover(null);
       return;
     }
@@ -273,10 +293,23 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
     const handlePointerDown = (event) => {
       if (topbarRef.current?.contains(event.target)) return;
+      if (activePopover === "jobs" && isWizardBackgroundProcessPopoverLockActive()) {
+        event.preventDefault();
+        event.stopPropagation();
+        setActivePopover("jobs");
+        return;
+      }
       setActivePopover(null);
     };
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") setActivePopover(null);
+      if (event.key !== "Escape") return;
+      if (activePopover === "jobs" && isWizardBackgroundProcessPopoverLockActive()) {
+        event.preventDefault();
+        event.stopPropagation();
+        setActivePopover("jobs");
+        return;
+      }
+      setActivePopover(null);
     };
 
     document.addEventListener("mousedown", handlePointerDown);
@@ -354,7 +387,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     <ProductPulseGlobalTopbar
       refProp={topbarRef}
       activePopover={activePopover}
-      setActivePopover={setActivePopover}
+      setActivePopover={setActivePopoverWithWizardLock}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       searchFetcher={searchFetcher}
@@ -1212,6 +1245,18 @@ function mergeCancelledJobIntoMonitor(current = {}, cancelledJob = null) {
 
 function defaultBuildAppPath(path) {
   return path;
+}
+
+function isWizardBackgroundProcessPopoverLockActive() {
+  if (typeof document === "undefined") return false;
+  return document.body.classList.contains("ppWizardBackgroundProcessesActive")
+    || document.body.classList.contains("ppWatchlistWizardBackgroundProcessesActive");
+}
+
+function shouldPreserveWizardProductDiagnosisNotice(currentNotice) {
+  return currentNotice?.kind === "product-diagnosis"
+    && typeof document !== "undefined"
+    && document.body.classList.contains("ppWizardActive");
 }
 
 function getJobCompletionNoticeTitle(job) {

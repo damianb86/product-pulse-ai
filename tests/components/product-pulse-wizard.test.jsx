@@ -276,6 +276,41 @@ describe("ProductPulseWizard", () => {
     expect(screen.getByRole("dialog", { name: "Pulse Guide" })).toBeInTheDocument();
     expect(window.localStorage.getItem(WIZARD_STORAGE_KEY)).toBe("true");
   });
+
+  it("continues with the first completed Product Diagnosis when multiple queued jobs finish", async () => {
+    window.__PP_WIZARD_TEST_HAS_CANDIDATES__ = true;
+    renderWizard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
+    fireEvent.click(await screen.findByRole("button", { name: "Skip step" }));
+    expect(await screen.findByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Skip step" }));
+    expect(await screen.findByRole("dialog", { name: "Track the Product Diagnosis" })).toBeInTheDocument();
+
+    completeDeepScanWithJob({
+      kind: "product-diagnosis",
+      productTitle: "GEN First Product",
+      productHref: "/app/products/gen-first-product",
+    });
+    const completeDialog = await screen.findByRole("dialog", { name: "Product Diagnosis complete" });
+    expect(completeDialog).toHaveTextContent("GEN First Product");
+
+    completeDeepScanWithJob({
+      kind: "product-diagnosis",
+      productTitle: "GEN Second Product",
+      productHref: "/app/products/gen-second-product",
+    });
+    expect(screen.getByRole("dialog", { name: "Product Diagnosis complete" })).toHaveTextContent("GEN First Product");
+    expect(screen.getByRole("dialog", { name: "Product Diagnosis complete" })).not.toHaveTextContent("GEN Second Product");
+
+    fireEvent.click(screen.getByRole("link", { name: "Open product" }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products/gen-first-product"));
+  });
 });
 
 function finishQuickScan() {
@@ -287,6 +322,12 @@ function finishQuickScan() {
 function completeDeepScan() {
   act(() => {
     window.dispatchEvent(new CustomEvent("productpulse:test-complete-deep-scan"));
+  });
+}
+
+function completeDeepScanWithJob(job) {
+  act(() => {
+    window.dispatchEvent(new CustomEvent("productpulse:test-complete-deep-scan", { detail: { job } }));
   });
 }
 
@@ -331,13 +372,13 @@ function WizardHarness() {
   }, []);
 
   useEffect(() => {
-    const handleCompleteDeepScan = () => {
-      const job = {
+    const handleCompleteDeepScan = (event) => {
+      const job = event.detail?.job || {
         kind: "product-diagnosis",
         productTitle: "GEN QuietDesk Mini Fan",
         productHref: "/app/products/gen-quietdesk-mini-fan",
       };
-      setDeepScanNotice(job);
+      setDeepScanNotice((current) => current || job);
       window.dispatchEvent(new CustomEvent("productpulse:wizard", { detail: { type: "deep-scan-completed", job } }));
     };
     window.addEventListener("productpulse:test-complete-deep-scan", handleCompleteDeepScan);

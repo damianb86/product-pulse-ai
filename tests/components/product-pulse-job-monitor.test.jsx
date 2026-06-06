@@ -131,6 +131,9 @@ function renderMonitor(initialMonitor, options = {}) {
 afterEach(() => {
   vi.useRealTimers();
   window.localStorage.clear();
+  document.body.classList.remove("ppWizardActive");
+  document.body.classList.remove("ppWizardBackgroundProcessesActive");
+  document.body.classList.remove("ppWatchlistWizardBackgroundProcessesActive");
 });
 
 describe("ProductPulseJobMonitor", () => {
@@ -144,6 +147,29 @@ describe("ProductPulseJobMonitor", () => {
     expect(await screen.findByRole("dialog", { name: /background processes/i })).toBeVisible();
     expect(screen.getByRole("button", { name: /background processes/i })).toHaveAttribute("aria-expanded", "true");
     expect(document.querySelector("[data-pp-background-process-popover]")).toBeInTheDocument();
+  });
+
+  it("keeps the jobs popover open while the Product Diagnosis wizard is tracking background work", async () => {
+    renderMonitor({ activeJobs: [], recentJobs: [], logs: [] });
+
+    act(() => {
+      document.body.classList.add("ppWizardActive");
+      document.body.classList.add("ppWizardBackgroundProcessesActive");
+      window.dispatchEvent(new CustomEvent("productpulse:wizard-open-background-processes"));
+    });
+
+    const jobsButton = await screen.findByRole("button", { name: /background processes/i });
+    expect(await screen.findByRole("dialog", { name: /background processes/i })).toBeVisible();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.getByRole("dialog", { name: /background processes/i })).toBeVisible();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: /background processes/i })).toBeVisible();
+
+    fireEvent.click(jobsButton);
+    expect(screen.getByRole("dialog", { name: /background processes/i })).toBeVisible();
+    expect(jobsButton).toHaveAttribute("aria-expanded", "true");
   });
 
   it("forces one immediate job-status request when the background processes popover opens after a recent refresh", async () => {
@@ -581,6 +607,81 @@ describe("ProductPulseJobMonitor", () => {
     } finally {
       window.removeEventListener("productpulse:wizard", handleWizardEvent);
     }
+  });
+
+  it("preserves the first Product Diagnosis completion notice while the wizard is active", async () => {
+    document.body.classList.add("ppWizardActive");
+    const firstJob = {
+      id: "job-first",
+      kind: "product-diagnosis",
+      name: "Product Diagnosis",
+      displayTitle: "GEN First Product",
+      status: "Running",
+      productHref: "/app/products/gen-first-product",
+      startedAtIso: new Date(Date.now() - 5000).toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    const secondJob = {
+      id: "job-second",
+      kind: "product-diagnosis",
+      name: "Product Diagnosis",
+      displayTitle: "GEN Second Product",
+      status: "Running",
+      productHref: "/app/products/gen-second-product",
+      startedAtIso: new Date(Date.now() - 5000).toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    let monitor = {
+      activeJobs: [firstJob, secondJob],
+      recentJobs: [firstJob, secondJob],
+      logs: [],
+    };
+
+    renderMonitor(() => monitor);
+
+    monitor = {
+      activeJobs: [secondJob],
+      recentJobs: [
+        {
+          ...firstJob,
+          status: "Completed",
+          finishedAtIso: new Date().toISOString(),
+        },
+        secondJob,
+      ],
+      logs: [],
+    };
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { jobs: [firstJob, secondJob] } }));
+    });
+
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent("GEN First Product is ready to review.");
+
+    monitor = {
+      activeJobs: [],
+      recentJobs: [
+        {
+          ...secondJob,
+          status: "Completed",
+          finishedAtIso: new Date().toISOString(),
+        },
+        {
+          ...firstJob,
+          status: "Completed",
+          finishedAtIso: new Date().toISOString(),
+        },
+      ],
+      logs: [],
+    };
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: secondJob } }));
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent("GEN First Product is ready to review.");
+    expect(screen.getByRole("status")).not.toHaveTextContent("GEN Second Product is ready to review.");
   });
 
   it("always starts minimized in development mode and filters logs by recent job", () => {

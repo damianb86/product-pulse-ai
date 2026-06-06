@@ -168,6 +168,7 @@ export function ProductPulseWizard() {
   const [deepScanStarted, setDeepScanStarted] = useState(false);
   const [completedDeepScanJob, setCompletedDeepScanJob] = useState(null);
   const urlStartRequestRef = useRef("");
+  const completedDeepScanJobRef = useRef(null);
   const step = wizardSteps[stepIndex] || wizardSteps[0];
   const productsState = useProductsWizardState(active && step.kind === "products");
   const openModal = useOpenWizardModal(active);
@@ -195,6 +196,7 @@ export function ProductPulseWizard() {
     setQuickScanStepCompleted(false);
     setDeepScanStarted(false);
     setCompletedDeepScanJob(null);
+    completedDeepScanJobRef.current = null;
     setStepIndex(0);
     setActive(nextActive);
   }, []);
@@ -316,12 +318,15 @@ export function ProductPulseWizard() {
         setQuickScanStarted(false);
         setQuickScanJobActive(false);
         setCompletedDeepScanJob(null);
+        completedDeepScanJobRef.current = null;
         setDeepScanStarted(true);
         const backgroundStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "backgroundProcesses");
         if (backgroundStepIndex >= 0) setStepIndex(backgroundStepIndex);
         window.setTimeout(() => openBackgroundProcessesPopover(), 80);
       }
       if (detail.type === "deep-scan-completed" && detail.job?.kind === "product-diagnosis") {
+        if (completedDeepScanJobRef.current) return;
+        completedDeepScanJobRef.current = detail.job;
         setCompletedDeepScanJob(detail.job);
         setDeepScanStarted(false);
         const completeStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "deepScanComplete");
@@ -329,7 +334,10 @@ export function ProductPulseWizard() {
       }
       if (detail.type === "deep-scan-product-opened") {
         const job = detail.job || completedDeepScanJob;
-        if (job) setCompletedDeepScanJob(job);
+        if (job) {
+          completedDeepScanJobRef.current = job;
+          setCompletedDeepScanJob(job);
+        }
         const productStepIndex = wizardSteps.findIndex((candidate) => candidate.kind === "productOverview");
         if (productStepIndex >= 0) setStepIndex(productStepIndex);
         if (detail.href) navigateToAppPath(detail.href);
