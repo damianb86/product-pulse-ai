@@ -5031,7 +5031,7 @@ function WatchlistActivityPanel({ activities = [], showAllLink = true }) {
     <section className="ppWatchlistPanel">
       <div className="ppWatchlistPanelHeader">
         <h2>Recent watch activity</h2>
-        {showAllLink ? <Link to="/app/watchlist/activity" reloadDocument>View all</Link> : null}
+        {showAllLink ? <Link to="/app/watchlist/activity">View all</Link> : null}
       </div>
       <div className="ppWatchActivityList">
         {activities.length === 0 && (
