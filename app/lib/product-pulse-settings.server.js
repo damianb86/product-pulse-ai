@@ -1,4 +1,5 @@
 import prisma from "../db.server";
+import { invalidateProductPulseDashboardAndAnalyticsCache } from "./product-pulse-cache.server";
 import {
   PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET,
   normalizeProductPulseHtmlStyle,
@@ -82,11 +83,14 @@ export async function updateProductPulseSettings(shop, formData) {
       config: settings,
     },
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
   return {
     status: "success",
     message: "Settings saved.",
     settings,
+    action: { id: "save-product-pulse-settings" },
+    invalidateDashboardCache: true,
   };
 }
 

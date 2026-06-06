@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import { generateWatchChangeReportNarrative } from "./product-pulse-ai.server";
+import { invalidateProductPulseDashboardAndAnalyticsCache } from "./product-pulse-cache.server";
 import { getProductScoreHistoryForProductsForShop, recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import { getProductPulseSettings, getRiskLabelForScore, getRiskToneForScore } from "./product-pulse-settings.server";
 import { recordTimelineForWatchActivities } from "./product-pulse-timeline.server";
@@ -108,6 +109,7 @@ export async function enforceWatchlistPlanLimitForShop(shop, options = {}) {
     await db.productWatchlistItem.deleteMany({
       where: { shop, id: { in: removedIds } },
     });
+    invalidateProductPulseDashboardAndAnalyticsCache(shop);
   }
 
   if (options.recordActivity !== false) {
@@ -307,12 +309,14 @@ export async function updateWatchSettingsForShop(shop, formData, options = {}) {
     detail: `${getCadenceLabel(scanCadenceDays)} · ${getTriggerRuleLabel(triggerRule)}`,
     metadata: { scanCadenceDays, triggerRule, alertsEnabled, recipients: alertRecipients.length },
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
   return {
     status: "success",
     message: "Watch settings updated.",
     action: { id: "update-watch-settings" },
     settings: formatWatchSettings(settings),
+    invalidateDashboardCache: true,
   };
 }
 
@@ -345,6 +349,7 @@ export async function toggleWatchAlertsForShop(shop, options = {}) {
     detail: settings.alertsEnabled ? "Email alerts are active for watched products." : "Email alerts are paused.",
     metadata: { alertsEnabled: settings.alertsEnabled },
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
   return {
     status: "success",
@@ -352,6 +357,7 @@ export async function toggleWatchAlertsForShop(shop, options = {}) {
     action: { id: "toggle-watch-alerts" },
     settings: formatWatchSettings(settings),
     suppressBanner: true,
+    invalidateDashboardCache: true,
   };
 }
 
@@ -444,6 +450,7 @@ export async function addWatchedProductForShop(shop, product = {}) {
     metadata: { handle: item.handle, sku: item.sku },
   });
   const baseline = await captureInitialWatchlistSnapshotForItems(shop, [item]);
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
   return {
     status: "success",
@@ -451,6 +458,7 @@ export async function addWatchedProductForShop(shop, product = {}) {
     action: { id: "add-watched-product", productGid: item.productGid },
     baseline,
     watchedCount: watchedCount + 1,
+    invalidateDashboardCache: true,
   };
 }
 
@@ -543,6 +551,7 @@ export async function addWatchedProductsForShop(shop, products = []) {
     await prisma.productWatchActivity.createMany({ data: activityRows });
     await recordTimelineForWatchActivities(shop, activityRows);
     await captureInitialWatchlistSnapshotForItems(shop, createdItems);
+    invalidateProductPulseDashboardAndAnalyticsCache(shop);
   }
 
   const messageParts = [];
@@ -564,6 +573,7 @@ export async function addWatchedProductsForShop(shop, products = []) {
     message: `${messageParts.join(" · ")}.`,
     action: { id: "add-watched-products", addedCount: createdItems.length },
     watchedCount: watchedCount + createdItems.length,
+    invalidateDashboardCache: createdItems.length > 0,
   };
 }
 
@@ -586,8 +596,9 @@ export async function pauseWatchedProductForShop(shop, productGid) {
     productTitle: updated.productTitle,
     watchlistItemId: updated.id,
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
-  return { status: "success", message: `${updated.productTitle} paused on the watchlist.`, action: { id: "pause-watched-product" }, suppressBanner: true };
+  return { status: "success", message: `${updated.productTitle} paused on the watchlist.`, action: { id: "pause-watched-product" }, suppressBanner: true, invalidateDashboardCache: true };
 }
 
 export async function resumeWatchedProductForShop(shop, productGid) {
@@ -609,8 +620,9 @@ export async function resumeWatchedProductForShop(shop, productGid) {
     productTitle: updated.productTitle,
     watchlistItemId: updated.id,
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
-  return { status: "success", message: `${updated.productTitle} resumed on the watchlist.`, action: { id: "resume-watched-product" }, suppressBanner: true };
+  return { status: "success", message: `${updated.productTitle} resumed on the watchlist.`, action: { id: "resume-watched-product" }, suppressBanner: true, invalidateDashboardCache: true };
 }
 
 export async function removeWatchedProductForShop(shop, productGid) {
@@ -628,8 +640,9 @@ export async function removeWatchedProductForShop(shop, productGid) {
     productTitle: item.productTitle,
     watchlistItemId: item.id,
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
-  return { status: "success", message: `${item.productTitle} removed from the watchlist.`, action: { id: "remove-watched-product" }, suppressBanner: true };
+  return { status: "success", message: `${item.productTitle} removed from the watchlist.`, action: { id: "remove-watched-product" }, suppressBanner: true, invalidateDashboardCache: true };
 }
 
 export async function pauseAllWatchesForShop(shop) {
@@ -651,8 +664,9 @@ export async function pauseAllWatchesForShop(shop) {
     detail: `${activeItems.length} active product${activeItems.length === 1 ? "" : "s"} paused`,
     metadata: { pausedProductGids: activeItems.map((item) => item.productGid), count: activeItems.length },
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
-  return { status: "success", message: `${activeItems.length} watched product${activeItems.length === 1 ? "" : "s"} paused.`, action: { id: "pause-all-watches" }, suppressBanner: true };
+  return { status: "success", message: `${activeItems.length} watched product${activeItems.length === 1 ? "" : "s"} paused.`, action: { id: "pause-all-watches" }, suppressBanner: true, invalidateDashboardCache: true };
 }
 
 export async function resumeAllWatchesForShop(shop) {
@@ -674,8 +688,9 @@ export async function resumeAllWatchesForShop(shop) {
     detail: `${pausedItems.length} paused product${pausedItems.length === 1 ? "" : "s"} resumed`,
     metadata: { resumedProductGids: pausedItems.map((item) => item.productGid), count: pausedItems.length },
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 
-  return { status: "success", message: `${pausedItems.length} watched product${pausedItems.length === 1 ? "" : "s"} resumed.`, action: { id: "resume-all-watches" }, suppressBanner: true };
+  return { status: "success", message: `${pausedItems.length} watched product${pausedItems.length === 1 ? "" : "s"} resumed.`, action: { id: "resume-all-watches" }, suppressBanner: true, invalidateDashboardCache: true };
 }
 
 export async function getActiveWatchedProductsForShop(shop) {

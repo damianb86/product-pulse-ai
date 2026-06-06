@@ -60,6 +60,12 @@ import {
   validateStorePointsForShop,
 } from "./product-pulse-points.server";
 import { measureProductPulseStep } from "./product-pulse-perf.server";
+import {
+  invalidateProductPulseBackgroundProcessCache,
+  invalidateProductPulseDashboardAndAnalyticsCache,
+  invalidateProductPulseJobMonitorCache,
+  normalizeProductPulseShopCacheKey,
+} from "./product-pulse-cache.server";
 import { getProductPulseResourceConfig } from "./product-pulse-resource-config.server";
 import { maybeSendWatchlistRunAlertForJob } from "./product-pulse-watchlist-alerts.server";
 import {
@@ -390,9 +396,7 @@ function setCachedProductPulseDashboard(shop, dashboard, { activeJob = null, act
 }
 
 export function invalidateProductPulseDashboardCache(shop) {
-  const key = normalizeDashboardCacheKey(shop);
-  if (key) dashboardCache.delete(key);
-  invalidateProductPulseAnalyticsCache(shop);
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
 }
 
 function getCachedProductPulseAnalytics(shop, options = {}) {
@@ -428,11 +432,6 @@ function setCachedProductPulseAnalytics(shop, analytics, { activeJob = null, act
   });
 }
 
-function invalidateProductPulseAnalyticsCache(shop) {
-  const key = normalizeDashboardCacheKey(shop);
-  if (key) analyticsCache.delete(key);
-}
-
 function getCachedJobMonitor(shop, options = {}) {
   if (options.forceRefresh || JOB_MONITOR_CACHE_TTL_MS <= 0) return null;
   const key = getJobMonitorCacheKey(shop, options);
@@ -462,12 +461,7 @@ function setCachedJobMonitor(shop, monitor, options = {}) {
 }
 
 function invalidateJobMonitorCache(shop) {
-  const key = normalizeDashboardCacheKey(shop);
-  if (!key) return;
-  [...jobMonitorCache.keys()].forEach((cacheKey) => {
-    if (cacheKey === key || String(cacheKey).startsWith(`${key}:`)) jobMonitorCache.delete(cacheKey);
-  });
-  invalidateBackgroundProcessCache(shop);
+  invalidateProductPulseJobMonitorCache(shop);
 }
 
 function getJobMonitorCacheKey(shop, options = {}) {
@@ -508,11 +502,7 @@ function setCachedBackgroundProcesses(shop, backgroundProcesses, options = {}) {
 }
 
 function invalidateBackgroundProcessCache(shop) {
-  const key = normalizeDashboardCacheKey(shop);
-  if (!key) return;
-  [...backgroundProcessCache.keys()].forEach((cacheKey) => {
-    if (cacheKey === key || String(cacheKey).startsWith(`${key}:`)) backgroundProcessCache.delete(cacheKey);
-  });
+  invalidateProductPulseBackgroundProcessCache(shop);
 }
 
 function getBackgroundProcessCacheKey(shop, options = {}) {
@@ -524,7 +514,7 @@ function getBackgroundProcessCacheKey(shop, options = {}) {
 }
 
 function normalizeDashboardCacheKey(shop) {
-  return String(shop || "").trim().toLowerCase();
+  return normalizeProductPulseShopCacheKey(shop);
 }
 
 export async function startFastProductScan(input, adminArg, scopesArg) {
@@ -630,6 +620,7 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     status: "success",
     suppressBanner: true,
     message: "Catalog Scan started. ProductPulse is checking native Shopify product, order, refund and return signals.",
+    invalidateDashboardCache: true,
     job: formatJob(job),
   };
 }
@@ -1599,6 +1590,7 @@ export async function addShopifyProductCandidateForShop(shop, admin, productId) 
   return {
     status: "success",
     message: `${snapshot.productTitle || "Product"} was added to Candidates without running a diagnosis.`,
+    invalidateDashboardCache: true,
     action: {
       id: "add-shopify-product-candidate",
       productGid: snapshot.productGid,
@@ -2033,6 +2025,7 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
     status: "success",
     suppressBanner: true,
     message: `${messageParts.join(". ")}. They will run one at a time.`,
+    invalidateDashboardCache: true,
     requestedCount: uniqueProductIds.length,
     queuedCount: jobs.length,
     createdCount,
@@ -2194,6 +2187,7 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
     status: "success",
     suppressBanner: true,
     message: "Background job cancelled.",
+    invalidateDashboardCache: true,
     job: updatedJob ? formatJob(updatedJob) : null,
   };
 }
@@ -2410,6 +2404,7 @@ export async function queueProductDiagnosisForShop(shop, productId, options = {}
     status: "success",
     suppressBanner: true,
     message: `Product Diagnosis queued for ${job.payload?.productTitle || "selected product"}.`,
+    invalidateDashboardCache: true,
     job: formatJob(job),
   };
 }
@@ -2613,6 +2608,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
     return {
       status: "success",
       message: `${recordLabel} was restored for ${snapshot.productTitle}.`,
+      invalidateDashboardCache: true,
       action,
       actionRecordStatus: "active",
     };
@@ -2700,6 +2696,7 @@ export async function recordProductDetailActionForShop(shop, productId, actionId
       : status === "reviewed"
       ? `${recordLabel} was marked as reviewed for ${snapshot.productTitle}.`
       : `${recordLabel} was saved as a draft for ${snapshot.productTitle}.`),
+    invalidateDashboardCache: true,
     action,
     actionRecordStatus: status,
     ...appliedProductReviewToast,
@@ -2765,6 +2762,7 @@ export async function deleteProductAnalysisForShop(shop, productId) {
   return {
     status: "success",
     message: `${productTitle} analysis was deleted from ProductPulse. To analyze it again, use Find Shopify product and run a new diagnosis.`,
+    invalidateDashboardCache: true,
     action: {
       id: "delete-product-analysis",
       productGid,

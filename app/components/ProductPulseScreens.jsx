@@ -222,18 +222,15 @@ export function DashboardScreen({ data, actionData }) {
 
   useEffect(() => {
     if (!dashboardDeferred || actionData?.status !== "success") return;
-    const actionId = String(actionData?.action?.id || "");
-    const shouldRefreshDashboard = Boolean(actionData?.queuedCount || actionData?.analyzedCount)
-      || ["add-shopify-product-candidate", "mark-resolved", "mark-unresolved", "delete-product-analysis"].includes(actionId);
-    if (!shouldRefreshDashboard) return;
-    clearCachedDashboardForScope(dashboardCacheScope);
+    if (!clearCachedDashboardForActionData(actionData, dashboardCacheScope)) return;
     dashboardLoadRef.current(dashboardDataHref);
   }, [actionData, dashboardCacheScope, dashboardDataHref, dashboardDeferred]);
 
   useEffect(() => {
+    clearCachedDashboardForActionData(actionData, dashboardCacheScope);
     announceProductPulseJobs(actionData);
     if (actionData?.status === "success") setDiagnosisConfirmation(null);
-  }, [actionData]);
+  }, [actionData, dashboardCacheScope]);
 
   const handleRequestDashboardDiagnosis = () => {
     if (!startProduct || !dashboardCtaRequiresDiagnosis || pendingDashboardDiagnosis || startProductDiagnosisRunning) return;
@@ -482,6 +479,41 @@ function setCachedDashboardForScope(scope = "", dashboard = null) {
 
 function clearCachedDashboardForScope(scope = "") {
   dashboardClientCache.delete(getDashboardClientCacheKey(scope));
+}
+
+function clearCachedDashboardForActionData(actionData, scope = "") {
+  if (!shouldInvalidateDashboardClientCache(actionData)) return false;
+  if (scope) {
+    clearCachedDashboardForScope(scope);
+  } else {
+    dashboardClientCache.clear();
+  }
+  return true;
+}
+
+function shouldInvalidateDashboardClientCache(actionData) {
+  if (actionData?.status !== "success") return false;
+  if (actionData.invalidateDashboardCache === true) return true;
+  if (actionData.queuedCount || actionData.analyzedCount) return true;
+  if (actionData.actionRecordStatus) return true;
+  const actionId = String(actionData?.action?.id || "");
+  return [
+    "add-shopify-product-candidate",
+    "mark-resolved",
+    "mark-unresolved",
+    "delete-product-analysis",
+    "add-watched-product",
+    "add-watched-products",
+    "remove-watched-product",
+    "pause-watched-product",
+    "resume-watched-product",
+    "pause-all-watches",
+    "resume-all-watches",
+    "update-watch-settings",
+    "toggle-watch-alerts",
+    "run-watch-scan",
+    "save-product-pulse-settings",
+  ].includes(actionId);
 }
 
 function getDashboardDiagnosisJobLabel(job) {
@@ -1253,6 +1285,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   }, [shopifyProductSearchOpen, shopifyProductSearchQuery]);
 
   useEffect(() => {
+    clearCachedDashboardForActionData(actionData, productTablesCacheScope);
     announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && (actionData?.analyzedCount || actionData?.queuedCount)) {
       setSelectedProducts(new Set());
@@ -1311,7 +1344,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     if (actionData?.status === "success" && actionData?.action?.id === "add-watched-products") {
       setSelectedProducts(new Set());
     }
-  }, [actionData]);
+  }, [actionData, productTablesCacheScope]);
 
   useEffect(() => {
     if (!productTablesDeferred || actionData?.status !== "success") return;
@@ -2144,6 +2177,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   }, [shopifyProductSearchOpen, shopifyProductSearchQuery]);
 
   useEffect(() => {
+    clearCachedDashboardForActionData(actionData, data?.watchlist?.shop || data?.shop || "");
     announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && actionData?.action?.id === "add-watched-product") {
       setShopifyProductSearchOpen(false);
@@ -2159,7 +2193,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
     if (actionData?.status === "success" && ["pause-watched-product", "resume-watched-product", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistActionConfirmation(null);
     }
-  }, [actionData]);
+  }, [actionData, data?.shop, data?.watchlist?.shop]);
 
   useEffect(() => {
     if (!firstReportReadyProduct) return;
@@ -5865,8 +5899,9 @@ export function SettingsScreen({ data = {}, actionData }) {
   }, []);
 
   useEffect(() => {
+    clearCachedDashboardForActionData(actionData, data?.shop || data?.shopDomain || "");
     announceProductPulseJobs(actionData);
-  }, [actionData]);
+  }, [actionData, data?.shop, data?.shopDomain]);
 
   const handleSaveSettings = () => {
     if (!formRef.current || isSaving) return;
@@ -14647,6 +14682,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   }, [productIdentityKey, productResolvedAt]);
 
   useEffect(() => {
+    clearCachedDashboardForActionData(actionData, product?.shop || product?.shopDomain || "");
     announceProductPulseJobs(actionData);
     if (actionData?.status === "success" && actionData?.action?.id === "mark-resolved") {
       setResolvedLocally(true);
@@ -14703,7 +14739,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       setDeleteAnalysisConfirmation(null);
       setDetailActionsOpen(false);
     }
-  }, [actionData]);
+  }, [actionData, product?.shop, product?.shopDomain]);
 
   useEffect(() => {
     if (actionData?.message && !actionData.suppressBanner) setToastData(actionData);

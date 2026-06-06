@@ -5,6 +5,7 @@ import prisma from "../../db.server";
 import type { AiProductRiskDetail, AiToolContext } from "../domain/types";
 import { AiToolExecutionError } from "../domain/errors";
 import { ProductPulseAiRepository } from "../repositories/productPulseAiRepository.server";
+import { invalidateProductPulseDashboardAndAnalyticsCache } from "../../lib/product-pulse-cache.server";
 import type {
   AnyAiAppMutationDefinition,
   AiAppMutationEditableField,
@@ -582,6 +583,7 @@ export function createProductPulseAiAppMutationDefinitions(
             appliedAt: null,
           },
         });
+        invalidateProductPulseDashboardAndAnalyticsCache(context.shop);
         return {
           mutationName: proposal.mutationName,
           status: "success",
@@ -720,6 +722,7 @@ export function createProductPulseAiAppMutationDefinitions(
             appliedAt: null,
           },
         });
+        invalidateProductPulseDashboardAndAnalyticsCache(context.shop);
         return {
           mutationName: proposal.mutationName,
           status: "success",
@@ -1085,6 +1088,7 @@ async function saveCreatedProductAction(input: {
       appliedAt: null,
     },
   });
+  invalidateProductPulseDashboardAndAnalyticsCache(input.context.shop);
   return {
     mutationName: input.proposal.mutationName,
     status: "success",
