@@ -7531,6 +7531,19 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         marginAtRisk: deterministic.metrics.marginAtRisk,
         issue: mainIssue,
         trigger: recipeSignals.pricing.reason,
+        whyThisAction: "ProductPulse is not asking to change price automatically. It is flagging that customer language, returns, refunds or margin exposure may point to a value-perception issue that needs commercial review.",
+        expectedAction: "Compare current price, compare-at price, refund pressure, return reasons and margin at risk. Change pricing only if the evidence shows shoppers are reacting to value, not a product defect or fulfillment issue.",
+        reviewChecklist: [
+          "Confirm the customer evidence explicitly mentions value, price, expensive, not worth it, or quality for the price.",
+          "Compare refund and return pressure against margin exposure before changing any variant price.",
+          "Check whether a PDP expectation fix or QA follow-up is safer than changing price.",
+        ],
+        nextSteps: [
+          "Open the pricing and refund evidence",
+          "Compare affected variants and current prices",
+          "Decide whether to change price, improve PDP expectations, or dismiss",
+          "Mark reviewed after the commercial decision is clear",
+        ],
       },
     });
   }
@@ -7890,6 +7903,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.qa.shouldRecommend) {
+    const qaReviewBrief = copy.qa_note || buildQaReviewNote({ snapshot, deterministic, issueLabel });
     recommendations.push({
       id: "recommend-qa-review",
       label: "Supplier / QA review",
@@ -7897,11 +7911,25 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       effort: "Medium",
       status: "Ready",
       payload: {
-        qaNote: copy.qa_note || buildQaReviewNote({ snapshot, deterministic, issueLabel }),
+        qaNote: qaReviewBrief,
         issue: mainIssue,
         refundInsights: deterministic.metrics.refundInsights,
         topReturnReasons: deterministic.metrics.topReturnReasons,
         trigger: recipeSignals.qa.reason,
+        whyThisAction: `ProductPulse is suggesting Supplier / QA review because ${recipeSignals.qa.reason.toLowerCase()} This is not a Shopify content change; it is an operational check before continuing to sell, promote, or rewrite around the issue.`,
+        expectedAction: "Review the strongest return, refund, review and product-quality evidence with the owner who can inspect the item, supplier batch, packaging, sizing, durability or fulfillment path. Decide whether the product needs QA escalation, supplier follow-up, PDP expectation copy, variant action, or dismissal.",
+        reviewChecklist: [
+          "Confirm whether the evidence describes a physical product, supplier, durability, sizing, packaging, safety or fulfillment issue.",
+          "Check if the problem is concentrated in a SKU, variant, batch, vendor, recent order window or repeat customer complaint.",
+          "Use the QA note as the internal summary, but verify the raw evidence before escalating.",
+          "Avoid changing PDP copy alone if the evidence points to a real defect or supplier problem.",
+        ],
+        nextSteps: [
+          "Open the strongest returns, refunds and review evidence",
+          "Send the QA note and examples to the responsible team if confirmed",
+          "Apply a PDP or variant fix only if the evidence shows expectation mismatch",
+          "Dismiss if the evidence is weak, unrelated or already resolved",
+        ],
       },
     });
   }
@@ -7918,6 +7946,19 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
         variants: deterministic.metrics.variants || [],
         issue: mainIssue,
         trigger: recipeSignals.inventory.reason,
+        whyThisAction: "ProductPulse is suggesting an inventory review because the issue appears concentrated enough that continuing to sell every affected unit may create avoidable returns, refunds or support load.",
+        expectedAction: "Confirm which variant, SKU or inventory group is affected, then decide whether to reduce availability, pause only that variant, escalate QA, or dismiss the action if the evidence is not concentrated.",
+        reviewChecklist: [
+          "Confirm the affected SKU or variant exists and matches the diagnosis evidence.",
+          "Check whether returns, refunds or reviews are concentrated enough to justify an inventory hold.",
+          "Avoid pausing unaffected variants when the issue is variant-specific.",
+        ],
+        nextSteps: [
+          "Open the affected variant evidence",
+          "Confirm inventory scope with Shopify variant data",
+          "Pause or reduce availability only for confirmed affected units",
+          "Mark reviewed or dismiss after the inventory decision",
+        ],
       },
     });
   }

@@ -13346,6 +13346,161 @@ function getEvidenceReviewNextSteps(action = {}) {
   ];
 }
 
+function isManualProductReviewRecommendedAction(action = {}) {
+  if (isEvidenceReviewRecommendedAction(action) || isRetentionRecommendedAction(action) || isPairingExpectationInvestigation(action)) return false;
+  const normalized = getActionIdentityText(action);
+  return normalized.includes("supplier")
+    || normalized.includes("qa")
+    || normalized.includes("operational")
+    || normalized.includes("commercial review")
+    || normalized.includes("pricing")
+    || normalized.includes("compare-at")
+    || normalized.includes("inventory")
+    || normalized.includes("fulfillment")
+    || normalized.includes("quality")
+    || normalized.includes("product workflow review")
+    || normalized.includes("metadata alignment")
+    || normalized.includes("review-product-pricing")
+    || normalized.includes("limit-variant-inventory")
+    || normalized.includes("align-product-metadata");
+}
+
+function getManualProductReviewReason(action = {}, product = {}) {
+  if (!isManualProductReviewRecommendedAction(action)) return "";
+  const payload = action.payload || {};
+  const configured = String(payload.whyThisAction || payload.actionRationale || payload.rationale || "").trim();
+  if (configured) return configured;
+  const normalized = getActionIdentityText(action);
+  const trigger = String(payload.trigger || action.reason || "").trim();
+  const triggerText = trigger ? ` because ${trigger.replace(/\.$/, "").toLowerCase()}` : "";
+  const title = product?.title ? ` for ${product.title}` : "";
+
+  if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality") || normalized.includes("durability") || normalized.includes("safety")) {
+    const brief = String(payload.aiReviewBrief || payload.qaNote || "").trim();
+    const briefText = brief ? ` ProductPulse review brief: ${toActionPreviewExcerpt(brief, 220)}` : "";
+    return `Verify whether this product has a QA issue, supplier-related quality problem, durability/safety concern, or source-backed signal that should be escalated internally${triggerText}.${briefText}`;
+  }
+
+  if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("compare-at") || normalized.includes("commercial")) {
+    return `ProductPulse suggests a commercial review${title}${triggerText}. Compare customer value language, refund pressure, return reasons and margin exposure before changing price or compare-at price.`;
+  }
+
+  if (normalized.includes("inventory") || normalized.includes("availability") || normalized.includes("pause affected")) {
+    return `ProductPulse suggests an inventory review${title}${triggerText}. Confirm whether the issue is concentrated in a specific SKU, variant, batch or supplier before reducing availability.`;
+  }
+
+  if (normalized.includes("workflow") || normalized.includes("metadata") || normalized.includes("alignment")) {
+    return `ProductPulse suggests a workflow review${title}${triggerText}. Check whether product title, type, tags, collections and source evidence tell the same product story before routing the item to another team.`;
+  }
+
+  return `Review this product-level action${title}${triggerText}. The expected outcome is a clear manual decision: apply a specific product fix, escalate internally, or dismiss because the evidence is not actionable.`;
+}
+
+function getManualProductReviewApplicationIntro(action = {}, product = {}) {
+  const payload = action.payload || {};
+  const reason = getManualProductReviewReason(action, product);
+  const expectedAction = String(payload.expectedAction || payload.concreteAction || "").trim();
+  if (expectedAction) return `${reason} Expected action: ${expectedAction}`;
+  return reason;
+}
+
+function getManualProductReviewOperation(action = {}) {
+  const normalized = getActionIdentityText(action);
+  if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality")) return "Review supplier / QA evidence";
+  if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("commercial")) return "Review commercial evidence";
+  if (normalized.includes("inventory") || normalized.includes("availability")) return "Review inventory scope";
+  if (normalized.includes("workflow") || normalized.includes("metadata")) return "Review product workflow";
+  return "Review product evidence";
+}
+
+function getManualProductReviewTarget(action = {}) {
+  const normalized = getActionIdentityText(action);
+  if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality")) return "Supplier / QA workflow";
+  if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("commercial")) return "Commercial product review";
+  if (normalized.includes("inventory") || normalized.includes("availability")) return "Inventory and variant availability";
+  if (normalized.includes("workflow") || normalized.includes("metadata")) return "Product workflow review";
+  return "Product review";
+}
+
+function getManualProductReviewChecklistItems(action = {}, product = {}) {
+  const payload = action.payload || {};
+  if (Array.isArray(payload.reviewChecklist) && payload.reviewChecklist.length) return uniqueStrings(payload.reviewChecklist).slice(0, 6);
+  const normalized = getActionIdentityText(action);
+  const items = [];
+
+  if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality") || normalized.includes("durability") || normalized.includes("safety")) {
+    items.push("Confirm whether the evidence describes a physical product, supplier, durability, sizing, packaging, safety or fulfillment issue.");
+    items.push("Check if the problem is concentrated in a SKU, variant, batch, vendor, recent order window or repeated customer complaint.");
+    items.push("Use the QA note as the internal summary, but verify the raw evidence before escalating.");
+    items.push("Avoid changing PDP copy alone if the evidence points to a real defect or supplier problem.");
+  } else if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("compare-at") || normalized.includes("commercial")) {
+    items.push("Confirm customer evidence explicitly mentions value, price, expensive, not worth it, or quality for the price.");
+    items.push("Compare return/refund pressure against margin exposure before changing price.");
+    items.push("Check whether a PDP expectation fix or QA follow-up is safer than changing price.");
+  } else if (normalized.includes("inventory") || normalized.includes("availability") || normalized.includes("pause affected")) {
+    items.push("Confirm the affected SKU or variant exists and matches the diagnosis evidence.");
+    items.push("Check whether returns, refunds or reviews are concentrated enough to justify an inventory hold.");
+    items.push("Avoid pausing unaffected variants when the issue is variant-specific.");
+  } else if (normalized.includes("workflow") || normalized.includes("metadata") || normalized.includes("alignment")) {
+    items.push("Compare product title, description, tags, collections, vendor and product type against the evidence.");
+    items.push("Confirm whether the mismatch creates wrong reporting, wrong workflow routing, or customer confusion.");
+    items.push("Decide whether the fix belongs in Shopify metadata, internal tags, source cleanup, or dismissal.");
+  }
+
+  if (Number(payload.returnUnits || product.metrics?.returnUnits || 0) > 0) {
+    items.push("Review return reasons and notes before escalating or applying a product change.");
+  }
+  if (Number(payload.refundUnits || product.metrics?.refundUnits || 0) > 0 || Number(payload.refundAmount || product.metrics?.refundAmount || 0) > 0) {
+    items.push("Check refund notes and value to separate preventable loss from policy or payment noise.");
+  }
+  if (Number(payload.negativeReviewCount || product.metrics?.negativeReviewCount || 0) > 0) {
+    items.push("Read negative review language and confirm whether it repeats the same problem.");
+  }
+
+  items.push("Mark reviewed only after choosing the concrete follow-up or dismissing the action.");
+  return uniqueStrings(items).slice(0, 6);
+}
+
+function getManualProductReviewNextSteps(action = {}) {
+  const payload = action.payload || {};
+  if (Array.isArray(payload.nextSteps) && payload.nextSteps.length) return uniqueStrings(payload.nextSteps).slice(0, 4);
+  const normalized = getActionIdentityText(action);
+
+  if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality") || normalized.includes("durability") || normalized.includes("safety")) {
+    return [
+      "Open the strongest returns, refunds and review evidence",
+      "Send the QA note and examples to the responsible team if confirmed",
+      "Apply a PDP or variant fix only if the evidence shows expectation mismatch",
+      "Dismiss if the evidence is weak, unrelated or already resolved",
+    ];
+  }
+
+  if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("compare-at") || normalized.includes("commercial")) {
+    return [
+      "Open the pricing, return and refund evidence",
+      "Compare affected variants and current prices",
+      "Decide whether to change price, improve PDP expectations, or dismiss",
+      "Mark reviewed after the commercial decision is clear",
+    ];
+  }
+
+  if (normalized.includes("inventory") || normalized.includes("availability") || normalized.includes("pause affected")) {
+    return [
+      "Open the affected variant evidence",
+      "Confirm inventory scope with Shopify variant data",
+      "Pause or reduce availability only for confirmed affected units",
+      "Mark reviewed or dismiss after the inventory decision",
+    ];
+  }
+
+  return [
+    "Open the supporting evidence",
+    "Confirm the concrete product, source or workflow problem",
+    "Route the action to the owner who can change it",
+    "Mark reviewed or dismiss after the decision",
+  ];
+}
+
 function getRecommendedActionDetail(action) {
   const payload = action.payload || {};
   if (payload.draftTitle) return payload.draftTitle;
@@ -13983,15 +14138,18 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
   }
 
   const evidenceReview = isEvidenceReviewRecommendedAction(action);
+  const manualProductReview = !evidenceReview && isManualProductReviewRecommendedAction(action);
   const externalEditUrl = payload.destinationHref || (isSourceCoverageRecommendedAction(action) ? "/app/connect" : "");
   return {
     ...withRecipeApplicationFields(action, {
     kind: "review",
     editable: false,
-    target: evidenceReview ? getEvidenceReviewTarget(action) : "Product evidence",
-    operation: evidenceReview ? getEvidenceReviewOperation(action) : "Review",
+    target: evidenceReview ? getEvidenceReviewTarget(action) : manualProductReview ? getManualProductReviewTarget(action) : "Product evidence",
+    operation: evidenceReview ? getEvidenceReviewOperation(action) : manualProductReview ? getManualProductReviewOperation(action) : "Review",
     intro: evidenceReview
       ? getEvidenceReviewApplicationIntro(action, product)
+      : manualProductReview
+      ? getManualProductReviewApplicationIntro(action, product)
       : "This action opens the supporting evidence so you can inspect the signal before deciding whether to change the product.",
     applyLabel: "Review evidence",
     valueLabel: "Evidence",
@@ -14374,6 +14532,11 @@ function getRecommendedActionReason(action, product) {
 
   if (isEvidenceReviewRecommendedAction(action)) {
     const narrative = getEvidenceReviewReason(action, product);
+    if (narrative) return narrative;
+  }
+
+  if (isManualProductReviewRecommendedAction(action)) {
+    const narrative = getManualProductReviewReason(action, product);
     if (narrative) return narrative;
   }
 
@@ -14800,7 +14963,7 @@ function getRecommendedActionMode(action, index) {
   if (hasDirectVariantOptionUpdates(payload)) return "apply-product";
   if (payload.draftTitle || payload.productStatus || payload.draftHandle || payload.templateSuffix || payload.field === "classification" || payload.field === "seo.title" || payload.field === "seo.description" || (Array.isArray(payload.metafields) && payload.metafields.length)) return "apply-product";
   if (hasMetafieldApplyPayload) return "apply-product";
-  if (isEvidenceReviewRecommendedAction(action) || normalizedType.includes("source") || normalizedType.includes("coverage") || normalizedType.includes("integrity")) return "review";
+  if (isEvidenceReviewRecommendedAction(action) || isManualProductReviewRecommendedAction(action) || normalizedType.includes("source") || normalizedType.includes("coverage") || normalizedType.includes("integrity")) return "review";
   if (hasShopifyApplyPayload && (normalizedType.includes("pdp copy") || normalizedType.includes("faq") || normalizedType.includes("tag"))) return "apply-product";
   if (hasShopifyApplyPayload && index === 0 && action.status === "Draft") return "apply-product";
   if (normalizedType.includes("internal") || normalizedId.includes("copy")) return "copy";
@@ -31825,6 +31988,9 @@ function getInvestigationFollowupText(action = {}, application = {}, product = {
   if (isEvidenceReviewRecommendedAction(action)) {
     return getEvidenceReviewApplicationIntro(action, product);
   }
+  if (isManualProductReviewRecommendedAction(action)) {
+    return getManualProductReviewApplicationIntro(action, product);
+  }
   if (normalized.includes("variant") && application.variantUpdates?.length > 0) {
     return "Review the suggested variant or option labels, then update the Shopify variant values directly when the mapping is safe or open Shopify to edit option names.";
   }
@@ -31883,6 +32049,10 @@ function getInvestigationChecklistItems(action = {}, product = {}) {
     return getEvidenceReviewChecklistItems(action, product);
   }
 
+  if (isManualProductReviewRecommendedAction(action)) {
+    return getManualProductReviewChecklistItems(action, product);
+  }
+
   if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
     items.push("Open each supporting evidence source and confirm which signals are tied to this product.");
   }
@@ -31934,6 +32104,9 @@ function getInvestigationNextSteps(action = {}, product = {}) {
   }
   if (isEvidenceReviewRecommendedAction(action)) {
     return getEvidenceReviewNextSteps(action, product);
+  }
+  if (isManualProductReviewRecommendedAction(action)) {
+    return getManualProductReviewNextSteps(action, product);
   }
   const steps = ["Open supporting evidence"];
   if (normalized.includes("qa") || normalized.includes("supplier") || normalized.includes("quality")) {
@@ -33362,7 +33535,7 @@ function RecommendedActionWhyItems({ action, product }) {
 function getRecommendedActionWhyNarrative(action = {}, product = {}) {
   const payload = action.payload || {};
   const aiRationale = String(payload.whyThisAction || payload.actionRationale || payload.rationale || "").trim();
-  return aiRationale || getEvidenceReviewReason(action, product) || getDescriptionActionWhyNarrative(action, product) || getMediaActionWhyNarrative(action, product);
+  return aiRationale || getEvidenceReviewReason(action, product) || getManualProductReviewReason(action, product) || getDescriptionActionWhyNarrative(action, product) || getMediaActionWhyNarrative(action, product);
 }
 
 function getRecommendedActionWhyItems(action = {}, product = {}) {

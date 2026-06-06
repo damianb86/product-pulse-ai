@@ -5777,6 +5777,57 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
   });
 
+  it("explains Supplier / QA reviews with concrete verification guidance", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "recommend-qa-review",
+        label: "Supplier / QA review",
+        type: "Operational QA",
+        effort: "Medium",
+        status: "Ready",
+        payload: {
+          qaNote: "Returns mention bent hinges and loose screws across multiple orders.",
+          trigger: "Returns, reviews or language suggest a possible supplier, QA, durability or safety concern.",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Supplier / QA review" }));
+
+    expect(screen.getAllByText(/Verify whether this product has a QA issue/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ProductPulse review brief: Returns mention bent hinges/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Confirm whether the evidence describes a physical product, supplier, durability, sizing, packaging, safety or fulfillment issue.")).toBeInTheDocument();
+    expect(screen.getByText("Send the QA note and examples to the responsible team if confirmed")).toBeInTheDocument();
+  });
+
+  it("explains commercial review actions before changing price", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "review-product-pricing",
+        label: "Adjust price / compare-at price",
+        type: "Commercial review",
+        effort: "Medium",
+        status: "Ready",
+        payload: {
+          trigger: "Customer language points to value or price perception: too expensive, not worth it.",
+          refundAmount: 240,
+          refundUnits: 3,
+          marginAtRisk: 620,
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Adjust price / compare-at price" }));
+
+    expect(screen.getAllByText(/ProductPulse suggests a commercial review/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Confirm customer evidence explicitly mentions value, price, expensive, not worth it, or quality for the price.")).toBeInTheDocument();
+    expect(screen.getByText("Decide whether to change price, improve PDP expectations, or dismiss")).toBeInTheDocument();
+  });
+
   it("explains missing source coverage with a concrete Connect action", () => {
     const product = {
       ...defaultView.startHere,
