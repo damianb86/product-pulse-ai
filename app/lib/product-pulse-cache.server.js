@@ -22,6 +22,11 @@ export function invalidateProductPulseBackgroundProcessCache(shop) {
   deleteCacheEntriesForShop(global.productPulseBackgroundProcessCache, key);
 }
 
+export function invalidateProductPulseShopDataCaches(shop) {
+  invalidateProductPulseDashboardAndAnalyticsCache(shop);
+  invalidateProductPulseJobMonitorCache(shop);
+}
+
 function deleteCacheEntriesForShop(cache, key) {
   if (!cache?.keys || !cache?.delete) return;
   [...cache.keys()].forEach((cacheKey) => {

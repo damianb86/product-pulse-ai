@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => {
     "betaFeedbackReport",
     "productAction",
     "productTimelineEvent",
+    "productPulseShopSourceEvent",
+    "productPulseShopSourceEventCache",
     "productRetentionSummary",
     "productRetentionSegmentDaily",
     "productRetentionDailyActivity",
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => {
     "productRetentionRun",
     "productDiagnosis",
     "productRiskSnapshot",
+    "productPulseProductRollup",
     "productWatchActivity",
     "productWatchlistItem",
     "productWatchSettings",
@@ -30,6 +33,9 @@ const mocks = vi.hoisted(() => {
     "productPulseJobLog",
     "catalogSignalJob",
     "productPulseSource",
+    "creditLedgerEntry",
+    "creditPurchase",
+    "billingSubscriptionState",
     "contactRequest",
     "session",
   ];
@@ -86,8 +92,14 @@ describe("Help route privacy actions", () => {
       ok: true,
       intent: "privacy-data-delete",
     });
+    expect(mocks.db.productPulseShopSourceEvent.deleteMany).toHaveBeenCalledWith({ where: { shop: "demo.myshopify.com" } });
+    expect(mocks.db.productPulseShopSourceEventCache.deleteMany).toHaveBeenCalledWith({ where: { shop: "demo.myshopify.com" } });
+    expect(mocks.db.productPulseProductRollup.deleteMany).toHaveBeenCalledWith({ where: { shop: "demo.myshopify.com" } });
     expect(mocks.db.productRiskSnapshot.deleteMany).toHaveBeenCalledWith({ where: { shop: "demo.myshopify.com" } });
     expect(mocks.db.session.deleteMany).toHaveBeenCalledWith({ where: { shop: "demo.myshopify.com" } });
+    expect(mocks.db.creditLedgerEntry.deleteMany).not.toHaveBeenCalled();
+    expect(mocks.db.creditPurchase.deleteMany).not.toHaveBeenCalled();
+    expect(mocks.db.billingSubscriptionState.deleteMany).not.toHaveBeenCalled();
     expect(mocks.sendContactEmail).toHaveBeenCalled();
   });
 

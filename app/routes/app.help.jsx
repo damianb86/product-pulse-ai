@@ -5,6 +5,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { sendContactEmail } from "../email.server";
+import { invalidateProductPulseShopDataCaches } from "../lib/product-pulse-cache.server";
 import styles from "../styles/help.module.css";
 import { resetProductPulseWizardCompletions } from "../utils/product-pulse-wizard-reset";
 
@@ -145,12 +146,12 @@ const commonTopics = [
 
 const privacyStoredItems = [
   "Source connection state, coverage preferences, and health metadata.",
-  "Catalog scan jobs, diagnosis jobs, job logs, and recoverable error details.",
-  "Product risk snapshots, Product Diagnosis summaries, issue evidence, and recommendations.",
+  "Catalog scan jobs, diagnosis jobs, job logs, shared Shopify source-event cache, and recoverable error details.",
+  "Product risk snapshots, Product Diagnosis summaries, product rollups, issue evidence, and recommendations.",
   "Product retention runs, cohort summaries, LTV curves, segment rows, and monthly order activity used in retention views.",
   "Product timeline events, metric score history, Watchlist products, Watchlist settings, and Watchlist activity.",
   "ProductPulse actions, AI conversation records, AI tool/audit logs, app-owned proposals, usage events, and contact requests from this page.",
-  "Credit ledger entries are retained so billing, purchased credits, used credits, and one-time welcome credits are not reset by a data deletion request.",
+  "Credit ledger entries, credit purchases, and active subscription state are retained so billing, purchased credits, used credits, one-time welcome credits, and plan access are not reset by a data deletion request.",
   "Shopify session tokens required for embedded admin authentication.",
 ];
 
@@ -225,24 +226,28 @@ export const action = async ({ request }) => {
         `- Source connection records: ${counts.sources}`,
         `- Catalog signal jobs: ${counts.jobs}`,
         `- Job log entries: ${counts.jobLogs}`,
+        `- Shared Shopify source-event cache rows: ${counts.sourceEventCaches + counts.sourceEvents}`,
         `- Product risk snapshots: ${counts.riskSnapshots}`,
+        `- Product rollups: ${counts.productRollups}`,
         `- Product diagnoses: ${counts.diagnoses}`,
         `- ProductPulse actions: ${counts.actions}`,
-        `- Product retention runs: ${counts.retentionRuns}`,
+        `- Product retention rows: ${counts.retentionRows}`,
         `- Product timeline events: ${counts.timelineEvents}`,
         `- Watchlist products: ${counts.watchlistItems}`,
         `- Watchlist settings: ${counts.watchSettings}`,
         `- Watchlist activity entries: ${counts.watchActivities}`,
         `- Product score history entries: ${counts.scoreHistory}`,
-        `- AI conversations: ${counts.aiConversations}`,
+        `- AI conversations and messages: ${counts.aiRows}`,
         `- AI usage events: ${counts.aiUsageEvents}`,
-        `- AI action proposals: ${counts.aiActionProposals}`,
-        `- AI app draft proposals: ${counts.aiAppDraftProposals}`,
-        `- Credit ledger entries retained for billing and credit balance: ${counts.creditEntries}`,
+        `- AI proposals and audit logs: ${counts.aiProposalRows}`,
+        `- Beta feedback rows: ${counts.betaFeedbackRows}`,
         `- Contact requests: ${counts.contacts}`,
         `- Sessions: ${counts.sessions}`,
+        `- Credit ledger entries retained for billing and credit balance: ${counts.creditEntries}`,
+        `- Credit purchase records retained: ${counts.creditPurchases}`,
+        `- Billing subscription state retained: ${counts.billingSubscriptionStates}`,
         "",
-        "ProductPulse AI stores product-level signal data, app-owned action state, and assistant records needed for traceability. It avoids using customer account profiles as a product-quality requirement.",
+        "ProductPulse AI stores product-level signal data, app-owned action state, cached source events, and assistant records needed for traceability. Credit balances, purchase records, and active subscription state are retained during in-app deletion so billing and plan access remain intact.",
       ].join("\n"),
     });
 
@@ -274,7 +279,7 @@ export const action = async ({ request }) => {
         `Shop: ${session.shop}`,
         "",
         "The merchant requested deletion of all ProductPulse AI app data.",
-        "Deleted: source records, jobs, job logs, risk snapshots, diagnoses, product actions, retention records, product timeline events, watchlist products, watch settings, watch activity, product score history, AI conversations, AI usage events, AI proposals, contact requests, and sessions. Credit ledger entries were retained so the shop keeps its existing credit balance and does not receive duplicate welcome credits.",
+        "Deleted: source records, jobs, job logs, shared Shopify source-event cache, product rollups, risk snapshots, diagnoses, product actions, retention records, product timeline events, watchlist products, watch settings, watch activity, product score history, AI conversations, AI usage events, AI proposals and audit logs, beta feedback, contact requests, sessions, and runtime dashboard/analytics/job caches. Credit ledger entries, credit purchases, and billing subscription state were retained so the shop keeps its existing credit balance and active plan access.",
       ].join("\n"),
     });
 
@@ -691,11 +696,13 @@ export default function Help() {
             <div className={styles.modalBody}>
               <p>
                 This permanently removes ProductPulse app data for this shop,
-                including source records, jobs, risk snapshots, diagnoses,
-                product actions, retention records, timeline events, Watchlist
-                data, score history, AI records, contact requests, and Shopify
-                sessions. Credit ledger entries and the current credit balance
-                are kept so credits are not reset or granted again.
+                including source records, jobs, shared source-event caches,
+                product rollups, risk snapshots, diagnoses, product actions,
+                retention records, timeline events, Watchlist data, score
+                history, AI records, feedback, contact requests, Shopify
+                sessions, and cached dashboard or job data. Credit balances,
+                credit purchases, and active subscription state are kept so
+                credits, billing, and current plan access are not reset.
               </p>
               <div className={styles.modalNotice}>
                 <strong>This action cannot be undone.</strong>
@@ -809,12 +816,18 @@ async function getProductPulseDataCounts(shop) {
     countProductPulseRows("productPulseSource", { shop }),
     countProductPulseRows("catalogSignalJob", { shop }),
     countProductPulseRows("productPulseJobLog", { shop }),
+    countProductPulseRows("productPulseShopSourceEventCache", { shop }),
+    countProductPulseRows("productPulseShopSourceEvent", { shop }),
     countProductPulseRows("productRiskSnapshot", { shop }),
+    countProductPulseRows("productPulseProductRollup", { shop }),
     countProductPulseRows("productDiagnosis", { shop }),
     countProductPulseRows("productAction", { shop }),
     countProductPulseRows("productRetentionRun", { shopId: shop }),
-    countProductPulseRows("productRetentionSummary", { shopId: shop }),
+    countProductPulseRows("productRetentionDailyCohort", { shopId: shop }),
     countProductPulseRows("productRetentionCohortCell", { shopId: shop }),
+    countProductPulseRows("productRetentionDailyActivity", { shopId: shop }),
+    countProductPulseRows("productRetentionSegmentDaily", { shopId: shop }),
+    countProductPulseRows("productRetentionSummary", { shopId: shop }),
     countProductPulseRows("productTimelineEvent", { shop }),
     countProductPulseRows("productWatchlistItem", { shop }),
     countProductPulseRows("productWatchSettings", { shop }),
@@ -822,10 +835,17 @@ async function getProductPulseDataCounts(shop) {
     countProductPulseRows("productScoreHistory", { shop }),
     countProductPulseRows("aiConversation", { shop }),
     countProductPulseRows("aiConversationMessage", { shop }),
+    countProductPulseRows("aiConversationToolCall", { shop }),
     countProductPulseRows("aiUsageEvent", { shop }),
     countProductPulseRows("aiActionProposal", { shop }),
+    countProductPulseRows("aiActionAuditLog", { shop }),
     countProductPulseRows("aiAppDraftProposal", { shop }),
+    countProductPulseRows("aiAppDraftAuditLog", { shop }),
+    countProductPulseRows("betaFeedbackReport", { shop }),
+    countProductPulseRows("betaFeedbackPanelPreference", { shop }),
     countProductPulseRows("creditLedgerEntry", { shop }),
+    countProductPulseRows("creditPurchase", { shop }),
+    countProductPulseRows("billingSubscriptionState", { shop }),
     countProductPulseRows("contactRequest", { shop }),
     countProductPulseRows("session", { shop }),
   ]);
@@ -833,12 +853,18 @@ async function getProductPulseDataCounts(shop) {
     sources,
     jobs,
     jobLogs,
+    sourceEventCaches,
+    sourceEvents,
     riskSnapshots,
+    productRollups,
     diagnoses,
     actions,
     retentionRuns,
-    retentionSummaries,
+    retentionDailyCohorts,
     retentionCohortCells,
+    retentionDailyActivities,
+    retentionSegmentDaily,
+    retentionSummaries,
     timelineEvents,
     watchlistItems,
     watchSettings,
@@ -846,24 +872,47 @@ async function getProductPulseDataCounts(shop) {
     scoreHistory,
     aiConversations,
     aiConversationMessages,
+    aiConversationToolCalls,
     aiUsageEvents,
     aiActionProposals,
+    aiActionAuditLogs,
     aiAppDraftProposals,
+    aiAppDraftAuditLogs,
+    betaFeedbackReports,
+    betaFeedbackPanelPreferences,
     creditEntries,
+    creditPurchases,
+    billingSubscriptionStates,
     contacts,
     sessions,
   ] = counts;
+  const retentionRows = retentionRuns
+    + retentionDailyCohorts
+    + retentionCohortCells
+    + retentionDailyActivities
+    + retentionSegmentDaily
+    + retentionSummaries;
+  const aiRows = aiConversations + aiConversationMessages + aiConversationToolCalls;
+  const aiProposalRows = aiActionProposals + aiActionAuditLogs + aiAppDraftProposals + aiAppDraftAuditLogs;
+  const betaFeedbackRows = betaFeedbackReports + betaFeedbackPanelPreferences;
 
   return {
     sources,
     jobs,
     jobLogs,
+    sourceEventCaches,
+    sourceEvents,
     riskSnapshots,
+    productRollups,
     diagnoses,
     actions,
     retentionRuns,
+    retentionDailyCohorts,
+    retentionDailyActivities,
+    retentionSegmentDaily,
     retentionSummaries,
     retentionCohortCells,
+    retentionRows,
     timelineEvents,
     watchlistItems,
     watchSettings,
@@ -871,10 +920,20 @@ async function getProductPulseDataCounts(shop) {
     scoreHistory,
     aiConversations,
     aiConversationMessages,
+    aiConversationToolCalls,
+    aiRows,
     aiUsageEvents,
     aiActionProposals,
+    aiActionAuditLogs,
     aiAppDraftProposals,
+    aiAppDraftAuditLogs,
+    aiProposalRows,
+    betaFeedbackReports,
+    betaFeedbackPanelPreferences,
+    betaFeedbackRows,
     creditEntries,
+    creditPurchases,
+    billingSubscriptionStates,
     contacts,
     sessions,
   };
@@ -894,6 +953,8 @@ async function deleteProductPulseData(shop) {
     ["betaFeedbackReport", { shop }],
     ["productAction", { shop }],
     ["productTimelineEvent", { shop }],
+    ["productPulseShopSourceEvent", { shop }],
+    ["productPulseShopSourceEventCache", { shop }],
     ["productRetentionSummary", { shopId: shop }],
     ["productRetentionSegmentDaily", { shopId: shop }],
     ["productRetentionDailyActivity", { shopId: shop }],
@@ -902,6 +963,7 @@ async function deleteProductPulseData(shop) {
     ["productRetentionRun", { shopId: shop }],
     ["productDiagnosis", { shop }],
     ["productRiskSnapshot", { shop }],
+    ["productPulseProductRollup", { shop }],
     ["productWatchActivity", { shop }],
     ["productWatchlistItem", { shop }],
     ["productWatchSettings", { shop }],
@@ -916,6 +978,8 @@ async function deleteProductPulseData(shop) {
   for (const [modelName, where] of operations) {
     await deleteProductPulseRows(modelName, where);
   }
+
+  invalidateProductPulseShopDataCaches(shop);
 }
 
 async function sendPrivacyContactEmail(payload) {
