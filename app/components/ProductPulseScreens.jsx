@@ -8925,6 +8925,7 @@ function getProductDetailModel(product) {
     recommendedActions,
     checkedItems,
     actionHistory: product.actionHistory || [],
+    navigation: normalizeProductDetailNavigation(product.navigation),
     ignoredIssues,
     isWatched: Boolean(product.isWatched),
     watchlistStatus: product.watchlistStatus || null,
@@ -8955,6 +8956,26 @@ function normalizeProductTimeline(timeline = {}) {
       meaningfulImportance: Number(source.filters?.meaningfulImportance || 40),
     },
     pagination: source.pagination || { hasMore: false },
+  };
+}
+
+function normalizeProductDetailNavigation(navigation = {}) {
+  const source = navigation && typeof navigation === "object" ? navigation : {};
+  return {
+    previous: normalizeProductDetailNavigationItem(source.previous),
+    next: normalizeProductDetailNavigationItem(source.next),
+  };
+}
+
+function normalizeProductDetailNavigationItem(item = null) {
+  if (!item || typeof item !== "object") return null;
+  const href = String(item.href || "").trim();
+  const identifier = String(item.handle || item.productGid || item.id || "").trim();
+  if (!href && !identifier) return null;
+  return {
+    href: href || `/app/products/${encodeURIComponent(identifier)}`,
+    title: String(item.title || "Product").trim() || "Product",
+    riskScore: Number.isFinite(Number(item.riskScore)) ? Math.round(Number(item.riskScore)) : null,
   };
 }
 
@@ -15304,10 +15325,13 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       <ScreenShell className="ppDashboard ppProductDetailScreen">
         <ProductPulseToast actionData={toastData} onDismiss={() => setToastData(null)} />
 
-        <button className="ppProductBackButton ppProductBackButtonStandalone" type="button" onClick={handleBack}>
-          <s-icon type="arrow-left" size="small"></s-icon>
-          Back to products
-        </button>
+        <div className="ppProductDetailTopNav" aria-label="Product detail navigation">
+          <button className="ppProductBackButton ppProductBackButtonStandalone" type="button" onClick={handleBack}>
+            <s-icon type="arrow-left" size="small"></s-icon>
+            Back to products
+          </button>
+          <ProductRiskSiblingNavigation navigation={detail.navigation} currentTitle={detail.title} />
+        </div>
 
         <section className="ppProductDetailHeroPanel" aria-label="Product overview" data-pp-product-detail-overview="hero">
           <span className="ppProductHeroImageWrap" data-pp-product-detail-overview="image">
@@ -19532,6 +19556,54 @@ function getReturnRefundResolutionBuckets(relationship = {}) {
     ...bucket,
     width: Math.max(Number(bucket.value || 0) > 0 ? 5 : 0, (Number(bucket.value || 0) / total) * 100),
   }));
+}
+
+function ProductRiskSiblingNavigation({ navigation = {}, currentTitle = "" }) {
+  const previous = navigation?.previous || null;
+  const next = navigation?.next || null;
+  return (
+    <nav className="ppProductRiskSiblingNav" aria-label="Navigate products by risk score">
+      <ProductRiskSiblingLink direction="previous" item={previous} fallbackTitle={currentTitle} />
+      <ProductRiskSiblingLink direction="next" item={next} fallbackTitle={currentTitle} />
+    </nav>
+  );
+}
+
+function ProductRiskSiblingLink({ direction, item, fallbackTitle = "" }) {
+  const isPrevious = direction === "previous";
+  const label = isPrevious ? "Previous product" : "Next product";
+  const helper = isPrevious ? "Higher risk" : "Lower risk";
+  const icon = isPrevious ? "chevron-left" : "chevron-right";
+  const riskLabel = item?.riskScore != null ? `${item.riskScore}/100` : "";
+  const title = item?.title || fallbackTitle || "product";
+  const content = (
+    <>
+      {isPrevious && <s-icon type={icon} size="small"></s-icon>}
+      <span>
+        <strong>{label}</strong>
+        <small>{item ? `${helper}${riskLabel ? ` · ${riskLabel}` : ""}` : `No ${helper.toLowerCase()}`}</small>
+      </span>
+      {!isPrevious && <s-icon type={icon} size="small"></s-icon>}
+    </>
+  );
+
+  if (!item?.href) {
+    return (
+      <span className="ppProductRiskSiblingLink isUnavailable" aria-disabled="true">
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <Link
+      className="ppProductRiskSiblingLink"
+      to={item.href}
+      title={`Go to ${helper.toLowerCase()} product: ${title}${riskLabel ? ` (${riskLabel})` : ""}`}
+    >
+      {content}
+    </Link>
+  );
 }
 
 function ProductDeepDiagnosisDataPlaceholder({ detail }) {

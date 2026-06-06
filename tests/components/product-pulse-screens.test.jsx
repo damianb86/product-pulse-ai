@@ -2354,6 +2354,29 @@ describe("ProductPulse screens", () => {
     expect(container.querySelector(".ppProductMetricTimelineIcon")).toHaveAttribute("src", "/assets/metric-timelines-icon.png");
   });
 
+  it("links product detail to higher and lower risk sibling products", () => {
+    const product = makeMetricTimelineProduct({
+      navigation: {
+        previous: {
+          href: "/app/products/higher-risk-product",
+          title: "Higher Risk Product",
+          riskScore: 86,
+        },
+        next: {
+          href: "/app/products/lower-risk-product",
+          title: "Lower Risk Product",
+          riskScore: 44,
+        },
+      },
+    });
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    expect(screen.getByRole("link", { name: /Previous product/i })).toHaveAttribute("href", "/app/products/higher-risk-product");
+    expect(screen.getByRole("link", { name: /Next product/i })).toHaveAttribute("href", "/app/products/lower-risk-product");
+    expect(screen.getByText("Higher risk · 86/100")).toBeInTheDocument();
+    expect(screen.getByText("Lower risk · 44/100")).toBeInTheDocument();
+  });
+
   it("does not render the product timeline panel on product detail", () => {
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={makeMetricTimelineProduct()} />);
 

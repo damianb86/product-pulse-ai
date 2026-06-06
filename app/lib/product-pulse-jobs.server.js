@@ -77,6 +77,13 @@ import {
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
 const PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY = "global-product-diagnosis-queue";
+const PRODUCT_RISK_NAVIGATION_SELECT = {
+  shop: true,
+  productGid: true,
+  productTitle: true,
+  handle: true,
+  riskScore: true,
+};
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const STALE_JOB_SWEEP_INTERVAL_MS = 60 * 1000;
 const JOB_MONITOR_RECENT_JOB_LIMIT = 6;
@@ -2316,7 +2323,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory, timeline] = await Promise.all([
+  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory, timeline, navigation] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -2334,6 +2341,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     }),
     getProductScoreHistoryForShop(shop, snapshot.productGid, { take: 180 }),
     getProductTimelineForShop(shop, snapshot.productGid, { limit: 100 }),
+    getProductRiskNavigationForShop(shop, snapshot),
   ]);
   if (activeDiagnosisJobs.length) ensureProductDiagnosisQueueWorker(shop);
   const storedProductRetention = await getProductRetentionPayloadForDiagnosis({
@@ -2358,6 +2366,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const product = {
     ...formatSnapshotForDiagnosis(snapshotWithRetention, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
     timeline,
+    navigation,
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
   };
   const productWithUrls = withShopifyAdminUrl(product, shop);
@@ -4630,6 +4639,110 @@ async function findProductRiskSnapshot(shop, productId) {
       ],
     },
   });
+}
+
+async function getProductRiskNavigationForShop(shop, snapshot) {
+  if (!shop || !snapshot) return { previous: null, next: null };
+  const rollupNavigation = await getProductRiskNavigationFromRollups(shop, snapshot);
+  if (rollupNavigation) return rollupNavigation;
+  return getProductRiskNavigationFromSnapshots(shop, snapshot);
+}
+
+async function getProductRiskNavigationFromRollups(shop, snapshot) {
+  if (!prisma.productPulseProductRollup) return null;
+  try {
+    const current = await prisma.productPulseProductRollup.findFirst({
+      where: {
+        shop,
+        OR: [
+          { productGid: snapshot.productGid },
+          ...(snapshot.handle ? [{ handle: snapshot.handle }] : []),
+        ],
+      },
+      select: PRODUCT_RISK_NAVIGATION_SELECT,
+    });
+    if (!current) return null;
+    const [previous, next] = await Promise.all([
+      findAdjacentProductRiskNavigationRow("productPulseProductRollup", current, "previous"),
+      findAdjacentProductRiskNavigationRow("productPulseProductRollup", current, "next"),
+    ]);
+    return {
+      previous: formatProductRiskNavigationItem(previous),
+      next: formatProductRiskNavigationItem(next),
+    };
+  } catch (error) {
+    if (isMissingProductRiskNavigationTargetError(error)) return null;
+    throw error;
+  }
+}
+
+async function getProductRiskNavigationFromSnapshots(shop, snapshot) {
+  const current = {
+    shop,
+    productGid: snapshot.productGid,
+    productTitle: snapshot.productTitle,
+    handle: snapshot.handle,
+    riskScore: snapshot.riskScore,
+  };
+  const [previous, next] = await Promise.all([
+    findAdjacentProductRiskNavigationRow("productRiskSnapshot", current, "previous"),
+    findAdjacentProductRiskNavigationRow("productRiskSnapshot", current, "next"),
+  ]);
+  return {
+    previous: formatProductRiskNavigationItem(previous),
+    next: formatProductRiskNavigationItem(next),
+  };
+}
+
+async function findAdjacentProductRiskNavigationRow(modelName, current, direction) {
+  const model = prisma[modelName];
+  if (!model || !current?.shop || !current?.productGid) return null;
+  const riskScore = Number(current.riskScore || 0);
+  const productTitle = String(current.productTitle || "");
+  const productGid = String(current.productGid || "");
+  const isPrevious = direction === "previous";
+  const titleOperator = isPrevious ? "lt" : "gt";
+  const gidOperator = isPrevious ? "lt" : "gt";
+  const riskOperator = isPrevious ? "gt" : "lt";
+  return model.findFirst({
+    where: {
+      shop: current.shop,
+      OR: [
+        { riskScore: { [riskOperator]: riskScore } },
+        {
+          riskScore,
+          productTitle: { [titleOperator]: productTitle },
+        },
+        {
+          riskScore,
+          productTitle,
+          productGid: { [gidOperator]: productGid },
+        },
+      ],
+    },
+    orderBy: isPrevious
+      ? [{ riskScore: "asc" }, { productTitle: "desc" }, { productGid: "desc" }]
+      : [{ riskScore: "desc" }, { productTitle: "asc" }, { productGid: "asc" }],
+    select: PRODUCT_RISK_NAVIGATION_SELECT,
+  });
+}
+
+function formatProductRiskNavigationItem(row) {
+  if (!row?.productGid && !row?.handle) return null;
+  const identifier = row.handle || row.productGid;
+  return {
+    productGid: row.productGid || "",
+    handle: row.handle || "",
+    title: row.productTitle || "Product",
+    riskScore: Number(row.riskScore || 0),
+    href: `/app/products/${encodeURIComponent(identifier)}`,
+  };
+}
+
+function isMissingProductRiskNavigationTargetError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  return code === "P2021" || code === "P2022" || /table .* does not exist|column .* does not exist|no such table/i.test(message);
 }
 
 async function getProductDiagnosisSnapshotsForProductIds(shop, productIds = []) {
