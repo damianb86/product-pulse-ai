@@ -1118,6 +1118,20 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   }, [activeDiagnosisJobs.length, activeScanJob, persistProductJobs, allVisibleRows, productTablesDeferred, productTablesFetchHref, productTablesRequestKey, revalidator]);
 
   useEffect(() => {
+    const handleFinishedJobs = (event) => {
+      if (!clearCachedProductTablesForFinishedJobs(event?.detail?.jobs || [])) return;
+      if (productTablesDeferred) {
+        lastProductTablesRequestKeyRef.current = productTablesRequestKey;
+        productTablesLoadRef.current(productTablesFetchHref);
+      } else {
+        revalidator.revalidate();
+      }
+    };
+    window.addEventListener("productpulse:jobs-finished", handleFinishedJobs);
+    return () => window.removeEventListener("productpulse:jobs-finished", handleFinishedJobs);
+  }, [productTablesDeferred, productTablesFetchHref, productTablesRequestKey, revalidator]);
+
+  useEffect(() => {
     if (!pendingBulkAnalyze) {
       setDiagnosisQueueOverlayTimedOut(false);
       setDiagnosisQueueOverlayDismissed(false);
@@ -8468,6 +8482,30 @@ function clearCachedProductTablesForScope(scope = "") {
     if (key.startsWith(prefix)) productTablesClientCache.delete(key);
   }
 }
+
+function clearCachedProductTablesForFinishedJobs(jobs = []) {
+  if (!shouldInvalidateProductTablesForFinishedJobs(jobs)) return false;
+  productTablesClientCache.clear();
+  return true;
+}
+
+function shouldInvalidateProductTablesForFinishedJobs(jobs = []) {
+  return (Array.isArray(jobs) ? jobs : []).some((job) => {
+    const kind = String(job?.kind || job?.kindKey || "").toLowerCase();
+    return kind === "product-diagnosis" || kind === "fast-product-scan";
+  });
+}
+
+function registerProductTablesCacheInvalidationEvents() {
+  if (typeof window === "undefined") return;
+  if (window.__productPulseProductTablesCacheInvalidationEventsRegistered) return;
+  window.__productPulseProductTablesCacheInvalidationEventsRegistered = true;
+  window.addEventListener("productpulse:jobs-finished", (event) => {
+    clearCachedProductTablesForFinishedJobs(event?.detail?.jobs || []);
+  });
+}
+
+registerProductTablesCacheInvalidationEvents();
 
 function getProductTableDataForRender(exactProductTables, fallbackProductTables, defaultTable, tableKey) {
   if (exactProductTables?.[tableKey]) return exactProductTables[tableKey];

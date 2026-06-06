@@ -305,6 +305,7 @@ const PRODUCT_TABLE_ROW_METRIC_KEYS = [
   "latestDiagnosisId",
   "lastDetailedDiagnosisAt",
   "riskTrend",
+  "productMomentum",
   "productMomentumScore",
   "productMomentumTier",
   "momentumDirection",
@@ -1355,7 +1356,10 @@ async function getProductTableRowMetricsForProducts(shop, productGids = []) {
   if (!uniqueProductGids.length) return new Map();
 
   const rollupMetrics = await getProductPulseProductRollupMetricsForProducts(shop, uniqueProductGids);
-  if (rollupMetrics.size === uniqueProductGids.length) return rollupMetrics;
+  if (rollupMetrics.size === uniqueProductGids.length) {
+    await mergeFullProductMomentumMetricsForProducts(shop, uniqueProductGids, rollupMetrics);
+    return rollupMetrics;
+  }
 
   const rows = await prisma.$queryRaw`
     WITH snapshot_rows AS (
@@ -1373,6 +1377,35 @@ async function getProductTableRowMetricsForProducts(shop, productGids = []) {
   `;
 
   return new Map(rows.map((row) => [row.productGid, row.metrics || {}]));
+}
+
+async function mergeFullProductMomentumMetricsForProducts(shop, productGids = [], metricsByProductGid = new Map()) {
+  if (!shop || !productGids.length || !metricsByProductGid.size) return metricsByProductGid;
+  const rows = await prisma.$queryRaw`
+    WITH snapshot_rows AS (
+      SELECT
+        "productGid",
+        metrics::jsonb AS metrics_json
+      FROM "ProductRiskSnapshot"
+      WHERE shop = ${shop}
+        AND "productGid" IN (${Prisma.join(productGids)})
+    )
+    SELECT
+      "productGid",
+      metrics_json -> 'productMomentum' AS "productMomentum"
+    FROM snapshot_rows
+    WHERE jsonb_typeof(metrics_json -> 'productMomentum') = 'object'
+  `;
+
+  rows.forEach((row) => {
+    if (!row.productGid || !row.productMomentum) return;
+    const currentMetrics = metricsByProductGid.get(row.productGid) || {};
+    metricsByProductGid.set(row.productGid, {
+      ...currentMetrics,
+      productMomentum: row.productMomentum,
+    });
+  });
+  return metricsByProductGid;
 }
 
 async function getProductScoreHistoryForProductsLight(shop, productGids = [], options = {}) {
@@ -5458,6 +5491,9 @@ async function runFastProductScanJob(job, options = {}) {
       jobId: job.id,
       scopes,
     });
+    invalidateJobMonitorCache(job.shop);
+    invalidateProductPulseDashboardCache(job.shop);
+    invalidateBackgroundProcessCache(job.shop);
     logProductPulseWorkerProgress("quick_scan.run_finished", { job });
   });
 
@@ -5845,6 +5881,9 @@ async function runProductDiagnosisJob(job) {
     durationMs: Date.now() - startedAt,
     diagnosisId: diagnosis?.diagnosisId || null,
   });
+  invalidateJobMonitorCache(job.shop);
+  invalidateProductPulseDashboardCache(job.shop);
+  invalidateBackgroundProcessCache(job.shop);
 
   await measureProductDiagnosisWorkerStep(job, "watchlist_alert", () => maybeSendWatchlistRunAlertForJob({
     ...job,
