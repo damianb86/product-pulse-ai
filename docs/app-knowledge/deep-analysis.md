@@ -27,11 +27,15 @@ How it runs:
 No-change reanalysis:
 
 - When a product already has a completed Product Diagnosis, reanalysis first compares product content, Shopify order/return/refund source events, review/customer text, refund text, and the stored source fingerprint.
+- Reanalysis also checks merchant-facing ProductPulse action history since the previous diagnosis.
 - If no concrete source changes are found, ProductPulse reuses the previous Product Diagnosis instead of running the Product Diagnosis flow again.
 - This no-change path consumes 0 diagnosis credits and records the job as skipped/reused.
 - Date-window metrics that can move only because time passed, such as sales momentum, recent activity windows, forecast/window summaries, retention preview, return/refund window summaries, purchase context, and relationship summaries, are refreshed deterministically.
 - The previous Product Diagnosis, evidence synthesis, chart interpretation text, content-gap interpretation, primary issue, and recommendations remain in place until there is new evidence or product content that can affect them.
 - If the only movement is a rolling date-window change with no newly fetched orders, returns, refunds, reviews, or product-content changes, the reanalysis is still treated as a zero diagnosis credit no-AI refresh.
+- If a merchant-facing action was applied, reviewed, dismissed, or ignored after the previous diagnosis, ProductPulse treats that as transition context and reruns the diagnosis instead of presenting the old report unchanged.
+- Successive AI reports receive a compact evolution context: previous diagnosis summary, handled actions, current source/content changes, material metric movement, and issue transitions.
+- In action-only reanalysis, repeated handled recommendations are suppressed unless new/current evidence shows the problem persisted or changed.
 
 Requirements and limits:
 

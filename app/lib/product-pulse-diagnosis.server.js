@@ -633,15 +633,30 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     {},
     (result) => ({ candidates: result?.length || 0 }),
   );
+  const productEvolution = await measureProductDiagnosisPerfStep(
+    "product_evolution_context",
+    perfContext,
+    () => buildProductDiagnosisEvolutionContext({
+      shop,
+      snapshot,
+      deterministic,
+      recommendationCandidates,
+    }),
+    {},
+    summarizeProductEvolutionContext,
+  );
+  const diagnosisDeterministic = attachProductEvolutionToDeterministic(deterministic, productEvolution);
+  const evolvedRecommendationCandidates = applyProductEvolutionToRecommendationCandidates(recommendationCandidates, productEvolution);
   const aiInput = await measureProductDiagnosisPerfStep(
     "ai_input_build",
     perfContext,
     () => ({
       product: buildAiProductInput(shopifyData.product, snapshot),
-      deterministic: buildAiDeterministicInput(deterministic),
-      evidenceSnippets: deterministic.evidenceSnippets,
-      recommendationCandidates,
-      incremental: buildAiIncrementalDiagnosisInput(deterministic),
+      deterministic: buildAiDeterministicInput(diagnosisDeterministic),
+      evidenceSnippets: diagnosisDeterministic.evidenceSnippets,
+      recommendationCandidates: evolvedRecommendationCandidates,
+      incremental: buildAiIncrementalDiagnosisInput(diagnosisDeterministic),
+      productEvolution: sanitizeProductEvolutionForAi(productEvolution),
       previousPrimaryIssue: snapshot.primaryIssue || null,
       batchMode: normalizeDiagnosisBatchMode(batchMode),
     }),
@@ -656,39 +671,40 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     message: "Deterministic product diagnosis metrics were calculated before AI.",
     data: {
       productGid: snapshot.productGid,
-      soldUnits: deterministic.metrics.soldUnits,
-      returnUnits: deterministic.metrics.returnUnits,
-      refundUnits: deterministic.metrics.refundUnits,
-      refundAmount: deterministic.metrics.refundAmount,
-      monthlyOrderActivity: deterministic.metrics.monthlyOrderActivity?.summary || null,
-      returnRatePrediction: deterministic.metrics.returnRatePrediction?.summary || null,
-      productMomentum: deterministic.metrics.productMomentum ? {
-        score: deterministic.metrics.productMomentum.score,
-        tier: deterministic.metrics.productMomentum.tier,
-        direction: deterministic.metrics.productMomentum.direction,
-        confidence: deterministic.metrics.productMomentum.confidence,
+      soldUnits: diagnosisDeterministic.metrics.soldUnits,
+      returnUnits: diagnosisDeterministic.metrics.returnUnits,
+      refundUnits: diagnosisDeterministic.metrics.refundUnits,
+      refundAmount: diagnosisDeterministic.metrics.refundAmount,
+      monthlyOrderActivity: diagnosisDeterministic.metrics.monthlyOrderActivity?.summary || null,
+      returnRatePrediction: diagnosisDeterministic.metrics.returnRatePrediction?.summary || null,
+      productMomentum: diagnosisDeterministic.metrics.productMomentum ? {
+        score: diagnosisDeterministic.metrics.productMomentum.score,
+        tier: diagnosisDeterministic.metrics.productMomentum.tier,
+        direction: diagnosisDeterministic.metrics.productMomentum.direction,
+        confidence: diagnosisDeterministic.metrics.productMomentum.confidence,
       } : null,
-      reviewCount: deterministic.metrics.reviewCount,
-      negativeReviewCount: deterministic.metrics.negativeReviewCount,
-      customerTextSignals: deterministic.metrics.textInsights?.sentiment?.total || 0,
-      negativeTextSignals: deterministic.metrics.textInsights?.sentiment?.negative || 0,
-      subjectiveNegativeSignals: deterministic.metrics.textInsights?.subjectiveNegativity?.count || 0,
-      deterministicEmotionCounts: deterministic.metrics.textInsights?.emotions || [],
-      otherReturnClassifications: deterministic.metrics.textInsights?.otherReturnClassifications || [],
-      riskScore: deterministic.riskScore,
-      confidence: deterministic.confidence,
-      estimatedImpact: deterministic.estimatedImpact,
-      mainIssue: deterministic.mainIssue,
-      sourceCoverage: deterministic.sourceCoverage,
+      reviewCount: diagnosisDeterministic.metrics.reviewCount,
+      negativeReviewCount: diagnosisDeterministic.metrics.negativeReviewCount,
+      customerTextSignals: diagnosisDeterministic.metrics.textInsights?.sentiment?.total || 0,
+      negativeTextSignals: diagnosisDeterministic.metrics.textInsights?.sentiment?.negative || 0,
+      subjectiveNegativeSignals: diagnosisDeterministic.metrics.textInsights?.subjectiveNegativity?.count || 0,
+      deterministicEmotionCounts: diagnosisDeterministic.metrics.textInsights?.emotions || [],
+      otherReturnClassifications: diagnosisDeterministic.metrics.textInsights?.otherReturnClassifications || [],
+      riskScore: diagnosisDeterministic.riskScore,
+      confidence: diagnosisDeterministic.confidence,
+      estimatedImpact: diagnosisDeterministic.estimatedImpact,
+      mainIssue: diagnosisDeterministic.mainIssue,
+      sourceCoverage: diagnosisDeterministic.sourceCoverage,
       incrementalDiagnosis: {
-        mode: deterministic.metrics.incrementalDiagnosis?.mode || "full",
-        previousCompletedAt: deterministic.metrics.incrementalDiagnosis?.previousCompletedAt || null,
-        productContent: deterministic.metrics.incrementalDiagnosis?.productContent || null,
-        customerText: deterministic.metrics.incrementalDiagnosis?.customerText || null,
-        refunds: deterministic.metrics.incrementalDiagnosis?.refunds || null,
-        sourceChanges: deterministic.metrics.incrementalDiagnosis?.sourceChanges || null,
-        aiEvidenceSnippetCount: deterministic.metrics.incrementalDiagnosis?.aiEvidenceSnippetCount || deterministic.evidenceSnippets.length,
+        mode: diagnosisDeterministic.metrics.incrementalDiagnosis?.mode || "full",
+        previousCompletedAt: diagnosisDeterministic.metrics.incrementalDiagnosis?.previousCompletedAt || null,
+        productContent: diagnosisDeterministic.metrics.incrementalDiagnosis?.productContent || null,
+        customerText: diagnosisDeterministic.metrics.incrementalDiagnosis?.customerText || null,
+        refunds: diagnosisDeterministic.metrics.incrementalDiagnosis?.refunds || null,
+        sourceChanges: diagnosisDeterministic.metrics.incrementalDiagnosis?.sourceChanges || null,
+        aiEvidenceSnippetCount: diagnosisDeterministic.metrics.incrementalDiagnosis?.aiEvidenceSnippetCount || diagnosisDeterministic.evidenceSnippets.length,
       },
+      productEvolution: summarizeProductEvolutionForJobLog(productEvolution),
     },
   });
 
@@ -699,7 +715,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       shop,
       jobId,
       sourceSnapshot: snapshot,
-      relationshipSummary: deterministic.metrics.productRelationshipIntelligenceSummary,
+      relationshipSummary: diagnosisDeterministic.metrics.productRelationshipIntelligenceSummary,
     }),
     {},
     (result) => ({
@@ -711,7 +727,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   const reuseDecision = await measureProductDiagnosisPerfStep(
     "reuse_decision",
     perfContext,
-    () => getNoChangeDiagnosisReuseDecision({ snapshot, deterministic }),
+    () => getNoChangeDiagnosisReuseDecision({ snapshot, deterministic: diagnosisDeterministic }),
     {},
     (result) => ({
       shouldReuse: Boolean(result?.shouldReuse),
@@ -726,7 +742,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
         shop,
         jobId,
         snapshot,
-        deterministic,
+        deterministic: diagnosisDeterministic,
         reuseDecision,
       }),
       {},
@@ -762,7 +778,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
         yotpoData,
         looxData,
         csvReviewData,
-        deterministic,
+        deterministic: diagnosisDeterministic,
         retentionPreview,
         windowDays,
         batchMode: normalizeDiagnosisBatchMode(batchMode),
@@ -797,7 +813,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     perfContext,
     () => ({
       emergentSentiments: normalizeAiEmergentSentiments(ai),
-      knownEmotions: normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights),
+      knownEmotions: normalizeAiKnownEmotions(ai, diagnosisDeterministic.metrics.textInsights),
     }),
     {},
     (result) => ({
@@ -822,7 +838,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
   const diagnosisPayload = await measureProductDiagnosisPerfStep(
     "persisted_payload_build",
     perfContext,
-    () => buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, deterministic, ai }),
+    () => buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, deterministic: diagnosisDeterministic, ai }),
     {},
     summarizeDiagnosisPayload,
   );
@@ -4994,6 +5010,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
     runtimeState: scoredDeterministic.metrics.incrementalDiagnosis,
     aiContentGaps: ai.contentGaps,
   });
+  const productEvolution = scoredDeterministic.metrics.productEvolution || null;
   const productPurchaseContextSummary = withAiPurchaseContextInterpretation(
     scoredDeterministic.metrics.productPurchaseContextSummary,
     ai,
@@ -5014,6 +5031,8 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
       aiUsage: ai.aiUsage,
       chartInterpretations: ai.chartInterpretations || null,
       relationshipInsights: ai.relationshipInsights || null,
+      productEvolution: sanitizeProductEvolutionForAi(productEvolution),
+      productEvolutionSummary: productEvolution?.summary || "",
       knownEmotions,
       emergentSentiments,
       checkedSources: buildCheckedSources(semanticDeterministic),
@@ -5493,6 +5512,623 @@ async function findReusableCompletedDiagnosis({ shop, snapshot }) {
   });
 }
 
+async function buildProductDiagnosisEvolutionContext({ shop, snapshot, deterministic, recommendationCandidates = [], db = prisma } = {}) {
+  const previousDiagnosis = await findReusableCompletedDiagnosis({ shop, snapshot });
+  if (!previousDiagnosis) {
+    return buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot,
+      deterministic,
+      previousDiagnosis: null,
+      actionRecords: [],
+      recommendationCandidates,
+    });
+  }
+
+  const actionRecords = await findProductEvolutionActionRecords({
+    shop,
+    productGid: snapshot.productGid,
+    previousDiagnosis,
+    db,
+  });
+  return buildProductDiagnosisEvolutionContextFromRecords({
+    snapshot,
+    deterministic,
+    previousDiagnosis,
+    actionRecords,
+    recommendationCandidates,
+  });
+}
+
+async function findProductEvolutionActionRecords({ shop, productGid, previousDiagnosis = null, db = prisma } = {}) {
+  if (!shop || !productGid || typeof db?.productAction?.findMany !== "function") return [];
+  const previousCompletedAt = parseValidDate(previousDiagnosis?.completedAt || previousDiagnosis?.createdAt);
+  const filters = [];
+  if (previousCompletedAt) {
+    filters.push({ createdAt: { gte: previousCompletedAt } });
+    filters.push({ appliedAt: { gte: previousCompletedAt } });
+  }
+  if (previousDiagnosis?.id) filters.push({ diagnosisId: previousDiagnosis.id });
+  if (!filters.length) return [];
+
+  return db.productAction.findMany({
+    where: {
+      shop,
+      productGid,
+      OR: filters,
+    },
+    orderBy: [
+      { appliedAt: "desc" },
+      { createdAt: "desc" },
+    ],
+    take: 80,
+  });
+}
+
+function buildProductDiagnosisEvolutionContextFromRecords({
+  snapshot = {},
+  deterministic = {},
+  previousDiagnosis = null,
+  actionRecords = [],
+  recommendationCandidates = [],
+} = {}) {
+  const hasPreviousDiagnosis = Boolean(previousDiagnosis?.id);
+  const previousCompletedAt = toIso(previousDiagnosis?.completedAt || previousDiagnosis?.createdAt);
+  const normalizedActions = normalizeProductEvolutionActions(actionRecords, { previousCompletedAt, previousDiagnosisId: previousDiagnosis?.id });
+  const handledActions = normalizedActions.filter((action) => isHandledProductEvolutionActionStatus(action.status));
+  const openActions = normalizedActions.filter((action) => isOpenProductEvolutionActionStatus(action.status));
+  const sourceSummary = buildProductEvolutionSourceSummary(deterministic);
+  const metricChanges = hasPreviousDiagnosis
+    ? buildProductEvolutionMetricChanges({ previousDiagnosis, deterministic })
+    : [];
+  const issueTransition = hasPreviousDiagnosis
+    ? buildProductEvolutionIssueTransition({ previousDiagnosis, deterministic })
+    : buildEmptyProductEvolutionIssueTransition();
+  const handledActionKeys = buildHandledProductEvolutionActionKeys(handledActions);
+  const candidateTransitions = buildProductEvolutionCandidateTransitions({
+    recommendationCandidates,
+    handledActionKeys,
+    actionOnly: hasPreviousDiagnosis && handledActions.length > 0 && !sourceSummary.hasNewEvidence,
+  });
+  const hasUserActionChangesSincePreviousDiagnosis = Boolean(hasPreviousDiagnosis && handledActions.length);
+  const hasConcreteProductChangesSincePreviousDiagnosis = Boolean(hasPreviousDiagnosis && sourceSummary.hasNewEvidence);
+  const transitionKind = getProductEvolutionTransitionKind({
+    hasPreviousDiagnosis,
+    hasUserActionChangesSincePreviousDiagnosis,
+    hasConcreteProductChangesSincePreviousDiagnosis,
+  });
+  const context = {
+    schemaVersion: 1,
+    mode: hasPreviousDiagnosis ? "successive" : "baseline",
+    transitionKind,
+    hasPreviousDiagnosis,
+    previousDiagnosis: hasPreviousDiagnosis ? summarizePreviousDiagnosisForEvolution(previousDiagnosis) : null,
+    previousCompletedAt,
+    currentRun: {
+      productGid: snapshot.productGid || deterministic.product?.id || null,
+      productTitle: snapshot.productTitle || deterministic.product?.title || null,
+      riskScore: numberOrNull(deterministic.riskScore),
+      confidence: numberOrNull(deterministic.confidence),
+      mainIssue: deterministic.mainIssue || null,
+      mainIssueLabel: deterministic.mainIssueLabel || getHumanIssueLabel(deterministic.mainIssue),
+      analyzedAt: new Date().toISOString(),
+      incrementalMode: deterministic.metrics?.incrementalDiagnosis?.mode || "full",
+    },
+    actionsSincePreviousDiagnosis: normalizedActions.slice(0, 12),
+    handledActionsSincePreviousDiagnosis: handledActions.slice(0, 10),
+    openActionsSincePreviousDiagnosis: openActions.slice(0, 6),
+    actionCounts: countProductEvolutionActionStatuses(normalizedActions),
+    hasUserActionChangesSincePreviousDiagnosis,
+    hasConcreteProductChangesSincePreviousDiagnosis,
+    sourceSummary,
+    metricChanges,
+    issueTransition,
+    handledActionKeys: Array.from(handledActionKeys).slice(0, 80),
+    candidateTransitions,
+    recommendationPolicy: {
+      actionOnlyReanalysis: transitionKind === "actions_changed",
+      suppressExactHandledRecommendationsWhenNoNewEvidence: transitionKind === "actions_changed",
+      keepHandledRecommendationsWhenNewEvidencePersists: sourceSummary.hasNewEvidence,
+      explainFollowUpForHandledRecommendation: handledActions.length > 0,
+    },
+  };
+
+  return {
+    ...context,
+    summary: buildProductEvolutionSummaryText(context),
+  };
+}
+
+function attachProductEvolutionToDeterministic(deterministic = {}, productEvolution = null) {
+  if (!productEvolution) return deterministic;
+  return {
+    ...deterministic,
+    metrics: {
+      ...(deterministic.metrics || {}),
+      productEvolution,
+    },
+  };
+}
+
+function sanitizeProductEvolutionForAi(productEvolution = null) {
+  if (!productEvolution || typeof productEvolution !== "object") return null;
+  return {
+    schemaVersion: productEvolution.schemaVersion || 1,
+    mode: productEvolution.mode || "baseline",
+    transitionKind: productEvolution.transitionKind || "baseline",
+    summary: productEvolution.summary || "",
+    previousDiagnosis: productEvolution.previousDiagnosis || null,
+    currentRun: productEvolution.currentRun || null,
+    handledActionsSincePreviousDiagnosis: (productEvolution.handledActionsSincePreviousDiagnosis || []).slice(0, 8),
+    openActionsSincePreviousDiagnosis: (productEvolution.openActionsSincePreviousDiagnosis || []).slice(0, 4),
+    actionCounts: productEvolution.actionCounts || {},
+    sourceSummary: productEvolution.sourceSummary || null,
+    metricChanges: (productEvolution.metricChanges || []).slice(0, 10),
+    issueTransition: productEvolution.issueTransition || null,
+    candidateTransitions: (productEvolution.candidateTransitions || []).slice(0, 12),
+    recommendationPolicy: productEvolution.recommendationPolicy || null,
+  };
+}
+
+function summarizeProductEvolutionContext(productEvolution = {}) {
+  return {
+    mode: productEvolution?.mode || "baseline",
+    transitionKind: productEvolution?.transitionKind || "baseline",
+    hasPreviousDiagnosis: Boolean(productEvolution?.hasPreviousDiagnosis),
+    handledActions: productEvolution?.handledActionsSincePreviousDiagnosis?.length || 0,
+    openActions: productEvolution?.openActionsSincePreviousDiagnosis?.length || 0,
+    metricChanges: productEvolution?.metricChanges?.length || 0,
+    sourceChanges: productEvolution?.sourceSummary?.changes?.length || 0,
+    hasNewEvidence: Boolean(productEvolution?.sourceSummary?.hasNewEvidence),
+  };
+}
+
+function summarizeProductEvolutionForJobLog(productEvolution = {}) {
+  return {
+    mode: productEvolution?.mode || "baseline",
+    transitionKind: productEvolution?.transitionKind || "baseline",
+    summary: truncateText(productEvolution?.summary || "", 400),
+    actionCounts: productEvolution?.actionCounts || {},
+    sourceChanges: productEvolution?.sourceSummary?.changes || [],
+    metricChanges: (productEvolution?.metricChanges || []).slice(0, 8),
+  };
+}
+
+function normalizeProductEvolutionActions(actionRecords = [], { previousCompletedAt = null, previousDiagnosisId = null } = {}) {
+  const cutoff = parseValidDate(previousCompletedAt);
+  const previousId = String(previousDiagnosisId || "").trim();
+  return (Array.isArray(actionRecords) ? actionRecords : [])
+    .map(normalizeProductEvolutionAction)
+    .filter(Boolean)
+    .filter((action) => {
+      if (!previousId && !cutoff) return true;
+      if (previousId && action.sourceDiagnosisId === previousId) return true;
+      const handledAt = parseValidDate(action.handledAt || action.appliedAt || action.createdAt);
+      return Boolean(cutoff && handledAt && handledAt.getTime() >= cutoff.getTime());
+    })
+    .sort((first, second) => {
+      const firstTime = parseValidDate(first.handledAt || first.appliedAt || first.createdAt)?.getTime() || 0;
+      const secondTime = parseValidDate(second.handledAt || second.appliedAt || second.createdAt)?.getTime() || 0;
+      return secondTime - firstTime;
+    });
+}
+
+function normalizeProductEvolutionAction(action = {}) {
+  if (!action || typeof action !== "object") return null;
+  const payload = action.payload && typeof action.payload === "object" ? action.payload : {};
+  const actionId = String(action.actionType || payload.canonicalActionId || payload.sourceActionId || "").trim();
+  if (isProductEvolutionInternalAction(actionId, action.label, payload)) return null;
+  const status = normalizeProductEvolutionActionStatus(action.status);
+  const appliedAt = toIso(action.appliedAt);
+  const createdAt = toIso(action.createdAt);
+  const handledAt = toIso(action.appliedAt || action.createdAt);
+  const label = String(action.label || payload.title || payload.label || actionId || "Product action").trim();
+  const actionKeys = Array.from(buildProductEvolutionActionKeySet({
+    id: actionId,
+    label,
+    payload,
+    actionAliases: payload.actionAliases,
+  })).slice(0, 20);
+  return {
+    actionId: actionId || normalizeRecommendationRationaleKey(label),
+    label,
+    status,
+    createdAt,
+    appliedAt,
+    handledAt,
+    sourceDiagnosisId: String(action.diagnosisId || payload.sourceDiagnosisId || payload.diagnosisId || "").trim() || null,
+    field: payload.field || payload.shopifyField || null,
+    operation: payload.operation || payload.placement || payload.changeStrategy || null,
+    appliedChange: summarizeProductEvolutionAppliedChange(payload.appliedChange),
+    hasDraftText: Boolean(payload.draftText),
+    actionKeys,
+  };
+}
+
+function isProductEvolutionInternalAction(actionId = "", label = "", payload = {}) {
+  const normalized = normalizeRecommendationRationaleKey([
+    actionId,
+    label,
+    payload?.sourceActionId,
+    payload?.canonicalActionId,
+  ].filter(Boolean).join(" "));
+  return normalized.includes("run-ai-diagnosis");
+}
+
+function normalizeProductEvolutionActionStatus(status = "") {
+  const normalized = String(status || "").trim().toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_+|_+$/g, "");
+  if (["applied", "completed", "complete", "done"].includes(normalized)) return "applied";
+  if (["reviewed", "review"].includes(normalized)) return "reviewed";
+  if (["dismissed", "ignored", "cancelled", "canceled"].includes(normalized)) return normalized === "ignored" ? "ignored" : "dismissed";
+  if (["active", "restored"].includes(normalized)) return "active";
+  if (["pending", "draft"].includes(normalized)) return normalized;
+  return normalized || "unknown";
+}
+
+function isHandledProductEvolutionActionStatus(status = "") {
+  return ["applied", "reviewed", "dismissed", "ignored"].includes(normalizeProductEvolutionActionStatus(status));
+}
+
+function isOpenProductEvolutionActionStatus(status = "") {
+  return ["draft", "pending", "active"].includes(normalizeProductEvolutionActionStatus(status));
+}
+
+function summarizeProductEvolutionAppliedChange(change = null) {
+  if (!change || typeof change !== "object") return null;
+  return {
+    type: change.type || change.kind || null,
+    field: change.field || change.shopifyField || null,
+    operation: change.operation || change.action || null,
+    status: change.status || null,
+  };
+}
+
+function countProductEvolutionActionStatuses(actions = []) {
+  return (Array.isArray(actions) ? actions : []).reduce((counts, action) => {
+    const status = normalizeProductEvolutionActionStatus(action.status);
+    counts.total += 1;
+    counts[status] = (counts[status] || 0) + 1;
+    if (isHandledProductEvolutionActionStatus(status)) counts.handled += 1;
+    if (isOpenProductEvolutionActionStatus(status)) counts.open += 1;
+    return counts;
+  }, { total: 0, handled: 0, open: 0 });
+}
+
+function buildHandledProductEvolutionActionKeys(actions = []) {
+  const keys = new Set();
+  (Array.isArray(actions) ? actions : []).forEach((action) => {
+    buildProductEvolutionActionKeySet(action).forEach((key) => keys.add(key));
+  });
+  return keys;
+}
+
+function buildProductEvolutionActionKeySet(action = {}) {
+  const payload = action.payload && typeof action.payload === "object" ? action.payload : {};
+  const aliases = Array.isArray(action.actionAliases)
+    ? action.actionAliases
+    : Array.isArray(payload.actionAliases)
+      ? payload.actionAliases
+      : Array.isArray(action.actionKeys)
+        ? action.actionKeys
+        : [];
+  return new Set([
+    action.id,
+    action.actionId,
+    action.actionType,
+    action.label,
+    payload.sourceActionId,
+    payload.canonicalActionId,
+    ...aliases,
+  ].map(normalizeRecommendationRationaleKey).filter(Boolean));
+}
+
+function buildProductEvolutionSourceSummary(deterministic = {}) {
+  const incremental = deterministic.metrics?.incrementalDiagnosis || {};
+  const productContent = incremental.productContent || {};
+  const customerText = incremental.customerText || {};
+  const refunds = incremental.refunds || {};
+  const sourceEvents = incremental.sourceEvents || incremental.sourceChanges?.sourceEventFetch || {};
+  const rawCounts = sourceEvents.rawFetchedCounts || {};
+  const changes = [];
+  const sourceEventChangeCount = ["salesEvents", "refundEvents", "returnEvents"]
+    .reduce((total, key) => total + Math.max(0, Number(rawCounts[key] || 0)), 0);
+
+  if (productContent.changed) {
+    changes.push({
+      type: "product_content",
+      label: "Product content changed",
+      detail: productContent.reason || "Product content was analyzed as changed since the previous diagnosis.",
+    });
+  }
+  if (Number(customerText.analyzedItems || 0) > 0) {
+    changes.push({
+      type: "customer_text",
+      label: "New customer text analyzed",
+      count: Number(customerText.analyzedItems || 0),
+      detail: customerText.reason || "",
+    });
+  }
+  if (Number(refunds.analyzedItems || 0) > 0) {
+    changes.push({
+      type: "refund_text",
+      label: "New refund context analyzed",
+      count: Number(refunds.analyzedItems || 0),
+      detail: refunds.reason || "",
+    });
+  }
+  if (sourceEventChangeCount > 0) {
+    changes.push({
+      type: "source_events",
+      label: "New source events fetched",
+      counts: {
+        salesEvents: Number(rawCounts.salesEvents || 0),
+        returnEvents: Number(rawCounts.returnEvents || 0),
+        refundEvents: Number(rawCounts.refundEvents || 0),
+      },
+      detail: sourceEvents.reason || sourceEvents.mode || "",
+    });
+  }
+
+  const aiEvidenceSnippetCount = Number(incremental.aiEvidenceSnippetCount ?? deterministic.evidenceSnippets?.length ?? 0);
+  const sourceFingerprintChanged = incremental.sourceChanges?.unchanged === false
+    && !isIncrementalSourceFetchWithoutNewEvents(incremental.sourceChanges?.sourceEventFetch || sourceEvents);
+  const hasNewEvidence = Boolean(
+    changes.length
+      || aiEvidenceSnippetCount > 0
+      || sourceFingerprintChanged,
+  );
+
+  return {
+    mode: incremental.mode || "full",
+    previousCompletedAt: incremental.previousCompletedAt || null,
+    cutoffAt: incremental.cutoffAt || null,
+    hasNewEvidence,
+    aiEvidenceSnippetCount,
+    sourceFingerprintChanged,
+    sourceExtractionComplete: incremental.sourceChanges?.sourceExtractionComplete !== false,
+    changes: changes.slice(0, 8),
+  };
+}
+
+function buildProductEvolutionMetricChanges({ previousDiagnosis = {}, deterministic = {} } = {}) {
+  const currentMetrics = deterministic.metrics || {};
+  const previousMetrics = previousDiagnosis.metrics || {};
+  const currentIssue = deterministic.mainIssueLabel || getHumanIssueLabel(deterministic.mainIssue);
+  const previousIssue = previousDiagnosis.likelyCause || previousMetrics.mainIssueLabel || previousMetrics.primaryIssue || "";
+  const changes = [];
+  const addNumber = ({ key, label, previous, current, threshold = 1, unit = "" }) => {
+    const previousNumber = numberOrNull(previous);
+    const currentNumber = numberOrNull(current);
+    if (previousNumber == null || currentNumber == null) return;
+    const delta = roundRate(currentNumber - previousNumber, Math.abs(currentNumber - previousNumber) < 10 ? 2 : 0);
+    if (Math.abs(delta) < threshold) return;
+    changes.push({
+      key,
+      label,
+      from: previousNumber,
+      to: currentNumber,
+      delta,
+      unit,
+      direction: delta > 0 ? "up" : "down",
+    });
+  };
+
+  if (previousIssue && currentIssue && normalizeText(previousIssue) !== normalizeText(currentIssue)) {
+    changes.push({
+      key: "main_issue",
+      label: "Main issue",
+      from: previousIssue,
+      to: currentIssue,
+      direction: "changed",
+    });
+  }
+
+  addNumber({ key: "riskScore", label: "Risk score", previous: previousDiagnosis.riskScore, current: deterministic.riskScore, threshold: 1, unit: "points" });
+  addNumber({ key: "confidence", label: "Confidence", previous: previousDiagnosis.confidence, current: deterministic.confidence, threshold: 1, unit: "points" });
+  addNumber({ key: "returnUnits", label: "Returned units", previous: previousMetrics.returnUnits, current: currentMetrics.returnUnits, threshold: 1, unit: "units" });
+  addNumber({ key: "refundUnits", label: "Refunded units", previous: previousMetrics.refundUnits, current: currentMetrics.refundUnits, threshold: 1, unit: "units" });
+  addNumber({ key: "returnRate", label: "Return rate", previous: previousMetrics.returnRate, current: currentMetrics.returnRate, threshold: 0.2, unit: "%" });
+  addNumber({ key: "refundRate", label: "Refund rate", previous: previousMetrics.refundRate, current: currentMetrics.refundRate, threshold: 0.2, unit: "%" });
+  addNumber({ key: "negativeReviewCount", label: "Negative reviews", previous: previousMetrics.negativeReviewCount, current: currentMetrics.negativeReviewCount, threshold: 1, unit: "reviews" });
+  addNumber({ key: "reviewCount", label: "Review count", previous: previousMetrics.reviewCount, current: currentMetrics.reviewCount, threshold: 1, unit: "reviews" });
+  addNumber({ key: "contentIssueCount", label: "Content issues", previous: previousMetrics.contentIssueCount, current: currentMetrics.contentIssueCount, threshold: 1, unit: "issues" });
+  addNumber({ key: "productMomentumScore", label: "Sales Momentum", previous: previousMetrics.productMomentumScore || previousMetrics.productMomentum?.score, current: currentMetrics.productMomentumScore || currentMetrics.productMomentum?.score, threshold: 3, unit: "points" });
+
+  return changes.slice(0, 12);
+}
+
+function buildProductEvolutionIssueTransition({ previousDiagnosis = {}, deterministic = {} } = {}) {
+  const previousIssues = getProductEvolutionIssueRows(previousDiagnosis.issues);
+  const currentIssues = getCurrentProductEvolutionIssueRows(deterministic);
+  const currentKeys = new Set(currentIssues.map((issue) => issue.key));
+  const previousKeys = new Set(previousIssues.map((issue) => issue.key));
+  return {
+    previous: previousIssues.slice(0, 8),
+    current: currentIssues.slice(0, 8),
+    persisting: previousIssues.filter((issue) => currentKeys.has(issue.key)).slice(0, 6),
+    noLongerDetected: previousIssues.filter((issue) => !currentKeys.has(issue.key)).slice(0, 6),
+    newlyDetected: currentIssues.filter((issue) => !previousKeys.has(issue.key)).slice(0, 6),
+  };
+}
+
+function buildEmptyProductEvolutionIssueTransition() {
+  return {
+    previous: [],
+    current: [],
+    persisting: [],
+    noLongerDetected: [],
+    newlyDetected: [],
+  };
+}
+
+function getProductEvolutionIssueRows(issues = []) {
+  return (Array.isArray(issues) ? issues : [])
+    .map((issue) => {
+      const label = String(issue.issue || issue.label || issue.title || issue.issueCode || "").trim();
+      const key = normalizeIssueCode(issue.issueCode || issue.key || label) || normalizeRecommendationRationaleKey(label);
+      if (!label || !key) return null;
+      return {
+        key,
+        label,
+        severity: issue.severity || null,
+        confidence: numberOrNull(issue.confidence),
+      };
+    })
+    .filter(Boolean);
+}
+
+function getCurrentProductEvolutionIssueRows(deterministic = {}) {
+  const rows = [];
+  const counts = deterministic.issueSignalCounts || {};
+  Object.entries(counts).forEach(([issueCode, count]) => {
+    if (Number(count || 0) <= 0) return;
+    const key = normalizeIssueCode(issueCode);
+    if (!key) return;
+    rows.push({ key, label: getHumanIssueLabel(key), count: Number(count || 0) });
+  });
+  const contentIssues = [
+    ...(Array.isArray(deterministic.metrics?.contentIssues) ? deterministic.metrics.contentIssues : []),
+    ...(Array.isArray(deterministic.metrics?.contentAnalysis?.issues) ? deterministic.metrics.contentAnalysis.issues : []),
+  ];
+  contentIssues.forEach((issue) => {
+    const key = normalizeIssueCode(issue.issueCode || issue.code || "product_content") || "product_content";
+    rows.push({
+      key,
+      label: issue.label || getHumanIssueLabel(key),
+      severity: issue.severity || null,
+    });
+  });
+  if (deterministic.mainIssue) {
+    const key = normalizeIssueCode(deterministic.mainIssue);
+    if (key && !rows.some((row) => row.key === key)) {
+      rows.push({ key, label: deterministic.mainIssueLabel || getHumanIssueLabel(key) });
+    }
+  }
+  return uniqueBy(rows, (item) => item.key).slice(0, 12);
+}
+
+function summarizePreviousDiagnosisForEvolution(previousDiagnosis = {}) {
+  const report = previousDiagnosis.metrics?.diagnosisReport || {};
+  const mainFinding = report.mainFinding || previousDiagnosis.metrics?.mainFinding || {};
+  return {
+    id: previousDiagnosis.id || null,
+    completedAt: toIso(previousDiagnosis.completedAt || previousDiagnosis.createdAt),
+    riskScore: numberOrNull(previousDiagnosis.riskScore),
+    confidence: numberOrNull(previousDiagnosis.confidence),
+    likelyCause: previousDiagnosis.likelyCause || null,
+    mainFindingTitle: mainFinding.title || null,
+    mainFindingSummary: truncateText(mainFinding.summary || mainFinding.detail || report.evidenceSummary || "", 500),
+    recommendations: normalizePreviousDiagnosisRecommendations(previousDiagnosis.recommendations),
+  };
+}
+
+function normalizePreviousDiagnosisRecommendations(recommendations = []) {
+  return (Array.isArray(recommendations) ? recommendations : [])
+    .map((action) => ({
+      actionId: action.id || action.actionId || "",
+      label: action.label || action.title || "",
+      type: action.type || "",
+    }))
+    .filter((action) => action.actionId || action.label)
+    .slice(0, 8);
+}
+
+function buildProductEvolutionCandidateTransitions({ recommendationCandidates = [], handledActionKeys = new Set(), actionOnly = false } = {}) {
+  return (Array.isArray(recommendationCandidates) ? recommendationCandidates : [])
+    .map((candidate) => {
+      const candidateKeys = buildProductEvolutionActionKeySet(candidate);
+      const matched = Array.from(candidateKeys).some((key) => handledActionKeys.has(key));
+      return {
+        actionId: candidate.id || "",
+        type: candidate.type || "",
+        reason: candidate.reason || "",
+        previouslyHandled: matched,
+        recommendedTreatment: matched && actionOnly ? "suppress_unless_new_evidence" : matched ? "frame_as_follow_up" : "new_or_unhandled",
+      };
+    })
+    .filter((candidate) => candidate.actionId)
+    .slice(0, 16);
+}
+
+function getProductEvolutionTransitionKind({
+  hasPreviousDiagnosis = false,
+  hasUserActionChangesSincePreviousDiagnosis = false,
+  hasConcreteProductChangesSincePreviousDiagnosis = false,
+} = {}) {
+  if (!hasPreviousDiagnosis) return "baseline";
+  if (hasUserActionChangesSincePreviousDiagnosis && hasConcreteProductChangesSincePreviousDiagnosis) return "actions_and_evidence_changed";
+  if (hasUserActionChangesSincePreviousDiagnosis) return "actions_changed";
+  if (hasConcreteProductChangesSincePreviousDiagnosis) return "evidence_changed";
+  return "no_material_change";
+}
+
+function buildProductEvolutionSummaryText(context = {}) {
+  if (!context.hasPreviousDiagnosis) {
+    return "This is the first Product Diagnosis for this product, so there is no previous diagnosis or action history to compare against.";
+  }
+  const previous = context.previousDiagnosis || {};
+  const actionText = summarizeProductEvolutionActionsText(context.handledActionsSincePreviousDiagnosis);
+  const sourceText = summarizeProductEvolutionSourceText(context.sourceSummary);
+  const metricText = summarizeProductEvolutionMetricText(context.metricChanges);
+  const issueText = summarizeProductEvolutionIssueText(context.issueTransition);
+  return [
+    `Previous diagnosis completed at ${previous.completedAt || "an earlier run"}${previous.likelyCause ? ` with ${previous.likelyCause}` : ""}.`,
+    actionText,
+    sourceText,
+    metricText,
+    issueText,
+  ].filter(Boolean).join(" ");
+}
+
+function summarizeProductEvolutionActionsText(actions = []) {
+  if (!Array.isArray(actions) || !actions.length) return "No merchant-facing actions were handled since the previous diagnosis.";
+  const labels = actions.slice(0, 4).map((action) => `${action.label} (${action.status})`);
+  const overflow = Math.max(0, actions.length - labels.length);
+  return `Handled actions since then: ${labels.join(", ")}${overflow ? ` and ${overflow} more` : ""}.`;
+}
+
+function summarizeProductEvolutionSourceText(sourceSummary = {}) {
+  const changes = Array.isArray(sourceSummary.changes) ? sourceSummary.changes : [];
+  if (!sourceSummary.hasNewEvidence) return "No new product/source evidence was detected; the transition is action-state driven.";
+  const labels = changes.map((change) => change.label).filter(Boolean).slice(0, 4);
+  return labels.length
+    ? `New/current evidence in this run: ${labels.join(", ")}.`
+    : "This run includes new or changed evidence compared with the previous diagnosis.";
+}
+
+function summarizeProductEvolutionMetricText(metricChanges = []) {
+  if (!Array.isArray(metricChanges) || !metricChanges.length) return "";
+  const labels = metricChanges.slice(0, 4).map((change) => {
+    if (change.key === "main_issue") return `main issue changed from ${change.from} to ${change.to}`;
+    const delta = Number(change.delta || 0);
+    return `${change.label} ${delta > 0 ? "increased" : "decreased"} from ${change.from} to ${change.to}${change.unit === "%" ? "%" : ""}`;
+  });
+  return `Metric movement: ${labels.join("; ")}.`;
+}
+
+function summarizeProductEvolutionIssueText(issueTransition = {}) {
+  const resolved = (issueTransition.noLongerDetected || []).map((issue) => issue.label).slice(0, 3);
+  const newlyDetected = (issueTransition.newlyDetected || []).map((issue) => issue.label).slice(0, 3);
+  const parts = [];
+  if (resolved.length) parts.push(`no longer detected: ${resolved.join(", ")}`);
+  if (newlyDetected.length) parts.push(`newly detected: ${newlyDetected.join(", ")}`);
+  return parts.length ? `Issue transition: ${parts.join("; ")}.` : "";
+}
+
+function applyProductEvolutionToRecommendationCandidates(candidates = [], productEvolution = null) {
+  if (!productEvolution?.recommendationPolicy?.suppressExactHandledRecommendationsWhenNoNewEvidence) {
+    return candidates;
+  }
+  const handledKeys = new Set(productEvolution.handledActionKeys || []);
+  return (Array.isArray(candidates) ? candidates : []).filter((candidate) => {
+    const candidateKeys = buildProductEvolutionActionKeySet(candidate);
+    return !Array.from(candidateKeys).some((key) => handledKeys.has(key));
+  });
+}
+
+function hasProductEvolutionActionChanges(productEvolution = null) {
+  return Boolean(productEvolution?.hasUserActionChangesSincePreviousDiagnosis);
+}
+
 async function persistNoChangeDiagnosisRefresh({ shop, snapshot, deterministic, reuseDecision }) {
   const data = buildNoChangeDiagnosisRefreshData({ snapshot, deterministic, reuseDecision });
   const refreshedSnapshot = await prisma.productRiskSnapshot.update({
@@ -5694,6 +6330,8 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
   const aiEvidenceSnippetCount = Number(incremental.aiEvidenceSnippetCount ?? deterministic.evidenceSnippets?.length ?? 0);
   const noNewAiEvidence = aiEvidenceSnippetCount === 0;
   const sourceChanges = incremental.sourceChanges || {};
+  const productEvolution = metrics.productEvolution || null;
+  const productActionChanges = hasProductEvolutionActionChanges(productEvolution);
   const sourceExtractionComplete = sourceChanges.sourceExtractionComplete !== false;
   const sourceFingerprintCompared = Boolean(sourceChanges.previousFingerprint && sourceChanges.currentFingerprint);
   const sourceFingerprintUnchanged = sourceChanges.unchanged === true;
@@ -5716,13 +6354,14 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     noNewAiEvidence,
   });
   let matchedBy = null;
-  if (!sourceMetricCorrection) {
+  if (!sourceMetricCorrection && !productActionChanges) {
     if (sourceFingerprintUnchanged) matchedBy = "source_fingerprint";
     else if (materialUnchanged) matchedBy = "material_metrics";
     else if (dateOnlyRefresh) matchedBy = "date_derived_metrics";
   }
   const blockers = [
     !hasPreviousCompletedDiagnosis ? "missing_previous_completed_diagnosis" : null,
+    productActionChanges ? "product_actions_changed_since_previous_diagnosis" : null,
     !productContentReused ? "product_content_changed_or_not_cached" : null,
     !customerTextUnchanged ? "customer_text_changed_or_not_incremental" : null,
     !refundsUnchanged ? "refunds_changed_or_not_incremental" : null,
@@ -5743,6 +6382,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     customerTextUnchanged,
     refundsUnchanged,
     noNewAiEvidence,
+    productActionChanges,
   });
 
   return {
@@ -5754,6 +6394,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     productContentReused,
     customerTextUnchanged,
     refundsUnchanged,
+    productActionChanges,
     sourceExtractionComplete,
     noNewAiEvidence,
     sourceFingerprintCompared,
@@ -5764,6 +6405,7 @@ function getNoChangeDiagnosisReuseDecision({ snapshot = {}, deterministic = {} }
     materialComparison,
     chartInterpretationReuse,
     recommendationReevaluation,
+    productEvolution,
   };
 }
 
@@ -5777,19 +6419,26 @@ function buildRecommendationReevaluationDecision({
   customerTextUnchanged = false,
   refundsUnchanged = false,
   noNewAiEvidence = false,
+  productActionChanges = false,
 } = {}) {
   const triggers = [...blockers];
   return {
     required: !shouldReuse,
-    reason: shouldReuse ? "current_recommendations_remain_current" : "changes_may_affect_recommendations",
+    reason: shouldReuse
+      ? "current_recommendations_remain_current"
+      : productActionChanges
+        ? "handled_actions_may_affect_recommendations"
+        : "changes_may_affect_recommendations",
     matchedBy,
     triggers,
-    sufficientToSkip: shouldReuse && productContentReused && customerTextUnchanged && refundsUnchanged && noNewAiEvidence && Boolean(matchedBy),
+    sufficientToSkip: shouldReuse && !productActionChanges && productContentReused && customerTextUnchanged && refundsUnchanged && noNewAiEvidence && Boolean(matchedBy),
     materialMetricChanges: Array.isArray(materialComparison.changed) ? materialComparison.changed : [],
     sourceFingerprintChanged: sourceChanges.unchanged === false,
+    productActionChanges,
     policy: [
       "Reevaluate recommendations when product content changed or was not comparable.",
       "Reevaluate when new return, refund, review, or customer-text evidence was analyzed.",
+      "Reevaluate when merchant-facing ProductPulse actions were applied, reviewed, dismissed, or ignored after the previous Product Diagnosis.",
       "Reevaluate when source extraction is incomplete because reuse would be unsafe.",
       "Reevaluate when source fingerprints or material diagnosis metrics changed.",
       "Reuse existing recommendations when the only movement is date-window recalculation with no newly fetched source events.",
@@ -8159,8 +8808,58 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     deduplicateRecommendationActions(uniqueBy(filterDisabledProductActions(recommendations), (item) => item.id)),
     { deterministic, mainIssue, recipeSignals },
   )
+    .filter((item) => shouldKeepRecommendationAfterProductEvolution(item, deterministic.metrics?.productEvolution))
+    .map((item) => attachProductEvolutionContextToRecommendation(item, deterministic.metrics?.productEvolution))
     .map((item) => attachAiActionRationale(item, actionRationales))
     .map((item, index) => decorateRecommendationRecipe(item, { deterministic, mainIssue, index }));
+}
+
+function shouldKeepRecommendationAfterProductEvolution(action = {}, productEvolution = null) {
+  if (!productEvolution?.recommendationPolicy?.suppressExactHandledRecommendationsWhenNoNewEvidence) return true;
+  return !getMatchingProductEvolutionHandledAction(action, productEvolution);
+}
+
+function attachProductEvolutionContextToRecommendation(action = {}, productEvolution = null) {
+  const matchedAction = getMatchingProductEvolutionHandledAction(action, productEvolution);
+  if (!matchedAction) return action;
+  const status = normalizeProductEvolutionActionStatus(matchedAction.status);
+  const context = {
+    previousActionId: matchedAction.actionId || null,
+    previousActionLabel: matchedAction.label || null,
+    previousActionStatus: status,
+    previousActionHandledAt: matchedAction.handledAt || matchedAction.appliedAt || matchedAction.createdAt || null,
+    transitionKind: productEvolution?.transitionKind || null,
+  };
+  return {
+    ...action,
+    payload: {
+      ...(action.payload || {}),
+      productEvolutionContext: context,
+      whyThisAction: action.payload?.whyThisAction || buildProductEvolutionFollowUpRationale(action, matchedAction, productEvolution),
+    },
+  };
+}
+
+function getMatchingProductEvolutionHandledAction(action = {}, productEvolution = null) {
+  const handled = Array.isArray(productEvolution?.handledActionsSincePreviousDiagnosis)
+    ? productEvolution.handledActionsSincePreviousDiagnosis
+    : [];
+  if (!handled.length) return null;
+  const actionKeys = buildProductEvolutionActionKeySet(action);
+  if (!actionKeys.size) return null;
+  return handled.find((handledAction) => {
+    const handledKeys = buildProductEvolutionActionKeySet(handledAction);
+    return Array.from(actionKeys).some((key) => handledKeys.has(key));
+  }) || null;
+}
+
+function buildProductEvolutionFollowUpRationale(action = {}, matchedAction = {}, productEvolution = {}) {
+  const label = matchedAction.label || action.label || "this action";
+  const status = normalizeProductEvolutionActionStatus(matchedAction.status);
+  if (productEvolution?.sourceSummary?.hasNewEvidence) {
+    return `ProductPulse is treating ${label} as previous context because it was ${status} after the last diagnosis. This recommendation should be read as a follow-up only: current evidence or product changes still support checking whether the prior action fully addressed the issue.`;
+  }
+  return `ProductPulse found that ${label} was already ${status} after the last diagnosis. This action should not be repeated as a new baseline recommendation unless new evidence appears or the merchant decides the prior handling was incomplete.`;
 }
 
 function getAiActionRationaleMap(ai = {}) {
@@ -8260,14 +8959,20 @@ function attachAiActionRationale(action = {}, rationaleMap = new Map()) {
   const key = normalizeRecommendationRationaleKey(action.id);
   const rationale = rationaleMap.get(key);
   if (!rationale) return action;
+  const evolutionSuffix = buildProductEvolutionRationaleSuffix(action.payload?.productEvolutionContext);
   return {
     ...action,
     payload: {
       ...(action.payload || {}),
-      whyThisAction: rationale,
+      whyThisAction: evolutionSuffix ? `${rationale} ${evolutionSuffix}` : rationale,
       rationaleSource: "ai_action_rationale",
     },
   };
+}
+
+function buildProductEvolutionRationaleSuffix(context = null) {
+  if (!context?.previousActionLabel || !context.previousActionStatus) return "";
+  return `Previous context: ${context.previousActionLabel} was ${context.previousActionStatus}${context.previousActionHandledAt ? ` at ${context.previousActionHandledAt}` : ""}, so this recommendation should be treated as a follow-up rather than a first-time baseline action.`;
 }
 
 function normalizeRecommendationRationaleKey(value = "") {
@@ -18611,6 +19316,9 @@ export const __productPulseDiagnosisTestHooks = {
   buildSuggestedSeoTitle,
   buildNoChangeDiagnosisRefreshData,
   buildCachedAiModelSummary,
+  buildProductDiagnosisEvolutionContextFromRecords,
+  attachProductEvolutionToDeterministic,
+  applyProductEvolutionToRecommendationCandidates,
   normalizeAiClassifiedSignals,
   countAiSignalsByIssue,
   classifyIssueText,

@@ -1706,6 +1706,113 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(reuseDecision.shouldReuse).toBe(true);
   });
 
+  it("blocks no-change reuse when a merchant-facing action was handled since the previous diagnosis", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const product = {
+      id: "gid://shopify/Product/321",
+      numericId: "321",
+      title: "Canvas Print",
+      handle: "canvas-print",
+      updatedAt: daysAgo(10),
+      description: "Canvas wall art with framed finish.",
+      variants: [],
+      tags: ["art"],
+      collections: ["Art prints"],
+    };
+    const snapshot = {
+      productGid: "gid://shopify/Product/321",
+      productTitle: "Canvas Print",
+      handle: "canvas-print",
+      primaryIssue: "Product quality",
+      metrics: {},
+    };
+    const oldReview = {
+      id: "review-old-stable",
+      title: "Too dark",
+      body: "The image is darker than expected.",
+      rating: 2,
+      createdAt: daysAgo(8),
+    };
+    const first = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: { product, sales: [], refunds: [], returns: [], orderAccessDenied: false },
+      judgeMeData: { connected: true, reviews: [oldReview], matchConfidence: 1 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+    const previousCompletedAt = daysAgo(3);
+    const second = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot: {
+        ...snapshot,
+        riskScore: first.riskScore,
+        confidence: first.confidence,
+        metrics: {
+          ...first.metrics,
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: previousCompletedAt,
+        },
+      },
+      shopifyData: { product, sales: [], refunds: [], returns: [], orderAccessDenied: false },
+      judgeMeData: { connected: true, reviews: [oldReview], matchConfidence: 1 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 30,
+    });
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot,
+      deterministic: second,
+      previousDiagnosis: {
+        id: "diagnosis-1",
+        productGid: snapshot.productGid,
+        riskScore: first.riskScore,
+        confidence: first.confidence,
+        likelyCause: "Product quality",
+        recommendations: [{ id: "rewrite-product-description", label: "Rewrite product description" }],
+        metrics: first.metrics,
+        completedAt: previousCompletedAt,
+      },
+      actionRecords: [{
+        id: "action-1",
+        diagnosisId: "diagnosis-1",
+        productGid: snapshot.productGid,
+        actionType: "rewrite-product-description",
+        label: "Rewrite product description",
+        status: "applied",
+        payload: { canonicalActionId: "rewrite-product-description" },
+        createdAt: daysAgo(1),
+        appliedAt: daysAgo(1),
+      }],
+      recommendationCandidates: [{ id: "rewrite-product-description", type: "PDP copy" }],
+    });
+    const secondWithEvolution = __productPulseDiagnosisTestHooks.attachProductEvolutionToDeterministic(second, productEvolution);
+    const reuseDecision = __productPulseDiagnosisTestHooks.getNoChangeDiagnosisReuseDecision({
+      snapshot: {
+        ...snapshot,
+        riskScore: first.riskScore,
+        confidence: first.confidence,
+        metrics: {
+          ...first.metrics,
+          latestDiagnosisId: "diagnosis-1",
+          lastDetailedDiagnosisAt: previousCompletedAt,
+          chartInterpretations: {
+            insightVersion: "product_chart_interpretations_v1",
+            status: "available",
+            interpretations: {
+              productRiskOverTime: { text: "Risk stayed stable across the stored evidence window." },
+            },
+          },
+        },
+      },
+      deterministic: secondWithEvolution,
+    });
+
+    expect(productEvolution.transitionKind).toBe("actions_changed");
+    expect(productEvolution.handledActionsSincePreviousDiagnosis).toHaveLength(1);
+    expect(secondWithEvolution.metrics.productEvolution.summary).toContain("Handled actions since then");
+    expect(reuseDecision.shouldReuse).toBe(false);
+    expect(reuseDecision.blockers).toContain("product_actions_changed_since_previous_diagnosis");
+    expect(reuseDecision.recommendationReevaluation.reason).toBe("handled_actions_may_affect_recommendations");
+  });
+
   it("stores and merges Shopify source events so incremental fetches do not refetch the full window", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const snapshot = {
@@ -2853,6 +2960,105 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       contentIssues: analysis.issues,
       currentDescription: "The Vans SK8-Hi in True White delivers a classic high-top look for everyday wear with a padded collar, durable canvas and suede upper, lace-up closure, reinforced toe cap, and signature waffle outsole.",
     })).toBe(false);
+  });
+
+  it("suppresses exact handled recommendations during action-only reanalysis", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      mainIssueLabel: "Product content",
+      riskScore: 68,
+      confidence: 82,
+      issueSignalCounts: { product_content: 1 },
+      product: {
+        id: "gid://shopify/Product/handled-description",
+        title: "Handled Description Product",
+        handle: "handled-description-product",
+        description: "",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        customerSignalCount: 0,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        signalCount: 1,
+        topReturnReasons: [],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 1,
+        contentAnalysis: {
+          issues: [{
+            code: "missing_description",
+            label: "Missing product description",
+            severity: "high",
+            evidence: "The product description is missing.",
+          }],
+          advisories: [],
+        },
+        textInsights: { sentiment: { total: 0, negative: 0, negativeRatio: 0 }, repeatedLanguage: [] },
+        refundInsights: {},
+        mediaCount: 1,
+        mediaWithoutAltCount: 0,
+      },
+    };
+    const previousCompletedAt = "2026-05-10T00:00:00.000Z";
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot: {
+        productGid: deterministic.product.id,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      previousDiagnosis: {
+        id: "diagnosis-previous",
+        productGid: deterministic.product.id,
+        riskScore: 68,
+        confidence: 82,
+        likelyCause: "Product content",
+        recommendations: [{ id: "rewrite-product-description", label: "Rewrite product description" }],
+        metrics: { contentIssueCount: 1 },
+        completedAt: previousCompletedAt,
+      },
+      actionRecords: [{
+        id: "action-previous",
+        diagnosisId: "diagnosis-previous",
+        productGid: deterministic.product.id,
+        actionType: "rewrite-product-description",
+        label: "Rewrite product description",
+        status: "applied",
+        payload: { canonicalActionId: "rewrite-product-description" },
+        createdAt: "2026-05-11T00:00:00.000Z",
+        appliedAt: "2026-05-11T00:00:00.000Z",
+      }],
+      recommendationCandidates: [{ id: "rewrite-product-description", type: "PDP copy" }],
+    });
+    const deterministicWithEvolution = __productPulseDiagnosisTestHooks.attachProductEvolutionToDeterministic(deterministic, productEvolution);
+
+    const filteredCandidates = __productPulseDiagnosisTestHooks.applyProductEvolutionToRecommendationCandidates(
+      [{ id: "rewrite-product-description", type: "PDP copy" }, { id: "add-to-watchlist", type: "Watchlist" }],
+      productEvolution,
+    );
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: deterministic.product.id,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic: deterministicWithEvolution,
+      ai: {
+        report: {
+          recommendation_copy: {
+            product_description: "A clear replacement description for shoppers.",
+          },
+        },
+      },
+      mainIssue: "product_content",
+    });
+
+    expect(productEvolution.transitionKind).toBe("actions_changed");
+    expect(filteredCandidates.map((candidate) => candidate.id)).not.toContain("rewrite-product-description");
+    expect(recommendations.map((item) => item.id)).not.toContain("rewrite-product-description");
   });
 
   it("surfaces title and description mismatch as a semantic advisory when product categories are clearly disconnected", () => {

@@ -13,6 +13,7 @@ Where recommendations live:
 - Product Diagnosis can store recommendations inside `ProductDiagnosis`.
 - Confirmed AI app mutations can create or update real `ProductAction` rows.
 - Product detail reads these ProductPulse records and displays them in the app.
+- Successive Product Diagnosis runs include handled `ProductAction` history as evolution context, so recommendations can be framed as follow-up work instead of repeating the original baseline diagnosis.
 
 Important distinction:
 
@@ -37,3 +38,4 @@ What the AI assistant must not do:
 Current limitation:
 
 - Some recommendation generation rules are issue-specific and long. The knowledge layer summarizes the supported behavior instead of claiming every possible template.
+- If only action status changed and no new source/product evidence exists, exact handled recommendations are suppressed during reanalysis unless future evidence shows the issue persisted or returned.

@@ -911,6 +911,7 @@ function buildSignalClassificationPrompt(input) {
   const metrics = stringifyAiJson(input?.deterministic || {});
   const product = stringifyAiJson(input?.product || {});
   const incremental = stringifyAiJson(input?.incremental || null);
+  const productEvolution = stringifyAiJson(input?.productEvolution || null);
   const previousPrimaryIssue = String(input?.previousPrimaryIssue || "").trim();
   const sentimentTaxonomy = stringifyAiJson(PREDEFINED_CUSTOMER_SENTIMENTS);
 
@@ -926,6 +927,9 @@ function buildSignalClassificationPrompt(input) {
     "Separate subjective expectation mismatch from operational quality. If shoppers say the product is too soft, too firm, too dark, too scary, not their style, or a preference mismatch, treat that as expectation/content guidance unless evidence shows damage, malfunction, safety, manufacturing failure, durability failure, or supplier/QA defect.",
     "Understand negation and contrast. Phrases like \"not necessarily a defect\", \"not damaged\", \"not broken\", or \"personal preference\" must not be counted as operational defect evidence by themselves.",
     "Use action_guidance to summarize what action families are appropriate. Prefer shopper-facing description/FAQ/spec/media actions for subjective expectation mismatches. Reserve qa_review, inventory_hold, and status_change for objective defects, safety, durability, malfunction, damage, or high refund pressure.",
+    "Use productEvolution as transition context only. It can say which actions were applied, reviewed, dismissed, or ignored after the previous diagnosis and which issues or metrics changed.",
+    "Do not classify a previous issue as current only because it appears in productEvolution or previousPrimaryIssue. A current issue needs current evidence snippets, current deterministic metrics, or productEvolution.new/current evidence showing it persisted.",
+    "If productEvolution shows an action already handled the same issue and the current run has no new supporting evidence, classify the repeated issue as historical context rather than a new merchant-facing problem.",
     "A single customer text is evidence, not a confirmed merchant-facing issue. Do not create clusters or granular_findings from one isolated word, phrase, return note, or review unless another independent text or another source supports the same issue.",
     "Consolidate overlapping findings. If one text mentions the same concept once, do not output it as a cluster, a granular finding, and repeated_language. signals must count independent customer texts, not repeated words inside the same text.",
     "For repeated_language, never output stop words, helper verbs, connector words, or generic ecommerce/API context such as and, be, been, took, take, item, product, reason, return, review, refund, order, other, selected, customer note, or other reason. Only output shopper-meaningful product terms or phrases.",
@@ -1016,6 +1020,8 @@ function buildSignalClassificationPrompt(input) {
     previousPrimaryIssue || "none",
     "Incremental diagnosis context:",
     incremental,
+    "Product evolution context:",
+    productEvolution,
     "If this is an incremental diagnosis, evidence snippets contain only newly changed evidence since the previous product diagnosis. Use deterministic aggregate metrics for full-window totals, and do not invent old snippets that are not supplied.",
     "Deterministic metrics, already calculated by the system:",
     metrics,
@@ -1132,10 +1138,18 @@ function buildContentGapPrompt(input, classification) {
 }
 
 function buildFinalReportPrompt(input, classification, contentGaps, emergentSentiments) {
+  const productEvolution = stringifyAiJson(input?.productEvolution || null);
   return [
     "You are ProductPulse AI writing the final product diagnosis report for a merchant.",
     "The system already calculated all numeric metrics. Never change risk score, confidence, impact, rates, counts, or amounts.",
     "Use the metrics, clusters, product-content analysis, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
+    "Use productEvolution to make this a transition-aware diagnosis when a previous diagnosis exists. It summarizes the previous diagnosis, merchant-facing actions handled since then, current source/content changes, metric movement, issue transitions, and recommendation treatment policy.",
+    "If productEvolution.mode is baseline, write the first-run diagnosis normally. If it is successive, explicitly account for what changed since the previous diagnosis before deciding what to emphasize.",
+    "When productEvolution shows actions were applied, reviewed, dismissed, or ignored, treat those actions as already handled context. Do not present the same recommendation as a new first-time action unless current evidence or product changes show the issue persisted or changed.",
+    "When productEvolution.transitionKind is actions_changed and sourceSummary.hasNewEvidence is false, the report should briefly say the product/source evidence did not materially change and focus on the handled action state, follow-up monitoring, or remaining unhandled work. Do not restate the old diagnosis as if it newly happened.",
+    "When productEvolution.issueTransition.noLongerDetected contains prior issues, mention them only as improved or no longer detected. Do not lead with those old problems unless current evidence supports that they returned.",
+    "When recommendation candidates are marked previouslyHandled with recommendedTreatment suppress_unless_new_evidence, do not write recommendation copy or action rationales that revive that action as baseline work.",
+    "When a recommendation is still justified after a prior handled action, write it as a follow-up: explain what changed or persisted after that action, not as a repeat of the original problem statement.",
     "Product-modifying copy in recommendation_copy is applied to Shopify only after merchant review. Use your strongest product-copy reasoning here: be specific, accurate, and preserve useful existing product information.",
     "For shopper-facing notes, FAQs, description add-ons, SEO copy, titles, media alt text, and product descriptions, write only the inner merchant-ready copy. The ProductPulse application will wrap notes, FAQ blocks, and add-ons in a consistent HTML callout.",
     "Use plain text or simple paragraph/list structure only. Do not include outer CSS, inline styles, scripts, custom wrappers, or theme-specific markup in recommendation_copy.",
@@ -1157,6 +1171,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "When you quote exact customer wording, return-note text, refund-note text, review text, product-description text, title text, tag text, collection text, SKU/variant names, or any other source excerpt, wrap the exact excerpt in double quotation marks. Do not present exact source text without quotation marks.",
     "For evidence_synthesis_sections, write three intermediate qualitative synthesis sections for the AI Evidence Synthesis tab, not one entry per UI tab. Do not restate concrete counts, rates, scores, amounts, or dates unless a specific number is essential to understand the issue; those values are already visible in the product panels.",
     "The three overview evidence_synthesis_sections must be: customer_language for overall customer/product language, product_orders_retention for product setup, variants, Shopify orders, retention and LTV, and post_purchase for refunds, returns and negative reviews. Each body should generalize that evidence group into one merchant-facing reading: what the relationship suggests, what to compare next, and how cautiously to interpret the data. Use only the supplied evidence and avoid inventing new facts.",
+    "For successive diagnoses, weave productEvolution into main_finding_detail and evidence_synthesis_sections in one concise sentence when useful. Avoid a separate timeline dump; the merchant needs what changed and what still needs attention.",
     "For retention and LTV, use deterministic.metrics.productRetention only. Its retention rates use rateScale fraction_0_to_1, so 0.24 means 24%. Mention retention briefly only when productRetention.shouldMention is true because it shows a clear retention risk, repeat-purchase strength, cross-sell opportunity, same-product repurchase pattern, or meaningful LTV movement. If retention is unavailable, low-sample, or not material to the product risk/opportunity, do not force it into the main finding or recommendations.",
     "Also write basket_context_interpretation for the Basket context card only when deterministic.metrics.productPurchaseContextSummary includes purchase-context data. This text is generated only during product diagnosis and will be stored; the frontend will not synthesize it at render time.",
     "For basket_context_interpretation, use mostly qualitative interpretation with as few numeric values as possible. Do not recap the visible bar percentages or counts. Explain what the basket, unit, variant, co-purchase, return/refund, review, content and final-report context imply together.",
@@ -1264,6 +1279,8 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     stringifyAiJson(contentGaps || {}),
     "Emergent customer sentiments:",
     stringifyAiJson(emergentSentiments || {}),
+    "Product evolution context:",
+    productEvolution,
     "Recommendation candidates chosen by rules:",
     stringifyAiJson(input?.recommendationCandidates || []),
   ].join("\n\n");

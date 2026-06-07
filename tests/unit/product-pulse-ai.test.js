@@ -433,6 +433,19 @@ describe("ProductPulse AI provider fallback", () => {
       input: {
         product: { title: "Antique Figure" },
         deterministic: { mainIssue: "product_quality", mainIssueLabel: "Product quality", metrics: {} },
+        productEvolution: {
+          mode: "successive",
+          transitionKind: "actions_changed",
+          summary: "Previous diagnosis found product quality. Supplier / QA review was applied after the last diagnosis, and no new source evidence was detected.",
+          handledActionsSincePreviousDiagnosis: [{
+            actionId: "recommend-qa-review",
+            label: "Supplier / QA review",
+            status: "applied",
+            handledAt: "2026-05-18T00:00:00.000Z",
+          }],
+          sourceSummary: { hasNewEvidence: false, changes: [] },
+          recommendationPolicy: { suppressExactHandledRecommendationsWhenNoNewEvidence: true },
+        },
         evidenceSnippets: [{
           source: "shopify_return_note",
           text: "It feels cursed and makes me uneasy.",
@@ -443,6 +456,8 @@ describe("ProductPulse AI provider fallback", () => {
 
     expect(prompts).toHaveLength(4);
     expect(prompts[0]).toContain("Predefined sentiment taxonomy");
+    expect(prompts[0]).toContain("Product evolution context");
+    expect(prompts[0]).toContain("Supplier / QA review");
     expect(prompts[1]).toContain("clustering customer emotions");
     expect(prompts[3]).toContain("Write main_finding_detail as exactly five merchant-facing text blocks");
     expect(prompts[3]).toContain("What is wrong? Why do we believe that? What should we do now? How much does it matter?");
@@ -450,6 +465,9 @@ describe("ProductPulse AI provider fallback", () => {
     expect(prompts[3]).toContain("basket_context_interpretation");
     expect(prompts[3]).toContain("as few numeric values as possible");
     expect(prompts[3]).toContain("Why this action");
+    expect(prompts[3]).toContain("transition-aware diagnosis");
+    expect(prompts[3]).toContain("Product evolution context");
+    expect(prompts[3]).toContain("suppressExactHandledRecommendationsWhenNoNewEvidence");
     expect(result.report.basket_context_interpretation).toContain("qualitative modifier");
     expect(result.emergentSentiments.emergent_sentiments[0]).toMatchObject({
       normalized_label: "superstitious_discomfort",
