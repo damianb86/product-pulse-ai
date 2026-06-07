@@ -2370,7 +2370,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
   const snapshot = await findProductRiskSnapshot(shop, productId);
   if (!snapshot) return null;
 
-  const [actions, latestDiagnosis, activeDiagnosisJobs, settings, watchedItem, scoreHistory, timeline, navigation] = await Promise.all([
+  const [actions, latestDiagnosis, diagnosisCount, activeDiagnosisJobs, settings, watchedItem, scoreHistory, timeline, navigation] = await Promise.all([
     prisma.productAction.findMany({
       where: { shop, productGid: snapshot.productGid },
       orderBy: [{ createdAt: "desc" }],
@@ -2379,6 +2379,9 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     prisma.productDiagnosis.findFirst({
       where: { shop, productGid: snapshot.productGid, status: "Completed" },
       orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.productDiagnosis.count({
+      where: { shop, productGid: snapshot.productGid, status: "Completed" },
     }),
     getActiveProductDiagnosisJobs(shop),
     getProductPulseSettings(shop),
@@ -2411,7 +2414,7 @@ export async function getProductSnapshotForShop(shop, productId, admin) {
     : snapshot;
   const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeDiagnosisJobs);
   const product = {
-    ...formatSnapshotForDiagnosis(snapshotWithRetention, actions, latestDiagnosis, settings, watchedItem, scoreHistory),
+    ...formatSnapshotForDiagnosis(snapshotWithRetention, actions, latestDiagnosis, settings, watchedItem, scoreHistory, diagnosisCount),
     timeline,
     navigation,
     ...(activeJob ? { diagnosisJob: formatJob(activeJob) } : {}),
@@ -7992,7 +7995,7 @@ function formatSnapshotForDashboard(snapshot, actions = [], latestDiagnosis = nu
   };
 }
 
-function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined, watchedItem = null, scoreHistory = []) {
+function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = null, settings = undefined, watchedItem = null, scoreHistory = [], diagnosisCount = null) {
   const metrics = snapshot.metrics || {};
   const diagnosisReport = metrics.diagnosisReport || {};
   const diagnosisIssues = Array.isArray(latestDiagnosis?.issues) ? latestDiagnosis.issues : null;
@@ -8050,6 +8053,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     isWatched: Boolean(watchedItem),
     watchlistStatus: watchedItem?.status || null,
     latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
+    diagnosisCount: Number.isFinite(Number(diagnosisCount)) ? Number(diagnosisCount) : null,
     primaryIssue,
     mainFinding: diagnosisReport.mainFinding || null,
     postActionStatus: diagnosisReport.postActionStatus || metrics.postActionStatus || metrics.productEvolution?.postActionStatus || null,

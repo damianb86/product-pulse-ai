@@ -27,6 +27,10 @@ afterEach(() => {
   vi.restoreAllMocks();
   window.localStorage.removeItem(__productPulseScreensTestHooks.productDetailPanelCollapseStorageKey);
   window.localStorage.removeItem(__productPulseScreensTestHooks.watchRecentRunsWindowStorageKey);
+  window.localStorage.removeItem(__productPulseScreensTestHooks.initialProductWorkflowGlobalDismissKey);
+  Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
+    .filter((key) => key?.startsWith(__productPulseScreensTestHooks.initialProductWorkflowProductSeenPrefix))
+    .forEach((key) => window.localStorage.removeItem(key));
   window.localStorage.removeItem(WIZARD_STORAGE_KEY);
   window.localStorage.removeItem(WATCHLIST_WIZARD_STORAGE_KEY);
   delete window.shopify;
@@ -4604,6 +4608,58 @@ describe("ProductPulse screens", () => {
     fireEvent.click(watchButton);
     expect(screen.getByRole("heading", { name: "Remove watched product" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove from Watchlist" })).toBeInTheDocument();
+  });
+
+  it("shows the recommended workflow once for a product with only its first diagnosis", async () => {
+    const product = {
+      ...defaultView.startHere,
+      productGid: "gid://shopify/Product/initial-workflow-one",
+      handle: "initial-workflow-one",
+      title: "GEN Linen Breeze Shirt",
+      diagnosisCount: 1,
+    };
+    const firstRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Keep improving this product" });
+    expect(within(dialog).getByText("Recommended workflow")).toBeInTheDocument();
+    expect(within(dialog).getByText("Apply suggested actions")).toBeInTheDocument();
+    expect(within(dialog).getByText("Wait for new evidence")).toBeInTheDocument();
+    expect(within(dialog).getByText("Track it over time")).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close recommended workflow" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
+    expect(window.localStorage.getItem(`${__productPulseScreensTestHooks.initialProductWorkflowProductSeenPrefix}${product.productGid}`)).toBe("true");
+
+    firstRender.unmount();
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
+  });
+
+  it("can disable the recommended workflow modal for the browser", async () => {
+    const product = {
+      ...defaultView.startHere,
+      productGid: "gid://shopify/Product/initial-workflow-global-one",
+      handle: "initial-workflow-global-one",
+      diagnosisCount: 1,
+    };
+    const firstRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const dialog = await screen.findByRole("dialog", { name: "Keep improving this product" });
+
+    fireEvent.click(within(dialog).getByLabelText("Don't show this recommendation again in this browser."));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
+    expect(window.localStorage.getItem(__productPulseScreensTestHooks.initialProductWorkflowGlobalDismissKey)).toBe("true");
+
+    firstRender.unmount();
+    renderWithRouter(<ProductDiagnosisScreen
+      data={defaultView}
+      product={{
+        ...defaultView.startHere,
+        productGid: "gid://shopify/Product/initial-workflow-global-two",
+        handle: "initial-workflow-global-two",
+        diagnosisCount: 1,
+      }}
+    />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
   });
 
   it("lets product detail delete local analysis from product actions", () => {

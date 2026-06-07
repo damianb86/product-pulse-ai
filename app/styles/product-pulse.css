@@ -3776,6 +3776,366 @@ s-page[inline-size="large-500"] {
   min-height: 42px;
 }
 
+.ppInitialWorkflowOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483400;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(var(--pp-shadow-rgb), 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.ppInitialWorkflowModal {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  width: min(680px, calc(100vw - 36px));
+  max-height: min(560px, 50vh);
+  max-height: min(560px, 50dvh);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 28px 86px rgba(var(--pp-shadow-rgb), 0.24);
+}
+
+.ppInitialWorkflowClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(var(--pp-slate-700-rgb), 0.12);
+  border-radius: 999px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-500);
+  cursor: pointer;
+}
+
+.ppInitialWorkflowClose:hover {
+  color: var(--pp-slate-900);
+  border-color: rgba(var(--pp-slate-700-rgb), 0.2);
+}
+
+.ppInitialWorkflowHeader {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 10px;
+  padding-right: 34px;
+  align-items: start;
+}
+
+.ppInitialWorkflowHeroIcon {
+  width: 50px;
+  height: 50px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 14px;
+  color: var(--pp-insight-violet);
+  background: linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.16), rgba(var(--pp-pulse-blue-rgb), 0.08));
+}
+
+.ppInitialWorkflowHeader > div {
+  display: grid;
+  gap: 5px;
+}
+
+.ppInitialWorkflowHeader span:not(.ppInitialWorkflowHeroIcon) {
+  color: var(--pp-insight-violet);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0;
+}
+
+.ppInitialWorkflowHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.ppInitialWorkflowHeader p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.46;
+}
+
+.ppInitialWorkflowSteps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ppInitialWorkflowStep {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 148px;
+  padding: 16px 12px 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.ppInitialWorkflowStep-green {
+  border-color: rgba(var(--pp-success-green-rgb), 0.18);
+  background: linear-gradient(135deg, rgba(var(--pp-success-green-rgb), 0.08), rgba(255, 255, 255, 0.86));
+}
+
+.ppInitialWorkflowStep-amber {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.2);
+  background: linear-gradient(135deg, rgba(var(--pp-warning-amber-rgb), 0.09), rgba(255, 255, 255, 0.86));
+}
+
+.ppInitialWorkflowStep-purple {
+  border-color: rgba(var(--pp-insight-violet-rgb), 0.2);
+  background: linear-gradient(135deg, rgba(var(--pp-insight-violet-rgb), 0.08), rgba(255, 255, 255, 0.86));
+}
+
+.ppInitialWorkflowStepNumber {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--pp-cloud-white);
+  background: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 6px 14px rgba(var(--pp-shadow-rgb), 0.12);
+}
+
+.ppInitialWorkflowStep-green .ppInitialWorkflowStepNumber {
+  background: var(--pp-success-green);
+}
+
+.ppInitialWorkflowStep-amber .ppInitialWorkflowStepNumber {
+  background: var(--pp-warning-amber);
+}
+
+.ppInitialWorkflowStep-purple .ppInitialWorkflowStepNumber {
+  background: var(--pp-insight-violet);
+}
+
+.ppInitialWorkflowStepIcon {
+  width: 46px;
+  height: 46px;
+  display: inline-grid;
+  place-items: center;
+  justify-self: center;
+  margin-top: 18px;
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.1);
+  color: var(--pp-pulse-blue);
+}
+
+.ppInitialWorkflowStep-green .ppInitialWorkflowStepIcon {
+  color: var(--pp-success-green);
+  background: rgba(var(--pp-success-green-rgb), 0.12);
+}
+
+.ppInitialWorkflowStep-amber .ppInitialWorkflowStepIcon {
+  color: color-mix(in srgb, var(--pp-warning-amber) 72%, var(--pp-slate-900));
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+}
+
+.ppInitialWorkflowStep-purple .ppInitialWorkflowStepIcon {
+  color: var(--pp-insight-violet);
+  background: rgba(var(--pp-insight-violet-rgb), 0.12);
+}
+
+.ppInitialWorkflowStep strong {
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.16;
+}
+
+.ppInitialWorkflowStep p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 11px;
+  font-weight: 620;
+  line-height: 1.4;
+}
+
+.ppInitialWorkflowWhy {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 12px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.05);
+}
+
+.ppInitialWorkflowWhy > span {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--pp-pulse-blue);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.12);
+}
+
+.ppInitialWorkflowWhy strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--pp-pulse-blue);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ppInitialWorkflowWhy ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-left: 16px;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ppInitialWorkflowProduct {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(var(--pp-slate-700-rgb), 0.12);
+  border-radius: 12px;
+  background: var(--pp-cloud-white);
+}
+
+.ppInitialWorkflowProduct .ppProductArt {
+  width: 46px;
+  height: 46px;
+}
+
+.ppInitialWorkflowProduct > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppInitialWorkflowProduct strong {
+  overflow: hidden;
+  color: var(--pp-slate-900);
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppInitialWorkflowProduct span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  min-height: 21px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--pp-success-green);
+  background: rgba(var(--pp-success-green-rgb), 0.1);
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.ppInitialWorkflowFooter {
+  display: grid;
+  gap: 8px;
+}
+
+.ppInitialWorkflowActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 8px;
+}
+
+.ppInitialWorkflowActions .ppSecondaryButton,
+.ppInitialWorkflowActions .ppPrimaryButton {
+  justify-content: center;
+  min-height: 36px;
+}
+
+.ppInitialWorkflowWatchButton {
+  background: var(--pp-success-green);
+  border-color: var(--pp-success-green);
+}
+
+.ppInitialWorkflowDisable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--pp-slate-500);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.ppInitialWorkflowDisable input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .ppInitialWorkflowModal {
+    width: min(560px, calc(100vw - 24px));
+    padding: 14px;
+  }
+
+  .ppInitialWorkflowHeader {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .ppInitialWorkflowHeroIcon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ppInitialWorkflowSteps,
+  .ppInitialWorkflowActions {
+    grid-template-columns: 1fr;
+  }
+
+  .ppInitialWorkflowStep {
+    min-height: auto;
+  }
+
+  .ppInitialWorkflowProduct {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .ppInitialWorkflowProduct .ppProductArt {
+    width: 42px;
+    height: 42px;
+  }
+
+  .ppInitialWorkflowProduct .ppSecondaryButton {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+}
+
 .ppProductDeepResearchGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

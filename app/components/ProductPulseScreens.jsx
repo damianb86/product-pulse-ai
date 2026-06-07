@@ -8903,6 +8903,7 @@ function getProductDetailModel(product) {
     analysisDepth: analysisStatus.depth,
     analysisLabel: analysisStatus.label,
     analysisDetail: analysisStatus.detail,
+    diagnosisCount: Number.isFinite(Number(product.diagnosisCount)) ? Number(product.diagnosisCount) : null,
     hasRiskSnapshot,
     hasFullDiagnosis,
     activeDiagnosisJob,
@@ -15065,6 +15066,55 @@ function getActionIconSymbol(type) {
   return "AI";
 }
 
+const INITIAL_PRODUCT_WORKFLOW_GLOBAL_DISMISS_KEY = "productPulseInitialProductWorkflowDismissed";
+const INITIAL_PRODUCT_WORKFLOW_PRODUCT_SEEN_PREFIX = "productPulseInitialProductWorkflowSeen:";
+
+function getInitialProductWorkflowStorageKey(product = {}) {
+  const value = String(product?.productGid || product?.id || product?.handle || product?.slug || "").trim();
+  return value ? `${INITIAL_PRODUCT_WORKFLOW_PRODUCT_SEEN_PREFIX}${value}` : "";
+}
+
+function isInitialProductWorkflowEligible(product = null) {
+  if (!product) return false;
+  if (Number(product.diagnosisCount) !== 1) return false;
+  if (getActiveProductDiagnosisFromProduct(product)) return false;
+  return getProductAnalysisDisplay(product).depth === "full";
+}
+
+function isInitialProductWorkflowGloballyDismissed() {
+  return readProductPulseLocalStorageValue(INITIAL_PRODUCT_WORKFLOW_GLOBAL_DISMISS_KEY) === "true";
+}
+
+function isInitialProductWorkflowProductSeen(storageKey = "") {
+  return Boolean(storageKey && readProductPulseLocalStorageValue(storageKey) === "true");
+}
+
+function markInitialProductWorkflowProductSeen(storageKey = "") {
+  if (storageKey) writeProductPulseLocalStorageValue(storageKey, "true");
+}
+
+function markInitialProductWorkflowGloballyDismissed() {
+  writeProductPulseLocalStorageValue(INITIAL_PRODUCT_WORKFLOW_GLOBAL_DISMISS_KEY, "true");
+}
+
+function readProductPulseLocalStorageValue(key = "") {
+  if (!key || typeof window === "undefined") return "";
+  try {
+    return window.localStorage?.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeProductPulseLocalStorageValue(key = "", value = "") {
+  if (!key || typeof window === "undefined") return;
+  try {
+    window.localStorage?.setItem(key, value);
+  } catch {
+    // localStorage may be unavailable in embedded/private browsing contexts.
+  }
+}
+
 export function ProductDiagnosisScreen({ product, actionData }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -15083,6 +15133,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [editingAction, setEditingAction] = useState(null);
   const [actionConfirmation, setActionConfirmation] = useState(null);
   const [actionsCompleteModalOpen, setActionsCompleteModalOpen] = useState(false);
+  const [initialWorkflowModalOpen, setInitialWorkflowModalOpen] = useState(false);
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
   const [diagnosisGateDismissed, setDiagnosisGateDismissed] = useState(false);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
@@ -15099,6 +15150,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const lastDismissFetcherDataKeyRef = useRef("");
   const lastChatRecommendationKeyRef = useRef("");
   const productIdentityKey = product?.slug || product?.handle || product?.id || product?.productGid || "";
+  const initialWorkflowProductKey = getInitialProductWorkflowStorageKey(product);
+  const initialWorkflowEligible = isInitialProductWorkflowEligible(product);
   const productResolvedAt = product?.resolvedAt || "";
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
@@ -15120,6 +15173,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setRecommendedActionModalMinimized(false);
     setSelectedEvidenceIndex(0);
     setActionsCompleteModalOpen(false);
+    setInitialWorkflowModalOpen(false);
     setDiagnosisConfirmation(null);
     setDiagnosisGateDismissed(false);
     setWatchlistConfirmation(null);
@@ -15131,6 +15185,18 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setRecommendedActionsExpanded(false);
     setInsightCardsExpanded(false);
   }, [productIdentityKey, productResolvedAt]);
+
+  useEffect(() => {
+    if (!initialWorkflowEligible || !initialWorkflowProductKey) {
+      setInitialWorkflowModalOpen(false);
+      return;
+    }
+    if (isInitialProductWorkflowGloballyDismissed() || isInitialProductWorkflowProductSeen(initialWorkflowProductKey)) {
+      setInitialWorkflowModalOpen(false);
+      return;
+    }
+    setInitialWorkflowModalOpen(true);
+  }, [initialWorkflowEligible, initialWorkflowProductKey]);
 
   useEffect(() => {
     clearCachedDashboardForActionData(actionData, product?.shop || product?.shopDomain || "");
@@ -15430,6 +15496,22 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       mode: isWatched ? "remove" : "add",
       product: { ...detail, productGid },
     });
+  };
+
+  const handleCloseInitialWorkflowModal = () => {
+    markInitialProductWorkflowProductSeen(initialWorkflowProductKey);
+    setInitialWorkflowModalOpen(false);
+  };
+
+  const handleDisableInitialWorkflowModal = () => {
+    markInitialProductWorkflowGloballyDismissed();
+    markInitialProductWorkflowProductSeen(initialWorkflowProductKey);
+    setInitialWorkflowModalOpen(false);
+  };
+
+  const handleInitialWorkflowWatchlist = () => {
+    handleCloseInitialWorkflowModal();
+    if (!isWatched) handleRequestWatchlistToggle();
   };
 
   const handleRequestDeleteAnalysis = () => {
@@ -16035,6 +16117,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
             onViewProduct={() => setDiagnosisGateDismissed(true)}
           />
         )}
+        {initialWorkflowModalOpen && (
+          <InitialProductWorkflowModal
+            detail={detail}
+            isWatched={isWatched}
+            onAddToWatchlist={handleInitialWorkflowWatchlist}
+            onClose={handleCloseInitialWorkflowModal}
+            onDisable={handleDisableInitialWorkflowModal}
+          />
+        )}
         {diagnosisConfirmation && (
           <ProductAnalysisConfirmModal
             confirmation={diagnosisConfirmation}
@@ -16095,6 +16186,113 @@ export function ProductDiagnosisScreen({ product, actionData }) {
         )}
       </ScreenShell>
     </FullWidthPage>
+  );
+}
+
+function InitialProductWorkflowModal({ detail, isWatched = false, onAddToWatchlist, onClose, onDisable }) {
+  const productLabel = detail.title || "This product";
+  const steps = [
+    {
+      number: "1",
+      icon: "check",
+      tone: "green",
+      title: "Apply suggested actions",
+      text: "Start with the current recommendations for this product.",
+    },
+    {
+      number: "2",
+      icon: "clock",
+      tone: "amber",
+      title: "Wait for new evidence",
+      text: "Give the product a few days to collect new orders, returns, refunds, and reviews.",
+    },
+    {
+      number: "3",
+      icon: "chart-line",
+      tone: "purple",
+      title: "Track it over time",
+      text: "Re-check the diagnosis or add the product to Watchlist to monitor how patterns evolve.",
+    },
+  ];
+
+  return (
+    <div className="ppInitialWorkflowOverlay" role="presentation">
+      <section className="ppInitialWorkflowModal" role="dialog" aria-modal="true" aria-labelledby="pp-initial-workflow-title">
+        <button className="ppInitialWorkflowClose" type="button" aria-label="Close recommended workflow" onClick={onClose}>
+          <s-icon type="x" size="small"></s-icon>
+        </button>
+
+        <header className="ppInitialWorkflowHeader">
+          <span className="ppInitialWorkflowHeroIcon" aria-hidden="true">
+            <s-icon type="wand" size="large"></s-icon>
+          </span>
+          <div>
+            <span>Recommended workflow</span>
+            <h2 id="pp-initial-workflow-title">Keep improving this product</h2>
+            <p>
+              The first diagnosis finds today&apos;s issues. The best results come from making changes, waiting a few days, and checking for new signals so ProductPulse can refine the next steps.
+            </p>
+          </div>
+        </header>
+
+        <div className="ppInitialWorkflowSteps" aria-label="Recommended workflow steps">
+          {steps.map((step) => (
+            <article className={`ppInitialWorkflowStep ppInitialWorkflowStep-${step.tone}`} key={step.number}>
+              <span className="ppInitialWorkflowStepNumber">{step.number}</span>
+              <span className="ppInitialWorkflowStepIcon" aria-hidden="true">
+                <s-icon type={step.icon} size="large"></s-icon>
+              </span>
+              <strong>{step.title}</strong>
+              <p>{step.text}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="ppInitialWorkflowWhy">
+          <span aria-hidden="true"><s-icon type="info" size="small"></s-icon></span>
+          <div>
+            <strong>Why this matters</strong>
+            <ul>
+              <li>Re-checking helps detect pattern changes after your updates.</li>
+              <li>The next recommendations become smarter with new evidence.</li>
+              <li>Watchlist is the easiest way to follow the product automatically.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="ppInitialWorkflowProduct">
+          <ProductArt
+            variant={detail.variant}
+            label={productLabel}
+            size="small"
+            imageUrl={detail.imageUrl}
+            imageAlt={detail.imageAlt}
+          />
+          <div>
+            <strong>{productLabel}</strong>
+            <span><s-icon type="check" size="small"></s-icon> Diagnosed</span>
+          </div>
+          <button className="ppSecondaryButton" type="button" onClick={onClose}>
+            View diagnosis
+            <s-icon type="external" size="small"></s-icon>
+          </button>
+        </div>
+
+        <footer className="ppInitialWorkflowFooter">
+          <div className="ppInitialWorkflowActions">
+            <button className="ppSecondaryButton" type="button" onClick={onClose}>Maybe later</button>
+            <button className="ppPrimaryButton ppInitialWorkflowWatchButton" type="button" disabled={isWatched} onClick={onAddToWatchlist}>
+              <s-icon type="star" size="small"></s-icon>
+              {isWatched ? "In Watchlist" : "Add to Watchlist"}
+            </button>
+          </div>
+          <label className="ppInitialWorkflowDisable">
+            <input type="checkbox" onChange={(event) => event.target.checked && onDisable()} />
+            <span>Don&apos;t show this recommendation again in this browser.</span>
+          </label>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -17015,6 +17213,8 @@ export const __productPulseScreensTestHooks = {
   getProductMetricTimelineModel,
   getProductRiskHistoryTimelineMilestones,
   moveProductMetricTimelineChartOrder,
+  initialProductWorkflowGlobalDismissKey: INITIAL_PRODUCT_WORKFLOW_GLOBAL_DISMISS_KEY,
+  initialProductWorkflowProductSeenPrefix: INITIAL_PRODUCT_WORKFLOW_PRODUCT_SEEN_PREFIX,
   productDetailPanelCollapseStorageKey: PRODUCT_DETAIL_PANEL_COLLAPSE_STORAGE_KEY,
   productMetricTimelineOrderStorageKey: PRODUCT_METRIC_TIMELINE_ORDER_STORAGE_KEY,
   watchRecentRunsWindowStorageKey: PRODUCT_WATCH_RECENT_RUNS_WINDOW_STORAGE_KEY,
