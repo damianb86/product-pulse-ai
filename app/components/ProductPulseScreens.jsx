@@ -7525,62 +7525,66 @@ function QuickScanCsvReviewsModal({ onCancel, onContinue, onUploadCsvFirst }) {
 function QuickScanConfirmModal({ pending, onCancel, onConfirm }) {
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
-      <section className="ppAnalysisConfirmModal ppCostConfirmModal ppQuickScanConfirmModal" role="dialog" aria-modal="true" aria-labelledby="quick-scan-confirm-title">
-        <div className="ppCostConfirmBody">
-          <div className="ppAnalysisConfirmHeader ppCostConfirmHeader">
-            <span className="ppAnalysisConfirmIcon ppCostConfirmHeroIcon" aria-hidden="true">
-              <span className="ppQuickScanBolt">⚡</span>
-            </span>
-            <div>
-              <span>Catalog Scan</span>
+      <section className="ppAnalysisConfirmModal ppQuickScanConfirmModal" role="dialog" aria-modal="true" aria-labelledby="quick-scan-confirm-title">
+        <button className="ppQuickScanConfirmClose" type="button" aria-label="Close Catalog Scan dialog" onClick={onCancel} disabled={pending}>
+          <s-icon type="x" size="small"></s-icon>
+        </button>
+
+        <div className="ppQuickScanConfirmLayout">
+          <aside className="ppQuickScanConfirmVisual" aria-hidden="true">
+            <img src="/assets/catalog-scan-modal-visual.png" alt="" loading="eager" decoding="async" />
+          </aside>
+
+          <div className="ppQuickScanConfirmContent">
+            <div className="ppQuickScanConfirmBrand">
+              <span aria-hidden="true"><ProductPulseGlyph type="product-momentum" /></span>
+              <strong>ProductPulse</strong>
+            </div>
+
+            <header className="ppQuickScanConfirmHeader">
               <h2 id="quick-scan-confirm-title">Confirm Catalog Scan</h2>
-              <p>
-                ProductPulse will run a lightweight Shopify scan across the catalog to refresh preliminary risk signals.
-              </p>
-            </div>
-          </div>
+              <p>We&apos;ll run a lightweight Shopify scan across your catalog to refresh preliminary risk signals.</p>
+            </header>
 
-          <div className="ppCostConfirmDivider" />
-
-          <div className="ppAnalysisConfirmCost ppCostConfirmCost">
-            <span className="ppCostConfirmCostIcon" aria-hidden="true">
-              <ProductPulseGlyph type="financial-exposure" />
-            </span>
-            <div>
-              <span>Estimated cost</span>
-              <strong>1.0 credit</strong>
-            </div>
-            <small>Catalog Scan costs 1.0 credit and runs as a background job.</small>
-          </div>
-
-          <div className="ppCostConfirmInfoGrid">
-            <div className="ppCostConfirmCard ppCostConfirmCard-success">
-              <span className="ppCostConfirmCardIcon" aria-hidden="true">
-                <s-icon type="check" size="small"></s-icon>
+            <div className="ppQuickScanConfirmHighlights" aria-label="Catalog Scan details">
+              <span>
+                <i aria-hidden="true"><s-icon type="search" size="small"></s-icon></i>
+                Lightweight scan
               </span>
-              <div>
+              <span>
+                <i aria-hidden="true"><s-icon type="clock" size="small"></s-icon></i>
+                Background job
+              </span>
+              <span>
+                <i aria-hidden="true"><s-icon type="check-circle" size="small"></s-icon></i>
+                No credits used
+              </span>
+            </div>
+
+            <div className="ppQuickScanConfirmInfoGrid">
+              <article>
+                <span className="ppQuickScanConfirmInfoIcon ppQuickScanConfirmInfoIcon-success" aria-hidden="true">
+                  <s-icon type="check" size="small"></s-icon>
+                </span>
                 <strong>What happens</strong>
                 <p>We&apos;ll scan your Shopify catalog and refresh preliminary risk signals for products that haven&apos;t been fully diagnosed.</p>
-              </div>
-            </div>
-            <div className="ppCostConfirmCard ppCostConfirmCard-warning">
-              <span className="ppCostConfirmCardIcon" aria-hidden="true">
-                <s-icon type="info" size="small"></s-icon>
-              </span>
-              <div>
-                <strong>What is skipped</strong>
+              </article>
+              <article>
+                <span className="ppQuickScanConfirmInfoIcon ppQuickScanConfirmInfoIcon-warning" aria-hidden="true">
+                  <s-icon type="info" size="small"></s-icon>
+                </span>
+                <strong>Already skipped</strong>
                 <p>Products that already have a Product Diagnosis will be ignored so their detailed analysis is not overwritten.</p>
-              </div>
+              </article>
             </div>
           </div>
-
         </div>
 
-        <div className="ppAnalysisConfirmFooter ppCostConfirmFooter">
+        <div className="ppQuickScanConfirmFooter">
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button className="ppPrimaryButton" type="button" onClick={onConfirm} disabled={pending}>
+          <button className="ppPrimaryButton ppQuickScanConfirmRunButton" type="button" onClick={onConfirm} disabled={pending}>
             <span className="ppQuickScanBolt" aria-hidden="true">⚡</span>
-            {pending ? "Starting Catalog Scan..." : "Accept cost and run Catalog Scan"}
+            {pending ? "Starting Catalog Scan..." : "Run Catalog Scan"}
           </button>
         </div>
       </section>

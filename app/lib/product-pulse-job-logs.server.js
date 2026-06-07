@@ -16,6 +16,7 @@ export async function recordJobLog({ shop, jobId, level = "info", event, message
       event,
       message,
       data: redact(data),
+      createdAt: new Date(),
     },
   });
 }

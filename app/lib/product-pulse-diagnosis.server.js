@@ -5006,6 +5006,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
   const recommendations = buildFinalRecommendations({ snapshot, deterministic: scoredDeterministic, ai, mainIssue });
   const issues = buildFinalIssues({ deterministic: scoredDeterministic, ai, mainIssue, recommendations });
   const evidence = buildFinalEvidence({ deterministic: scoredDeterministic, ai, aiEvidenceSynthesisSections, judgeMeData, yotpoData, looxData, csvReviewData, shopifyData });
+  const diagnosisReportIssueNames = buildDiagnosisReportIssueNames({ issues, mainIssue });
   const incrementalDiagnosis = buildPersistedIncrementalDiagnosisState({
     runtimeState: scoredDeterministic.metrics.incrementalDiagnosis,
     aiContentGaps: ai.contentGaps,
@@ -5026,7 +5027,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
       mainFinding: adjustedMainFinding,
       evidenceSummary: adjustedMainFinding.summary,
       evidenceSynthesisSections: aiEvidenceSynthesisSections,
-      issueNames: Array.isArray(ai.report?.issue_names) ? ai.report.issue_names.slice(0, 8) : [],
+      issueNames: diagnosisReportIssueNames,
       aiModels: ai.modelsUsed,
       aiUsage: ai.aiUsage,
       chartInterpretations: ai.chartInterpretations || null,
@@ -5056,7 +5057,39 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
   });
 }
 
+function buildDiagnosisReportIssueNames({ issues = [], mainIssue = "" } = {}) {
+  const mainIssueCode = normalizeIssueCode(mainIssue);
+  const rows = (Array.isArray(issues) ? issues : [])
+    .map((issue) => {
+      const label = truncateText(issue?.issue || issue?.label || issue?.title || issue?.name || "", 96);
+      if (!label) return null;
+      const code = normalizeIssueCode(issue?.code || issue?.issueCode || issue?.category || "")
+        || inferDiagnosisReportIssueCodeFromLabel(label, mainIssueCode)
+        || mainIssueCode
+        || "product_quality";
+      return { code, label };
+    })
+    .filter(Boolean);
+  if (!rows.length) {
+    const code = mainIssueCode || "product_quality";
+    rows.push({ code, label: getHumanIssueLabel(code) });
+  }
+  return uniqueBy(rows, (item) => `${item.code}:${normalizeText(item.label)}`).slice(0, 8);
+}
+
+function inferDiagnosisReportIssueCodeFromLabel(label = "", mainIssueCode = "") {
+  const text = normalizeText(label);
+  if (/\b(specs?|specifications?|dimension|dimensions|included|material|materials|description|content|guidance)\b/.test(text)) {
+    return "product_content";
+  }
+  if (/\b(min fill|fill limit|auto shutoff|voltage|converter|adapter|clearance|mounting|surface|adhesive|included photo|included print|setup)\b/.test(text)) {
+    return "setup_expectation";
+  }
+  return mainIssueCode || "";
+}
+
 async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
+  const completedAt = new Date();
   const diagnosis = await prisma.productDiagnosis.create({
     data: {
       shop,
@@ -5071,7 +5104,8 @@ async function persistDetailedDiagnosis({ shop, jobId, snapshot, payload }) {
       recommendations: payload.recommendations,
       metrics: payload.metrics,
       creditsConsumed: 1,
-      completedAt: new Date(),
+      createdAt: completedAt,
+      completedAt,
     },
     select: {
       id: true,
@@ -10906,7 +10940,31 @@ function buildTechnicalSpecItems(context = {}) {
   const issue = context.mainIssue || "";
   let items = [];
 
-  if (/\b(coffee|brew|brewer|alarm clock|small appliance|appliance|kettle|heater|heat)\b/.test(text)) {
+  if (isApparelSpecsContext(context) || issue === "fit_sizing") {
+    items = [
+      ["Fit measurements", "[confirm chest, shoulder, sleeve, body length, and finished garment measurements by size]"],
+      ["Layering guidance", "[confirm whether the style is intended for tees, thin knits, sweatshirts, or outerwear layering]"],
+      ["Material composition", "[confirm fabric blend, handfeel, stretch, and whether it may shrink]"],
+      ["Care instructions", "[confirm wash, dry, ironing/steaming, and shrinkage guidance]"],
+      ["Packability details", "[confirm how the garment packs, pocket location, and packed dimensions if relevant]"],
+    ];
+  } else if (/\b(kettle|electric kettle|steam kettle|foldaway kettle)\b/.test(text)) {
+    items = [
+      ["Capacity and fill limits", "[confirm total capacity, MIN fill line, and maximum safe fill level]"],
+      ["Power input", "[confirm voltage, plug type, wattage, and whether converters/adapters are supported]"],
+      ["Steam clearance", "[confirm required overhead/side clearance and surfaces to avoid]"],
+      ["Materials and heated base", "[confirm food-contact materials, base construction, and silicone/body care]"],
+      ["Cleaning and folded storage", "[confirm cleaning method, drying steps, and travel/storage limits]"],
+    ];
+  } else if (/\b(photo light|light panel|backlit|magnetic panel|photo panel|glossy print|wall panel|adhesive tab)\b/.test(text)) {
+    items = [
+      ["Visible size and print fit", "[confirm panel dimensions, visible image area, and supported print/card size]"],
+      ["Included items", "[confirm whether prints, art cards, stand foot, adhesive tabs, cable, or adapter are included]"],
+      ["Power and light modes", "[confirm power source, brightness/mode behavior, and expected warm/cool color shift]"],
+      ["Mounting surfaces", "[confirm approved surfaces, texture limits, cure time, and tabletop fallback]"],
+      ["Finish and reflection guidance", "[confirm how glossy/matte prints, white borders, and room lighting may affect appearance]"],
+    ];
+  } else if (/\b(coffee|brew|brewer|alarm clock|small appliance|appliance|heater)\b/.test(text)) {
     items = [
       ["Power input", "[confirm voltage, plug type, and whether an adapter is required]"],
       ["Brew capacity", "[confirm water tank capacity and maximum cup size]"],
@@ -10946,14 +11004,6 @@ function buildTechnicalSpecItems(context = {}) {
       ["Battery", "[confirm battery type, battery life, and replacement or charging steps]"],
       ["QR privacy controls", "[confirm which owner details are visible after scan and how to edit them]"],
       ["Range and limitations", "[confirm Bluetooth range, delayed-update behavior, and travel limitations]"],
-    ];
-  } else if (/\b(shirt|apparel|linen|fit|size|sizing|sleeve|shoulder)\b/.test(text) || issue === "fit_sizing") {
-    items = [
-      ["Fit measurements", "[confirm chest, shoulder, sleeve, body length, and garment measurements by size]"],
-      ["Fit guidance", "[confirm whether the style runs relaxed, fitted, small, or oversized]"],
-      ["Material composition", "[confirm fabric blend and whether it may shrink]"],
-      ["Care instructions", "[confirm wash, dry, ironing, and shrinkage guidance]"],
-      ["Variant-specific notes", "[confirm whether color or size variants fit differently]"],
     ];
   } else if (/\b(mat|yoga|fitness|cushion|balance|thick|firm)\b/.test(text)) {
     items = [
@@ -11022,6 +11072,9 @@ function buildTechnicalSpecItems(context = {}) {
 
 function buildIssueSpecificSpecItem(context = {}) {
   const text = context.normalizedText || "";
+  if (isApparelSpecsContext(context) && /\b(layer|layering|sweatshirt|shoulder|upper arm|sleeve|broad shoulder)\b/.test(text)) {
+    return ["Layering fit check", "[confirm body measurements vs finished garment measurements for shoulders, sleeves, and upper-arm room]"];
+  }
   if (/\b(condensation|humidity|wet|water ring|nightstand|surface)\b/.test(text)) {
     return ["Moisture guidance", "[confirm expected condensation, clearance, and safe surface requirements]"];
   }
@@ -11048,10 +11101,26 @@ function buildIssueSpecificSpecItem(context = {}) {
 
 function buildVariantSpecificSpecItem(context = {}) {
   if (!context.variantLabels?.length) return null;
+  const text = context.normalizedText || "";
+  let detail = `[confirm whether ${context.variantLabels.join(", ")} differ in specs, setup, finish, capacity, care, or limitations]`;
+  if (isApparelSpecsContext(context)) {
+    detail = `[confirm whether ${context.variantLabels.join(", ")} differ in fit, finished measurements, color appearance, fabric handfeel, care, or shrinkage guidance]`;
+  } else if (/\b(kettle|electric kettle|steam kettle|foldaway kettle)\b/.test(text)) {
+    detail = `[confirm whether ${context.variantLabels.join(", ")} differ in capacity, voltage, finish, lid/base setup, care, or use limits]`;
+  } else if (/\b(photo light|light panel|backlit|magnetic panel|photo panel|glossy print|wall panel|adhesive tab)\b/.test(text)) {
+    detail = `[confirm whether ${context.variantLabels.join(", ")} differ in finish, lighting appearance, included items, mounting method, or visible dimensions]`;
+  } else if (/\b(safe|lock|security|voice|keypad)\b/.test(text)) {
+    detail = `[confirm whether ${context.variantLabels.join(", ")} differ in finish, unlock setup, battery behavior, interior layout, or security limits]`;
+  }
   return [
     "Variant-specific details",
-    `[confirm whether ${context.variantLabels.join(", ")} differ in specs, setup, finish, capacity, care, or limitations]`,
+    detail,
   ];
+}
+
+function isApparelSpecsContext(context = {}) {
+  const text = context.normalizedText || "";
+  return /\b(shirt|overshirt|apparel|garment|linen|jacket|coat|fit|size|sizing|sleeve|shoulder|upper arm|chest measurement|body measurement)\b/.test(text);
 }
 
 function dedupeSpecItems(items = []) {
@@ -19293,6 +19362,7 @@ export const __productPulseDiagnosisTestHooks = {
   calculateRiskScoreBreakdown,
   buildSignalRelevanceGuidance,
   buildFinalIssues,
+  buildDiagnosisReportIssueNames,
   buildFinalRecommendations,
   withAiPurchaseContextInterpretation,
   analyzeFaqOpportunity,

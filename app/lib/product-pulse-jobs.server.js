@@ -567,17 +567,9 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     };
   }
 
-  const pointCheck = await validateStorePointsForShop(shop, 1);
-  if (!pointCheck.valid) {
-    return {
-      status: "validation_error",
-      message: pointCheck.message,
-      pointBalance: pointCheck.balance,
-    };
-  }
-
   const settings = await getProductPulseSettings(shop);
   const windowDays = getQuickScanWindowDays(settings, scopes);
+  const queuedAt = new Date();
   const job = await prisma.catalogSignalJob.create({
     data: {
       shop,
@@ -586,9 +578,14 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
       status: "Queued",
       progress: 0,
       priority: 20,
+      startedAt: queuedAt,
       payload: {
-        pointCost: 1,
-        queuedAt: new Date().toISOString(),
+        pointCost: 0,
+        creditCost: 0,
+        pointsConsumed: 0,
+        creditsConsumed: 0,
+        pointDebitStatus: "not_charged",
+        queuedAt: queuedAt.toISOString(),
       },
     },
   });
@@ -599,30 +596,11 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     status: job.status,
   });
 
-  const pointDebit = await debitStorePointsForShop(shop, {
-    amount: 1,
-    reason: `Catalog Scan credit debit quick-scan:${job.id}`,
-    idempotencyKey: `quick-scan:${job.id}`,
-    metadata: {
-      source: "quick_scan",
-      jobId: job.id,
-      windowDays,
-    },
-  });
-  if (!["success", "already_recorded"].includes(pointDebit.status)) {
-    await markJobFailed(job.id, new Error(pointDebit.message || "Insufficient Credits."), "Catalog Scan not queued");
-    return {
-      status: "validation_error",
-      message: pointDebit.message || "Catalog Scan needs 1.0 credit before it can start.",
-      pointBalance: pointDebit.balance,
-    };
-  }
-
   ensureFastProductScanWorker(job, { admin, scopes });
   logProductPulseWorkerProgress("quick_scan.start.job_queued", { job }, {
     windowDays,
     inlineWorkersEnabled: getProductPulseResourceConfig().inlineWorkersEnabled,
-    pointDebitStatus: pointDebit.status,
+    pointDebitStatus: "not_charged",
     workerMode: getProductPulseResourceConfig().inlineWorkersEnabled ? "inline" : "external-worker-required",
   });
   await recordJobLog({
@@ -633,8 +611,9 @@ export async function startFastProductScan(input, adminArg, scopesArg) {
     data: {
       windowDays,
       scopeMode: "configured_analysis_lookback",
-      pointsConsumed: 1,
-      pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+      pointsConsumed: 0,
+      pointLedgerEntryId: null,
+      pointDebitStatus: "not_charged",
     },
   });
 
@@ -678,6 +657,7 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
     };
   }
 
+  const queuedAt = new Date();
   const job = await prisma.catalogSignalJob.create({
     data: {
       shop,
@@ -686,8 +666,9 @@ export async function startShopifyMockDataset(input, adminArg, scopesArg) {
       status: "Queued",
       progress: 0,
       priority: 200,
+      startedAt: queuedAt,
       payload: {
-        queuedAt: new Date().toISOString(),
+        queuedAt: queuedAt.toISOString(),
         stage,
         stageLabel: SHOPIFY_MOCK_DATASET_STAGE_LABELS[stage],
         expectedProducts: SHOPIFY_MOCK_DATASET_PRODUCT_COUNT,
@@ -5140,7 +5121,7 @@ async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
         pointCost: useBatchMode ? 0 : 1,
         pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
         pointDebitStatus: pointDebit.status,
-        queuedAt: new Date().toISOString(),
+        queuedAt: now.toISOString(),
       };
       if (batchMode) {
         payload.pointsConsumed = 0;
@@ -5157,6 +5138,7 @@ async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
           status: "Queued",
           progress: 0,
           priority: 50,
+          startedAt: now,
           payload,
         },
       });
@@ -5280,7 +5262,7 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
       pointCost: batchMode ? 0 : 1,
       pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
       pointDebitStatus: pointDebit.status,
-      queuedAt: new Date().toISOString(),
+      queuedAt: now.toISOString(),
     };
     if (batchMode) {
       payload.pointsConsumed = 0;
@@ -5297,6 +5279,7 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
         status: "Queued",
         progress: 0,
         priority: 50,
+        startedAt: now,
         payload,
       },
     });
@@ -5590,13 +5573,17 @@ async function claimNextProductPulseJob(shop) {
 
 async function claimNextQueuedJob(kind, { shop, source, progress = 1 } = {}) {
   const shopFilter = shop ? Prisma.sql`AND "shop" = ${shop}` : Prisma.empty;
+  const claimedAt = new Date();
+  const leaseExpiresAt = getLeaseExpiresAt();
+  const claimedAtUtc = Prisma.sql`(${claimedAt}::timestamptz AT TIME ZONE 'UTC')`;
+  const leaseExpiresAtUtc = Prisma.sql`(${leaseExpiresAt}::timestamptz AT TIME ZONE 'UTC')`;
   const rows = await prisma.$queryRaw`
     WITH next_job AS (
       SELECT "id"
       FROM "CatalogSignalJob"
       WHERE "kind" = ${kind}
         AND "status" = 'Queued'
-        AND ("notBefore" IS NULL OR "notBefore" <= NOW())
+        AND ("notBefore" IS NULL OR "notBefore" <= ${claimedAtUtc})
         ${shopFilter}
       ORDER BY "priority" ASC, COALESCE("notBefore", "startedAt") ASC, "startedAt" ASC
       LIMIT 1
@@ -5606,10 +5593,10 @@ async function claimNextQueuedJob(kind, { shop, source, progress = 1 } = {}) {
     SET "status" = 'Running',
         "progress" = ${progress},
         "source" = ${source},
-        "startedAt" = NOW(),
+        "startedAt" = ${claimedAtUtc},
         "leasedBy" = ${JOB_WORKER_OWNER_ID},
-        "leaseExpiresAt" = ${getLeaseExpiresAt()},
-        "lastHeartbeatAt" = NOW(),
+        "leaseExpiresAt" = ${leaseExpiresAtUtc},
+        "lastHeartbeatAt" = ${claimedAtUtc},
         "attempts" = job."attempts" + 1
     FROM next_job
     WHERE job."id" = next_job."id"
@@ -8773,7 +8760,7 @@ function getJobPointCost(job) {
   const explicit = payload.pointsConsumed ?? payload.creditsConsumed ?? payload.pointCost ?? payload.creditCost;
   const explicitNumber = Number(explicit);
   if (Number.isFinite(explicitNumber) && explicitNumber >= 0) return explicitNumber;
-  if (job.kind === FAST_PRODUCT_SCAN_KIND) return 1;
+  if (job.kind === FAST_PRODUCT_SCAN_KIND) return 0;
   if (job.kind === PRODUCT_DIAGNOSIS_KIND) return 1;
   return 0;
 }
@@ -8976,6 +8963,15 @@ function formatBackgroundProcessPayloadItems(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
   const items = [];
   const seen = new Set();
+  const hiddenKeys = new Set([
+    "creditCost",
+    "creditsConsumed",
+    "pointCost",
+    "pointDebitStatus",
+    "pointLedgerEntryId",
+    "pointRefundLedgerEntryId",
+    "pointsConsumed",
+  ]);
   [
     ["productTitle", "Product"],
     ["handle", "Handle"],
@@ -9004,7 +9000,7 @@ function formatBackgroundProcessPayloadItems(payload) {
   });
 
   Object.entries(payload).forEach(([key, value]) => {
-    if (items.length >= 16 || seen.has(key) || ["summary", "products", "customers"].includes(key)) return;
+    if (items.length >= 16 || seen.has(key) || hiddenKeys.has(key) || ["summary", "products", "customers"].includes(key)) return;
     if (!isBackgroundPayloadPrimitive(value)) return;
     addBackgroundPayloadValue(items, seen, key, formatPayloadLabel(key), value);
   });

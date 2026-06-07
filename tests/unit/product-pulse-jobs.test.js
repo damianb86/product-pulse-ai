@@ -29,6 +29,41 @@ describe("ProductPulse product job helpers", () => {
     expect(row.shopifyAdminUrl).toBe("https://admin.shopify.com/store/damian-xdcxxupp/products/1234567890");
   });
 
+  it("formats Catalog Scan jobs as no-credit work by default", () => {
+    const process = productPulseJobsTestHooks.formatBackgroundProcess({
+      id: "scan-job-1",
+      shop: "damian-xdcxxupp.myshopify.com",
+      kind: "fast-product-scan",
+      source: "Queued Shopify Catalog Scan",
+      status: "Queued",
+      progress: 0,
+      priority: 20,
+      attempts: 0,
+      payload: {
+        pointCost: 0,
+        creditCost: 0,
+        pointsConsumed: 0,
+        creditsConsumed: 0,
+        pointDebitStatus: "not_charged",
+      },
+      startedAt: new Date("2026-06-07T12:00:00.000Z"),
+      updatedAt: new Date("2026-06-07T12:00:00.000Z"),
+      finishedAt: null,
+    });
+
+    expect(process.name).toBe("Catalog Scan");
+    expect(process.creditCost).toBe(0);
+    expect(process.creditsConsumed).toBe(0);
+    expect(process.pointsConsumed).toBe(0);
+    expect(process.payloadItems.map((item) => item.label)).not.toEqual(expect.arrayContaining([
+      "Point cost",
+      "Credit cost",
+      "Points consumed",
+      "Credits consumed",
+      "Point debit status",
+    ]));
+  });
+
   it("uses stored product image metrics for product table rows", () => {
     const row = productPulseJobsTestHooks.formatProductRow("damian-xdcxxupp.myshopify.com", {
       productGid: "gid://shopify/Product/1234567890",

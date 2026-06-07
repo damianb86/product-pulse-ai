@@ -1988,12 +1988,14 @@ describe("ProductPulse screens", () => {
     window.addEventListener("productpulse:wizard", handleWizardEvent);
 
     try {
-      renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
+      const { container } = renderWithRouter(<ProductsScreen data={defaultView} filters={{ query: "", risk: "all" }} />);
       fireEvent.click(screen.getAllByRole("button", { name: /Run Catalog Scan/ })[0]);
-      expect(screen.getByRole("heading", { name: "Confirm Catalog Scan" })).toBeInTheDocument();
-      expect(screen.getByText("Catalog Scan costs 1.0 credit and runs as a background job.")).toBeInTheDocument();
-      expect(screen.getByText(/Products that already have a Product Diagnosis will be ignored/)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Accept cost and run Catalog Scan" }));
+      const dialog = screen.getByRole("dialog", { name: "Confirm Catalog Scan" });
+      expect(within(dialog).getByRole("heading", { name: "Confirm Catalog Scan" })).toBeInTheDocument();
+      expect(container.querySelector(".ppQuickScanConfirmVisual img")).toHaveAttribute("src", "/assets/catalog-scan-modal-visual.png");
+      expect(within(dialog).getByText("No credits used")).toBeInTheDocument();
+      expect(within(dialog).getByText(/Products that already have a Product Diagnosis will be ignored/)).toBeInTheDocument();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Run Catalog Scan" }));
       expect(screen.getByText("Catalog Scan running")).toBeInTheDocument();
       expect(screen.getByText(/backend job will keep running/)).toBeInTheDocument();
       expect(screen.queryByText(/8%/)).not.toBeInTheDocument();

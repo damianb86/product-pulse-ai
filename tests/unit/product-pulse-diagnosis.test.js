@@ -5406,6 +5406,78 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(specs?.payload.draftText).not.toContain("Variants/SKUs:");
   });
 
+  it("does not use appliance specs for apparel fit issues with heat-care language", () => {
+    const deterministic = {
+      mainIssue: "fit_sizing",
+      riskScore: 74,
+      confidence: 80,
+      issueSignalCounts: { fit_sizing: 6 },
+      product: {
+        title: "GEN DriftWeave Packable Overshirt",
+        description: "Packable overshirt with finished garment checkpoints. Hang dry only; dryer heat can make the sleeve and upper-arm feel tighter.",
+        productType: "Apparel",
+        variants: [
+          { id: "gid://shopify/ProductVariant/1", title: "Pine / M", sku: "GEN-DRIFT-PINE-M" },
+          { id: "gid://shopify/ProductVariant/2", title: "Stone / L", sku: "GEN-DRIFT-STONE-L" },
+        ],
+      },
+      metrics: {
+        customerSignalCount: 8,
+        signalCount: 12,
+        returnUnits: 3,
+        refundUnits: 3,
+        negativeReviewCount: 0,
+        specsBlockRecommended: true,
+        contentIssueCount: 1,
+        topReturnReasons: ["Too Small"],
+        contentAnalysis: {
+          issues: [
+            { code: "missing_customer_guidance", label: "Packable feature expectation not fully scannable", severity: "low", evidence: "Title says packable but pocket behavior is not scannable." },
+          ],
+          advisories: [],
+        },
+        textInsights: {
+          repeatedLanguage: [{ term: "shoulder tight over sweatshirt", count: 3 }],
+        },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/5",
+        productTitle: "GEN DriftWeave Packable Overshirt",
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const specs = recommendations.find((item) => item.id === "add-specs-details-block");
+    expect(specs?.payload.draftText).toContain("Fit measurements");
+    expect(specs?.payload.draftText).toContain("Layering fit check");
+    expect(specs?.payload.draftText).toContain("Packability details");
+    expect(specs?.payload.draftText).not.toContain("Power input");
+    expect(specs?.payload.draftText).not.toContain("Brew capacity");
+    expect(specs?.payload.draftText).not.toContain("Timer and alarm behavior");
+    expect(specs?.payload.draftText).not.toContain("capacity, care, or limitations");
+  });
+
+  it("derives report issue names from final issues instead of stale auxiliary AI labels", () => {
+    const issueNames = __productPulseDiagnosisTestHooks.buildDiagnosisReportIssueNames({
+      mainIssue: "setup_expectation",
+      issues: [
+        { issue: "MIN fill limit not obvious (auto shutoff misread as defect)", severity: "High" },
+        { issue: "Missing specifications", severity: "High" },
+      ],
+    });
+
+    expect(issueNames).toEqual([
+      { code: "setup_expectation", label: "MIN fill limit not obvious (auto shutoff misread as defect)" },
+      { code: "product_content", label: "Missing specifications" },
+    ]);
+    expect(issueNames.map((item) => item.label)).not.toContain("Runs small");
+  });
+
   it("uses AI-generated specs details block when it is product-specific", () => {
     const deterministic = {
       mainIssue: "compatibility",

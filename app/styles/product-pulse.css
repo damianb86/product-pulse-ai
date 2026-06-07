@@ -26216,6 +26216,264 @@ s-page[inline-size="large-500"] {
   line-height: 1;
 }
 
+.ppAnalysisConfirmModal.ppQuickScanConfirmModal {
+  position: relative;
+  width: min(1180px, var(--pp-modal-available-width));
+  padding: 0;
+  overflow: hidden;
+  border-color: rgba(var(--pp-slate-500-rgb), 0.20);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 30px 86px rgba(var(--pp-shadow-rgb), 0.30);
+}
+
+.ppQuickScanConfirmClose {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 3;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--pp-slate-500);
+  cursor: pointer;
+}
+
+.ppQuickScanConfirmClose:hover:not(:disabled),
+.ppQuickScanConfirmClose:focus-visible {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-900);
+  outline: none;
+}
+
+.ppQuickScanConfirmClose:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.ppQuickScanConfirmLayout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.88fr);
+  gap: clamp(28px, 3.4vw, 48px);
+  min-height: min(650px, calc(100dvh - var(--pp-modal-edge-gap) * 2));
+  padding: 16px 28px 0 16px;
+}
+
+.ppQuickScanConfirmVisual {
+  min-height: 560px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 54% 45%, rgba(var(--pp-pulse-blue-rgb), 0.10), transparent 38%),
+    linear-gradient(180deg, #f8f9ff 0%, #f1f4ff 100%);
+}
+
+.ppQuickScanConfirmVisual img {
+  width: min(122%, 610px);
+  max-width: none;
+  height: auto;
+  display: block;
+  transform: translateY(6px) scale(1.02);
+  filter: drop-shadow(0 18px 32px rgba(var(--pp-pulse-blue-rgb), 0.10));
+}
+
+.ppQuickScanConfirmContent {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 26px;
+  padding: clamp(42px, 5vw, 64px) 6px 0 0;
+}
+
+.ppQuickScanConfirmBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #3157ff;
+  font-size: 16px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.ppQuickScanConfirmBrand > span {
+  width: 23px;
+  height: 23px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.ppQuickScanConfirmBrand svg {
+  width: 23px;
+  height: 23px;
+}
+
+.ppQuickScanConfirmHeader h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: clamp(36px, 4.6vw, 54px);
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.06;
+}
+
+.ppQuickScanConfirmHeader p {
+  max-width: 620px;
+  margin: 18px 0 0;
+  color: var(--pp-slate-600);
+  font-size: clamp(17px, 1.8vw, 21px);
+  font-weight: 560;
+  line-height: 1.45;
+}
+
+.ppQuickScanConfirmHighlights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0;
+  padding: 18px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 28px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppQuickScanConfirmHighlights span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 0 16px;
+  color: var(--pp-slate-800);
+  font-size: 14px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.ppQuickScanConfirmHighlights span + span {
+  border-left: 1px solid var(--pp-slate-200);
+}
+
+.ppQuickScanConfirmHighlights i {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: #3157ff;
+  font-style: normal;
+}
+
+.ppQuickScanConfirmHighlights i s-icon {
+  transform: scale(1.35);
+}
+
+.ppQuickScanConfirmInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.ppQuickScanConfirmInfoGrid article {
+  min-height: 164px;
+  padding: 24px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 28px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
+.ppQuickScanConfirmInfoIcon {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  margin-bottom: 22px;
+  border-radius: 12px;
+}
+
+.ppQuickScanConfirmInfoIcon s-icon {
+  transform: scale(1.42);
+}
+
+.ppQuickScanConfirmInfoIcon-success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.ppQuickScanConfirmInfoIcon-warning {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.ppQuickScanConfirmInfoGrid strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.ppQuickScanConfirmInfoGrid p {
+  margin: 8px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 14px;
+  font-weight: 560;
+  line-height: 1.38;
+}
+
+.ppQuickScanConfirmFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin: 26px 28px 0;
+  padding: 18px 0 18px;
+  border-top: 1px solid var(--pp-slate-200);
+  background: #ffffff;
+}
+
+.ppQuickScanConfirmFooter .ppSecondaryButton,
+.ppQuickScanConfirmFooter .ppPrimaryButton {
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.ppQuickScanConfirmFooter .ppSecondaryButton {
+  min-width: 128px;
+}
+
+.ppQuickScanConfirmRunButton {
+  min-width: 228px;
+  gap: 12px;
+  background: #2f7d44;
+  border-color: #2f7d44;
+  box-shadow: 0 14px 30px rgba(47, 125, 68, 0.22);
+}
+
+.ppQuickScanConfirmRunButton:hover:not(:disabled),
+.ppQuickScanConfirmRunButton:focus-visible {
+  background: #256d39;
+  border-color: #256d39;
+  box-shadow: 0 16px 34px rgba(47, 125, 68, 0.28);
+}
+
+.ppQuickScanConfirmRunButton .ppQuickScanBolt {
+  color: #ffffff;
+  filter: none;
+}
+
 @media (max-width: 720px) {
   .ppCostConfirmBody {
     padding: 18px 16px 16px;
@@ -26257,6 +26515,97 @@ s-page[inline-size="large-500"] {
   .ppCostConfirmFooter .ppSecondaryButton,
   .ppCostConfirmFooter .ppPrimaryButton {
     min-width: 0;
+  }
+
+  .ppAnalysisConfirmModal.ppQuickScanConfirmModal {
+    width: var(--pp-modal-available-width);
+    max-height: calc(100dvh - var(--pp-modal-edge-gap) * 2);
+    border-radius: 12px;
+  }
+
+  .ppQuickScanConfirmClose {
+    top: 10px;
+    right: 10px;
+  }
+
+  .ppQuickScanConfirmLayout {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .ppQuickScanConfirmVisual {
+    min-height: 236px;
+    border-radius: 11px;
+  }
+
+  .ppQuickScanConfirmVisual img {
+    width: min(108%, 360px);
+    transform: translateY(8px) scale(1.04);
+  }
+
+  .ppQuickScanConfirmContent {
+    gap: 18px;
+    padding: 2px 2px 0;
+  }
+
+  .ppQuickScanConfirmBrand {
+    font-size: 14px;
+  }
+
+  .ppQuickScanConfirmHeader h2 {
+    font-size: 30px;
+  }
+
+  .ppQuickScanConfirmHeader p {
+    margin-top: 10px;
+    font-size: 15px;
+  }
+
+  .ppQuickScanConfirmHighlights,
+  .ppQuickScanConfirmInfoGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ppQuickScanConfirmHighlights {
+    padding: 10px;
+  }
+
+  .ppQuickScanConfirmHighlights span {
+    padding: 8px;
+  }
+
+  .ppQuickScanConfirmHighlights span + span {
+    border-top: 1px solid var(--pp-slate-200);
+    border-left: 0;
+  }
+
+  .ppQuickScanConfirmInfoGrid {
+    gap: 10px;
+  }
+
+  .ppQuickScanConfirmInfoGrid article {
+    min-height: 0;
+    padding: 16px;
+  }
+
+  .ppQuickScanConfirmInfoIcon {
+    margin-bottom: 12px;
+  }
+
+  .ppQuickScanConfirmFooter {
+    gap: 10px;
+    margin: 16px 12px 0;
+    padding: 12px 0;
+  }
+
+  .ppQuickScanConfirmFooter .ppSecondaryButton,
+  .ppQuickScanConfirmFooter .ppPrimaryButton {
+    min-width: 0;
+    min-height: 42px;
+    padding: 0 13px;
+    font-size: 13px;
   }
 }
 
