@@ -15396,7 +15396,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const diagnosisButtonText = diagnosisPending
     ? "Queueing..."
     : detail.hasFullDiagnosis
-      ? "Re-analyze"
+      ? "Check for new signals"
       : hasNoStoredDiagnosis
         ? "Run Product Diagnosis"
         : detail.diagnosisButtonLabel;

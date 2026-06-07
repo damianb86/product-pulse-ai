@@ -2670,7 +2670,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText(/Fit runs small around waist and inseam/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Product Diagnosis completed/ })).toBeInTheDocument();
-    expect(screen.getByText("Re-analyze")).toBeInTheDocument();
+    expect(screen.getByText("Check for new signals")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
     const watchButton = screen.getByRole("menuitem", { name: "Add to Watchlist" });
     expect(watchButton).toBeInTheDocument();
