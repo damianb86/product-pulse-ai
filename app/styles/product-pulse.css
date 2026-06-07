@@ -30089,6 +30089,16 @@ s-page[inline-size="large-500"] {
   border-color: rgba(var(--pp-risk-red-rgb), 0.24);
 }
 
+.ppBackgroundProcessCard.isBatchMode {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.30);
+  background:
+    linear-gradient(180deg, #fff1f2 0%, rgba(255, 255, 255, 0.98) 72%),
+    var(--pp-cloud-white);
+  box-shadow:
+    inset 4px 0 0 #b91c1c,
+    0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
+}
+
 .ppBackgroundProcessCardHeader {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr) auto;
@@ -30148,6 +30158,23 @@ s-page[inline-size="large-500"] {
   color: var(--pp-risk-red);
 }
 
+.ppBackgroundProcessStatusIcon-batch-mode {
+  background: #991b1b;
+  color: var(--pp-cloud-white);
+  box-shadow: 0 0 0 3px rgba(var(--pp-risk-red-rgb), 0.10);
+}
+
+.ppBackgroundProcessStatusIcon-batch-mode s-icon {
+  animation: none;
+}
+
+.ppBackgroundProcessStatusLine {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .ppBackgroundProcessStatusPill {
   width: max-content;
   display: inline-flex;
@@ -30175,6 +30202,30 @@ s-page[inline-size="large-500"] {
 .ppBackgroundProcessStatusPill-failed {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
+}
+
+.ppBackgroundProcessCard.isBatchMode .ppBackgroundProcessStatusPill {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.ppBackgroundProcessBatchPill {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #991b1b;
+  font-size: 10px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessBatchPill s-icon {
+  transform: scale(0.68);
 }
 
 .ppBackgroundProcessProductLink {
@@ -30209,6 +30260,10 @@ s-page[inline-size="large-500"] {
   display: block;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--pp-pulse-blue), var(--pp-signal-teal));
+}
+
+.ppBackgroundProcessCard.isBatchMode .ppBackgroundProcessProgress span {
+  background: linear-gradient(90deg, #b91c1c, #f97316);
 }
 
 .ppBackgroundProcessMetrics {
@@ -30418,9 +30473,19 @@ s-page[inline-size="large-500"] {
   background: var(--pp-slate-50);
 }
 
+.ppBackgroundProcessMiniItem.isBatchMode {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.26);
+  background: #fff1f2;
+  box-shadow: inset 3px 0 0 #b91c1c;
+}
+
 .ppBackgroundProcessMiniItem .ppBackgroundProcessStatusIcon {
   width: 30px;
   height: 30px;
+}
+
+.ppBackgroundProcessMiniItem.isBatchMode small {
+  color: #991b1b;
 }
 
 .ppBackgroundProcessMiniItem small,
@@ -33487,6 +33552,26 @@ s-page[inline-size="large-500"] {
   box-shadow: 0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.16);
 }
 
+.ppGlobalTopbarPoints.isBatchMode {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.42);
+  background: #b91c1c;
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(var(--pp-risk-red-rgb), 0.22);
+}
+
+.ppGlobalTopbarPoints.isBatchMode:hover,
+.ppGlobalTopbarPoints.isBatchMode:focus-visible,
+.ppGlobalTopbarPoints.isBatchMode.isActive {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.62);
+  background: #991b1b;
+  color: #ffffff;
+  box-shadow: 0 14px 32px rgba(var(--pp-risk-red-rgb), 0.3);
+}
+
+.ppGlobalTopbarPoints.isBatchMode:focus-visible {
+  box-shadow: 0 0 0 3px rgba(var(--pp-risk-red-rgb), 0.22), 0 14px 32px rgba(var(--pp-risk-red-rgb), 0.3);
+}
+
 .ppGlobalTopbarPoints strong {
   min-width: 0;
   overflow: hidden;
@@ -33533,6 +33618,16 @@ s-page[inline-size="large-500"] {
   background: var(--pp-cloud-white);
 }
 
+.ppGlobalTopbarPoints.isBatchMode .ppGlobalTopbarWalletIcon,
+.ppGlobalTopbarPoints.isBatchMode .ppGlobalTopbarWalletIcon span {
+  color: #ffffff;
+}
+
+.ppGlobalTopbarPoints.isBatchMode .ppGlobalTopbarWalletIcon span {
+  border-color: #ffffff;
+  background: #991b1b;
+}
+
 .ppGlobalTopbarCreditsPopover {
   width: min(590px, calc(100vw - 24px));
   max-height: calc(100vh - 74px);
@@ -33550,6 +33645,55 @@ s-page[inline-size="large-500"] {
   border-radius: 12px;
   background: var(--pp-cloud-white);
   box-shadow: 0 8px 28px rgba(var(--pp-shadow-rgb), 0.06) inset;
+}
+
+.ppCreditsBatchModeNotice {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
+  margin: 12px 12px 0;
+  padding: 14px 15px;
+  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.24);
+  border-radius: 12px;
+  background: #fff1f2;
+  color: #7f1d1d;
+  box-shadow: 0 8px 28px rgba(var(--pp-risk-red-rgb), 0.08) inset;
+}
+
+.ppCreditsBatchModeIcon {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #b91c1c;
+  color: #ffffff;
+}
+
+.ppCreditsBatchModeNotice strong {
+  display: block;
+  margin: 0 0 4px;
+  color: #7f1d1d;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.2;
+}
+
+.ppCreditsBatchModeNotice p {
+  margin: 0;
+  color: #7f1d1d;
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.45;
+}
+
+.ppCreditsBatchModeNotice small {
+  display: block;
+  margin-top: 7px;
+  color: #991b1b;
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .ppCreditsSummaryMetric {
@@ -33776,6 +33920,18 @@ s-page[inline-size="large-500"] {
     grid-template-columns: 1fr;
     margin: 12px 12px 0;
     padding: 16px;
+  }
+
+  .ppCreditsBatchModeNotice {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 10px;
+    margin: 12px 12px 0;
+    padding: 12px;
+  }
+
+  .ppCreditsBatchModeIcon {
+    width: 32px;
+    height: 32px;
   }
 
   .ppCreditsSummaryMetric {
@@ -34160,6 +34316,12 @@ s-page[inline-size="large-500"] {
   padding: 9px 10px;
 }
 
+.ppGlobalTopbarJobItem.isBatchMode {
+  border-radius: 6px;
+  background: linear-gradient(180deg, #fff1f2 0%, rgba(255, 255, 255, 0.98) 78%);
+  box-shadow: inset 3px 0 0 #b91c1c;
+}
+
 .ppGlobalTopbarJobStateIcon {
   width: 30px;
   height: 30px;
@@ -34193,6 +34355,16 @@ s-page[inline-size="large-500"] {
 .ppGlobalTopbarJobStateIcon-failed {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
+}
+
+.ppGlobalTopbarJobStateIcon-batch-mode {
+  background: #991b1b;
+  color: var(--pp-cloud-white);
+  box-shadow: 0 0 0 3px rgba(var(--pp-risk-red-rgb), 0.10);
+}
+
+.ppGlobalTopbarJobStateIcon-batch-mode s-icon {
+  animation: none;
 }
 
 .ppGlobalTopbarJobMain {
@@ -34260,6 +34432,11 @@ s-page[inline-size="large-500"] {
   color: var(--pp-risk-red);
 }
 
+.ppGlobalTopbarJobItem.isBatchMode .ppGlobalTopbarJobStatus {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .ppGlobalTopbarJobElapsed {
   display: block;
   margin-top: 2px;
@@ -34304,6 +34481,19 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarJobMetaItem-points s-icon {
   transform: scale(0.64);
+}
+
+.ppGlobalTopbarJobMetaItem-batch {
+  padding: 2px 6px;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #991b1b;
+  font-weight: 850;
+}
+
+.ppGlobalTopbarJobMetaItem-batch s-icon {
+  color: #991b1b;
 }
 
 .ppGlobalTopbarJobOpenButton {

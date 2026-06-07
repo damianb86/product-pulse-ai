@@ -181,6 +181,101 @@ model AiUsageEvent {
   @@index([shop, jobId, createdAt])
 }
 
+model ProductPulseOpenAiBatchGroup {
+  id                    String                    @id @default(cuid())
+  shop                  String
+  jobId                 String                    @unique
+  productGid            String?
+  status                String                    @default("submitting")
+  requestCount          Int                       @default(0)
+  completedRequestCount Int                       @default(0)
+  failedRequestCount    Int                       @default(0)
+  resumePayload         Json?
+  result                Json?
+  metadata              Json?
+  submittedAt           DateTime?
+  completedAt           DateTime?
+  processedAt           DateTime?
+  failedAt              DateTime?
+  errorMessage          String?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  batches               ProductPulseOpenAiBatch[]
+
+  @@index([shop, status, updatedAt])
+  @@index([shop, jobId])
+  @@index([jobId, status])
+}
+
+model ProductPulseOpenAiBatch {
+  id                    String                           @id @default(cuid())
+  groupId               String
+  group                 ProductPulseOpenAiBatchGroup     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  shop                  String
+  jobId                 String
+  productGid            String?
+  status                String                           @default("creating")
+  openAiBatchId         String?                          @unique
+  inputFileId           String?
+  outputFileId          String?
+  errorFileId           String?
+  endpoint              String                           @default("/v1/responses")
+  completionWindow      String                           @default("24h")
+  model                 String
+  requestCount          Int                              @default(0)
+  completedRequestCount Int                              @default(0)
+  failedRequestCount    Int                              @default(0)
+  metadata              Json?
+  submittedAt           DateTime?
+  completedAt           DateTime?
+  processedAt           DateTime?
+  failedAt              DateTime?
+  errorMessage          String?
+  createdAt             DateTime                         @default(now())
+  updatedAt             DateTime                         @updatedAt
+  requests              ProductPulseOpenAiBatchRequest[]
+
+  @@index([shop, status, updatedAt])
+  @@index([shop, jobId])
+  @@index([groupId, status])
+  @@index([jobId, status])
+}
+
+model ProductPulseOpenAiBatchRequest {
+  id         String                  @id @default(cuid())
+  batchId    String
+  batch      ProductPulseOpenAiBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  customId   String                  @unique
+  task       String
+  model      String
+  status     String                  @default("queued")
+  request    Json
+  response   Json?
+  error      Json?
+  outputText String?
+  usage      Json?
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+
+  @@index([batchId])
+  @@index([task, status])
+}
+
+model ProductPulseOpenAiWebhookEvent {
+  id             String    @id
+  type           String
+  openAiObjectId String?
+  status         String    @default("received")
+  payload        Json?
+  errorMessage   String?
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  @@index([type, receivedAt])
+  @@index([openAiObjectId])
+}
+
 model AiActionProposal {
   id                           String             @id @default(cuid())
   shop                         String

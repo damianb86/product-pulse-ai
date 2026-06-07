@@ -11,6 +11,8 @@ export const PRODUCT_PULSE_MIN_LOOKBACK_DAYS = 10;
 export const PRODUCT_PULSE_MAX_LOOKBACK_DAYS = 365;
 export const PRODUCT_PULSE_MIN_RISK_THRESHOLD = 10;
 export const PRODUCT_PULSE_MIN_MOMENTUM_THRESHOLD = 50;
+export const PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS = 24;
+export const PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS = PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS * 60 * 60 * 1000;
 
 export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   risk: {
@@ -27,6 +29,18 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
   htmlStyle: {
     preset: PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET,
     customTemplate: "",
+  },
+  processing: {
+    batchMode: {
+      strategy: "auto_when_out_of_credits",
+      active: false,
+      activatedAt: null,
+      lastFreeBatchDiagnosisAt: null,
+      nextFreeBatchDiagnosisAt: null,
+      lastFreeBatchJobId: null,
+      lastFreeBatchProductGid: null,
+      cooldownHours: PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS,
+    },
   },
 };
 
@@ -46,6 +60,7 @@ export async function getProductPulseSettings(shop) {
 
 export async function updateProductPulseSettings(shop, formData) {
   const parsed = parseSettingsFormData(formData);
+  const currentSettings = await getProductPulseSettings(shop);
   const validation = validateProductPulseSettings(parsed);
   if (validation) {
     return {
@@ -55,7 +70,10 @@ export async function updateProductPulseSettings(shop, formData) {
     };
   }
 
-  const settings = normalizeProductPulseSettings(parsed);
+  const settings = normalizeProductPulseSettings({
+    ...parsed,
+    processing: currentSettings.processing,
+  });
   await prisma.productPulseSource.upsert({
     where: {
       shop_sourceKey: {
@@ -100,6 +118,7 @@ export function normalizeProductPulseSettings(input = {}) {
   const momentum = source.momentum && typeof source.momentum === "object" ? source.momentum : {};
   const analysis = source.analysis && typeof source.analysis === "object" ? source.analysis : {};
   const htmlStyle = source.htmlStyle && typeof source.htmlStyle === "object" ? source.htmlStyle : {};
+  const processing = source.processing && typeof source.processing === "object" ? source.processing : {};
 
   const minimumScore = clampInteger(
     risk.minimumScore,
@@ -143,6 +162,64 @@ export function normalizeProductPulseSettings(input = {}) {
       ),
     },
     htmlStyle: normalizeProductPulseHtmlStyle(htmlStyle),
+    processing: normalizeProductPulseProcessingSettings(processing),
+  };
+}
+
+export function normalizeProductPulseProcessingSettings(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+  const batchMode = source.batchMode && typeof source.batchMode === "object" ? source.batchMode : {};
+  const defaults = DEFAULT_PRODUCT_PULSE_SETTINGS.processing.batchMode;
+  return {
+    batchMode: {
+      strategy: "auto_when_out_of_credits",
+      active: Boolean(batchMode.active),
+      activatedAt: optionalIsoString(batchMode.activatedAt) || defaults.activatedAt,
+      lastFreeBatchDiagnosisAt: optionalIsoString(batchMode.lastFreeBatchDiagnosisAt) || defaults.lastFreeBatchDiagnosisAt,
+      nextFreeBatchDiagnosisAt: optionalIsoString(batchMode.nextFreeBatchDiagnosisAt) || defaults.nextFreeBatchDiagnosisAt,
+      lastFreeBatchJobId: optionalString(batchMode.lastFreeBatchJobId) || defaults.lastFreeBatchJobId,
+      lastFreeBatchProductGid: optionalString(batchMode.lastFreeBatchProductGid) || defaults.lastFreeBatchProductGid,
+      cooldownHours: PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS,
+    },
+  };
+}
+
+export function getProductPulseBatchModeSummary(settings = {}, pointBalance = null, now = new Date()) {
+  const normalizedSettings = normalizeProductPulseSettings(settings);
+  const configured = normalizedSettings.processing.batchMode;
+  const availableCredits = Number(pointBalance?.available ?? pointBalance?.balance ?? 0);
+  const outOfCredits = Number.isFinite(availableCredits) ? availableCredits < 1 : false;
+  const activatedAt = configured.activatedAt || (outOfCredits ? toIso(now) : null);
+  const lastFreeBatchDiagnosisAt = configured.lastFreeBatchDiagnosisAt || null;
+  const nextFreeBatchDiagnosisAt = lastFreeBatchDiagnosisAt
+    ? toIso(new Date(new Date(lastFreeBatchDiagnosisAt).getTime() + PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS))
+    : null;
+  const nextDate = nextFreeBatchDiagnosisAt ? new Date(nextFreeBatchDiagnosisAt) : null;
+  const canStartFreeBatchAnalysis = outOfCredits && (!nextDate || nextDate.getTime() <= now.getTime());
+
+  return {
+    strategy: configured.strategy,
+    active: outOfCredits,
+    reason: outOfCredits ? "out_of_credits" : "credits_available",
+    availableCredits: Number.isFinite(availableCredits) ? availableCredits : 0,
+    activatedAt,
+    cooldownHours: PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS,
+    lastFreeBatchDiagnosisAt,
+    nextFreeBatchDiagnosisAt,
+    canStartFreeBatchAnalysis,
+    lastFreeBatchJobId: configured.lastFreeBatchJobId || null,
+    lastFreeBatchProductGid: configured.lastFreeBatchProductGid || null,
+    message: outOfCredits
+      ? "Batch mode is active because this store has no credits. Product Diagnosis runs do not consume credits in this mode, but only one analysis can be started every 24 hours and results can take up to 24 hours to complete. This applies regardless of the current plan."
+      : "",
+  };
+}
+
+export function withProductPulseBatchModeSummary(pointSummary, settings = {}, now = new Date()) {
+  if (!pointSummary) return pointSummary;
+  return {
+    ...pointSummary,
+    batchMode: getProductPulseBatchModeSummary(settings, pointSummary.balance, now),
   };
 }
 
@@ -263,4 +340,24 @@ function clampInteger(value, min, max, fallback) {
   const number = Number.parseInt(value, 10);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, number));
+}
+
+function optionalString(value) {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
+
+function optionalIsoString(value) {
+  const normalized = optionalString(value);
+  if (!normalized) return null;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function toIso(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
 }

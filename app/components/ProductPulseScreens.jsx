@@ -5563,6 +5563,8 @@ export function BackgroundProcessesScreen({ data = {} }) {
 
 function BackgroundProcessCard({ process, showLogs = false }) {
   const statusKey = getBackgroundProcessStatusKey(process.status);
+  const batchModeActive = isBackgroundProcessBatchMode(process);
+  const statusIconKey = batchModeActive ? "batch-mode" : statusKey;
   const logCount = Number(process.logCount || process.logs?.length || 0);
   const payloadItems = Array.isArray(process.payloadItems) ? process.payloadItems : [];
   const logs = Array.isArray(process.logs) ? process.logs : [];
@@ -5576,13 +5578,21 @@ function BackgroundProcessCard({ process, showLogs = false }) {
   ];
 
   return (
-    <article className={`ppBackgroundProcessCard ppBackgroundProcessCard-${statusKey}`}>
+    <article className={`ppBackgroundProcessCard ppBackgroundProcessCard-${statusKey}${batchModeActive ? " isBatchMode" : ""}`}>
       <header className="ppBackgroundProcessCardHeader">
-        <span className={`ppBackgroundProcessStatusIcon ppBackgroundProcessStatusIcon-${statusKey}`} aria-hidden="true">
-          <s-icon type={getBackgroundProcessStatusIcon(process.status)} size="small"></s-icon>
+        <span className={`ppBackgroundProcessStatusIcon ppBackgroundProcessStatusIcon-${statusIconKey}`} aria-hidden="true">
+          <s-icon type={getBackgroundProcessStatusIcon(process.status, process)} size="small"></s-icon>
         </span>
         <div>
-          <span className={`ppBackgroundProcessStatusPill ppBackgroundProcessStatusPill-${statusKey}`}>{process.status || "Unknown"}</span>
+          <div className="ppBackgroundProcessStatusLine">
+            <span className={`ppBackgroundProcessStatusPill ppBackgroundProcessStatusPill-${statusKey}`}>{process.status || "Unknown"}</span>
+            {batchModeActive ? (
+              <span className="ppBackgroundProcessBatchPill">
+                <s-icon type="clock" size="small"></s-icon>
+                Batch mode
+              </span>
+            ) : null}
+          </div>
           <h2>{process.displayTitle || process.productTitle || process.name || "Background process"}</h2>
           <p>{process.displaySubtitle || process.source || process.rawSource || process.name || "ProductPulse background job"}</p>
         </div>
@@ -5637,14 +5647,16 @@ function BackgroundProcessCard({ process, showLogs = false }) {
 
 function BackgroundProcessMiniItem({ process }) {
   const statusKey = getBackgroundProcessStatusKey(process.status);
+  const batchModeActive = isBackgroundProcessBatchMode(process);
+  const statusIconKey = batchModeActive ? "batch-mode" : statusKey;
   return (
-    <article className="ppBackgroundProcessMiniItem">
-      <span className={`ppBackgroundProcessStatusIcon ppBackgroundProcessStatusIcon-${statusKey}`} aria-hidden="true">
-        <s-icon type={getBackgroundProcessStatusIcon(process.status)} size="small"></s-icon>
+    <article className={`ppBackgroundProcessMiniItem${batchModeActive ? " isBatchMode" : ""}`}>
+      <span className={`ppBackgroundProcessStatusIcon ppBackgroundProcessStatusIcon-${statusIconKey}`} aria-hidden="true">
+        <s-icon type={getBackgroundProcessStatusIcon(process.status, process)} size="small"></s-icon>
       </span>
       <div>
         <strong>{process.displayTitle || process.name || "Background process"}</strong>
-        <small>{process.status || "Unknown"} · {formatInteger(process.progress || 0)}% · {formatWatchReportTimestamp(process.updatedAtIso)}</small>
+        <small>{batchModeActive ? "Batch mode · " : ""}{process.status || "Unknown"} · {formatInteger(process.progress || 0)}% · {formatWatchReportTimestamp(process.updatedAtIso)}</small>
       </div>
     </article>
   );
@@ -5673,7 +5685,14 @@ function getBackgroundProcessStatusKey(status) {
   return String(status || "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "unknown";
 }
 
-function getBackgroundProcessStatusIcon(status) {
+function isBackgroundProcessBatchMode(process) {
+  const batchMode = process?.batchMode || process?.payload?.batchMode || {};
+  const openAiBatch = process?.openAiBatch || process?.payload?.openAiBatch || {};
+  return Boolean(batchMode.freeCreditMode || batchMode.forceOpenAiBatch || openAiBatch.status === "waiting");
+}
+
+function getBackgroundProcessStatusIcon(status, process = null) {
+  if (isBackgroundProcessBatchMode(process)) return "clock";
   const key = getBackgroundProcessStatusKey(status);
   if (key === "completed") return "check-circle";
   if (key === "failed") return "alert-circle";

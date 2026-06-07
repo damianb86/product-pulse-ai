@@ -42,6 +42,8 @@ PRODUCT_PULSE_AI_LEVEL=1
 OPENAI_BASIC_MODEL=gpt-5.4-nano
 OPENAI_PRO_MODEL=gpt-5.4-mini
 OPENAI_PREMIUM_MODEL=gpt-5.4
+OPENAI_WEBHOOK_SECRET=
+PRODUCT_PULSE_OPENAI_BATCH_ENABLED=
 GEMINI_API_KEY=
 GEMINI_MODEL=
 GEMINI_MODEL_FALLBACK_POOL=
@@ -88,6 +90,24 @@ In `PRODUCT_PULSE_AI_LEVEL=3`, current task tiering is:
 - `OPENAI_BASIC_MODEL`: emergent sentiment, content coverage validation, action rationale, connection test text, and relationship insights unless `AI_RELATIONSHIP_INSIGHTS_MODEL` overrides them.
 - `OPENAI_PRO_MODEL`: signal classification, product content-gap audit, chart interpretations, and Watchlist change narratives.
 - `OPENAI_PREMIUM_MODEL`: final product diagnosis report.
+
+## OpenAI Batch API
+
+ProductPulse deep product diagnosis keeps dependent AI calls synchronous and submits only terminal AI steps to OpenAI Batch API. This keeps the diagnosis at one asynchronous wait window:
+- Synchronous: signal classification, emergent sentiment, product content-gap audit, and final report.
+- Batched: content coverage validation, chart interpretations, and relationship insights.
+
+The Batch API path is enabled only for the OpenAI provider and requires `OPENAI_WEBHOOK_SECRET`. By default it turns on outside test/development runtimes when that webhook secret is configured. Set `PRODUCT_PULSE_OPENAI_BATCH_ENABLED=true` to force it on in a non-test runtime with the webhook secret present, or `PRODUCT_PULSE_OPENAI_BATCH_ENABLED=false` to force it off.
+
+When a store has fewer than 1 available credit, ProductPulse automatically activates Batch mode for deep Product Diagnosis. In this mode the queued Product Diagnosis does not consume credits, but the store can start only one free Batch analysis per 24-hour window. The analysis still uses OpenAI Batch completion and may take up to 24 hours to finish. This fallback is independent of the merchant's current plan; buying or receiving credits returns new analyses to normal credit-backed processing.
+
+OpenAI webhooks must target:
+
+```bash
+https://your-app-domain/webhooks/openai
+```
+
+Subscribe to `batch.completed`, `batch.failed`, `batch.expired`, and `batch.cancelled`. The app verifies signatures with `OPENAI_WEBHOOK_SECRET`, retrieves the finished batch, downloads the output/error files, resumes the paused diagnosis job, and finalizes the persisted ProductPulse diagnosis.
 
 ## Rate Limits
 

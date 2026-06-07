@@ -292,10 +292,19 @@ async function runWatchlistCronForShop(shop, items = [], { now, config, forceCad
 export function splitWatchlistItemsByAvailableCredits(items = [], availableCredits = 0) {
   const creditLimit = Math.max(0, Math.floor(Number(availableCredits || 0)));
   const normalizedItems = Array.isArray(items) ? items.filter((item) => item?.productGid) : [];
+  if (creditLimit < 1 && normalizedItems.length) {
+    return {
+      availableCredits: 0,
+      queueItems: normalizedItems.slice(0, 1),
+      skippedForCredits: normalizedItems.slice(1),
+      batchModeCandidate: true,
+    };
+  }
   return {
     availableCredits: creditLimit,
     queueItems: normalizedItems.slice(0, creditLimit),
     skippedForCredits: normalizedItems.slice(creditLimit),
+    batchModeCandidate: false,
   };
 }
 

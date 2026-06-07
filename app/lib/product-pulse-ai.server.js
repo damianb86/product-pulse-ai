@@ -1,8 +1,12 @@
 import prisma from "../db.server";
-import { createAiUsageTracker, normalizeAiUsageCall } from "./product-pulse-ai-usage.server";
+import { createAiUsageTracker, normalizeAiUsageCall, summarizeAiUsage } from "./product-pulse-ai-usage.server";
 import { recordAiUsageEvent } from "../ai/observability/usageEvents.server";
 import { isProductPulseDevelopment } from "./product-pulse-dev.server";
 import { recordJobLog, serializeError } from "./product-pulse-job-logs.server";
+import {
+  createProductPulseOpenAiBatchGroup,
+  getOpenAiBatchGroup,
+} from "./product-pulse-openai-batch.server";
 
 const GEMINI_PROVIDER = "gemini";
 const OPENAI_PROVIDER = "openai";
@@ -94,7 +98,7 @@ const PREDEFINED_CUSTOMER_SENTIMENTS = [
   { code: "delight", polarity: "positive", description: "The customer expresses excitement or strong positive surprise." },
 ];
 
-export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerfEvent = null }) {
+export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerfEvent = null, resumeContext = null }) {
   const usageTracker = createAiUsageTracker({
     shop,
     jobId,
@@ -106,132 +110,192 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
   });
 
   try {
-  const chartInterpretationsPromise = runChartInterpretationsAiStep({
-    shop,
-    jobId,
-    input,
-    usageTracker,
-    onPerfEvent,
-  });
-  const relationshipInsightsPromise = runRelationshipInsightsAiStep({
-    shop,
-    jobId,
-    input,
-    usageTracker,
-    onPerfEvent,
-  });
-  const classificationPrompt = buildSignalClassificationPrompt(input);
-  const classificationResponse = await generateAiText({
-    shop,
-    jobId,
-    task: "signal_classification",
-    prompt: classificationPrompt,
-    usageTracker,
-    onPerfEvent,
-  });
-  const classification = parseAiJson(classificationResponse.text, {
-    classified_signals: [],
-    clusters: [],
-    granular_findings: [],
-    repeated_language: [],
-    sentiment_summary: {},
-    action_guidance: {},
-    main_issue: input?.deterministic?.mainIssue || "product_quality",
-    issue_summary: "AI classification was unavailable; deterministic issue signals were used.",
-    source_agreement: "unknown",
-  });
-
-  const [emergentSentimentResponse, gapResult] = await Promise.all([
-    generateAiText({
+    const forceBatchTerminalSteps = Boolean(input?.batchMode?.forceOpenAiBatch || input?.batchMode?.freeCreditMode);
+    const batchAvailability = getProductDiagnosisOpenAiBatchAvailability({ force: forceBatchTerminalSteps });
+    if (forceBatchTerminalSteps && !batchAvailability.available) {
+      throw new Error(batchAvailability.message || "OpenAI Batch mode is not available for Product Diagnosis.");
+    }
+    const shouldBatchTerminalSteps = shouldUseOpenAiBatchForProductDiagnosis({ force: forceBatchTerminalSteps });
+    const chartInterpretationsPromise = shouldBatchTerminalSteps
+      ? null
+      : runChartInterpretationsAiStep({
+        shop,
+        jobId,
+        input,
+        usageTracker,
+        onPerfEvent,
+      });
+    const relationshipInsightsPromise = shouldBatchTerminalSteps
+      ? null
+      : runRelationshipInsightsAiStep({
+        shop,
+        jobId,
+        input,
+        usageTracker,
+        onPerfEvent,
+      });
+    const classificationPrompt = buildSignalClassificationPrompt(input);
+    const classificationResponse = await generateAiText({
       shop,
       jobId,
-      task: "emergent_sentiment",
-      prompt: buildEmergentSentimentPrompt(input, classification),
+      task: "signal_classification",
+      prompt: classificationPrompt,
       usageTracker,
       onPerfEvent,
-    }),
-    runContentGapAiStep({ shop, jobId, input, classification, usageTracker, onPerfEvent }),
-  ]);
-  const emergentSentiments = parseAiJson(emergentSentimentResponse.text, {
-    emergent_sentiments: [],
-    discarded_suggestions: [],
-    summary: "No emergent customer sentiments were detected.",
-  });
-  const { gapResponse, contentGaps } = gapResult;
+    });
+    const classification = parseAiJson(classificationResponse.text, {
+      classified_signals: [],
+      clusters: [],
+      granular_findings: [],
+      repeated_language: [],
+      sentiment_summary: {},
+      action_guidance: {},
+      main_issue: input?.deterministic?.mainIssue || "product_quality",
+      issue_summary: "AI classification was unavailable; deterministic issue signals were used.",
+      source_agreement: "unknown",
+    });
 
-  const reportPrompt = buildFinalReportPrompt(input, classification, contentGaps, emergentSentiments);
-  const reportResponse = await generateAiText({
-    shop,
-    jobId,
-    task: "final_report",
-    prompt: reportPrompt,
-    usageTracker,
-    onPerfEvent,
-  });
-  const report = parseAiJson(reportResponse.text, {
-    main_finding_title: input?.deterministic?.mainIssueLabel || "Product issue needs review",
-    main_finding_detail: input?.deterministic?.evidenceSummary || "ProductPulse found deterministic signals that should be reviewed.",
-    evidence_summary: input?.deterministic?.evidenceSummary || "",
-    basket_context_interpretation: "",
-    evidence_synthesis_sections: [],
-    recommendation_copy: {},
-    action_rationales: [],
-  });
-  const actionRationales = normalizeFinalReportActionRationales(report);
+    const [emergentSentimentResponse, gapResult] = await Promise.all([
+      generateAiText({
+        shop,
+        jobId,
+        task: "emergent_sentiment",
+        prompt: buildEmergentSentimentPrompt(input, classification),
+        usageTracker,
+        onPerfEvent,
+      }),
+      runContentGapAiStep({ shop, jobId, input, classification, usageTracker, onPerfEvent }),
+    ]);
+    const emergentSentiments = parseAiJson(emergentSentimentResponse.text, {
+      emergent_sentiments: [],
+      discarded_suggestions: [],
+      summary: "No emergent customer sentiments were detected.",
+    });
+    const { gapResponse, contentGaps } = gapResult;
 
-  const [
-    contentCoverageResult,
-    chartInterpretationsResult,
-    relationshipInsightsResult,
-  ] = await Promise.all([
-    runContentCoverageValidationAiStep({ shop, jobId, input, report, contentGaps, usageTracker, onPerfEvent }),
-    chartInterpretationsPromise,
-    relationshipInsightsPromise,
-  ]);
-  const { contentCoverageValidationResponse, contentCoverageValidation } = contentCoverageResult;
-  const { chartInterpretationsResponse, chartInterpretations } = chartInterpretationsResult;
-  const { relationshipInsightsResponse, relationshipInsights } = relationshipInsightsResult;
-  const aiUsage = await usageTracker.logSummary({
-    event: "product_diagnosis.ai_token_usage",
-    data: {
-      productGid: input?.product?.id || input?.product?.productGid || null,
-      productHandle: input?.product?.handle || null,
-    },
-  });
+    const reportPrompt = buildFinalReportPrompt(input, classification, contentGaps, emergentSentiments);
+    const reportResponse = await generateAiText({
+      shop,
+      jobId,
+      task: "final_report",
+      prompt: reportPrompt,
+      usageTracker,
+      onPerfEvent,
+    });
+    const report = parseAiJson(reportResponse.text, {
+      main_finding_title: input?.deterministic?.mainIssueLabel || "Product issue needs review",
+      main_finding_detail: input?.deterministic?.evidenceSummary || "ProductPulse found deterministic signals that should be reviewed.",
+      evidence_summary: input?.deterministic?.evidenceSummary || "",
+      basket_context_interpretation: "",
+      evidence_synthesis_sections: [],
+      recommendation_copy: {},
+      action_rationales: [],
+    });
+    const actionRationales = normalizeFinalReportActionRationales(report);
 
-  return {
-    provider: reportResponse.provider,
-    model: reportResponse.model,
-    aiUsage,
-    modelsUsed: {
-      classification: pickAiModelSummary(classificationResponse),
-      emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
-      contentGap: pickAiModelSummary(gapResponse),
-      contentCoverageValidation: contentCoverageValidationResponse ? pickAiModelSummary(contentCoverageValidationResponse) : null,
-      actionRationale: pickMergedAiModelSummary(reportResponse, "action_rationale", "final_report"),
-      chartInterpretations: chartInterpretationsResponse ? pickAiModelSummary(chartInterpretationsResponse) : null,
-      relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
-      finalReport: pickAiModelSummary(reportResponse),
-    },
-    classification,
-    emergentSentiments,
-    contentGaps,
-    contentCoverageValidation,
-    actionRationales,
-    chartInterpretations,
-    relationshipInsights,
-    report,
-    raw: {
-      classification: classificationResponse.text,
-      emergentSentiments: emergentSentimentResponse.text,
-      contentGaps: gapResponse.text,
-      contentCoverageValidation: contentCoverageValidationResponse?.text || "",
-      actionRationales: JSON.stringify(actionRationales),
-      chartInterpretations: chartInterpretationsResponse?.text || "",
-      relationshipInsights: relationshipInsightsResponse?.text || "",
-      report: reportResponse.text,
-    },
-  };
+    const partialAi = {
+      provider: reportResponse.provider,
+      model: reportResponse.model,
+      modelsUsed: {
+        classification: pickAiModelSummary(classificationResponse),
+        emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
+        contentGap: pickAiModelSummary(gapResponse),
+        contentCoverageValidation: null,
+        actionRationale: pickMergedAiModelSummary(reportResponse, "action_rationale", "final_report"),
+        chartInterpretations: null,
+        relationshipInsights: null,
+        finalReport: pickAiModelSummary(reportResponse),
+      },
+      classification,
+      emergentSentiments,
+      contentGaps,
+      contentCoverageValidation: { coverage: [], summary: "No product-content coverage validation was run." },
+      actionRationales,
+      chartInterpretations: null,
+      relationshipInsights: null,
+      report,
+      raw: {
+        classification: classificationResponse.text,
+        emergentSentiments: emergentSentimentResponse.text,
+        contentGaps: gapResponse.text,
+        contentCoverageValidation: "",
+        actionRationales: JSON.stringify(actionRationales),
+        chartInterpretations: "",
+        relationshipInsights: "",
+        report: reportResponse.text,
+      },
+    };
+
+    if (shouldBatchTerminalSteps) {
+      const pendingBatch = await maybeStartProductDiagnosisTerminalBatch({
+        shop,
+        jobId,
+        input,
+        report,
+        contentGaps,
+        partialAi,
+        usageTracker,
+        resumeContext,
+        onPerfEvent,
+      });
+      if (pendingBatch) {
+        return pendingBatch;
+      }
+    }
+
+    const [
+      contentCoverageResult,
+      chartInterpretationsResult,
+      relationshipInsightsResult,
+    ] = await Promise.all([
+      runContentCoverageValidationAiStep({ shop, jobId, input, report, contentGaps, usageTracker, onPerfEvent }),
+      chartInterpretationsPromise || runChartInterpretationsAiStep({ shop, jobId, input, usageTracker, onPerfEvent }),
+      relationshipInsightsPromise || runRelationshipInsightsAiStep({ shop, jobId, input, usageTracker, onPerfEvent }),
+    ]);
+    const { contentCoverageValidationResponse, contentCoverageValidation } = contentCoverageResult;
+    const { chartInterpretationsResponse, chartInterpretations } = chartInterpretationsResult;
+    const { relationshipInsightsResponse, relationshipInsights } = relationshipInsightsResult;
+    const aiUsage = await usageTracker.logSummary({
+      event: "product_diagnosis.ai_token_usage",
+      data: {
+        productGid: input?.product?.id || input?.product?.productGid || null,
+        productHandle: input?.product?.handle || null,
+      },
+    });
+
+    return {
+      provider: reportResponse.provider,
+      model: reportResponse.model,
+      aiUsage,
+      modelsUsed: {
+        classification: pickAiModelSummary(classificationResponse),
+        emergentSentiment: pickAiModelSummary(emergentSentimentResponse),
+        contentGap: pickAiModelSummary(gapResponse),
+        contentCoverageValidation: contentCoverageValidationResponse ? pickAiModelSummary(contentCoverageValidationResponse) : null,
+        actionRationale: pickMergedAiModelSummary(reportResponse, "action_rationale", "final_report"),
+        chartInterpretations: chartInterpretationsResponse ? pickAiModelSummary(chartInterpretationsResponse) : null,
+        relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
+        finalReport: pickAiModelSummary(reportResponse),
+      },
+      classification,
+      emergentSentiments,
+      contentGaps,
+      contentCoverageValidation,
+      actionRationales,
+      chartInterpretations,
+      relationshipInsights,
+      report,
+      raw: {
+        classification: classificationResponse.text,
+        emergentSentiments: emergentSentimentResponse.text,
+        contentGaps: gapResponse.text,
+        contentCoverageValidation: contentCoverageValidationResponse?.text || "",
+        actionRationales: JSON.stringify(actionRationales),
+        chartInterpretations: chartInterpretationsResponse?.text || "",
+        relationshipInsights: relationshipInsightsResponse?.text || "",
+        report: reportResponse.text,
+      },
+    };
   } catch (error) {
     await usageTracker.logSummary({
       level: "warn",
@@ -245,6 +309,308 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
     }).catch(() => {});
     throw error;
   }
+}
+
+async function maybeStartProductDiagnosisTerminalBatch({
+  shop,
+  jobId,
+  input,
+  report,
+  contentGaps,
+  partialAi,
+  usageTracker,
+  resumeContext,
+  onPerfEvent,
+}) {
+  const batchRequests = buildProductDiagnosisTerminalBatchRequests({ input, report, contentGaps });
+  if (!batchRequests.length) return null;
+
+  const partialAiUsage = await usageTracker.logSummary({
+    event: "product_diagnosis.ai_token_usage_partial",
+    message: "Product Diagnosis synchronous AI calls completed; terminal AI calls were submitted to OpenAI Batch API.",
+    data: {
+      productGid: input?.product?.id || input?.product?.productGid || null,
+      productHandle: input?.product?.handle || null,
+      batchedTasks: batchRequests.map((request) => request.task),
+    },
+  });
+
+  const partialWithUsage = {
+    ...partialAi,
+    aiUsage: partialAiUsage,
+  };
+
+  const batchGroup = await createProductPulseOpenAiBatchGroup({
+    shop,
+    jobId,
+    productGid: input?.product?.id || input?.product?.productGid || null,
+    requests: batchRequests,
+    resumePayload: {
+      schemaVersion: 1,
+      pausedAt: new Date().toISOString(),
+      input,
+      resumeContext,
+      partialAi: partialWithUsage,
+    },
+    metadata: {
+      productGid: input?.product?.id || input?.product?.productGid || null,
+      productHandle: input?.product?.handle || null,
+      operation: "product_diagnosis",
+      taskGroup: "terminal_ai_steps",
+    },
+  });
+
+  emitProductDiagnosisAiPerf(onPerfEvent, "product_diagnosis.openai_batch.submitted", {
+    shop,
+    jobId,
+    groupId: batchGroup.id,
+    requestCount: batchRequests.length,
+    batches: batchGroup.batches?.map((batch) => ({
+      id: batch.id,
+      openAiBatchId: batch.openAiBatchId,
+      model: batch.model,
+      requestCount: batch.requestCount,
+    })) || [],
+  }, "info");
+
+  return {
+    ...partialWithUsage,
+    status: "waiting_openai_batch",
+    openAiBatch: {
+      groupId: batchGroup.id,
+      status: batchGroup.status,
+      requestCount: batchGroup.requestCount,
+      submittedAt: batchGroup.submittedAt,
+      batches: (batchGroup.batches || []).map((batch) => ({
+        id: batch.id,
+        openAiBatchId: batch.openAiBatchId,
+        model: batch.model,
+        status: batch.status,
+        requestCount: batch.requestCount,
+        inputFileId: batch.inputFileId,
+      })),
+      tasks: batchRequests.map((request) => request.task),
+    },
+  };
+}
+
+export async function resumeProductDiagnosisAiAnalysisFromBatch({ shop, jobId, batchGroupId }) {
+  const group = batchGroupId ? await getOpenAiBatchGroup(batchGroupId) : null;
+  if (!group) throw new Error("OpenAI Batch group was not found for Product Diagnosis resume.");
+  const resumePayload = group.resumePayload || {};
+  const partialAi = resumePayload.partialAi || {};
+  const input = resumePayload.input || {};
+  const batchResponses = mapProcessedBatchResponses(group);
+  const contentCoverageValidationResponse = batchResponses.get("content_coverage_validation") || null;
+  const chartInterpretationsResponse = batchResponses.get("chart_interpretations") || null;
+  const relationshipInsightsResponse = batchResponses.get("relationship_insights") || null;
+  const contentCoverageValidation = contentCoverageValidationResponse
+    ? parseAiJson(contentCoverageValidationResponse.text, {
+      coverage: [],
+      summary: "Product-content coverage validation was unavailable.",
+    })
+    : { coverage: [], summary: "No product-content coverage validation was run." };
+
+  const compactChartInput = buildCompactProductChartInterpretationInput(input);
+  const chartInterpretations = chartInterpretationsResponse
+    ? normalizeProductChartInterpretations(
+      parseAiJson(chartInterpretationsResponse.text, { chart_interpretations: {} }),
+      compactChartInput,
+      pickAiModelSummary(chartInterpretationsResponse),
+    )
+    : normalizeProductChartInterpretations(
+      compactChartInput.available ? { status: "ai_unavailable", chart_interpretations: {} } : null,
+      compactChartInput,
+    );
+
+  const compactRelationshipInput = buildCompactProductRelationshipAiInput(input);
+  const relationshipInsights = relationshipInsightsResponse
+    ? normalizeProductRelationshipAiInsights(
+      parseAiJson(relationshipInsightsResponse.text, { insights: [] }),
+      compactRelationshipInput,
+      pickAiModelSummary(relationshipInsightsResponse),
+    )
+    : normalizeProductRelationshipAiInsights(
+      compactRelationshipInput.available ? { status: "ai_unavailable", insights: [] } : null,
+      compactRelationshipInput,
+    );
+
+  const batchCalls = [...batchResponses.values()].map((response) => normalizeAiUsageCall({
+    provider: response.provider,
+    model: response.model,
+    task: response.task,
+    requestContext: "batch",
+    usage: response.usage || null,
+    usageSource: response.usage ? "openai_batch_response_usage" : "provider_missing",
+  }));
+  await Promise.all(batchCalls.map((call) => recordAiUsageEvent({
+    shop,
+    jobId,
+    source: "product_diagnosis",
+    operation: "product_diagnosis",
+    provider: call.provider,
+    model: call.model,
+    task: call.task,
+    requestContext: call.requestContext,
+    entityType: input?.product?.id || input?.product?.productGid ? "product" : undefined,
+    entityId: input?.product?.id || input?.product?.productGid || undefined,
+    status: "success",
+    usage: call,
+  })));
+
+  const previousCalls = Array.isArray(partialAi.aiUsage?.calls) ? partialAi.aiUsage.calls : [];
+  const aiUsage = summarizeAiUsage([...previousCalls, ...batchCalls], {
+    productGid: input?.product?.id || input?.product?.productGid || null,
+    productHandle: input?.product?.handle || null,
+  });
+
+  await recordJobLog({
+    shop,
+    jobId,
+    event: "product_diagnosis.ai_token_usage",
+    message: "AI usage summary: synchronous Product Diagnosis calls plus OpenAI Batch terminal calls.",
+    data: {
+      productGid: input?.product?.id || input?.product?.productGid || null,
+      productHandle: input?.product?.handle || null,
+      openAiBatchGroupId: group.id,
+      aiUsage,
+    },
+  });
+
+  return {
+    resumePayload,
+    ai: {
+      ...partialAi,
+      status: "completed",
+      aiUsage,
+      modelsUsed: {
+        ...(partialAi.modelsUsed || {}),
+        contentCoverageValidation: contentCoverageValidationResponse ? pickAiModelSummary(contentCoverageValidationResponse) : null,
+        chartInterpretations: chartInterpretationsResponse ? pickAiModelSummary(chartInterpretationsResponse) : null,
+        relationshipInsights: relationshipInsightsResponse ? pickAiModelSummary(relationshipInsightsResponse) : null,
+      },
+      contentCoverageValidation,
+      chartInterpretations,
+      relationshipInsights,
+      raw: {
+        ...(partialAi.raw || {}),
+        contentCoverageValidation: contentCoverageValidationResponse?.text || "",
+        chartInterpretations: chartInterpretationsResponse?.text || "",
+        relationshipInsights: relationshipInsightsResponse?.text || "",
+      },
+      openAiBatch: {
+        groupId: group.id,
+        status: group.status,
+        requestCount: group.requestCount,
+        completedRequestCount: group.completedRequestCount,
+        failedRequestCount: group.failedRequestCount,
+      },
+    },
+  };
+}
+
+export function getProductDiagnosisOpenAiBatchAvailability({ force = false } = {}) {
+  const routing = getProductPulseAiRouting();
+  const configured = String(process.env.PRODUCT_PULSE_OPENAI_BATCH_ENABLED || "").trim().toLowerCase();
+  const hasWebhookSecret = Boolean(String(process.env.OPENAI_WEBHOOK_SECRET || "").trim());
+  if (routing.provider !== OPENAI_PROVIDER) {
+    return {
+      available: false,
+      reason: "provider_not_openai",
+      provider: routing.provider,
+      message: "Batch mode requires the OpenAI provider.",
+    };
+  }
+  if (["0", "false", "no", "off"].includes(configured)) {
+    return {
+      available: false,
+      reason: "disabled",
+      provider: routing.provider,
+      message: "OpenAI Batch mode is disabled by PRODUCT_PULSE_OPENAI_BATCH_ENABLED.",
+    };
+  }
+  if (!hasWebhookSecret) {
+    return {
+      available: false,
+      reason: "webhook_secret_missing",
+      provider: routing.provider,
+      message: "Batch mode requires OPENAI_WEBHOOK_SECRET so ProductPulse can resume analyses from OpenAI webhooks.",
+    };
+  }
+  if (force || ["1", "true", "yes", "on"].includes(configured)) {
+    return { available: true, reason: force ? "forced" : "enabled", provider: routing.provider };
+  }
+  if (process.env.NODE_ENV === "test") {
+    return {
+      available: false,
+      reason: "test_default_disabled",
+      provider: routing.provider,
+      message: "OpenAI Batch mode is disabled by default in tests.",
+    };
+  }
+  if (isProductPulseDevelopment()) {
+    return {
+      available: false,
+      reason: "development_default_disabled",
+      provider: routing.provider,
+      message: "OpenAI Batch mode is disabled by default in ProductPulse development mode.",
+    };
+  }
+  return { available: true, reason: "production_default", provider: routing.provider };
+}
+
+function shouldUseOpenAiBatchForProductDiagnosis({ force = false } = {}) {
+  return getProductDiagnosisOpenAiBatchAvailability({ force }).available;
+}
+
+function buildProductDiagnosisTerminalBatchRequests({ input, report, contentGaps }) {
+  const requests = [];
+  const contentCoveragePrompt = buildContentCoverageValidationPrompt(input, report, contentGaps);
+  if (contentCoveragePrompt) {
+    requests.push(buildOpenAiBatchRequest("content_coverage_validation", contentCoveragePrompt));
+  }
+
+  const compactChartInput = buildCompactProductChartInterpretationInput(input);
+  if (compactChartInput.available) {
+    requests.push(buildOpenAiBatchRequest("chart_interpretations", buildProductChartInterpretationsPrompt(compactChartInput)));
+  }
+
+  const compactRelationshipInput = buildCompactProductRelationshipAiInput(input);
+  if (compactRelationshipInput.available) {
+    requests.push(buildOpenAiBatchRequest("relationship_insights", buildProductRelationshipInsightsPrompt(compactRelationshipInput)));
+  }
+
+  return requests.filter(Boolean);
+}
+
+function buildOpenAiBatchRequest(task, prompt) {
+  const taskConfig = AI_TASKS[task] || AI_TASKS.final_report;
+  const model = resolveOpenAIModel(taskConfig);
+  if (!model || !prompt) return null;
+  return {
+    task,
+    model,
+    prompt,
+    maxOutputTokens: taskConfig.maxOutputTokens,
+    temperature: taskConfig.temperature,
+  };
+}
+
+function mapProcessedBatchResponses(group) {
+  const responses = new Map();
+  for (const batch of group.batches || []) {
+    for (const request of batch.requests || []) {
+      if (request.status !== "completed" || !request.outputText) continue;
+      responses.set(request.task, {
+        provider: OPENAI_PROVIDER,
+        model: request.model || batch.model,
+        task: request.task,
+        usage: request.usage || null,
+        text: request.outputText,
+      });
+    }
+  }
+  return responses;
 }
 
 export async function generateProductDiagnosisTestText({ shop, jobId, product }) {

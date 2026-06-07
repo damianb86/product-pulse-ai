@@ -368,6 +368,50 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getByRole("button", { name: "12 Credits available" })).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("shows Batch mode on the credits control when credits are exhausted", () => {
+    renderMonitor({
+      activeJobs: [],
+      recentJobs: [],
+      logs: [],
+      pointBalance: { available: 0, label: "0.0" },
+      pointSummary: {
+        balance: { available: 0, label: "0.0" },
+        plan: {
+          name: "Starter",
+          renewalLabel: "Renews every 30 days",
+          allowance: 100,
+          allowanceLabel: "100",
+        },
+        usage: {
+          used: 100,
+          total: 100,
+          usedLabel: "100",
+          totalLabel: "100",
+          percent: 100,
+          percentLabel: "100% used",
+          progressPercent: 100,
+        },
+        batchMode: {
+          active: true,
+          cooldownHours: 24,
+          nextFreeBatchDiagnosisAt: "2026-05-21T12:00:00.000Z",
+          message: "Batch mode is active because this store has no credits. Product Diagnosis runs do not consume credits in this mode, but only one analysis can be started every 24 hours and results can take up to 24 hours to complete. This applies regardless of the current plan.",
+        },
+        activity: [],
+      },
+    });
+
+    const creditsButton = screen.getByRole("button", { name: "Batch mode active, 0 Credits available" });
+    expect(creditsButton).toHaveClass("isBatchMode");
+
+    fireEvent.click(creditsButton);
+    const creditsDialog = screen.getByRole("dialog", { name: "Credit details" });
+    expect(within(creditsDialog).getByText("Batch mode is active")).toBeVisible();
+    expect(creditsDialog).toHaveTextContent("Product Diagnosis runs do not consume credits in this mode");
+    expect(creditsDialog).toHaveTextContent("only one analysis can be started every 24 hours");
+    expect(creditsDialog).toHaveTextContent("regardless of the current plan");
+  });
+
   it("shows active and past jobs from the top bar with product navigation", () => {
     const initialMonitor = {
       activeJobs: [
@@ -433,6 +477,43 @@ describe("ProductPulseJobMonitor", () => {
     expect(screen.getByRole("link", { name: /View all background processes/i })).toHaveAttribute("href", "/app/background-processes");
     expect(document.querySelector(".ppGlobalTopbarJobProgress")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /open product/i })[0]).toHaveAttribute("href", "/app/products/core-linen-trouser");
+  });
+
+  it("marks Batch mode jobs with a distinct icon, color hook, and label", () => {
+    const initialMonitor = {
+      activeJobs: [
+        {
+          id: "job-batch-active",
+          kind: "product-diagnosis",
+          name: "Product Diagnosis",
+          displayTitle: "Core Linen Trouser",
+          displaySubtitle: "Waiting on OpenAI Batch API",
+          status: "Running",
+          progress: 55,
+          productHref: "/app/products/core-linen-trouser",
+          startedAtIso: new Date(Date.now() - 5000).toISOString(),
+          updatedAtIso: new Date().toISOString(),
+          batchMode: {
+            freeCreditMode: true,
+            forceOpenAiBatch: true,
+          },
+          openAiBatch: {
+            status: "waiting",
+          },
+        },
+      ],
+      recentJobs: [],
+      logs: [],
+    };
+
+    renderMonitor(initialMonitor);
+    fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+
+    const batchJob = document.querySelector(".ppGlobalTopbarJobItem.isBatchMode");
+    expect(batchJob).toBeInTheDocument();
+    expect(batchJob.querySelector(".ppGlobalTopbarJobStateIcon-batch-mode")).toBeInTheDocument();
+    expect(within(batchJob).getByText("Batch mode")).toBeVisible();
+    expect(within(batchJob).queryByText(/credit/i)).not.toBeInTheDocument();
   });
 
   it("confirms before cancelling an active job from the top bar popover", async () => {

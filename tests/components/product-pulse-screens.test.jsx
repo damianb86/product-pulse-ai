@@ -1619,6 +1619,8 @@ describe("ProductPulse screens", () => {
               elapsedMs: 60_000,
               productHref: "/app/products/gen-echolock-voice-safe",
               payloadItems: [{ label: "Product GID", value: "gid://shopify/Product/123" }],
+              batchMode: { freeCreditMode: true, forceOpenAiBatch: true },
+              openAiBatch: { status: "waiting" },
               logCount: 1,
               logs: [{ id: "log-1", jobId: "job-running", level: "info", event: "product_diagnosis.started", message: "Diagnosis started.", createdAtIso: "2026-05-24T14:59:10.000Z" }],
             },
@@ -1637,6 +1639,8 @@ describe("ProductPulse screens", () => {
               elapsedMs: 60_000,
               productHref: "/app/products/gen-echolock-voice-safe",
               payloadItems: [{ label: "Product GID", value: "gid://shopify/Product/123" }],
+              batchMode: { freeCreditMode: true, forceOpenAiBatch: true },
+              openAiBatch: { status: "waiting" },
               logCount: 1,
               logs: [{ id: "log-1", jobId: "job-running", level: "info", event: "product_diagnosis.started", message: "Diagnosis started.", createdAtIso: "2026-05-24T14:59:10.000Z" }],
             },
@@ -1693,6 +1697,13 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Showing 1-10 of 12 processes")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Next page" })).toHaveAttribute("href", "/app/background-processes?page=2");
     expect(container.querySelectorAll(".ppBackgroundProcessList .ppBackgroundProcessCard")).toHaveLength(10);
+    const batchCard = container.querySelector(".ppBackgroundProcessCard.isBatchMode");
+    expect(batchCard).toBeInTheDocument();
+    expect(batchCard.querySelector(".ppBackgroundProcessStatusIcon-batch-mode")).toBeInTheDocument();
+    expect(within(batchCard).getByText("Batch mode")).toBeInTheDocument();
+    const batchMiniItem = container.querySelector(".ppBackgroundProcessMiniItem.isBatchMode");
+    expect(batchMiniItem).toBeInTheDocument();
+    expect(within(batchMiniItem).getByText(/Batch mode · Running/)).toBeInTheDocument();
   });
 
   it("hides background process log UI outside development mode", () => {

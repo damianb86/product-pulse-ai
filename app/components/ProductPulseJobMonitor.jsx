@@ -548,7 +548,11 @@ function ProductPulseGlobalTopbar({
   const isJobsOpen = activePopover === "jobs";
   const isCreditsOpen = activePopover === "credits";
   const pointLabel = formatPointBalanceLabel(pointBalance);
-  const creditsButtonLabel = hasPointBalance(pointBalance) ? `${pointLabel} Credits available` : "Credits";
+  const batchModeSummary = getCreditBatchModeSummary(pointSummary, pointBalance);
+  const batchModeActive = Boolean(batchModeSummary.active);
+  const creditsButtonLabel = batchModeActive
+    ? `Batch mode active, ${pointLabel} Credits available`
+    : hasPointBalance(pointBalance) ? `${pointLabel} Credits available` : "Credits";
 
   return (
     <div className="ppGlobalTopbar" ref={refProp}>
@@ -609,7 +613,7 @@ function ProductPulseGlobalTopbar({
 
         <div className="ppGlobalTopbarAction">
           <button
-            className={`ppGlobalTopbarPoints${isCreditsOpen ? " isActive" : ""}`}
+            className={`ppGlobalTopbarPoints${isCreditsOpen ? " isActive" : ""}${batchModeActive ? " isBatchMode" : ""}`}
             type="button"
             aria-label={creditsButtonLabel}
             aria-expanded={isCreditsOpen}
@@ -637,6 +641,19 @@ function CreditsPopover({ id, pointSummary, pointBalance, loading = false, error
 
   return (
     <div className="ppGlobalTopbarPopover ppGlobalTopbarCreditsPopover" id={id} role="dialog" aria-label="Credit details">
+      {summary.batchMode.active ? (
+        <section className="ppCreditsBatchModeNotice" aria-label="Batch mode active">
+          <span className="ppCreditsBatchModeIcon" aria-hidden="true">
+            <s-icon type="clock" size="small"></s-icon>
+          </span>
+          <div>
+            <strong>Batch mode is active</strong>
+            <p>{summary.batchMode.message}</p>
+            <small>{summary.batchMode.nextFreeBatchDiagnosisAt ? `Next free analysis window: ${formatCreditDateTime(summary.batchMode.nextFreeBatchDiagnosisAt)}.` : "The next free Batch analysis can be started now."}</small>
+          </div>
+        </section>
+      ) : null}
+
       <section className="ppCreditsSummaryPanel" aria-label="Credit summary">
         <div className="ppCreditsSummaryMetric">
           <span>Total remaining</span>
@@ -723,6 +740,20 @@ function normalizeCreditPopoverSummary(pointSummary, pointBalance) {
       progressPercent: Math.max(0, Math.min(100, progressPercent)),
     },
     activity: normalizeCreditActivity(pointSummary?.activity),
+    batchMode: getCreditBatchModeSummary(pointSummary, pointBalance),
+  };
+}
+
+function getCreditBatchModeSummary(pointSummary, pointBalance) {
+  const batchMode = pointSummary?.batchMode && typeof pointSummary.batchMode === "object" ? pointSummary.batchMode : {};
+  const rawAvailable = Number(pointBalance?.available ?? pointBalance?.balance ?? pointSummary?.balance?.available ?? pointSummary?.balance?.balance ?? 0);
+  const available = Number.isFinite(rawAvailable) ? rawAvailable : 0;
+  const active = batchMode.active ?? available < 1;
+  return {
+    active: Boolean(active),
+    message: batchMode.message || "Batch mode is active because this store has no credits. Product Diagnosis runs do not consume credits in this mode, but only one analysis can be started every 24 hours and results can take up to 24 hours to complete. This applies regardless of the current plan.",
+    nextFreeBatchDiagnosisAt: batchMode.nextFreeBatchDiagnosisAt || null,
+    canStartFreeBatchAnalysis: batchMode.canStartFreeBatchAnalysis ?? true,
   };
 }
 
@@ -762,6 +793,17 @@ function formatSignedCreditValue(value) {
   const amount = normalizeCreditValue(Math.abs(Number.isFinite(number) ? number : 0));
   const sign = number < 0 ? "-" : "+";
   return `${sign}${formatCompactCreditValue(amount)} credit${amount === 1 ? "" : "s"}`;
+}
+
+function formatCreditDateTime(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "the next available 24-hour window";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, searchInputRef, onClose, buildAppPath = defaultBuildAppPath }) {
@@ -927,13 +969,15 @@ function JobPopoverSection({ title, jobs, emptyText, now, onClose, current = fal
 
 function JobPopoverItem({ job, now, current = false, onClose, cancelPending = false, onCancelJob, buildAppPath = defaultBuildAppPath }) {
   const statusKey = getJobStatusKey(job);
+  const batchModeActive = isBatchModeJob(job);
+  const stateIconKey = batchModeActive ? "batch-mode" : statusKey;
   const metaItems = getJobMetaItems(job, now, current);
   const canCancel = current && isActiveJobStatus(job.status) && typeof onCancelJob === "function";
 
   return (
-    <article className={`ppGlobalTopbarJobItem ppGlobalTopbarJobItem-${statusKey}${current ? " isCurrent" : ""}`}>
-      <span className={`ppGlobalTopbarJobStateIcon ppGlobalTopbarJobStateIcon-${statusKey}`} aria-hidden="true">
-        <s-icon type={getJobStateIconType(statusKey)} size="small"></s-icon>
+    <article className={`ppGlobalTopbarJobItem ppGlobalTopbarJobItem-${statusKey}${current ? " isCurrent" : ""}${batchModeActive ? " isBatchMode" : ""}`}>
+      <span className={`ppGlobalTopbarJobStateIcon ppGlobalTopbarJobStateIcon-${stateIconKey}`} aria-hidden="true">
+        <s-icon type={getJobStateIconType(statusKey, job)} size="small"></s-icon>
       </span>
       <div className="ppGlobalTopbarJobMain">
         <div className="ppGlobalTopbarJobTitleRow">
@@ -944,7 +988,7 @@ function JobPopoverItem({ job, now, current = false, onClose, cancelPending = fa
         <div className="ppGlobalTopbarJobMeta">
           {metaItems.map((item) => (
             <span key={`${job.id}-${item.label}`} className={`ppGlobalTopbarJobMetaItem ppGlobalTopbarJobMetaItem-${item.icon}`}>
-              <s-icon type={item.icon === "points" ? "product" : item.icon} size="small"></s-icon>
+              <s-icon type={item.iconType || (item.icon === "points" ? "product" : item.icon)} size="small"></s-icon>
               {item.label}
             </span>
           ))}
@@ -977,7 +1021,14 @@ function getJobStatusKey(job) {
   return String(job.status || "unknown").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "unknown";
 }
 
-function getJobStateIconType(statusKey) {
+function isBatchModeJob(job) {
+  const batchMode = job?.batchMode || job?.payload?.batchMode || {};
+  const openAiBatch = job?.openAiBatch || job?.payload?.openAiBatch || {};
+  return Boolean(batchMode.freeCreditMode || batchMode.forceOpenAiBatch || openAiBatch.status === "waiting");
+}
+
+function getJobStateIconType(statusKey, job = null) {
+  if (isBatchModeJob(job)) return "clock";
   if (statusKey === "completed") return "check-circle";
   if (statusKey === "failed") return "alert-circle";
   if (statusKey === "queued") return "clock";
@@ -986,9 +1037,11 @@ function getJobStateIconType(statusKey) {
 
 function getJobMetaItems(job, now, current) {
   const showElapsed = current || job.status !== "Queued";
+  const batchModeActive = isBatchModeJob(job);
   return [
+    batchModeActive ? { icon: "batch", iconType: "clock", label: "Batch mode" } : null,
     { icon: "clock", label: getJobTimeMetaLabel(job) },
-    { icon: "points", label: getJobCreditLabel(job) },
+    batchModeActive ? null : { icon: "points", label: getJobCreditLabel(job) },
     showElapsed ? { icon: "clock", label: formatElapsed(job, now) } : null,
   ].filter((item) => item?.label);
 }
@@ -1003,6 +1056,7 @@ function getJobTimeMetaLabel(job) {
 }
 
 function getJobCreditLabel(job) {
+  if (job.batchMode?.freeCreditMode) return "Batch mode";
   const points = Number(job.pointsConsumed ?? job.creditsConsumed ?? job.credits ?? job.creditCost ?? (job.kind === "product-diagnosis" ? 1 : 0));
   if (!Number.isFinite(points) || points <= 0) return "";
   return `${formatPointBalanceLabel({ available: points })} credit${points === 1 ? "" : "s"}`;
@@ -1038,6 +1092,8 @@ function getJobRefreshSnapshot(job) {
     imageAlt: getJobNoticeImageAlt(job),
     updatedAtIso: job.updatedAtIso || "",
     finishedAtIso: job.finishedAtIso || "",
+    batchMode: job.batchMode || null,
+    openAiBatch: job.openAiBatch || null,
   };
 }
 

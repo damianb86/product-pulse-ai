@@ -7,7 +7,11 @@ import {
   runShopifyQuickScan,
 } from "./product-pulse-quick-scan.server";
 import { buildAnalyticsViewData, buildDashboardViewData } from "./product-pulse-data";
-import { runDetailedProductDiagnosis } from "./product-pulse-diagnosis.server";
+import {
+  resumeDetailedProductDiagnosisFromOpenAiBatch,
+  runDetailedProductDiagnosis,
+} from "./product-pulse-diagnosis.server";
+import { getProductDiagnosisOpenAiBatchAvailability } from "./product-pulse-ai.server";
 import {
   getJobLogsForShop,
   recordJobLog,
@@ -16,12 +20,17 @@ import {
 import { getProductRetentionPayloadForDiagnosis } from "./product-pulse-retention.server";
 import {
   PRODUCT_PULSE_SETTINGS_SOURCE_KEY,
+  PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS,
+  PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS,
   getProductPulseSettings,
+  getProductPulseBatchModeSummary,
   getRiskFilterValueForScore,
   getRiskLabelForScore,
   getRiskToneForScore,
   getStatusFilterValueForScore,
   getStatusLabelForScore,
+  normalizeProductPulseSettings,
+  withProductPulseBatchModeSummary,
 } from "./product-pulse-settings.server";
 import {
   PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS,
@@ -73,6 +82,12 @@ import {
   getProductPulseProductRollupSnapshotRowsForShop,
   upsertProductPulseProductRollup,
 } from "./product-pulse-product-rollup.server";
+import {
+  claimOpenAiBatchGroupForResume,
+  markOpenAiBatchGroupProcessed,
+  markOpenAiBatchGroupResumeFailed,
+  processOpenAiBatchWebhookEvent,
+} from "./product-pulse-openai-batch.server";
 
 const FAST_PRODUCT_SCAN_KIND = "fast-product-scan";
 const PRODUCT_DIAGNOSIS_KIND = "product-diagnosis";
@@ -2046,6 +2061,7 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
       status: "validation_error",
       message: pointFailure?.message || "Selected products were not found in ProductPulse or Shopify.",
       pointBalance: pointFailure?.balance,
+      batchMode: pointFailure?.batchMode || null,
     };
   }
 
@@ -2058,7 +2074,7 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
   const messageParts = [];
   if (createdCount) messageParts.push(`${createdCount} Product Diagnosis job${createdCount === 1 ? "" : "s"} queued`);
   if (reusedCount) messageParts.push(`${reusedCount} already in queue or running`);
-  if (skippedForPoints) messageParts.push(`${skippedForPoints} skipped because credits were no longer available`);
+  if (skippedForPoints) messageParts.push(`${skippedForPoints} skipped because credits or Batch mode capacity were no longer available`);
 
   invalidateProductPulseDashboardCache(shop);
   return {
@@ -2112,7 +2128,7 @@ export async function getJobMonitorForShop(shop, options = {}) {
   perf?.mark("jobStatus.cache.miss");
   await measureProductPulseStep(perf, "jobStatus.failStaleFastProductScans", () => failStaleFastProductScans(shop));
   const activeWhere = { shop, status: { in: ["Queued", "Running"] } };
-  const [recentJobs, activeJobsRaw, logs, pointSummary] = await Promise.all([
+  const [recentJobs, activeJobsRaw, logs, pointSummary, settingsForPointSummary] = await Promise.all([
     includeRecentJobs ? measureProductPulseStep(perf, "jobStatus.recentJobs", () => prisma.catalogSignalJob.findMany({
       where: { shop },
       orderBy: [{ updatedAt: "desc" }],
@@ -2129,7 +2145,13 @@ export async function getJobMonitorForShop(shop, options = {}) {
     includePointSummary
       ? measureProductPulseStep(perf, "jobStatus.pointSummary", () => getStorePointSummaryForShop(shop, { limit: 3 }))
       : null,
+    includePointSummary
+      ? measureProductPulseStep(perf, "jobStatus.settingsForPointSummary", () => getProductPulseSettings(shop))
+      : null,
   ]);
+  const enrichedPointSummary = pointSummary
+    ? withProductPulseBatchModeSummary(pointSummary, settingsForPointSummary)
+    : null;
   const activeJobsLimited = activeJobsRaw.length > JOB_MONITOR_ACTIVE_JOB_LIMIT;
   const activeJobs = activeJobsLimited ? activeJobsRaw.slice(0, JOB_MONITOR_ACTIVE_JOB_LIMIT) : activeJobsRaw;
   const activeJobCount = activeJobsLimited
@@ -2145,8 +2167,8 @@ export async function getJobMonitorForShop(shop, options = {}) {
     recentJobsLoaded: includeRecentJobs,
     logs: logs.map(formatJobLog),
     logsLoaded: includeLogs,
-    pointBalance: pointSummary?.balance || null,
-    pointSummary,
+    pointBalance: enrichedPointSummary?.balance || null,
+    pointSummary: enrichedPointSummary,
     pointSummaryLoaded: includePointSummary,
     updatedAt: new Date().toISOString(),
   };
@@ -2229,6 +2251,17 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
     message: "Background job cancelled.",
     invalidateDashboardCache: true,
     job: updatedJob ? formatJob(updatedJob) : null,
+  };
+}
+
+export async function handleOpenAiWebhookEventForProductPulse(event, headers = {}) {
+  const batchResult = await processOpenAiBatchWebhookEvent(event, headers);
+  if (!batchResult.groupReady || !batchResult.group?.id) return batchResult;
+
+  const resumeResult = await resumeProductDiagnosisJobFromOpenAiBatchGroup(batchResult.group.id);
+  return {
+    ...batchResult,
+    resumeResult,
   };
 }
 
@@ -2437,6 +2470,7 @@ export async function queueProductDiagnosisForShop(shop, productId, options = {}
       status: "validation_error",
       message: job.pointValidationError.message,
       pointBalance: job.pointValidationError.balance,
+      batchMode: job.pointValidationError.batchMode || null,
     };
   }
   ensureProductDiagnosisQueueWorker(shop);
@@ -4802,6 +4836,198 @@ async function getProductDiagnosisSnapshotsForProductIds(shop, productIds = []) 
   };
 }
 
+async function getProductPulseSettingsForShopInTransaction(tx, shop) {
+  const record = await tx.productPulseSource.findUnique({
+    where: {
+      shop_sourceKey: {
+        shop,
+        sourceKey: PRODUCT_PULSE_SETTINGS_SOURCE_KEY,
+      },
+    },
+  });
+  return normalizeProductPulseSettings(record?.config);
+}
+
+async function updateProductPulseBatchModeSettingsInTransaction(tx, shop, updates = {}) {
+  const currentSettings = await getProductPulseSettingsForShopInTransaction(tx, shop);
+  const currentBatchMode = currentSettings.processing?.batchMode || {};
+  const settings = normalizeProductPulseSettings({
+    ...currentSettings,
+    processing: {
+      ...(currentSettings.processing || {}),
+      batchMode: {
+        ...currentBatchMode,
+        ...updates,
+        cooldownHours: PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS,
+      },
+    },
+  });
+
+  await tx.productPulseSource.upsert({
+    where: {
+      shop_sourceKey: {
+        shop,
+        sourceKey: PRODUCT_PULSE_SETTINGS_SOURCE_KEY,
+      },
+    },
+    create: {
+      shop,
+      sourceKey: PRODUCT_PULSE_SETTINGS_SOURCE_KEY,
+      category: "settings",
+      name: "ProductPulse Settings",
+      connected: true,
+      active: true,
+      available: true,
+      health: "configured",
+      coverageWeight: 0,
+      config: settings,
+    },
+    update: {
+      connected: true,
+      active: true,
+      available: true,
+      health: "configured",
+      config: settings,
+    },
+  });
+
+  return settings;
+}
+
+async function resolveProductDiagnosisBatchModeQueue(tx, shop, { pointBalance, now = new Date() } = {}) {
+  const availability = getProductDiagnosisOpenAiBatchAvailability({ force: true });
+  const settings = await getProductPulseSettingsForShopInTransaction(tx, shop);
+  const batchSummary = getProductPulseBatchModeSummary(settings, pointBalance, now);
+
+  if (!availability.available) {
+    return {
+      ok: false,
+      error: buildProductDiagnosisBatchModeQueueError({
+        message: availability.message || "Batch mode is not available for this store.",
+        pointBalance,
+        batchSummary,
+        reason: availability.reason,
+      }),
+    };
+  }
+
+  const activeBatchJob = await tx.catalogSignalJob.findFirst({
+    where: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      status: { in: ["Queued", "Running"] },
+      payload: { path: ["batchMode", "freeCreditMode"], equals: true },
+    },
+    orderBy: [{ updatedAt: "desc" }],
+  });
+  if (activeBatchJob) {
+    return {
+      ok: false,
+      error: buildProductDiagnosisBatchModeQueueError({
+        message: "Batch mode already has a Product Diagnosis in progress. Start the next free Batch analysis after the current one finishes and the 24-hour window is available.",
+        pointBalance,
+        batchSummary,
+        reason: "batch_analysis_in_progress",
+        activeJobId: activeBatchJob.id,
+      }),
+    };
+  }
+
+  const cutoff = new Date(now.getTime() - PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS);
+  const recentBatchJob = await tx.catalogSignalJob.findFirst({
+    where: {
+      shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+      createdAt: { gte: cutoff },
+      payload: { path: ["batchMode", "freeCreditMode"], equals: true },
+    },
+    orderBy: [{ createdAt: "desc" }],
+  });
+  const lastFreeDate = maxDate(
+    parseDate(batchSummary.lastFreeBatchDiagnosisAt),
+    recentBatchJob?.createdAt,
+  );
+  if (lastFreeDate && now.getTime() - lastFreeDate.getTime() < PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS) {
+    const nextAt = new Date(lastFreeDate.getTime() + PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS);
+    return {
+      ok: false,
+      error: buildProductDiagnosisBatchModeQueueError({
+        message: `Batch mode allows one Product Diagnosis every 24 hours. The next free Batch analysis is available ${formatJobDate(nextAt)}.`,
+        pointBalance,
+        batchSummary: {
+          ...batchSummary,
+          lastFreeBatchDiagnosisAt: lastFreeDate.toISOString(),
+          nextFreeBatchDiagnosisAt: nextAt.toISOString(),
+          canStartFreeBatchAnalysis: false,
+        },
+        reason: "batch_cooldown_active",
+        nextFreeBatchDiagnosisAt: nextAt.toISOString(),
+      }),
+    };
+  }
+
+  const activatedAt = batchSummary.activatedAt || now.toISOString();
+  return {
+    ok: true,
+    settings,
+    batchSummary: {
+      ...batchSummary,
+      active: true,
+      activatedAt,
+      canStartFreeBatchAnalysis: true,
+    },
+  };
+}
+
+function buildProductDiagnosisBatchModePayload({ now = new Date(), batchSummary = {} } = {}) {
+  const queuedAt = now.toISOString();
+  return {
+    enabled: true,
+    freeCreditMode: true,
+    forceOpenAiBatch: true,
+    reason: "out_of_credits",
+    activatedAt: batchSummary.activatedAt || queuedAt,
+    queuedAt,
+    cooldownHours: PRODUCT_PULSE_BATCH_MODE_COOLDOWN_HOURS,
+    lastFreeBatchDiagnosisAt: queuedAt,
+    nextFreeBatchDiagnosisAt: new Date(now.getTime() + PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS).toISOString(),
+  };
+}
+
+function buildProductDiagnosisBatchModeQueueError({
+  message,
+  pointBalance = null,
+  batchSummary = null,
+  reason = "batch_mode_unavailable",
+  nextFreeBatchDiagnosisAt = null,
+  activeJobId = null,
+} = {}) {
+  return {
+    status: "validation_error",
+    message,
+    balance: pointBalance || null,
+    batchMode: {
+      ...(batchSummary || {}),
+      reason,
+      activeJobId,
+      nextFreeBatchDiagnosisAt: nextFreeBatchDiagnosisAt || batchSummary?.nextFreeBatchDiagnosisAt || null,
+    },
+  };
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function maxDate(...values) {
+  return values
+    .map(parseDate)
+    .filter(Boolean)
+    .sort((a, b) => b.getTime() - a.getTime())[0] || null;
+}
+
 async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
   const uniqueSnapshots = [];
   const seenProductGids = new Set();
@@ -4838,39 +5064,88 @@ async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
       }
     });
 
-    if (snapshotsToCreate.length) {
-      const pointCheck = await validateStorePointsForShop(shop, snapshotsToCreate.length, { db: tx });
-      if (!pointCheck.valid) {
+    const pointBalance = snapshotsToCreate.length
+      ? await getStorePointSummaryForShop(shop, { db: tx, limit: 1 }).then((summary) => summary.balance)
+      : null;
+    const availableCreditSlots = Math.max(0, Math.floor(Number(pointBalance?.available || 0)));
+    let batchModeEligibility = null;
+    let batchModeUsed = false;
+    if (snapshotsToCreate.length && availableCreditSlots < 1) {
+      batchModeEligibility = await resolveProductDiagnosisBatchModeQueue(tx, shop, { pointBalance, now: new Date() });
+      if (!batchModeEligibility.ok) {
         return {
           jobs,
           createdJobs: [],
-          pointFailures: snapshotsToCreate.map(() => pointCheck),
+          pointFailures: snapshotsToCreate.map(() => batchModeEligibility.error),
         };
       }
     }
 
     const createdJobs = [];
     const pointFailures = [];
-    for (const snapshot of snapshotsToCreate) {
+    for (const [index, snapshot] of snapshotsToCreate.entries()) {
       const snapshotMetrics = snapshot.metrics || {};
       const snapshotImage = getSnapshotProductImage(snapshot);
       const jobId = randomUUID();
-      const pointDebit = await debitStorePointsForShop(shop, {
-        db: tx,
-        amount: 1,
-        reason: `Product credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
-        idempotencyKey: `product-diagnosis:${jobId}`,
-        metadata: {
-          source: "product_diagnosis",
-          jobId,
-          productGid: snapshot.productGid || null,
-          productTitle: snapshot.productTitle || null,
-          queued: true,
-        },
-      });
-      if (!isPointDebitRecorded(pointDebit)) {
+      const useCredit = index < availableCreditSlots;
+      const useBatchMode = !useCredit && batchModeEligibility?.ok && !batchModeUsed;
+      if (!useCredit && !useBatchMode) {
+        pointFailures.push(batchModeEligibility?.error || {
+          status: "validation_error",
+          message: "Product Diagnosis could not be queued because credits were exhausted.",
+          balance: pointBalance,
+        });
+        continue;
+      }
+
+      const now = new Date();
+      const batchMode = useBatchMode
+        ? buildProductDiagnosisBatchModePayload({ now, batchSummary: batchModeEligibility.batchSummary })
+        : null;
+      const pointDebit = useCredit
+        ? await debitStorePointsForShop(shop, {
+          db: tx,
+          amount: 1,
+          reason: `Product credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+          idempotencyKey: `product-diagnosis:${jobId}`,
+          metadata: {
+            source: "product_diagnosis",
+            jobId,
+            productGid: snapshot.productGid || null,
+            productTitle: snapshot.productTitle || null,
+            queued: true,
+          },
+        })
+        : {
+          status: "batch_mode_no_charge",
+          amount: 0,
+          charged: false,
+          ledgerEntry: null,
+          balance: pointBalance,
+        };
+      if (useCredit && !isPointDebitRecorded(pointDebit)) {
         pointFailures.push(pointDebit);
         continue;
+      }
+      const payload = {
+        productId: snapshot.productGid || snapshot.handle,
+        productGid: snapshot.productGid,
+        handle: snapshot.handle,
+        productTitle: snapshot.productTitle,
+        imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+        productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
+        imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
+        productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
+        riskScore: snapshot.riskScore,
+        pointCost: useBatchMode ? 0 : 1,
+        pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+        pointDebitStatus: pointDebit.status,
+        queuedAt: new Date().toISOString(),
+      };
+      if (batchMode) {
+        payload.pointsConsumed = 0;
+        payload.creditsConsumed = 0;
+        payload.batchMode = batchMode;
       }
 
       const job = await tx.catalogSignalJob.create({
@@ -4882,26 +5157,23 @@ async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
           status: "Queued",
           progress: 0,
           priority: 50,
-          payload: {
-            productId: snapshot.productGid || snapshot.handle,
-            productGid: snapshot.productGid,
-            handle: snapshot.handle,
-            productTitle: snapshot.productTitle,
-            imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
-            productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
-            imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
-            productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
-            riskScore: snapshot.riskScore,
-            pointCost: 1,
-            pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
-            pointDebitStatus: pointDebit.status,
-            queuedAt: new Date().toISOString(),
-          },
+          payload,
         },
       });
 
+      if (batchMode) {
+        batchModeUsed = true;
+        await updateProductPulseBatchModeSettingsInTransaction(tx, shop, {
+          active: true,
+          activatedAt: batchMode.activatedAt,
+          lastFreeBatchDiagnosisAt: batchMode.lastFreeBatchDiagnosisAt,
+          nextFreeBatchDiagnosisAt: batchMode.nextFreeBatchDiagnosisAt,
+          lastFreeBatchJobId: job.id,
+          lastFreeBatchProductGid: snapshot.productGid || null,
+        });
+      }
       jobs.push(job);
-      createdJobs.push({ job, snapshot, pointDebit });
+      createdJobs.push({ job, snapshot, pointDebit, batchMode });
     }
 
     return { jobs, createdJobs, pointFailures };
@@ -4918,8 +5190,9 @@ async function createProductDiagnosisJobsForSnapshots(shop, snapshots = []) {
         handle: snapshot.handle,
         title: snapshot.productTitle,
         riskScore: snapshot.riskScore,
-        pointsConsumed: 1,
+        pointsConsumed: job.payload?.batchMode?.freeCreditMode ? 0 : 1,
         pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+        batchMode: job.payload?.batchMode || null,
         bulkQueued: true,
       },
     });
@@ -4956,26 +5229,64 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
     const activeJob = findActiveProductDiagnosisJobForSnapshot(snapshot, activeJobs);
     if (activeJob) return { job: activeJob, created: false };
 
-    if (!options.skipPointBalanceCheck) {
+    const pointSummary = await getStorePointSummaryForShop(shop, { db: tx, limit: 1 });
+    const pointBalance = pointSummary.balance;
+    let batchModeEligibility = null;
+    if (!options.skipPointBalanceCheck && Number(pointBalance?.available || 0) < 1) {
+      batchModeEligibility = await resolveProductDiagnosisBatchModeQueue(tx, shop, { pointBalance, now: new Date() });
+      if (!batchModeEligibility.ok) return { pointValidationError: batchModeEligibility.error };
+    } else if (!options.skipPointBalanceCheck) {
       const pointCheck = await validateStorePointsForShop(shop, 1, { db: tx });
       if (!pointCheck.valid) return { pointValidationError: pointCheck };
     }
 
     const jobId = randomUUID();
-    const pointDebit = await debitStorePointsForShop(shop, {
-      db: tx,
-      amount: 1,
-      reason: `Product credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
-      idempotencyKey: `product-diagnosis:${jobId}`,
-      metadata: {
-        source: "product_diagnosis",
-        jobId,
-        productGid: snapshot.productGid || null,
-        productTitle: snapshot.productTitle || null,
-        queued: true,
-      },
-    });
-    if (!isPointDebitRecorded(pointDebit)) return { pointValidationError: pointDebit };
+    const now = new Date();
+    const batchMode = batchModeEligibility?.ok
+      ? buildProductDiagnosisBatchModePayload({ now, batchSummary: batchModeEligibility.batchSummary })
+      : null;
+    const pointDebit = batchMode
+      ? {
+        status: "batch_mode_no_charge",
+        amount: 0,
+        charged: false,
+        ledgerEntry: null,
+        balance: pointBalance,
+      }
+      : await debitStorePointsForShop(shop, {
+        db: tx,
+        amount: 1,
+        reason: `Product credit debit product-diagnosis:${jobId} - ${snapshot.productTitle || "selected product"}`,
+        idempotencyKey: `product-diagnosis:${jobId}`,
+        metadata: {
+          source: "product_diagnosis",
+          jobId,
+          productGid: snapshot.productGid || null,
+          productTitle: snapshot.productTitle || null,
+          queued: true,
+        },
+      });
+    if (!batchMode && !isPointDebitRecorded(pointDebit)) return { pointValidationError: pointDebit };
+    const payload = {
+      productId,
+      productGid: snapshot.productGid,
+      handle: snapshot.handle,
+      productTitle: snapshot.productTitle,
+      imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
+      productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
+      imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
+      productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
+      riskScore: snapshot.riskScore,
+      pointCost: batchMode ? 0 : 1,
+      pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
+      pointDebitStatus: pointDebit.status,
+      queuedAt: new Date().toISOString(),
+    };
+    if (batchMode) {
+      payload.pointsConsumed = 0;
+      payload.creditsConsumed = 0;
+      payload.batchMode = batchMode;
+    }
 
     const job = await tx.catalogSignalJob.create({
       data: {
@@ -4986,25 +5297,22 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
         status: "Queued",
         progress: 0,
         priority: 50,
-        payload: {
-          productId,
-          productGid: snapshot.productGid,
-          handle: snapshot.handle,
-          productTitle: snapshot.productTitle,
-          imageUrl: snapshotImage.imageUrl || snapshotMetrics.imageUrl || snapshotMetrics.image || "",
-          productImageUrl: snapshotImage.imageUrl || snapshotMetrics.productImageUrl || "",
-          imageAlt: snapshotImage.imageAlt || snapshotMetrics.imageAlt || snapshot.productTitle,
-          productImageAlt: snapshotImage.imageAlt || snapshotMetrics.productImageAlt || snapshot.productTitle,
-          riskScore: snapshot.riskScore,
-          pointCost: 1,
-          pointLedgerEntryId: pointDebit.ledgerEntry?.id || null,
-          pointDebitStatus: pointDebit.status,
-          queuedAt: new Date().toISOString(),
-        },
+        payload,
       },
     });
 
-    return { job, created: true, pointDebit };
+    if (batchMode) {
+      await updateProductPulseBatchModeSettingsInTransaction(tx, shop, {
+        active: true,
+        activatedAt: batchMode.activatedAt,
+        lastFreeBatchDiagnosisAt: batchMode.lastFreeBatchDiagnosisAt,
+        nextFreeBatchDiagnosisAt: batchMode.nextFreeBatchDiagnosisAt,
+        lastFreeBatchJobId: job.id,
+        lastFreeBatchProductGid: snapshot.productGid || null,
+      });
+    }
+
+    return { job, created: true, pointDebit, batchMode };
   });
 
   if (result.pointValidationError) return { pointValidationError: result.pointValidationError };
@@ -5021,8 +5329,9 @@ async function createProductDiagnosisJob(shop, productId, options = {}) {
       handle: snapshot.handle,
       title: snapshot.productTitle,
       riskScore: snapshot.riskScore,
-      pointsConsumed: 1,
+      pointsConsumed: job.payload?.batchMode?.freeCreditMode ? 0 : 1,
       pointLedgerEntryId: pointDebit?.ledgerEntry?.id || null,
+      batchMode: job.payload?.batchMode || null,
     },
   });
 
@@ -5644,6 +5953,12 @@ async function requeueExpiredProductPulseJobs(shop) {
       { leaseExpiresAt: { lte: now } },
       { leaseExpiresAt: null, updatedAt: { lte: staleUnleasedCutoff } },
     ],
+    NOT: {
+      AND: [
+        { kind: PRODUCT_DIAGNOSIS_KIND },
+        { payload: { path: ["openAiBatch", "status"], equals: "waiting" } },
+      ],
+    },
     ...(shop ? { shop } : {}),
   };
   const recovered = await prisma.catalogSignalJob.updateMany({
@@ -5678,6 +5993,104 @@ async function requeueExpiredProductPulseJobs(shop) {
         data: { kind: job.kind, payload: job.payload },
       });
     }
+  }
+}
+
+async function resumeProductDiagnosisJobFromOpenAiBatchGroup(groupId) {
+  const group = await claimOpenAiBatchGroupForResume(groupId);
+  if (!group) return { status: "already_claimed_or_processed", groupId };
+
+  const job = await prisma.catalogSignalJob.findFirst({
+    where: {
+      id: group.jobId,
+      shop: group.shop,
+      kind: PRODUCT_DIAGNOSIS_KIND,
+    },
+  });
+
+  if (!job) {
+    const error = new Error("Product Diagnosis job was not found for OpenAI Batch resume.");
+    await markOpenAiBatchGroupResumeFailed(group.id, error);
+    throw error;
+  }
+
+  if (!isActiveStatus(job.status)) {
+    await markOpenAiBatchGroupProcessed(group.id, {
+      skipped: true,
+      reason: "job_not_active",
+      jobStatus: job.status,
+    });
+    return { status: "skipped", reason: "job_not_active", jobStatus: job.status, groupId: group.id };
+  }
+
+  const startedAt = Date.now();
+  try {
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      event: "product_diagnosis.openai_batch_resume_started",
+      message: "OpenAI Batch API returned terminal Product Diagnosis AI results; resuming persisted diagnosis.",
+      data: {
+        groupId: group.id,
+        openAiBatchIds: group.batches.map((batch) => batch.openAiBatchId).filter(Boolean),
+        completedRequestCount: group.completedRequestCount,
+        failedRequestCount: group.failedRequestCount,
+      },
+    });
+
+    const productId = job.payload?.productGid || job.payload?.handle || job.payload?.productId || group.productGid;
+    const snapshot = await findProductRiskSnapshot(job.shop, productId);
+    if (!snapshot) throw new Error("Product snapshot was not found for OpenAI Batch diagnosis resume.");
+
+    const admin = await getOfflineAdmin(job.shop);
+    const pointDebit = await ensureProductDiagnosisPointDebit(job);
+    const productImage = await resolveSnapshotProductImage(job.shop, snapshot, admin).catch(() => ({
+      imageUrl: job.payload?.productImageUrl || job.payload?.imageUrl || "",
+      imageAlt: job.payload?.productImageAlt || job.payload?.imageAlt || snapshot.productTitle,
+    }));
+    const diagnosis = await resumeDetailedProductDiagnosisFromOpenAiBatch({
+      shop: job.shop,
+      jobId: job.id,
+      admin,
+      batchGroupId: group.id,
+    });
+
+    await completeProductDiagnosisJobAfterDiagnosis({
+      job,
+      snapshot,
+      diagnosis,
+      pointDebit,
+      productImage,
+      startedAt,
+    });
+    await markOpenAiBatchGroupProcessed(group.id, {
+      diagnosisId: diagnosis.diagnosisId,
+      riskScore: diagnosis.riskScore,
+      confidence: diagnosis.confidence,
+      completedAt: new Date().toISOString(),
+    });
+
+    return {
+      status: "completed",
+      groupId: group.id,
+      jobId: job.id,
+      diagnosisId: diagnosis.diagnosisId,
+    };
+  } catch (error) {
+    await markOpenAiBatchGroupResumeFailed(group.id, error).catch(() => {});
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      level: "error",
+      event: "product_diagnosis.openai_batch_resume_failed",
+      message: "Product Diagnosis failed while resuming after OpenAI Batch completion.",
+      data: {
+        groupId: group.id,
+        error: serializeError(error),
+      },
+    }).catch(() => {});
+    await markJobFailed(job.id, error, "Product Diagnosis failed after OpenAI Batch completion");
+    throw error;
   }
 }
 
@@ -5775,6 +6188,7 @@ async function runProductDiagnosisJob(job) {
       jobId: job.id,
       admin,
       snapshot,
+      batchMode: job.payload?.batchMode || null,
     }),
     { productGid: snapshot.productGid },
     (result) => ({
@@ -5788,6 +6202,74 @@ async function runProductDiagnosisJob(job) {
       model: result?.model || null,
     }),
   );
+  if (diagnosis?.status === "waiting_openai_batch") {
+    await markProductDiagnosisJobWaitingForOpenAiBatch({ job, snapshot, diagnosis, productImage });
+    return;
+  }
+
+  await completeProductDiagnosisJobAfterDiagnosis({
+    job,
+    snapshot,
+    diagnosis,
+    pointDebit,
+    productImage,
+    startedAt,
+  });
+}
+
+async function markProductDiagnosisJobWaitingForOpenAiBatch({ job, snapshot, diagnosis, productImage }) {
+  const openAiBatch = diagnosis.openAiBatch || {};
+  await updateProductDiagnosisJob(job.id, {
+    status: "Running",
+    progress: 82,
+    source: `Waiting on OpenAI Batch API - ${snapshot.productTitle}`,
+    payload: {
+      ...(job.payload || {}),
+      imageUrl: job.payload?.imageUrl || productImage.imageUrl || "",
+      productImageUrl: job.payload?.productImageUrl || productImage.imageUrl || "",
+      imageAlt: job.payload?.imageAlt || productImage.imageAlt || snapshot.productTitle,
+      productImageAlt: job.payload?.productImageAlt || productImage.imageAlt || snapshot.productTitle,
+      openAiBatch: {
+        status: "waiting",
+        waitingSince: new Date().toISOString(),
+        groupId: openAiBatch.groupId || null,
+        requestCount: openAiBatch.requestCount || 0,
+        tasks: openAiBatch.tasks || [],
+        batches: openAiBatch.batches || [],
+      },
+    },
+    leasedBy: null,
+    leaseExpiresAt: null,
+    lastHeartbeatAt: null,
+  });
+
+  await recordJobLog({
+    shop: job.shop,
+    jobId: job.id,
+    event: "product_diagnosis.openai_batch_waiting",
+    message: "Product Diagnosis synchronous AI work completed; the job is waiting for OpenAI Batch API webhook completion.",
+    data: {
+      productGid: snapshot.productGid,
+      openAiBatch,
+      provider: diagnosis.provider,
+      model: diagnosis.model,
+      aiUsage: diagnosis.aiUsage,
+    },
+  });
+
+  invalidateJobMonitorCache(job.shop);
+  invalidateProductPulseDashboardCache(job.shop);
+  invalidateBackgroundProcessCache(job.shop);
+}
+
+async function completeProductDiagnosisJobAfterDiagnosis({
+  job,
+  snapshot,
+  diagnosis,
+  pointDebit,
+  productImage = {},
+  startedAt = Date.now(),
+}) {
   const pointCharge = await measureProductDiagnosisWorkerStep(
     job,
     "point_finalize",
@@ -5811,24 +6293,35 @@ async function runProductDiagnosisJob(job) {
       : `Finalizing Product Diagnosis - ${snapshot.productTitle}`,
   }));
 
+  const completedPayload = {
+    ...(job.payload || {}),
+    imageUrl: job.payload?.imageUrl || productImage.imageUrl || "",
+    productImageUrl: job.payload?.productImageUrl || productImage.imageUrl || "",
+    imageAlt: job.payload?.imageAlt || productImage.imageAlt || snapshot.productTitle,
+    productImageAlt: job.payload?.productImageAlt || productImage.imageAlt || snapshot.productTitle,
+    openAiBatch: diagnosis?.openAiBatchGroupId
+      ? {
+        ...(job.payload?.openAiBatch || {}),
+        status: "completed",
+        groupId: diagnosis.openAiBatchGroupId,
+        completedAt: new Date().toISOString(),
+      }
+      : job.payload?.openAiBatch || undefined,
+    creditsConsumed: pointCharge.pointsConsumed,
+    pointsConsumed: pointCharge.pointsConsumed,
+    pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
+    pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
+    pointDebitStatus: pointCharge.status || "not_charged",
+  };
+  if (!completedPayload.openAiBatch) delete completedPayload.openAiBatch;
+
   await measureProductDiagnosisWorkerStep(job, "job_complete_update", () => updateProductDiagnosisJob(job.id, {
     status: "Completed",
     progress: 100,
     source: diagnosis?.skipped
       ? `No changes detected; previous diagnosis reused - ${snapshot.productTitle}`
       : `Product Diagnosis completed - ${snapshot.productTitle}`,
-    payload: {
-      ...(job.payload || {}),
-      imageUrl: job.payload?.imageUrl || productImage.imageUrl || "",
-      productImageUrl: job.payload?.productImageUrl || productImage.imageUrl || "",
-      imageAlt: job.payload?.imageAlt || productImage.imageAlt || snapshot.productTitle,
-      productImageAlt: job.payload?.productImageAlt || productImage.imageAlt || snapshot.productTitle,
-      creditsConsumed: pointCharge.pointsConsumed,
-      pointsConsumed: pointCharge.pointsConsumed,
-      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
-      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
-      pointDebitStatus: pointCharge.status || "not_charged",
-    },
+    payload: completedPayload,
     finishedAt: new Date(),
   }), {
     diagnosisId: diagnosis?.diagnosisId || null,
@@ -5841,7 +6334,9 @@ async function runProductDiagnosisJob(job) {
     event: "product_diagnosis.completed",
     message: diagnosis?.skipped && pointCharge.pointsConsumed <= 0
       ? "Product diagnosis finished from cache because no source changes were detected. No credit was consumed."
-      : "Product diagnosis completed.",
+      : diagnosis?.openAiBatchGroupId
+        ? "Product diagnosis completed after OpenAI Batch API returned terminal AI results."
+        : "Product diagnosis completed.",
     data: {
       durationMs: Date.now() - startedAt,
       diagnosisId: diagnosis?.diagnosisId,
@@ -5860,6 +6355,7 @@ async function runProductDiagnosisJob(job) {
       model: diagnosis?.model,
       modelsUsed: diagnosis?.modelsUsed,
       aiUsage: diagnosis?.aiUsage,
+      openAiBatchGroupId: diagnosis?.openAiBatchGroupId || null,
     },
   }), {
     durationMs: Date.now() - startedAt,
@@ -5872,14 +6368,7 @@ async function runProductDiagnosisJob(job) {
   await measureProductDiagnosisWorkerStep(job, "watchlist_alert", () => maybeSendWatchlistRunAlertForJob({
     ...job,
     status: "Completed",
-    payload: {
-      ...(job.payload || {}),
-      creditsConsumed: pointCharge.pointsConsumed,
-      pointsConsumed: pointCharge.pointsConsumed,
-      pointLedgerEntryId: pointCharge.ledgerEntry?.id || null,
-      pointRefundLedgerEntryId: pointCharge.refundLedgerEntry?.id || null,
-      pointDebitStatus: pointCharge.status || "not_charged",
-    },
+    payload: completedPayload,
   }), {
     diagnosisId: diagnosis?.diagnosisId || null,
   });
@@ -5909,6 +6398,16 @@ function getExistingProductDiagnosisPointDebit(job) {
 async function ensureProductDiagnosisPointDebit(job) {
   const existing = getExistingProductDiagnosisPointDebit(job);
   if (existing) return existing;
+  if (job.payload?.batchMode?.freeCreditMode) {
+    return {
+      status: "batch_mode_no_charge",
+      charged: false,
+      amount: 0,
+      pointsConsumed: 0,
+      ledgerEntry: null,
+      balance: null,
+    };
+  }
 
   const pointDebit = await debitStorePointsForShop(job.shop, {
     amount: 1,
@@ -5952,6 +6451,16 @@ async function ensureProductDiagnosisPointDebit(job) {
 }
 
 async function finalizeProductDiagnosisPointCharge(job, diagnosis, pointDebit) {
+  if (job.payload?.batchMode?.freeCreditMode || pointDebit?.status === "batch_mode_no_charge") {
+    return {
+      ...pointDebit,
+      status: pointDebit?.status || "batch_mode_no_charge",
+      amount: 0,
+      pointsConsumed: 0,
+      ledgerEntry: null,
+      balance: pointDebit?.balance || null,
+    };
+  }
   const chargedAmount = Number(pointDebit?.amount || pointDebit?.ledgerEntry?.amount || job.payload?.pointCost || 1);
   const normalizedChargedAmount = Number.isFinite(chargedAmount) && chargedAmount > 0 ? chargedAmount : 1;
   const diagnosisPointsConsumed = Number(diagnosis?.creditsConsumed ?? 1);
@@ -8254,6 +8763,8 @@ function formatJob(job) {
     pointsConsumed,
     creditsConsumed: pointsConsumed,
     creditCost: pointsConsumed,
+    batchMode: job.payload?.batchMode || null,
+    openAiBatch: job.payload?.openAiBatch || null,
   };
 }
 
@@ -8330,7 +8841,10 @@ function getJobDisplaySubtitle(job, productTitle) {
     return "Controlled Shopify test data";
   }
   if (job.kind !== PRODUCT_DIAGNOSIS_KIND || !productTitle) return job.errorMessage || job.source;
+  if (job.payload?.batchMode?.freeCreditMode && job.status === "Queued") return "Queued in Batch mode";
   if (job.status === "Queued") return "Queued Product Diagnosis";
+  if (job.status === "Running" && job.payload?.openAiBatch?.status === "waiting") return "Waiting on OpenAI Batch API";
+  if (job.status === "Running" && job.payload?.batchMode?.freeCreditMode) return "Running in Batch mode";
   if (job.status === "Running") return "Running Product Diagnosis";
   if (job.status === "Completed") return "Product Diagnosis completed";
   if (job.status === "Failed") return "Product Diagnosis failed";

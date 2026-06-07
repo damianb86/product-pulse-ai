@@ -1,5 +1,8 @@
 import prisma from "../db.server";
-import { runProductDiagnosisAiAnalysis } from "./product-pulse-ai.server";
+import {
+  resumeProductDiagnosisAiAnalysisFromBatch,
+  runProductDiagnosisAiAnalysis,
+} from "./product-pulse-ai.server";
 import { summarizeAiUsage } from "./product-pulse-ai-usage.server";
 import { getNormalizedCsvReviewsForShop } from "./product-pulse-csv.server";
 import {
@@ -456,6 +459,19 @@ function summarizeAiInput(input = {}) {
     classifiedSignals: input.deterministic?.classifiedSignals?.length || 0,
     incrementalMode: input.incremental?.mode || null,
     productGid: input.product?.id || input.product?.productGid || null,
+    batchMode: input.batchMode?.enabled ? input.batchMode.reason || "enabled" : null,
+  };
+}
+
+function normalizeDiagnosisBatchMode(batchMode = null) {
+  if (!batchMode || typeof batchMode !== "object") return null;
+  return {
+    enabled: Boolean(batchMode.enabled),
+    freeCreditMode: Boolean(batchMode.freeCreditMode),
+    forceOpenAiBatch: Boolean(batchMode.forceOpenAiBatch),
+    reason: String(batchMode.reason || "").trim() || null,
+    queuedAt: batchMode.queuedAt || null,
+    cooldownHours: Number(batchMode.cooldownHours || 0) || null,
   };
 }
 
@@ -483,7 +499,7 @@ function summarizeDiagnosisPayload(payload = {}) {
   };
 }
 
-export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot }) {
+export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot, batchMode = null }) {
   const perfContext = buildProductDiagnosisPerfContext({ shop, jobId, snapshot });
   const startedAt = Date.now();
   logProductDiagnosisPerf("product_diagnosis.deep_analysis.started", perfContext, {
@@ -627,6 +643,7 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       recommendationCandidates,
       incremental: buildAiIncrementalDiagnosisInput(deterministic),
       previousPrimaryIssue: snapshot.primaryIssue || null,
+      batchMode: normalizeDiagnosisBatchMode(batchMode),
     }),
     {},
     summarizeAiInput,
@@ -738,11 +755,43 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
       shop,
       jobId,
       input: aiInput,
+      resumeContext: {
+        snapshot,
+        shopifyData,
+        judgeMeData,
+        yotpoData,
+        looxData,
+        csvReviewData,
+        deterministic,
+        retentionPreview,
+        windowDays,
+        batchMode: normalizeDiagnosisBatchMode(batchMode),
+      },
       onPerfEvent: (event, data, level) => recordProductDiagnosisPerfEvent(perfContext, event, data, level),
     }),
     summarizeAiInput(aiInput),
     summarizeAiDiagnosisResult,
   );
+  if (ai?.status === "waiting_openai_batch") {
+    flushProductDiagnosisSummaryLog(perfContext, {
+      status: "waiting_openai_batch",
+      durationMs: Date.now() - startedAt,
+      skipped: false,
+      productGid: snapshot.productGid,
+      provider: ai.provider,
+      model: ai.model,
+      openAiBatch: ai.openAiBatch,
+    });
+    return {
+      status: "waiting_openai_batch",
+      productGid: snapshot.productGid,
+      provider: ai.provider,
+      model: ai.model,
+      modelsUsed: ai.modelsUsed,
+      aiUsage: ai.aiUsage,
+      openAiBatch: ai.openAiBatch,
+    };
+  }
   const { emergentSentiments, knownEmotions } = await measureProductDiagnosisPerfStep(
     "ai_sentiment_normalization",
     perfContext,
@@ -855,6 +904,156 @@ export async function runDetailedProductDiagnosis({ shop, jobId, admin, snapshot
     flushProductDiagnosisSummaryLog(perfContext, {
       status: "failed",
       durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    }, "error");
+    throw error;
+  }
+}
+
+export async function resumeDetailedProductDiagnosisFromOpenAiBatch({ shop, jobId, admin, batchGroupId }) {
+  const startedAt = Date.now();
+  const { resumePayload, ai } = await resumeProductDiagnosisAiAnalysisFromBatch({ shop, jobId, batchGroupId });
+  const context = resumePayload?.resumeContext || {};
+  const snapshot = context.snapshot;
+  if (!snapshot?.productGid) throw new Error("OpenAI Batch resume payload is missing the product snapshot.");
+
+  const perfContext = buildProductDiagnosisPerfContext({ shop, jobId, snapshot });
+  logProductDiagnosisPerf("product_diagnosis.openai_batch_resume.started", perfContext, {
+    batchGroupId,
+    productGid: snapshot.productGid,
+    provider: ai.provider,
+    model: ai.model,
+  });
+
+  try {
+    const deterministic = context.deterministic;
+    const shopifyData = context.shopifyData;
+    const judgeMeData = context.judgeMeData;
+    const yotpoData = context.yotpoData;
+    const looxData = context.looxData;
+    const csvReviewData = context.csvReviewData;
+    const retentionPreview = context.retentionPreview;
+    const windowDays = context.windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS;
+
+    const { emergentSentiments, knownEmotions } = await measureProductDiagnosisPerfStep(
+      "ai_sentiment_normalization",
+      perfContext,
+      () => ({
+        emergentSentiments: normalizeAiEmergentSentiments(ai),
+        knownEmotions: normalizeAiKnownEmotions(ai, deterministic.metrics.textInsights),
+      }),
+      {},
+      (result) => ({
+        emergentSentiments: result?.emergentSentiments?.length || 0,
+        knownEmotions: result?.knownEmotions?.length || 0,
+      }),
+    );
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "product_diagnosis.emergent_sentiments_clustered",
+      message: emergentSentiments.length
+        ? "AI clustered emergent customer sentiments with enough evidence."
+        : "AI did not find emergent customer sentiments with enough evidence.",
+      data: {
+        productGid: snapshot.productGid,
+        knownEmotions,
+        emergentSentiments,
+        discardedSuggestions: ai.emergentSentiments?.discarded_suggestions || [],
+        openAiBatchGroupId: batchGroupId,
+      },
+    });
+
+    const diagnosisPayload = await measureProductDiagnosisPerfStep(
+      "persisted_payload_build",
+      perfContext,
+      () => buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, deterministic, ai }),
+      {},
+      summarizeDiagnosisPayload,
+    );
+    const diagnosis = await measureProductDiagnosisPerfStep(
+      "persist_diagnosis",
+      perfContext,
+      () => persistDetailedDiagnosis({ shop, jobId, snapshot, payload: diagnosisPayload }),
+      summarizeDiagnosisPayload(diagnosisPayload),
+      (result) => ({
+        diagnosisId: result?.id || null,
+        completedAt: result?.completedAt || null,
+      }),
+    );
+    const retentionResult = await measureProductDiagnosisPerfStep(
+      "retention_full_attach",
+      perfContext,
+      () => calculateAndAttachProductRetentionForDiagnosis({
+        shop,
+        jobId,
+        admin,
+        snapshot,
+        diagnosis,
+        windowDays,
+        retentionPreview,
+      }),
+      { diagnosisId: diagnosis.id, windowDays },
+      summarizeProductRetentionResult,
+    );
+
+    await recordJobLog({
+      shop,
+      jobId,
+      event: "product_diagnosis.persisted",
+      message: "Detailed product diagnosis was persisted and product signals were updated after OpenAI Batch completion.",
+      data: {
+        diagnosisId: diagnosis.id,
+        productGid: snapshot.productGid,
+        riskScore: diagnosisPayload.riskScore,
+        confidence: diagnosisPayload.confidence,
+        estimatedImpact: diagnosisPayload.metrics.estimatedImpact,
+        issues: diagnosisPayload.issues.map((issue) => issue.issue),
+        recommendations: diagnosisPayload.recommendations.map((action) => action.label),
+        modelsUsed: ai.modelsUsed,
+        aiUsage: ai.aiUsage,
+        openAiBatchGroupId: batchGroupId,
+        productRetention: retentionResult
+          ? {
+            status: retentionResult.status,
+            retentionRunId: retentionResult.retentionRunId,
+            hasEnoughData: retentionResult.payload?.summary?.hasEnoughData ?? false,
+          }
+          : null,
+      },
+    });
+
+    const result = {
+      status: "success",
+      diagnosisId: diagnosis.id,
+      riskScore: diagnosisPayload.riskScore,
+      confidence: diagnosisPayload.confidence,
+      estimatedImpact: diagnosisPayload.metrics.estimatedImpact,
+      provider: ai.provider,
+      model: ai.model,
+      modelsUsed: ai.modelsUsed,
+      aiUsage: ai.aiUsage,
+      productRetention: retentionResult?.payload || null,
+      openAiBatchGroupId: batchGroupId,
+    };
+    flushProductDiagnosisSummaryLog(perfContext, {
+      status: "completed",
+      durationMs: Date.now() - startedAt,
+      skipped: false,
+      diagnosisId: result.diagnosisId,
+      riskScore: result.riskScore,
+      confidence: result.confidence,
+      provider: result.provider,
+      model: result.model,
+      openAiBatchGroupId: batchGroupId,
+    });
+    return result;
+  } catch (error) {
+    flushProductDiagnosisSummaryLog(perfContext, {
+      status: "failed",
+      durationMs: Date.now() - startedAt,
+      openAiBatchGroupId: batchGroupId,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     }, "error");
@@ -1154,7 +1353,11 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
         sales: backfilledSales,
         refunds: filteredRefunds,
         returns: filteredReturns,
-        relationshipSales: relationshipSales.length ? relationshipSales : backfilledSales,
+        relationshipSales: selectDiagnosisRelationshipSalesForSummary({
+          sourceSalesEvents: mergedSourceEvents.sales,
+          relationshipSales,
+          backfilledSales,
+        }),
         sourceEventCounts: {
           salesEvents: mergedSourceEvents.sales.length,
           refundEvents: mergedSourceEvents.refunds.length,
@@ -13594,6 +13797,18 @@ function mergeSourceEventList({ type, previous = [], current = [], windowDays = 
   return limitSourceEventCacheItems(sortSourceEvents(Array.from(map.values())));
 }
 
+function selectDiagnosisRelationshipSalesForSummary({
+  sourceSalesEvents = [],
+  relationshipSales = [],
+  backfilledSales = [],
+} = {}) {
+  const mergedSourceSales = Array.isArray(sourceSalesEvents) ? sourceSalesEvents : [];
+  if (mergedSourceSales.length) return mergedSourceSales;
+  const fetchedRelationshipSales = Array.isArray(relationshipSales) ? relationshipSales : [];
+  if (fetchedRelationshipSales.length) return fetchedRelationshipSales;
+  return Array.isArray(backfilledSales) ? backfilledSales : [];
+}
+
 function buildSourceEventCache({ sales = [], refunds = [], returns = [], windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sourceEventFetch = null } = {}) {
   const cachedAt = new Date().toISOString();
   const fetchComplete = sourceEventFetch?.fetchComplete !== false;
@@ -18385,6 +18600,7 @@ export const __productPulseDiagnosisTestHooks = {
   getShopSourceEventCacheKey,
   buildShopSourceEventRow,
   mergeIncrementalSourceEvents,
+  selectDiagnosisRelationshipSalesForSummary,
   filterDiagnosisEventsForProduct,
   backfillMissingSalesFromOperationalEvents,
   buildSourceEventCache,

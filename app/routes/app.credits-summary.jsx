@@ -1,6 +1,7 @@
 /* global globalThis */
 import { authenticate } from "../shopify.server";
 import { getStorePointBalanceForShop, getStorePointSummaryForShop } from "../lib/product-pulse-points.server";
+import { getProductPulseSettings, withProductPulseBatchModeSummary } from "../lib/product-pulse-settings.server";
 import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 const CREDIT_SUMMARY_CACHE_TTL_MS = 30_000;
@@ -27,11 +28,19 @@ export const loader = async ({ request }) => {
     }
 
     perf.mark("creditsSummary.cache.miss");
-    const pointSummary = await measureProductPulseStep(
-      perf,
-      "getStorePointSummaryForShop",
-      () => getStorePointSummaryForShop(session.shop, { limit: 3 }),
-    );
+    const [rawPointSummary, settings] = await Promise.all([
+      measureProductPulseStep(
+        perf,
+        "getStorePointSummaryForShop",
+        () => getStorePointSummaryForShop(session.shop, { limit: 3 }),
+      ),
+      measureProductPulseStep(
+        perf,
+        "getProductPulseSettings",
+        () => getProductPulseSettings(session.shop),
+      ),
+    ]);
+    const pointSummary = withProductPulseBatchModeSummary(rawPointSummary, settings);
     setCachedCreditSummary(session.shop, pointSummary);
     perf.done({ shop: session.shop, cached: false });
     return buildCreditSummaryResponse(pointSummary);

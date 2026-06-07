@@ -36,6 +36,7 @@ DATABASE_URL=postgresql://zuam_dev:replace-with-local-password@127.0.0.1:5432/pr
 APP_ENV=development
 PRODUCT_PULSE_AI_LEVEL=1
 OPENAI_API_KEY=
+OPENAI_WEBHOOK_SECRET=
 OPENAI_BASIC_MODEL=gpt-5.4-nano
 OPENAI_PRO_MODEL=gpt-5.4-mini
 OPENAI_PREMIUM_MODEL=gpt-5.4
@@ -57,6 +58,16 @@ AI_CHATKIT_DOMAIN_KEY=domain_pk_6a0e373140408193b67487c54e353dbd09dbeb51913073da
 - `3`: production mode using task-specific `OPENAI_BASIC_MODEL`, `OPENAI_PRO_MODEL`, and `OPENAI_PREMIUM_MODEL`.
 
 When `PRODUCT_PULSE_AI_LEVEL` is not set, local development defaults to `1` and non-development runtime defaults to `3`.
+
+OpenAI Batch API is used for terminal ProductPulse diagnosis AI steps in production when `OPENAI_WEBHOOK_SECRET` is configured. Register the OpenAI webhook URL as:
+
+```bash
+https://your-app-domain/webhooks/openai
+```
+
+Subscribe the endpoint to `batch.completed`, `batch.failed`, `batch.expired`, and `batch.cancelled`.
+
+If a store has no available credits, ProductPulse automatically falls back to Batch mode for deep Product Diagnosis: no credit is consumed, only one analysis can be started every 24 hours, and completion can take up to 24 hours regardless of the active plan.
 
 ## Observability
 

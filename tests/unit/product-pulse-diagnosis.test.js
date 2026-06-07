@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../../app/db.server", () => ({ default: {} }));
 vi.mock("../../app/lib/product-pulse-ai.server.js", () => ({
   runProductDiagnosisAiAnalysis: vi.fn(),
+  resumeProductDiagnosisAiAnalysisFromBatch: vi.fn(),
 }));
 vi.mock("../../app/lib/product-pulse-job-logs.server", () => ({
   recordJobLog: vi.fn(),
@@ -1794,6 +1795,87 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(merged.sales).toHaveLength(2);
     expect(merged.sales.find((item) => item.id === "sale-old").quantity).toBe(2);
     expect(merged.returns).toHaveLength(1);
+  });
+
+  it("uses merged full-window source sales for product relationship timelines after cache refresh", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const sourceProductId = "gid://shopify/Product/cache-rel-source";
+    const beforeProductId = "gid://shopify/Product/cache-rel-before";
+    const afterProductId = "gid://shopify/Product/cache-rel-after";
+    const snapshot = {
+      shop: "relationship-cache-test.myshopify.com",
+      productGid: sourceProductId,
+      productTitle: "Cache REL Source Product",
+      handle: "cache-rel-source-product",
+      metrics: {},
+    };
+    const product = {
+      id: sourceProductId,
+      title: "Cache REL Source Product",
+      handle: "cache-rel-source-product",
+      description: "Relationship cache test source product.",
+      descriptionHtml: "<p>Relationship cache test source product.</p>",
+      variants: [{ id: "gid://shopify/ProductVariant/cache-rel-source", title: "Default Title", sku: "CACHE-REL-SOURCE", selectedOptions: [] }],
+      options: [],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+    const previousCachedSales = [
+      { type: "sale", id: "before-sale-c1", orderId: "before-order-c1", lineItemId: "before-line-c1", productId: beforeProductId, title: "Bought Before Cache", handle: "bought-before-cache", customerKey: "customer-1", quantity: 1, amount: 35, orderDate: daysAgo(35), createdAt: daysAgo(35) },
+      { type: "sale", id: "source-sale-c1", orderId: "source-order-c1", lineItemId: "source-line-c1", productId: sourceProductId, title: "Cache REL Source Product", handle: "cache-rel-source-product", customerKey: "customer-1", quantity: 1, amount: 50, orderDate: daysAgo(20), createdAt: daysAgo(20) },
+      { type: "sale", id: "before-sale-c2", orderId: "before-order-c2", lineItemId: "before-line-c2", productId: beforeProductId, title: "Bought Before Cache", handle: "bought-before-cache", customerKey: "customer-2", quantity: 1, amount: 35, orderDate: daysAgo(34), createdAt: daysAgo(34) },
+      { type: "sale", id: "source-sale-c2", orderId: "source-order-c2", lineItemId: "source-line-c2", productId: sourceProductId, title: "Cache REL Source Product", handle: "cache-rel-source-product", customerKey: "customer-2", quantity: 1, amount: 50, orderDate: daysAgo(19), createdAt: daysAgo(19) },
+    ];
+    const incrementalRelationshipSales = [
+      { type: "sale", id: "after-sale-c1", orderId: "after-order-c1", lineItemId: "after-line-c1", productId: afterProductId, title: "Bought After Cache", handle: "bought-after-cache", customerKey: "customer-1", quantity: 1, amount: 42, orderDate: daysAgo(6), createdAt: daysAgo(6) },
+      { type: "sale", id: "after-sale-c2", orderId: "after-order-c2", lineItemId: "after-line-c2", productId: afterProductId, title: "Bought After Cache", handle: "bought-after-cache", customerKey: "customer-2", quantity: 1, amount: 42, orderDate: daysAgo(5), createdAt: daysAgo(5) },
+    ];
+
+    const merged = __productPulseDiagnosisTestHooks.mergeIncrementalSourceEvents({
+      previous: { sales: previousCachedSales, refunds: [], returns: [] },
+      current: { sales: incrementalRelationshipSales, refunds: [], returns: [] },
+      windowDays: 60,
+    });
+    const relationshipSales = __productPulseDiagnosisTestHooks.selectDiagnosisRelationshipSalesForSummary({
+      sourceSalesEvents: merged.sales,
+      relationshipSales: incrementalRelationshipSales,
+      backfilledSales: previousCachedSales.filter((saleEvent) => saleEvent.productId === sourceProductId),
+    });
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: relationshipSales.filter((saleEvent) => saleEvent.productId === sourceProductId),
+        relationshipSales,
+        returns: [],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    expect(relationshipSales.map((event) => event.id)).toEqual([
+      "before-sale-c1",
+      "before-sale-c2",
+      "source-sale-c1",
+      "source-sale-c2",
+      "after-sale-c1",
+      "after-sale-c2",
+    ]);
+    expect(deterministic.metrics.productRelationshipIntelligenceSummary.top_bought_before[0]).toMatchObject({
+      related_product_id: beforeProductId,
+      relationship_direction: "before",
+      customer_count: 2,
+    });
+    expect(deterministic.metrics.productRelationshipIntelligenceSummary.top_bought_after[0]).toMatchObject({
+      related_product_id: afterProductId,
+      relationship_direction: "after",
+      customer_count: 2,
+    });
   });
 
   it("reuses product content analysis until Shopify product content changes", () => {

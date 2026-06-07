@@ -30,7 +30,7 @@ describe("ProductPulse watchlist cron helpers", () => {
     expect(result.skippedForCredits.map((item) => item.productTitle)).toEqual(["Three"]);
   });
 
-  it("skips every watched product when no credits are available", () => {
+  it("queues one Batch-mode candidate when no credits are available", () => {
     const items = [
       { productGid: "gid://shopify/Product/1", productTitle: "One" },
       { productGid: "gid://shopify/Product/2", productTitle: "Two" },
@@ -38,7 +38,8 @@ describe("ProductPulse watchlist cron helpers", () => {
 
     const result = __productPulseWatchlistCronTestHooks.splitWatchlistItemsByAvailableCredits(items, 0);
 
-    expect(result.queueItems).toHaveLength(0);
-    expect(result.skippedForCredits).toHaveLength(2);
+    expect(result.batchModeCandidate).toBe(true);
+    expect(result.queueItems.map((item) => item.productTitle)).toEqual(["One"]);
+    expect(result.skippedForCredits.map((item) => item.productTitle)).toEqual(["Two"]);
   });
 });
