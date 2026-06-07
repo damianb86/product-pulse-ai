@@ -7597,14 +7597,16 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
   const hiddenCount = Math.max(0, confirmation.count - productTitles.length);
   const isSingle = confirmation.count === 1;
   const productLabel = isSingle ? "this product" : `${confirmation.count} selected products`;
+  const pointCost = Math.max(0, Number(confirmation.credits || 0));
+  const pointCostLabel = `${formatInteger(pointCost)} point${pointCost === 1 ? "" : "s"}`;
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
-      <section className="ppAnalysisConfirmModal ppCostConfirmModal ppProductDiagnosisConfirmModal" role="dialog" aria-modal="true" aria-labelledby="analysis-confirm-title">
-        <div className="ppCostConfirmBody">
-          <div className="ppAnalysisConfirmHeader ppCostConfirmHeader">
-            <span className="ppAnalysisConfirmIcon ppCostConfirmHeroIcon ppProductDiagnosisConfirmIcon" aria-hidden="true">
-              <s-icon type="wand" size="large"></s-icon>
+      <section className="ppAnalysisConfirmModal ppProductDiagnosisConfirmModal" role="dialog" aria-modal="true" aria-labelledby="analysis-confirm-title">
+        <div className="ppProductDiagnosisConfirmLayout">
+          <aside className="ppProductDiagnosisConfirmSide">
+            <span className="ppProductDiagnosisConfirmHeroIcon" aria-hidden="true">
+              <ProductPulseGlyph type="wand" />
             </span>
             <div>
               <span>Product Diagnosis</span>
@@ -7615,65 +7617,69 @@ function ProductAnalysisConfirmModal({ confirmation, pending, pendingIds, onCanc
                   : `ProductPulse will queue Product Diagnosis for ${confirmation.count} selected products. Jobs run in the background one at a time.`}
               </p>
             </div>
-          </div>
+          </aside>
 
-          <div className="ppCostConfirmDivider" />
-
-          <div className="ppAnalysisConfirmCost ppCostConfirmCost">
-            <span className="ppCostConfirmCostIcon" aria-hidden="true">
-              <ProductPulseGlyph type="financial-exposure" />
-            </span>
-            <div>
-              <span>Estimated cost</span>
-              <strong>{formatPointValue(confirmation.credits)} credit{confirmation.credits === 1 ? "" : "s"}</strong>
-            </div>
-            <small>Product Diagnosis costs 1.0 credit per product and runs as a background job.</small>
-          </div>
-
-          <div className="ppCostConfirmInfoGrid">
-            <div className="ppCostConfirmCard ppCostConfirmCard-success">
-              <span className="ppCostConfirmCardIcon" aria-hidden="true">
-                <s-icon type="check" size="small"></s-icon>
+          <div className="ppProductDiagnosisConfirmMain">
+            <div className="ppProductDiagnosisConfirmCost" aria-label={`Estimated cost ${pointCostLabel}`}>
+              <span className="ppProductDiagnosisConfirmCostIcon" aria-hidden="true">
+                <ProductPulseGlyph type="card" />
               </span>
               <div>
-                <strong>What happens</strong>
-                <p>We&apos;ll run a Product Diagnosis for {productLabel}, updating evidence, product findings and recommended actions.</p>
+                <span>Estimated cost</span>
+                <strong>{pointCostLabel}</strong>
               </div>
+              <p>Product Diagnosis costs 1 point per product and runs as a background job.</p>
             </div>
-            <div className="ppCostConfirmCard ppCostConfirmCard-warning">
-              <span className="ppCostConfirmCardIcon" aria-hidden="true">
-                <s-icon type="info" size="small"></s-icon>
-              </span>
-              <div>
-                <strong>How it runs</strong>
-                <p>Diagnosis jobs run in the background. You can keep working while ProductPulse processes the queue.</p>
-              </div>
-            </div>
-          </div>
 
-          {productTitles.length > 0 && (
-            <div className="ppAnalysisConfirmProducts ppCostConfirmProducts">
-              <span>{isSingle ? "Product" : "Products"}</span>
-              <ul>
-                {productTitles.slice(0, 5).map((title) => (
-                  <li key={title}>{title}</li>
-                ))}
-                {hiddenCount > 0 && <li>{hiddenCount} more selected product{hiddenCount === 1 ? "" : "s"}</li>}
-              </ul>
+            <div className="ppProductDiagnosisConfirmDetails">
+              <article>
+                <span className="ppProductDiagnosisConfirmDetailIcon ppProductDiagnosisConfirmDetailIcon-success" aria-hidden="true">
+                  <s-icon type="check" size="small"></s-icon>
+                </span>
+                <div>
+                  <strong>What happens</strong>
+                  <p>We&apos;ll run a Product Diagnosis for {productLabel}, updating evidence, product findings and recommended actions.</p>
+                </div>
+              </article>
+              <article>
+                <span className="ppProductDiagnosisConfirmDetailIcon ppProductDiagnosisConfirmDetailIcon-warning" aria-hidden="true">
+                  <s-icon type="info" size="small"></s-icon>
+                </span>
+                <div>
+                  <strong>How it runs</strong>
+                  <p>Diagnosis jobs run in the background. You can keep working while ProductPulse processes the queue.</p>
+                </div>
+              </article>
+              {productTitles.length > 0 && (
+                <article>
+                  <span className="ppProductDiagnosisConfirmDetailIcon ppProductDiagnosisConfirmDetailIcon-product" aria-hidden="true">
+                    <ProductPulseGlyph type="shopify-product" />
+                  </span>
+                  <div>
+                    <strong>{isSingle ? "Product" : "Products"}</strong>
+                    <ul>
+                      {productTitles.slice(0, 5).map((title) => (
+                        <li key={title}>{title}</li>
+                      ))}
+                      {hiddenCount > 0 && <li>{hiddenCount} more selected product{hiddenCount === 1 ? "" : "s"}</li>}
+                    </ul>
+                  </div>
+                </article>
+              )}
             </div>
-          )}
 
-          <div className="ppActionConfirmNotice ppCostConfirmNotice">
-            <s-icon type="info" size="small"></s-icon>
-            <p>Existing Product Diagnosis data remains available until the new background job finishes.</p>
+            <div className="ppProductDiagnosisConfirmNotice">
+              <s-icon type="info" size="small"></s-icon>
+              <p>Existing Product Diagnosis data remains available until the new background job finishes.</p>
+            </div>
           </div>
         </div>
 
-        <div className="ppAnalysisConfirmFooter ppCostConfirmFooter">
+        <div className="ppProductDiagnosisConfirmFooter">
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button className="ppPrimaryButton" type="button" onClick={onConfirm} disabled={pending}>
+          <button className="ppPrimaryButton ppProductDiagnosisConfirmRunButton" type="button" onClick={onConfirm} disabled={pending}>
             <s-icon type="wand" size="small"></s-icon>
-            {pending ? getPendingAnalysisLabel(pendingIds) : "Accept cost and run analysis"}
+            {pending ? getPendingAnalysisLabel(pendingIds) : "Confirm and run diagnosis"}
           </button>
         </div>
       </section>
@@ -14990,6 +14996,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const [actionConfirmation, setActionConfirmation] = useState(null);
   const [actionsCompleteModalOpen, setActionsCompleteModalOpen] = useState(false);
   const [diagnosisConfirmation, setDiagnosisConfirmation] = useState(null);
+  const [diagnosisGateDismissed, setDiagnosisGateDismissed] = useState(false);
   const [watchlistConfirmation, setWatchlistConfirmation] = useState(null);
   const [deleteAnalysisConfirmation, setDeleteAnalysisConfirmation] = useState(null);
   const [watchlistLocalState, setWatchlistLocalState] = useState(null);
@@ -15026,6 +15033,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setSelectedEvidenceIndex(0);
     setActionsCompleteModalOpen(false);
     setDiagnosisConfirmation(null);
+    setDiagnosisGateDismissed(false);
     setWatchlistConfirmation(null);
     setDeleteAnalysisConfirmation(null);
     setWatchlistLocalState(null);
@@ -15055,6 +15063,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     }
     if (actionData?.status === "success" && actionData?.action?.id === "delete-product-analysis") {
       setDeleteAnalysisConfirmation(null);
+    }
+    if (
+      actionData?.status === "success"
+      && (
+        actionData?.job?.kind === "product-diagnosis"
+        || actionData?.job?.name === "Product Diagnosis"
+        || String(actionData?.message || "").startsWith("Product Diagnosis started")
+        || String(actionData?.message || "").startsWith("Product Diagnosis queued")
+      )
+    ) {
+      setDiagnosisGateDismissed(true);
     }
     if (actionData?.status === "success" && actionData?.action?.id === "ignore-issue") {
       const issueKey = normalizeIssueIgnoreKey(actionData.action.payload?.issueKey || actionData.action.payload?.issueCode || actionData.action.payload?.issue);
@@ -15227,6 +15246,8 @@ export function ProductDiagnosisScreen({ product, actionData }) {
       : hasNoStoredDiagnosis
         ? "Run Product Diagnosis"
         : detail.diagnosisButtonLabel;
+  const diagnosisGateMode = hasNoStoredDiagnosis ? "empty" : "partial";
+  const showDiagnosisGate = !detail.hasFullDiagnosis && !diagnosisGateDismissed && !diagnosisConfirmation;
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
       navigate(-1);
@@ -15914,6 +15935,15 @@ export function ProductDiagnosisScreen({ product, actionData }) {
           </>
         )}
 
+        {showDiagnosisGate && (
+          <ProductDiagnosisGateOverlay
+            detail={detail}
+            mode={diagnosisGateMode}
+            pending={diagnosisPending}
+            onRunDiagnosis={handleRequestProductDiagnosis}
+            onViewProduct={() => setDiagnosisGateDismissed(true)}
+          />
+        )}
         {diagnosisConfirmation && (
           <ProductAnalysisConfirmModal
             confirmation={diagnosisConfirmation}
@@ -19982,6 +20012,56 @@ function ProductNoDiagnosisPanel({ detail, pending = false, onRunDiagnosis }) {
         {buttonLabel}
       </button>
     </section>
+  );
+}
+
+function ProductDiagnosisGateOverlay({ detail, mode = "partial", pending = false, onRunDiagnosis, onViewProduct }) {
+  const isEmpty = mode === "empty";
+  const running = Boolean(detail.diagnosisInProgress);
+  const disabled = pending || running || !detail.canDiagnose;
+  const buttonLabel = running
+    ? getProductDiagnosisRunningLabel(detail.activeDiagnosisJob)
+    : pending
+      ? "Queueing..."
+      : "Run Product Diagnosis";
+  const title = isEmpty ? "No ProductPulse information yet" : "Partial product information";
+  const description = isEmpty
+    ? "This product does not have saved Catalog Scan or Product Diagnosis information yet. Run Product Diagnosis to calculate product risk, evidence, findings and recommended actions."
+    : "This product only has preliminary Catalog Scan information. Run Product Diagnosis to complete the evidence, findings and recommended actions before making product decisions.";
+
+  return (
+    <div className="ppProductDiagnosisGateOverlay">
+      <section
+        className={`ppProductDiagnosisGateModal ppProductDiagnosisGateModal-${mode}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pp-product-diagnosis-gate-title"
+        aria-describedby="pp-product-diagnosis-gate-description"
+      >
+        <span className="ppProductDiagnosisGateIcon" aria-hidden="true">
+          <s-icon type={isEmpty ? "product" : "search"} size="base"></s-icon>
+        </span>
+        <div className="ppProductDiagnosisGateCopy">
+          <span>{isEmpty ? "No saved analysis" : "Catalog Scan only"}</span>
+          <h2 id="pp-product-diagnosis-gate-title">{title}</h2>
+          <p id="pp-product-diagnosis-gate-description">{description}</p>
+        </div>
+        <div className="ppProductDiagnosisGateActions">
+          <button
+            className="ppProductAnalyzeButton ppProductDiagnosisGatePrimary"
+            type="button"
+            disabled={disabled}
+            onClick={onRunDiagnosis}
+          >
+            {pending ? <span className="ppMiniSpinner" aria-hidden="true" /> : <s-icon type="refresh" size="small"></s-icon>}
+            {buttonLabel}
+          </button>
+          <button className="ppSecondaryButton ppProductDiagnosisGateSecondary" type="button" onClick={onViewProduct}>
+            View product anyway
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -36980,13 +37060,6 @@ function formatInteger(value) {
 
 function formatDecimal(value, maximumFractionDigits = 1) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits }).format(Number(value || 0));
-}
-
-function formatPointValue(value) {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  }).format(Number(value || 0));
 }
 
 function clampNumber(value, min, max) {

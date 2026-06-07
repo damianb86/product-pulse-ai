@@ -2038,7 +2038,7 @@ describe("ProductPulse screens", () => {
     renderWithAction(<ProductsActionHarness data={data} filters={{ query: "", risk: "all" }} />, action);
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Queue Test Jacket" }));
     fireEvent.click(screen.getByRole("button", { name: "Analyze selected (1)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Accept cost and run analysis" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and run diagnosis" }));
 
     expect(await screen.findByText("Adding products to queue")).toBeInTheDocument();
     expect(screen.getByText(/Preparing 1 product for Product Diagnosis/)).toBeInTheDocument();
@@ -6833,6 +6833,12 @@ describe("ProductPulse screens", () => {
     };
 
     const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={liveProduct} />);
+    const gateDialog = screen.getByRole("dialog", { name: "No ProductPulse information yet" });
+    expect(gateDialog).toBeInTheDocument();
+    expect(within(gateDialog).getByText(/does not have saved Catalog Scan or Product Diagnosis information yet/)).toBeInTheDocument();
+    expect(within(gateDialog).getByRole("button", { name: "Run Product Diagnosis" })).toBeEnabled();
+    fireEvent.click(within(gateDialog).getByRole("button", { name: "View product anyway" }));
+    expect(screen.queryByRole("dialog", { name: "No ProductPulse information yet" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "No data for this product yet" })).toBeInTheDocument();
     expect(screen.getByText(/does not have a Catalog Scan or Product Diagnosis stored yet/)).toBeInTheDocument();
     expect(screen.queryByText("0 deterministic issues detected from stored product signals.")).not.toBeInTheDocument();
@@ -6850,7 +6856,11 @@ describe("ProductPulse screens", () => {
     const runDiagnosisButton = within(noDiagnosisPanel).getByRole("button", { name: "Run Product Diagnosis" });
     expect(runDiagnosisButton).toBeEnabled();
     fireEvent.click(runDiagnosisButton);
-    expect(screen.getByRole("dialog", { name: "Confirm Product Diagnosis" })).toBeInTheDocument();
+    const confirmDialog = screen.getByRole("dialog", { name: "Confirm Product Diagnosis" });
+    expect(confirmDialog).toBeInTheDocument();
+    expect(within(confirmDialog).getByText("Estimated cost")).toBeInTheDocument();
+    expect(within(confirmDialog).getByText("1 point")).toBeInTheDocument();
+    expect(within(confirmDialog).getByText("Confirm and run diagnosis")).toBeInTheDocument();
   });
 
   it("renders the Product Diagnosis for the selected product", () => {
@@ -6914,13 +6924,46 @@ describe("ProductPulse screens", () => {
   it("locks recommended actions until a Product Diagnosis runs", () => {
     const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
     renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);
+    const gateDialog = screen.getByRole("dialog", { name: "Partial product information" });
+    expect(gateDialog).toBeInTheDocument();
+    expect(within(gateDialog).getByText(/only has preliminary Catalog Scan information/)).toBeInTheDocument();
+    fireEvent.click(within(gateDialog).getByRole("button", { name: "View product anyway" }));
+    expect(screen.queryByRole("dialog", { name: "Partial product information" })).not.toBeInTheDocument();
     expect(screen.getByText(/Analyzed May 7, 2026/)).toBeInTheDocument();
-    expect(screen.getByText("Run Product Diagnosis")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Run Product Diagnosis" }).length).toBeGreaterThan(0);
     const emptyRecommendedActions = screen.getByText("Recommended actions will appear after you run the Product Diagnosis for this product.").closest(".ppProductDetailEmpty-recommended");
     expect(emptyRecommendedActions).toBeInTheDocument();
     expect(emptyRecommendedActions?.querySelector("s-icon")?.getAttribute("type")).toBe("wand");
     expect(emptyRecommendedActions?.querySelector("s-icon")?.getAttribute("size")).toBe("large");
     expect(screen.queryByRole("heading", { name: "Add compatibility FAQ" })).not.toBeInTheDocument();
+  });
+
+  it("opens Product Diagnosis confirmation from the partial information overlay", () => {
+    const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={quickScanProduct} />);
+    const gateDialog = screen.getByRole("dialog", { name: "Partial product information" });
+    fireEvent.click(within(gateDialog).getByRole("button", { name: "Run Product Diagnosis" }));
+    const confirmDialog = screen.getByRole("dialog", { name: "Confirm Product Diagnosis" });
+    expect(confirmDialog).toBeInTheDocument();
+    expect(within(confirmDialog).getByText("Confirm and run diagnosis")).toBeInTheDocument();
+  });
+
+  it("keeps the missing diagnosis overlay closed after a diagnosis is queued", async () => {
+    const quickScanProduct = defaultView.products.find((product) => product.slug === "ceramic-pour-over");
+    renderWithRouter(
+      <ProductDiagnosisScreen
+        data={defaultView}
+        product={quickScanProduct}
+        actionData={{
+          status: "success",
+          message: "Product Diagnosis queued for Ceramic Pour-Over.",
+          job: { kind: "product-diagnosis", name: "Product Diagnosis" },
+        }}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Partial product information" })).not.toBeInTheDocument();
+    });
   });
 
   it("renders analytics overview and chart panels", () => {
