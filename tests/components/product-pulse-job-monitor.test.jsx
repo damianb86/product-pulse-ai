@@ -690,6 +690,49 @@ describe("ProductPulseJobMonitor", () => {
     }
   });
 
+  it("announces active Catalog Scan jobs that disappear from Current", async () => {
+    const runningScan = {
+      id: "job-disappeared-catalog-scan",
+      kind: "fast-product-scan",
+      name: "Catalog Scan",
+      status: "Running",
+      source: "Running Shopify Catalog Scan",
+      startedAtIso: new Date(Date.now() - 5000).toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    let monitor = {
+      activeJobs: [runningScan],
+      recentJobs: [runningScan],
+      logs: [],
+    };
+    const finishedEvents = [];
+    const handleFinishedJobs = (event) => finishedEvents.push(event.detail?.jobs || []);
+    window.addEventListener("productpulse:jobs-finished", handleFinishedJobs);
+
+    try {
+      renderMonitor(() => monitor);
+
+      monitor = {
+        activeJobs: [],
+        recentJobs: [],
+        logs: [],
+      };
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: runningScan } }));
+      });
+
+      await waitFor(() => {
+        expect(finishedEvents.flat()).toContainEqual(expect.objectContaining({
+          id: "job-disappeared-catalog-scan",
+          kind: "fast-product-scan",
+        }));
+      });
+    } finally {
+      window.removeEventListener("productpulse:jobs-finished", handleFinishedJobs);
+    }
+  });
+
   it("preserves the first Product Diagnosis completion notice while the wizard is active", async () => {
     document.body.classList.add("ppWizardActive");
     const firstJob = {

@@ -193,13 +193,15 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       (job) => !locallyCancelledJobIdsRef.current.has(job.id),
     );
     const externallyFinishedJobs = finishedJobs.filter((job) => !locallyCancelledJobIdsRef.current.has(job.id));
+    const finishedOrDisappearedJobs = [
+      ...externallyFinishedJobs,
+      ...externallyDisappearedActiveJobs,
+    ];
 
     observedJobsRef.current = currentJobs;
 
-    if (externallyFinishedJobs.length || externallyDisappearedActiveJobs.length) {
-      if (externallyFinishedJobs.length) {
-        dispatchProductPulseJobsFinishedEvent(externallyFinishedJobs);
-      }
+    if (finishedOrDisappearedJobs.length) {
+      dispatchProductPulseJobsFinishedEvent(finishedOrDisappearedJobs);
       const completedAnalysisJob = externallyFinishedJobs.find((job) => isCompletionNoticeJob(job));
       const failedJob = externallyFinishedJobs.find((job) => (
         job.status === "Failed" && !announcedFailedJobIdsRef.current.has(job.id)
