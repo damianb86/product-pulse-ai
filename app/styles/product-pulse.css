@@ -3690,6 +3690,92 @@ s-page[inline-size="large-500"] {
   gap: 14px;
 }
 
+.ppProductDiagnosisGateOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483300;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(var(--pp-shadow-rgb), 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.ppProductDiagnosisGateModal {
+  width: min(440px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  text-align: center;
+  box-shadow: 0 28px 78px rgba(var(--pp-shadow-rgb), 0.22);
+}
+
+.ppProductDiagnosisGateIcon {
+  width: 58px;
+  height: 58px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(var(--pp-pulse-blue-rgb), 0.12), rgba(var(--pp-insight-violet-rgb), 0.1)),
+    var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductDiagnosisGateIcon s-icon {
+  color: var(--pp-pulse-blue);
+}
+
+.ppProductDiagnosisGateCopy {
+  display: grid;
+  gap: 7px;
+}
+
+.ppProductDiagnosisGateCopy > span {
+  color: var(--pp-pulse-blue);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.ppProductDiagnosisGateCopy h2 {
+  margin: 0;
+  color: var(--pp-slate-900);
+  font-size: 22px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.ppProductDiagnosisGateCopy p {
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.ppProductDiagnosisGateActions {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
+
+.ppProductDiagnosisGatePrimary,
+.ppProductDiagnosisGateSecondary {
+  width: 100%;
+  justify-content: center;
+}
+
+.ppProductDiagnosisGateSecondary {
+  min-height: 42px;
+}
+
 .ppProductDeepResearchGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -26216,25 +26302,363 @@ s-page[inline-size="large-500"] {
   line-height: 1;
 }
 
+.ppAnalysisConfirmModal.ppProductDiagnosisConfirmModal {
+  width: min(820px, var(--pp-modal-available-width));
+  padding: 0;
+  overflow: hidden;
+  border-color: rgba(var(--pp-slate-500-rgb), 0.22);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 22px 62px rgba(var(--pp-shadow-rgb), 0.28);
+}
+
+.ppProductDiagnosisConfirmLayout {
+  display: grid;
+  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
+  min-height: min(460px, calc(100dvh - var(--pp-modal-edge-gap) * 2));
+}
+
+.ppProductDiagnosisConfirmSide {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 32px;
+  overflow: hidden;
+  padding: 34px 32px;
+  background:
+    radial-gradient(circle at 88% 86%, rgba(var(--pp-pulse-blue-rgb), 0.10), transparent 34%),
+    linear-gradient(180deg, #f8faff 0%, #f2f6ff 100%);
+}
+
+.ppProductDiagnosisConfirmSide::after {
+  content: "";
+  position: absolute;
+  right: -86px;
+  bottom: -102px;
+  width: 300px;
+  height: 210px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.10);
+  border-radius: 50%;
+  box-shadow:
+    -72px -34px 0 -70px rgba(var(--pp-pulse-blue-rgb), 0.22),
+    -144px -64px 0 -140px rgba(var(--pp-pulse-blue-rgb), 0.18),
+    -216px -96px 0 -210px rgba(var(--pp-pulse-blue-rgb), 0.14);
+}
+
+.ppProductDiagnosisConfirmSide::before {
+  content: "";
+  position: absolute;
+  right: 16px;
+  bottom: 50px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.18);
+  box-shadow:
+    -34px 18px 0 rgba(var(--pp-pulse-blue-rgb), 0.16),
+    -72px 38px 0 rgba(var(--pp-pulse-blue-rgb), 0.12),
+    -118px 62px 0 rgba(var(--pp-pulse-blue-rgb), 0.10),
+    -162px 88px 0 rgba(var(--pp-pulse-blue-rgb), 0.10);
+}
+
+.ppProductDiagnosisConfirmSide > div,
+.ppProductDiagnosisConfirmHeroIcon {
+  position: relative;
+  z-index: 1;
+}
+
+.ppProductDiagnosisConfirmHeroIcon {
+  width: 60px;
+  height: 60px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #132b58 0%, #2563eb 100%);
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(var(--pp-pulse-blue-rgb), 0.22);
+}
+
+.ppProductDiagnosisConfirmHeroIcon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.ppProductDiagnosisConfirmSide span:not(.ppProductDiagnosisConfirmHeroIcon) {
+  display: block;
+  color: #3157ff;
+  font-size: 12.5px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.ppProductDiagnosisConfirmSide h2 {
+  max-width: 220px;
+  margin: 18px 0 16px;
+  color: #07152f;
+  font-size: clamp(26px, 3.5vw, 34px);
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.ppProductDiagnosisConfirmSide p {
+  max-width: 220px;
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 12.5px;
+  font-weight: 580;
+  line-height: 1.45;
+}
+
+.ppProductDiagnosisConfirmMain {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 30px 30px 0;
+}
+
+.ppProductDiagnosisConfirmCost {
+  display: grid;
+  grid-template-columns: 46px minmax(130px, 0.86fr) minmax(190px, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 16px 18px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.ppProductDiagnosisConfirmCostIcon {
+  width: 46px;
+  height: 46px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3157ff;
+}
+
+.ppProductDiagnosisConfirmCostIcon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.ppProductDiagnosisConfirmCost > div {
+  min-width: 0;
+}
+
+.ppProductDiagnosisConfirmCost > div > span {
+  display: block;
+  color: var(--pp-slate-800);
+  font-size: 12.5px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.ppProductDiagnosisConfirmCost strong {
+  display: block;
+  margin-top: 5px;
+  color: #020617;
+  font-size: clamp(24px, 3vw, 30px);
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.ppProductDiagnosisConfirmCost p {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding-left: 18px;
+  border-left: 1px solid var(--pp-slate-200);
+  color: var(--pp-slate-600);
+  font-size: 14px;
+  font-weight: 540;
+  line-height: 1.38;
+}
+
+.ppProductDiagnosisConfirmDetails {
+  display: grid;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.ppProductDiagnosisConfirmDetails article {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 82px;
+  padding: 14px 18px;
+}
+
+.ppProductDiagnosisConfirmDetails article + article {
+  border-top: 1px solid var(--pp-slate-200);
+}
+
+.ppProductDiagnosisConfirmDetailIcon {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.ppProductDiagnosisConfirmDetailIcon s-icon {
+  transform: scale(1.18);
+}
+
+.ppProductDiagnosisConfirmDetailIcon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.ppProductDiagnosisConfirmDetailIcon-success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.ppProductDiagnosisConfirmDetailIcon-warning {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.ppProductDiagnosisConfirmDetailIcon-product {
+  background: #e9eeff;
+  color: #3157ff;
+}
+
+.ppProductDiagnosisConfirmDetails strong {
+  display: block;
+  color: var(--pp-slate-900);
+  font-size: 13.5px;
+  font-weight: 920;
+  line-height: 1.2;
+}
+
+.ppProductDiagnosisConfirmDetailIcon-success + div strong {
+  color: #16a34a;
+}
+
+.ppProductDiagnosisConfirmDetailIcon-warning + div strong {
+  color: #d97706;
+}
+
+.ppProductDiagnosisConfirmDetails p {
+  margin: 5px 0 0;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 1.38;
+}
+
+.ppProductDiagnosisConfirmDetails ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ppProductDiagnosisConfirmDetails li {
+  overflow: hidden;
+  color: #020617;
+  font-size: 13.5px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppProductDiagnosisConfirmNotice {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 11px 14px;
+  border: 1px solid #dbe7ff;
+  border-radius: 9px;
+  background: #f8fbff;
+  color: #3157ff;
+}
+
+.ppProductDiagnosisConfirmNotice s-icon {
+  transform: scale(1.05);
+}
+
+.ppProductDiagnosisConfirmNotice p {
+  margin: 0;
+  color: var(--pp-slate-600);
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 1.38;
+}
+
+.ppProductDiagnosisConfirmFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: 14px 30px 0 260px;
+  padding: 8px 0 10px;
+  border-top: 1px solid var(--pp-slate-200);
+  background: #ffffff;
+}
+
+.ppProductDiagnosisConfirmFooter .ppSecondaryButton,
+.ppProductDiagnosisConfirmFooter .ppPrimaryButton {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 900;
+}
+
+.ppProductDiagnosisConfirmFooter .ppSecondaryButton {
+  min-width: 118px;
+}
+
+.ppProductDiagnosisConfirmRunButton {
+  min-width: 240px;
+  gap: 9px;
+  background: #07883f;
+  border-color: #07883f;
+  box-shadow: 0 10px 24px rgba(7, 136, 63, 0.22);
+}
+
+.ppProductDiagnosisConfirmRunButton:hover:not(:disabled),
+.ppProductDiagnosisConfirmRunButton:focus-visible {
+  background: #067338;
+  border-color: #067338;
+  box-shadow: 0 16px 36px rgba(7, 136, 63, 0.30);
+}
+
+.ppProductDiagnosisConfirmRunButton s-icon {
+  transform: scale(1.05);
+}
+
 .ppAnalysisConfirmModal.ppQuickScanConfirmModal {
   position: relative;
-  width: min(1180px, var(--pp-modal-available-width));
+  width: min(860px, var(--pp-modal-available-width));
   padding: 0;
   overflow: hidden;
   border-color: rgba(var(--pp-slate-500-rgb), 0.20);
-  border-radius: 16px;
+  border-radius: 12px;
   background: #ffffff;
-  box-shadow: 0 30px 86px rgba(var(--pp-shadow-rgb), 0.30);
+  box-shadow: 0 22px 62px rgba(var(--pp-shadow-rgb), 0.28);
 }
 
 .ppQuickScanConfirmClose {
   position: absolute;
-  top: 18px;
-  right: 18px;
+  top: 10px;
+  right: 10px;
   z-index: 3;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -26259,78 +26683,78 @@ s-page[inline-size="large-500"] {
 
 .ppQuickScanConfirmLayout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.88fr);
-  gap: clamp(28px, 3.4vw, 48px);
-  min-height: min(650px, calc(100dvh - var(--pp-modal-edge-gap) * 2));
-  padding: 16px 28px 0 16px;
+  grid-template-columns: minmax(230px, 0.74fr) minmax(0, 1.7fr);
+  gap: clamp(16px, 2vw, 26px);
+  min-height: min(440px, calc(100dvh - var(--pp-modal-edge-gap) * 2));
+  padding: 12px 20px 0 12px;
 }
 
 .ppQuickScanConfirmVisual {
-  min-height: 560px;
+  min-height: 390px;
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: 12px;
   background:
     radial-gradient(circle at 54% 45%, rgba(var(--pp-pulse-blue-rgb), 0.10), transparent 38%),
     linear-gradient(180deg, #f8f9ff 0%, #f1f4ff 100%);
 }
 
 .ppQuickScanConfirmVisual img {
-  width: min(122%, 610px);
+  width: min(110%, 410px);
   max-width: none;
   height: auto;
   display: block;
-  transform: translateY(6px) scale(1.02);
-  filter: drop-shadow(0 18px 32px rgba(var(--pp-pulse-blue-rgb), 0.10));
+  transform: translateY(4px) scale(1);
+  filter: drop-shadow(0 12px 22px rgba(var(--pp-pulse-blue-rgb), 0.10));
 }
 
 .ppQuickScanConfirmContent {
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 26px;
-  padding: clamp(42px, 5vw, 64px) 6px 0 0;
+  gap: 15px;
+  padding: clamp(24px, 3vw, 34px) 4px 0 0;
 }
 
 .ppQuickScanConfirmBrand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 6px;
   color: #3157ff;
-  font-size: 16px;
+  font-size: 12.5px;
   font-weight: 850;
   line-height: 1;
 }
 
 .ppQuickScanConfirmBrand > span {
-  width: 23px;
-  height: 23px;
+  width: 17px;
+  height: 17px;
   display: inline-grid;
   place-items: center;
 }
 
 .ppQuickScanConfirmBrand svg {
-  width: 23px;
-  height: 23px;
+  width: 17px;
+  height: 17px;
 }
 
 .ppQuickScanConfirmHeader h2 {
   margin: 0;
   color: var(--pp-slate-900);
-  font-size: clamp(36px, 4.6vw, 54px);
+  font-size: clamp(24px, 3.4vw, 34px);
   font-weight: 900;
   letter-spacing: 0;
   line-height: 1.06;
 }
 
 .ppQuickScanConfirmHeader p {
-  max-width: 620px;
-  margin: 18px 0 0;
+  max-width: 460px;
+  margin: 10px 0 0;
   color: var(--pp-slate-600);
-  font-size: clamp(17px, 1.8vw, 21px);
+  font-size: clamp(12.5px, 1.4vw, 14px);
   font-weight: 560;
-  line-height: 1.45;
+  line-height: 1.42;
 }
 
 .ppQuickScanConfirmHighlights {
@@ -26338,9 +26762,9 @@ s-page[inline-size="large-500"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
   gap: 0;
-  padding: 18px;
+  padding: 10px;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 14px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 12px 28px rgba(var(--pp-shadow-rgb), 0.05);
 }
@@ -26348,12 +26772,12 @@ s-page[inline-size="large-500"] {
 .ppQuickScanConfirmHighlights span {
   min-width: 0;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  padding: 0 16px;
+  padding: 0 10px;
   color: var(--pp-slate-800);
-  font-size: 14px;
+  font-size: 11.5px;
   font-weight: 850;
   line-height: 1.25;
 }
@@ -26363,46 +26787,46 @@ s-page[inline-size="large-500"] {
 }
 
 .ppQuickScanConfirmHighlights i {
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
   display: inline-grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 9px;
   background: #eef2ff;
   color: #3157ff;
   font-style: normal;
 }
 
 .ppQuickScanConfirmHighlights i s-icon {
-  transform: scale(1.35);
+  transform: scale(1.05);
 }
 
 .ppQuickScanConfirmInfoGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 12px;
 }
 
 .ppQuickScanConfirmInfoGrid article {
-  min-height: 164px;
-  padding: 24px;
+  min-height: 108px;
+  padding: 14px;
   border: 1px solid var(--pp-slate-200);
-  border-radius: 14px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 12px 28px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
 .ppQuickScanConfirmInfoIcon {
-  width: 44px;
-  height: 44px;
+  width: 32px;
+  height: 32px;
   display: inline-grid;
   place-items: center;
-  margin-bottom: 22px;
-  border-radius: 12px;
+  margin-bottom: 10px;
+  border-radius: 9px;
 }
 
 .ppQuickScanConfirmInfoIcon s-icon {
-  transform: scale(1.42);
+  transform: scale(1.05);
 }
 
 .ppQuickScanConfirmInfoIcon-success {
@@ -26418,15 +26842,15 @@ s-page[inline-size="large-500"] {
 .ppQuickScanConfirmInfoGrid strong {
   display: block;
   color: var(--pp-slate-900);
-  font-size: 17px;
+  font-size: 13.5px;
   font-weight: 900;
   line-height: 1.2;
 }
 
 .ppQuickScanConfirmInfoGrid p {
-  margin: 8px 0 0;
+  margin: 5px 0 0;
   color: var(--pp-slate-600);
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 560;
   line-height: 1.38;
 }
@@ -26434,32 +26858,32 @@ s-page[inline-size="large-500"] {
 .ppQuickScanConfirmFooter {
   display: flex;
   justify-content: flex-end;
-  gap: 14px;
-  margin: 26px 28px 0;
-  padding: 18px 0 18px;
+  gap: 10px;
+  margin: 16px 20px 0;
+  padding: 12px 0 14px;
   border-top: 1px solid var(--pp-slate-200);
   background: #ffffff;
 }
 
 .ppQuickScanConfirmFooter .ppSecondaryButton,
 .ppQuickScanConfirmFooter .ppPrimaryButton {
-  min-height: 48px;
-  padding: 0 22px;
-  border-radius: 10px;
-  font-size: 15px;
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 8px;
+  font-size: 12.5px;
   font-weight: 850;
 }
 
 .ppQuickScanConfirmFooter .ppSecondaryButton {
-  min-width: 128px;
+  min-width: 90px;
 }
 
 .ppQuickScanConfirmRunButton {
-  min-width: 228px;
-  gap: 12px;
+  min-width: 164px;
+  gap: 8px;
   background: #2f7d44;
   border-color: #2f7d44;
-  box-shadow: 0 14px 30px rgba(47, 125, 68, 0.22);
+  box-shadow: 0 10px 22px rgba(47, 125, 68, 0.20);
 }
 
 .ppQuickScanConfirmRunButton:hover:not(:disabled),
@@ -26517,6 +26941,135 @@ s-page[inline-size="large-500"] {
     min-width: 0;
   }
 
+  .ppAnalysisConfirmModal.ppProductDiagnosisConfirmModal {
+    width: var(--pp-modal-available-width);
+    max-height: calc(100dvh - var(--pp-modal-edge-gap) * 2);
+    border-radius: 12px;
+  }
+
+  .ppProductDiagnosisConfirmLayout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .ppProductDiagnosisConfirmSide {
+    gap: 14px;
+    min-height: 170px;
+    padding: 18px 18px;
+  }
+
+  .ppProductDiagnosisConfirmHeroIcon {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+  }
+
+  .ppProductDiagnosisConfirmHeroIcon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .ppProductDiagnosisConfirmSide span:not(.ppProductDiagnosisConfirmHeroIcon) {
+    font-size: 11.5px;
+  }
+
+  .ppProductDiagnosisConfirmSide h2 {
+    max-width: none;
+    margin: 9px 0 7px;
+    font-size: 23px;
+  }
+
+  .ppProductDiagnosisConfirmSide p {
+    max-width: none;
+    font-size: 12px;
+  }
+
+  .ppProductDiagnosisConfirmMain {
+    gap: 9px;
+    padding: 10px 10px 0;
+  }
+
+  .ppProductDiagnosisConfirmCost {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .ppProductDiagnosisConfirmCostIcon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .ppProductDiagnosisConfirmCostIcon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .ppProductDiagnosisConfirmCost > div > span {
+    font-size: 11.5px;
+  }
+
+  .ppProductDiagnosisConfirmCost strong {
+    margin-top: 3px;
+    font-size: 23px;
+  }
+
+  .ppProductDiagnosisConfirmCost p {
+    grid-column: 1 / -1;
+    min-height: 0;
+    padding: 8px 0 0;
+    border-top: 1px solid var(--pp-slate-200);
+    border-left: 0;
+    font-size: 12px;
+  }
+
+  .ppProductDiagnosisConfirmDetails article {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 0;
+    padding: 10px;
+  }
+
+  .ppProductDiagnosisConfirmDetailIcon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .ppProductDiagnosisConfirmDetailIcon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .ppProductDiagnosisConfirmDetails strong,
+  .ppProductDiagnosisConfirmDetails li {
+    font-size: 12.5px;
+  }
+
+  .ppProductDiagnosisConfirmDetails p,
+  .ppProductDiagnosisConfirmNotice p {
+    font-size: 12px;
+  }
+
+  .ppProductDiagnosisConfirmNotice {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .ppProductDiagnosisConfirmFooter {
+    gap: 8px;
+    margin: 10px 10px 0;
+    padding: 9px 0;
+  }
+
+  .ppProductDiagnosisConfirmFooter .ppSecondaryButton,
+  .ppProductDiagnosisConfirmFooter .ppPrimaryButton {
+    min-width: 0;
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
   .ppAnalysisConfirmModal.ppQuickScanConfirmModal {
     width: var(--pp-modal-available-width);
     max-height: calc(100dvh - var(--pp-modal-edge-gap) * 2);
@@ -26530,37 +27083,37 @@ s-page[inline-size="large-500"] {
 
   .ppQuickScanConfirmLayout {
     grid-template-columns: 1fr;
-    gap: 18px;
+    gap: 10px;
     min-height: 0;
-    padding: 12px;
+    padding: 8px;
   }
 
   .ppQuickScanConfirmVisual {
-    min-height: 236px;
-    border-radius: 11px;
+    min-height: 150px;
+    border-radius: 9px;
   }
 
   .ppQuickScanConfirmVisual img {
-    width: min(108%, 360px);
-    transform: translateY(8px) scale(1.04);
+    width: min(102%, 240px);
+    transform: translateY(4px) scale(1);
   }
 
   .ppQuickScanConfirmContent {
-    gap: 18px;
-    padding: 2px 2px 0;
+    gap: 10px;
+    padding: 0;
   }
 
   .ppQuickScanConfirmBrand {
-    font-size: 14px;
+    font-size: 11.5px;
   }
 
   .ppQuickScanConfirmHeader h2 {
-    font-size: 30px;
+    font-size: 23px;
   }
 
   .ppQuickScanConfirmHeader p {
-    margin-top: 10px;
-    font-size: 15px;
+    margin-top: 6px;
+    font-size: 12px;
   }
 
   .ppQuickScanConfirmHighlights,
@@ -26569,11 +27122,11 @@ s-page[inline-size="large-500"] {
   }
 
   .ppQuickScanConfirmHighlights {
-    padding: 10px;
+    padding: 7px;
   }
 
   .ppQuickScanConfirmHighlights span {
-    padding: 8px;
+    padding: 6px;
   }
 
   .ppQuickScanConfirmHighlights span + span {
@@ -26587,25 +27140,25 @@ s-page[inline-size="large-500"] {
 
   .ppQuickScanConfirmInfoGrid article {
     min-height: 0;
-    padding: 16px;
+    padding: 10px;
   }
 
   .ppQuickScanConfirmInfoIcon {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
 
   .ppQuickScanConfirmFooter {
-    gap: 10px;
-    margin: 16px 12px 0;
-    padding: 12px 0;
+    gap: 8px;
+    margin: 10px 10px 0;
+    padding: 9px 0;
   }
 
   .ppQuickScanConfirmFooter .ppSecondaryButton,
   .ppQuickScanConfirmFooter .ppPrimaryButton {
     min-width: 0;
-    min-height: 42px;
-    padding: 0 13px;
-    font-size: 13px;
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 12px;
   }
 }
 
