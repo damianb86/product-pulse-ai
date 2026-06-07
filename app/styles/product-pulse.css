@@ -3782,7 +3782,7 @@ s-page[inline-size="large-500"] {
   z-index: 2147483400;
   display: grid;
   place-items: center;
-  padding: 18px;
+  padding: 20px;
   background: rgba(var(--pp-shadow-rgb), 0.42);
   backdrop-filter: blur(6px);
 }
@@ -3792,8 +3792,8 @@ s-page[inline-size="large-500"] {
   display: grid;
   gap: 10px;
   width: min(680px, calc(100vw - 36px));
-  max-height: min(560px, 50vh);
-  max-height: min(560px, 50dvh);
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
   overflow: auto;
   padding: 16px;
   border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
