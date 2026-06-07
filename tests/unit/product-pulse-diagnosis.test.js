@@ -3106,8 +3106,26 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
         contentIssueCount: 1,
         incrementalDiagnosis: {
           mode: "incremental",
-          aiEvidenceSnippetCount: 1,
           customerText: { analyzedItems: 1, reason: "new review text" },
+          cache: {
+            customerText: {
+              returnItems: [],
+              reviewItems: [{
+                key: "review-after-action",
+                source: "reviews",
+                text: "The description is still missing the important detail.",
+                issueCode: "product_content",
+                createdAt: "2026-05-12T00:00:00.000Z",
+                updatedAt: "2026-05-12T00:00:00.000Z",
+              }],
+            },
+            refunds: { items: [] },
+            sourceEvents: {
+              sales: [],
+              returns: [],
+              refunds: [],
+            },
+          },
         },
         contentAnalysis: {
           issues: [{
@@ -3124,6 +3142,11 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
         mediaCount: 1,
         mediaWithoutAltCount: 0,
       },
+      evidenceSnippets: [{
+        source: "review",
+        text: "The description is still missing the important detail.",
+        createdAt: "2026-05-12T00:00:00.000Z",
+      }],
     };
     const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
       snapshot: {
@@ -3184,6 +3207,123 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
       lifecycleState: "reopened/persistent",
       recommendedTreatment: "escalate_persistent_issue",
     });
+  });
+
+  it("keeps handled recommendations in monitoring when only historical evidence still matches the issue", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      mainIssueLabel: "Product content",
+      riskScore: 72,
+      confidence: 80,
+      issueSignalCounts: { product_content: 1 },
+      sourceCoverage: ["Shopify products", "Reviews"],
+      estimatedImpact: { revenueAtRisk: 0 },
+      product: {
+        id: "gid://shopify/Product/no-new-post-action",
+        title: "No New Evidence Product",
+        handle: "no-new-evidence-product",
+        description: "",
+        descriptionHtml: "",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        customerSignalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 1,
+        signalCount: 2,
+        topReturnReasons: [],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 1,
+        incrementalDiagnosis: {
+          mode: "incremental",
+          aiEvidenceSnippetCount: 1,
+          customerText: { analyzedItems: 0, reason: "previous_cache_reused" },
+          cache: {
+            customerText: {
+              returnItems: [],
+              reviewItems: [{
+                key: "review-before-action",
+                source: "reviews",
+                text: "The description is missing the important detail.",
+                issueCode: "product_content",
+                createdAt: "2026-05-09T00:00:00.000Z",
+                updatedAt: "2026-05-09T00:00:00.000Z",
+              }],
+            },
+            refunds: { items: [] },
+            sourceEvents: {
+              sales: [],
+              returns: [],
+              refunds: [],
+            },
+          },
+        },
+        contentAnalysis: {
+          issues: [{
+            code: "missing_description",
+            issueCode: "product_content",
+            label: "Missing product description",
+            severity: "high",
+            evidence: "The product description is still missing, but the only customer evidence predates the action.",
+          }],
+          advisories: [],
+        },
+        textInsights: { sentiment: { total: 1, negative: 1, negativeRatio: 1 }, repeatedLanguage: [] },
+        refundInsights: {},
+        mediaCount: 1,
+        mediaWithoutAltCount: 0,
+      },
+      evidenceSnippets: [{
+        source: "review",
+        text: "The description is missing the important detail.",
+        createdAt: "2026-05-09T00:00:00.000Z",
+      }],
+    };
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot: {
+        productGid: deterministic.product.id,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      previousDiagnosis: {
+        id: "diagnosis-previous-no-new-evidence",
+        productGid: deterministic.product.id,
+        riskScore: 70,
+        confidence: 78,
+        likelyCause: "Product content",
+        issues: [{ issue: "Product content", issueCode: "product_content" }],
+        recommendations: [{ id: "rewrite-product-description", label: "Rewrite product description" }],
+        metrics: { contentIssueCount: 1, signalCount: 1 },
+        completedAt: "2026-05-10T00:00:00.000Z",
+      },
+      actionRecords: [{
+        id: "action-no-new-evidence",
+        diagnosisId: "diagnosis-previous-no-new-evidence",
+        productGid: deterministic.product.id,
+        actionType: "rewrite-product-description",
+        label: "Rewrite product description",
+        status: "applied",
+        payload: { canonicalActionId: "rewrite-product-description" },
+        createdAt: "2026-05-11T00:00:00.000Z",
+        appliedAt: "2026-05-11T00:00:00.000Z",
+      }],
+      recommendationCandidates: [{ id: "rewrite-product-description", type: "PDP copy" }],
+    });
+    const filteredCandidates = __productPulseDiagnosisTestHooks.applyProductEvolutionToRecommendationCandidates(
+      [{ id: "rewrite-product-description", type: "PDP copy" }, { id: "add-to-watchlist", type: "Watchlist" }],
+      productEvolution,
+    );
+
+    expect(productEvolution.sourceSummary.hasNewEvidence).toBe(false);
+    expect(productEvolution.previousRecommendationLifecycle[0].lifecycleState).toBe("monitoring");
+    expect(productEvolution.previousRecommendationLifecycle[0].postActionEvidence.hasPostActionEvidence).toBe(false);
+    expect(productEvolution.postActionStatus.status).toBe("monitoring");
+    expect(productEvolution.postActionStatus.summary).toContain("not enough post-action evidence");
+    expect(filteredCandidates.map((candidate) => candidate.id)).not.toContain("rewrite-product-description");
   });
 
   it("surfaces title and description mismatch as a semantic advisory when product categories are clearly disconnected", () => {
@@ -4288,6 +4428,55 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(metaDescription.length).toBeLessThanOrEqual(160);
     expect(metaDescription).not.toMatch(/(?:\.\.\.|…)$/);
     expect(metaDescription).toMatch(/[.!?]$/);
+  });
+
+  it("does not recommend Shopify text updates when the draft matches the current value", () => {
+    const currentMetaDescription = "GEN Linen Breeze Shirt: Lightweight linen shirt for warm-weather layering.";
+    const deterministic = {
+      mainIssue: "product_quality",
+      riskScore: 60,
+      confidence: 82,
+      issueSignalCounts: {},
+      product: {
+        title: "GEN Linen Breeze Shirt",
+        vendor: "ProductPulse Lab",
+        handle: "gen-linen-breeze-shirt",
+        seoTitle: "GEN Linen Breeze Shirt | ProductPulse Lab",
+        seoDescription: currentMetaDescription,
+        description: "Lightweight linen shirt for warm-weather layering.",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        productMomentumScore: 80,
+        titleNeedsReview: true,
+        seoTitleNeedsReview: true,
+        metaDescriptionNeedsReview: true,
+        handleNeedsReview: true,
+        topReturnReasons: [],
+        affectedVariants: [],
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: {},
+        faqNeed: { shouldRecommend: false },
+      },
+    };
+
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/no-op-seo",
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      mainIssue: deterministic.mainIssue,
+      ai: { report: { recommendation_copy: { meta_description: currentMetaDescription } } },
+    });
+
+    const ids = recommendations.map((item) => item.id);
+    expect(ids).not.toContain("update-product-title");
+    expect(ids).not.toContain("rewrite-seo-title");
+    expect(ids).not.toContain("rewrite-meta-description");
+    expect(ids).not.toContain("improve-url-handle");
   });
 
   it("keeps subjective softness feedback out of QA and variant actions without concentration", () => {
