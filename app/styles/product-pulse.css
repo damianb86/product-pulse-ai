@@ -4811,6 +4811,156 @@ s-page[inline-size="large-500"] {
   line-height: 1.5;
 }
 
+.ppPostActionStatus {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(var(--pp-pulse-blue-rgb), 0.16);
+  border-radius: 8px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.055);
+}
+
+.ppPostActionStatus-warning {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.085);
+}
+
+.ppPostActionStatus-critical {
+  border-color: rgba(var(--pp-risk-red-rgb), 0.26);
+  background: rgba(var(--pp-risk-red-rgb), 0.075);
+}
+
+.ppPostActionStatus-success {
+  border-color: rgba(34, 197, 94, 0.24);
+  background: rgba(34, 197, 94, 0.075);
+}
+
+.ppPostActionStatusHeader {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+}
+
+.ppPostActionStatusIcon {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-pulse-blue);
+  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.05);
+}
+
+.ppPostActionStatus-warning .ppPostActionStatusIcon {
+  color: #b45309;
+}
+
+.ppPostActionStatus-critical .ppPostActionStatusIcon {
+  color: var(--pp-risk-red);
+}
+
+.ppPostActionStatus-success .ppPostActionStatusIcon {
+  color: var(--pp-success-green);
+}
+
+.ppPostActionStatusHeader > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ppPostActionStatusHeader span:not(.ppPostActionStatusIcon) {
+  color: var(--pp-slate-900);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.ppPostActionStatusHeader strong {
+  color: var(--pp-slate-800);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.4;
+}
+
+.ppPostActionStatusRows {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.ppPostActionStatusRows > div {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.ppPostActionStatusRows dt,
+.ppPostActionStatusRows dd {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.ppPostActionStatusRows dt {
+  color: var(--pp-slate-600);
+  font-weight: 850;
+}
+
+.ppPostActionStatusRows dd {
+  color: var(--pp-slate-700);
+  font-weight: 560;
+}
+
+.ppPostActionLifecycleList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ppPostActionLifecycle {
+  display: inline-grid;
+  gap: 2px;
+  max-width: 180px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  background: var(--pp-cloud-white);
+  color: var(--pp-slate-700);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.1;
+}
+
+.ppPostActionLifecycle small {
+  overflow: hidden;
+  color: var(--pp-slate-500);
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ppPostActionLifecycle-red {
+  color: var(--pp-risk-red);
+}
+
+.ppPostActionLifecycle-amber {
+  color: #b45309;
+}
+
+.ppPostActionLifecycle-blue {
+  color: var(--pp-pulse-blue);
+}
+
+.ppPostActionLifecycle-green {
+  color: var(--pp-success-green);
+}
+
 .ppRiskSnapshotBlock {
   display: grid;
   gap: 12px;
@@ -19124,6 +19274,41 @@ s-page[inline-size="large-500"] {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.ppCompactRecommendedLifecycle {
+  width: max-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(var(--pp-pulse-blue-rgb), 0.08);
+  color: var(--pp-pulse-blue);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.ppCompactRecommendedLifecycle-red {
+  background: rgba(var(--pp-risk-red-rgb), 0.075);
+  color: var(--pp-risk-red);
+}
+
+.ppCompactRecommendedLifecycle-amber {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+
+.ppCompactRecommendedLifecycle-green {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--pp-success-green);
+}
+
+.ppCompactRecommendedLifecycle-violet {
+  background: rgba(var(--pp-insight-violet-rgb), 0.1);
+  color: var(--pp-insight-violet);
 }
 
 .ppCompactRecommendedBadge-violet {

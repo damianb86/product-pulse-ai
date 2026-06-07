@@ -8052,6 +8052,7 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
     latestDiagnosisId: latestDiagnosis?.id || metrics.latestDiagnosisId || null,
     primaryIssue,
     mainFinding: diagnosisReport.mainFinding || null,
+    postActionStatus: diagnosisReport.postActionStatus || metrics.postActionStatus || metrics.productEvolution?.postActionStatus || null,
     hasRiskSnapshot: true,
     canDiagnose: true,
     canResolve: true,

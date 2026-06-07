@@ -190,6 +190,7 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
       evidence_synthesis_sections: [],
       recommendation_copy: {},
       action_rationales: [],
+      post_action_status: {},
     });
     const actionRationales = normalizeFinalReportActionRationales(report);
 
@@ -1145,11 +1146,17 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "Use the metrics, clusters, product-content analysis, PDP gaps, and recommendation candidates to explain what is happening and draft merchant-ready copy.",
     "Use productEvolution to make this a transition-aware diagnosis when a previous diagnosis exists. It summarizes the previous diagnosis, merchant-facing actions handled since then, current source/content changes, metric movement, issue transitions, and recommendation treatment policy.",
     "If productEvolution.mode is baseline, write the first-run diagnosis normally. If it is successive, explicitly account for what changed since the previous diagnosis before deciding what to emphasize.",
+    "For successive diagnoses, separate historical diagnosis context from post-action evidence. Historical diagnosis explains what was found before; post-action evidence explains what changed after the latest meaningful action or previous diagnosis.",
+    "Evaluate the deltas supplied in productEvolution: new orders/sold units, returns, refunds, reviews, customer language, risk score, momentum, evidence strength, and main issue changes. Do not imply a delta exists when productEvolution says there was no new evidence.",
     "When productEvolution shows actions were applied, reviewed, dismissed, or ignored, treat those actions as already handled context. Do not present the same recommendation as a new first-time action unless current evidence or product changes show the issue persisted or changed.",
     "When productEvolution.transitionKind is actions_changed and sourceSummary.hasNewEvidence is false, the report should briefly say the product/source evidence did not materially change and focus on the handled action state, follow-up monitoring, or remaining unhandled work. Do not restate the old diagnosis as if it newly happened.",
     "When productEvolution.issueTransition.noLongerDetected contains prior issues, mention them only as improved or no longer detected. Do not lead with those old problems unless current evidence supports that they returned.",
-    "When recommendation candidates are marked previouslyHandled with recommendedTreatment suppress_unless_new_evidence, do not write recommendation copy or action rationales that revive that action as baseline work.",
-    "When a recommendation is still justified after a prior handled action, write it as a follow-up: explain what changed or persisted after that action, not as a repeat of the original problem statement.",
+    "Respect recommendation lifecycle states from productEvolution.candidateTransitions and productEvolution.previousRecommendationLifecycle: new, pending, applied, monitoring, reopened/persistent, or superseded.",
+    "When recommendation candidates are marked previouslyHandled with recommendedTreatment suppress_unless_new_evidence, suppress_repeat_fix_monitoring, suppress_already_applied_action, or suppress_superseded_action, do not write recommendation copy or action rationales that revive that action as baseline work.",
+    "When a recommendation is pending, frame it as carried-forward work, not a new recommendation. When an issue has too little post-action evidence, recommend monitoring or Watchlist instead of repeating the same fix.",
+    "When productEvolution marks a candidate reopened/persistent or recommendedTreatment escalate_persistent_issue, say the same issue persists after prior action and suggest escalation, QA, source verification, or stronger review instead of repeating the original low-level fix.",
+    "When the product improved after an action, reflect that improvement in the interpretation and avoid unnecessary new recommendations.",
+    "Return post_action_status for successive diagnoses. Keep it concise and aligned with productEvolution.postActionStatus: what was already done, what changed after that point, and the next best step.",
     "Product-modifying copy in recommendation_copy is applied to Shopify only after merchant review. Use your strongest product-copy reasoning here: be specific, accurate, and preserve useful existing product information.",
     "For shopper-facing notes, FAQs, description add-ons, SEO copy, titles, media alt text, and product descriptions, write only the inner merchant-ready copy. The ProductPulse application will wrap notes, FAQ blocks, and add-ons in a consistent HTML callout.",
     "Use plain text or simple paragraph/list structure only. Do not include outer CSS, inline styles, scripts, custom wrappers, or theme-specific markup in recommendation_copy.",
@@ -1199,6 +1206,15 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
       main_finding_title: "Sizing and fit expectations are not being met",
       main_finding_detail: "One overview paragraph.\\n\\nWhat is wrong? Direct answer grounded in the strongest issue pattern.\\n\\nWhy do we believe that? Direct answer grounded in source agreement and evidence support.\\n\\nWhat should we do now? Direct answer with the next practical merchant action.\\n\\nHow much does it matter? Direct answer explaining impact, risk, confidence, and urgency without overusing visible numbers.",
       evidence_summary: "1-2 sentence source agreement summary",
+      post_action_status: {
+        title: "Post-action status",
+        status: "monitoring|pending|changed|improved|reopened_persistent|no_material_change",
+        tone: "info|warning|success|critical",
+        summary: "One short sentence explaining the closed-loop status.",
+        historicalDiagnosis: "One short sentence about what the previous diagnosis/action found or did.",
+        postActionEvidence: "One short sentence about evidence after the latest meaningful action or previous diagnosis.",
+        nextBestStep: "One short sentence with the next best step.",
+      },
       basket_context_interpretation: "Concise qualitative Basket context interpretation that uses the final report, overview context, purchase context, and other product signals together while avoiding unnecessary numbers.",
       evidence_synthesis_sections: [
         {

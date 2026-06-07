@@ -5012,6 +5012,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
     aiContentGaps: ai.contentGaps,
   });
   const productEvolution = scoredDeterministic.metrics.productEvolution || null;
+  const postActionStatus = normalizeAiPostActionStatus(ai.report?.post_action_status, productEvolution);
   const productPurchaseContextSummary = withAiPurchaseContextInterpretation(
     scoredDeterministic.metrics.productPurchaseContextSummary,
     ai,
@@ -5034,6 +5035,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
       relationshipInsights: ai.relationshipInsights || null,
       productEvolution: sanitizeProductEvolutionForAi(productEvolution),
       productEvolutionSummary: productEvolution?.summary || "",
+      postActionStatus,
       knownEmotions,
       emergentSentiments,
       checkedSources: buildCheckedSources(semanticDeterministic),
@@ -5055,6 +5057,27 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
     metrics,
     mainFinding: adjustedMainFinding,
   });
+}
+
+function normalizeAiPostActionStatus(rawStatus = null, productEvolution = null) {
+  const fallback = productEvolution?.postActionStatus || null;
+  if (!rawStatus || typeof rawStatus !== "object") return fallback;
+  const value = (...keys) => String(
+    keys.map((key) => rawStatus[key]).find(Boolean)
+      || keys.map((key) => fallback?.[key]).find(Boolean)
+      || "",
+  ).replace(/\s+/g, " ").trim();
+  const status = String(rawStatus.status || fallback?.status || "").replace(/\s+/g, "_").toLowerCase();
+  return {
+    ...(fallback || {}),
+    title: value("title") || "Post-action status",
+    status: status || fallback?.status || "changed",
+    tone: String(rawStatus.tone || fallback?.tone || "info").toLowerCase(),
+    summary: value("summary"),
+    historicalDiagnosis: value("historicalDiagnosis", "historical_diagnosis"),
+    postActionEvidence: value("postActionEvidence", "post_action_evidence"),
+    nextBestStep: value("nextBestStep", "next_best_step"),
+  };
 }
 
 function buildDiagnosisReportIssueNames({ issues = [], mainIssue = "" } = {}) {
@@ -5618,9 +5641,45 @@ function buildProductDiagnosisEvolutionContextFromRecords({
     ? buildProductEvolutionIssueTransition({ previousDiagnosis, deterministic })
     : buildEmptyProductEvolutionIssueTransition();
   const handledActionKeys = buildHandledProductEvolutionActionKeys(handledActions);
+  const openActionKeys = buildProductEvolutionActionKeys(openActions);
+  const comparisonBaseline = buildProductEvolutionComparisonBaseline({
+    previousCompletedAt,
+    handledActions,
+    openActions,
+  });
+  const previousRecommendationLifecycle = buildProductEvolutionPreviousRecommendationLifecycle({
+    hasPreviousDiagnosis,
+    previousDiagnosis,
+    normalizedActions,
+    sourceSummary,
+    issueTransition,
+  });
+  const postActionEvidence = buildProductEvolutionPostActionEvidence({
+    hasPreviousDiagnosis,
+    comparisonBaseline,
+    sourceSummary,
+    metricChanges,
+    issueTransition,
+  });
+  const postActionStatus = buildProductEvolutionPostActionStatus({
+    hasPreviousDiagnosis,
+    previousDiagnosis,
+    comparisonBaseline,
+    handledActions,
+    openActions,
+    previousRecommendationLifecycle,
+    postActionEvidence,
+    sourceSummary,
+    metricChanges,
+    issueTransition,
+  });
   const candidateTransitions = buildProductEvolutionCandidateTransitions({
     recommendationCandidates,
     handledActionKeys,
+    openActionKeys,
+    previousRecommendationLifecycle,
+    sourceSummary,
+    issueTransition,
     actionOnly: hasPreviousDiagnosis && handledActions.length > 0 && !sourceSummary.hasNewEvidence,
   });
   const hasUserActionChangesSincePreviousDiagnosis = Boolean(hasPreviousDiagnosis && handledActions.length);
@@ -5656,13 +5715,21 @@ function buildProductDiagnosisEvolutionContextFromRecords({
     sourceSummary,
     metricChanges,
     issueTransition,
+    comparisonBaseline,
+    postActionEvidence,
+    postActionStatus,
+    previousRecommendationLifecycle,
     handledActionKeys: Array.from(handledActionKeys).slice(0, 80),
+    openActionKeys: Array.from(openActionKeys).slice(0, 80),
     candidateTransitions,
     recommendationPolicy: {
       actionOnlyReanalysis: transitionKind === "actions_changed",
       suppressExactHandledRecommendationsWhenNoNewEvidence: transitionKind === "actions_changed",
       keepHandledRecommendationsWhenNewEvidencePersists: sourceSummary.hasNewEvidence,
       explainFollowUpForHandledRecommendation: handledActions.length > 0,
+      carryForwardPendingRecommendations: true,
+      useMonitoringInsteadOfRepeatFixWhenEvidenceIsThin: true,
+      markPersistentIssuesAsReopened: true,
     },
   };
 
@@ -5698,6 +5765,10 @@ function sanitizeProductEvolutionForAi(productEvolution = null) {
     sourceSummary: productEvolution.sourceSummary || null,
     metricChanges: (productEvolution.metricChanges || []).slice(0, 10),
     issueTransition: productEvolution.issueTransition || null,
+    comparisonBaseline: productEvolution.comparisonBaseline || null,
+    postActionEvidence: productEvolution.postActionEvidence || null,
+    postActionStatus: productEvolution.postActionStatus || null,
+    previousRecommendationLifecycle: (productEvolution.previousRecommendationLifecycle || []).slice(0, 10),
     candidateTransitions: (productEvolution.candidateTransitions || []).slice(0, 12),
     recommendationPolicy: productEvolution.recommendationPolicy || null,
   };
@@ -5724,6 +5795,7 @@ function summarizeProductEvolutionForJobLog(productEvolution = {}) {
     actionCounts: productEvolution?.actionCounts || {},
     sourceChanges: productEvolution?.sourceSummary?.changes || [],
     metricChanges: (productEvolution?.metricChanges || []).slice(0, 8),
+    postActionStatus: productEvolution?.postActionStatus || null,
   };
 }
 
@@ -5828,6 +5900,10 @@ function countProductEvolutionActionStatuses(actions = []) {
 }
 
 function buildHandledProductEvolutionActionKeys(actions = []) {
+  return buildProductEvolutionActionKeys(actions);
+}
+
+function buildProductEvolutionActionKeys(actions = []) {
   const keys = new Set();
   (Array.isArray(actions) ? actions : []).forEach((action) => {
     buildProductEvolutionActionKeySet(action).forEach((key) => keys.add(key));
@@ -5853,6 +5929,374 @@ function buildProductEvolutionActionKeySet(action = {}) {
     payload.canonicalActionId,
     ...aliases,
   ].map(normalizeRecommendationRationaleKey).filter(Boolean));
+}
+
+function buildProductEvolutionComparisonBaseline({
+  previousCompletedAt = null,
+  handledActions = [],
+  openActions = [],
+} = {}) {
+  const latestHandled = getLatestProductEvolutionAction(handledActions);
+  if (latestHandled) {
+    return {
+      type: "action",
+      actionId: latestHandled.actionId || null,
+      label: latestHandled.label || "ProductPulse action",
+      status: latestHandled.status || null,
+      at: latestHandled.handledAt || latestHandled.appliedAt || latestHandled.createdAt || null,
+    };
+  }
+  const latestOpen = getLatestProductEvolutionAction(openActions);
+  if (latestOpen) {
+    return {
+      type: "pending_action",
+      actionId: latestOpen.actionId || null,
+      label: latestOpen.label || "ProductPulse action",
+      status: latestOpen.status || null,
+      at: latestOpen.handledAt || latestOpen.appliedAt || latestOpen.createdAt || null,
+    };
+  }
+  return {
+    type: "diagnosis",
+    actionId: null,
+    label: "Previous Product Diagnosis",
+    status: "completed",
+    at: previousCompletedAt || null,
+  };
+}
+
+function getLatestProductEvolutionAction(actions = []) {
+  return (Array.isArray(actions) ? actions : [])
+    .map((action) => ({
+      action,
+      time: getProductEvolutionActionTime(action),
+    }))
+    .filter((entry) => entry.time > 0)
+    .sort((first, second) => second.time - first.time)[0]?.action || null;
+}
+
+function getProductEvolutionActionTime(action = {}) {
+  return parseValidDate(action.handledAt || action.appliedAt || action.createdAt)?.getTime() || 0;
+}
+
+function buildProductEvolutionPreviousRecommendationLifecycle({
+  hasPreviousDiagnosis = false,
+  previousDiagnosis = {},
+  normalizedActions = [],
+  sourceSummary = {},
+  issueTransition = {},
+} = {}) {
+  if (!hasPreviousDiagnosis) return [];
+  const previousRecommendations = normalizePreviousDiagnosisRecommendations(previousDiagnosis.recommendations);
+  const usedActionIndexes = new Set();
+  const lifecycle = [];
+
+  previousRecommendations.forEach((recommendation) => {
+    const match = findLatestProductEvolutionActionForKeys(recommendation, normalizedActions, usedActionIndexes);
+    if (match) usedActionIndexes.add(match.index);
+    lifecycle.push(buildProductEvolutionLifecycleEntry({
+      recommendation,
+      action: match?.action || null,
+      sourceSummary,
+      issueTransition,
+    }));
+  });
+
+  normalizedActions.forEach((action, index) => {
+    if (usedActionIndexes.has(index)) return;
+    lifecycle.push(buildProductEvolutionLifecycleEntry({
+      recommendation: null,
+      action,
+      sourceSummary,
+      issueTransition,
+    }));
+  });
+
+  return uniqueBy(lifecycle.filter(Boolean), (entry) => normalizeRecommendationRationaleKey(`${entry.actionId || ""}-${entry.label || ""}-${entry.actionStatus || ""}`)).slice(0, 20);
+}
+
+function findLatestProductEvolutionActionForKeys(subject = {}, actions = [], usedActionIndexes = new Set()) {
+  const subjectKeys = buildProductEvolutionActionKeySet(subject);
+  if (!subjectKeys.size) return null;
+  return (Array.isArray(actions) ? actions : [])
+    .map((action, index) => ({ action, index, time: getProductEvolutionActionTime(action) }))
+    .filter((entry) => !usedActionIndexes.has(entry.index))
+    .filter((entry) => {
+      const actionKeys = buildProductEvolutionActionKeySet(entry.action);
+      return Array.from(subjectKeys).some((key) => actionKeys.has(key));
+    })
+    .sort((first, second) => second.time - first.time)[0] || null;
+}
+
+function buildProductEvolutionLifecycleEntry({
+  recommendation = null,
+  action = null,
+  sourceSummary = {},
+  issueTransition = {},
+} = {}) {
+  const actionId = action?.actionId || recommendation?.actionId || recommendation?.id || "";
+  const label = action?.label || recommendation?.label || actionId || "ProductPulse action";
+  const actionStatus = normalizeProductEvolutionActionStatus(action?.status || recommendation?.status || (action ? "unknown" : "pending"));
+  const lifecycleState = getProductEvolutionLifecycleState({ actionStatus, action, sourceSummary, issueTransition });
+  return {
+    actionId,
+    label,
+    type: recommendation?.type || action?.type || "",
+    actionStatus,
+    lifecycleState,
+    lifecycleLabel: getProductEvolutionLifecycleLabel(lifecycleState),
+    handledAt: action?.handledAt || action?.appliedAt || action?.createdAt || null,
+    sourceDiagnosisId: action?.sourceDiagnosisId || null,
+    matchedStoredAction: Boolean(action),
+    issueKey: action?.field || action?.operation || null,
+    reason: buildProductEvolutionLifecycleReason({ label, actionStatus, lifecycleState, sourceSummary, issueTransition }),
+    actionKeys: Array.from(buildProductEvolutionActionKeySet({
+      id: actionId,
+      actionId,
+      label,
+      actionAliases: action?.actionKeys,
+    })).slice(0, 20),
+  };
+}
+
+function getProductEvolutionLifecycleState({
+  actionStatus = "",
+  action = null,
+  sourceSummary = {},
+  issueTransition = {},
+} = {}) {
+  const status = normalizeProductEvolutionActionStatus(actionStatus);
+  if (!action || isOpenProductEvolutionActionStatus(status)) return "pending";
+  if (hasPersistentPostActionIssue(sourceSummary, issueTransition)) return "reopened/persistent";
+  if (["dismissed", "ignored"].includes(status)) return "superseded";
+  if (["applied", "reviewed"].includes(status)) {
+    if (!sourceSummary.hasNewEvidence) return "monitoring";
+    if (hasResolvedPostActionIssue(issueTransition)) return "superseded";
+    return "applied";
+  }
+  return "new";
+}
+
+function hasPersistentPostActionIssue(sourceSummary = {}, issueTransition = {}) {
+  return Boolean(sourceSummary.hasNewEvidence && Array.isArray(issueTransition.persisting) && issueTransition.persisting.length > 0);
+}
+
+function hasResolvedPostActionIssue(issueTransition = {}) {
+  const persisting = Array.isArray(issueTransition.persisting) ? issueTransition.persisting : [];
+  const resolved = Array.isArray(issueTransition.noLongerDetected) ? issueTransition.noLongerDetected : [];
+  return resolved.length > 0 && persisting.length === 0;
+}
+
+function getProductEvolutionLifecycleLabel(state = "") {
+  const normalized = String(state || "").trim().toLowerCase();
+  if (normalized === "pending") return "Pending";
+  if (normalized === "applied") return "Applied";
+  if (normalized === "monitoring") return "Monitoring";
+  if (normalized === "reopened/persistent") return "Reopened / persistent";
+  if (normalized === "superseded") return "Superseded";
+  return "New";
+}
+
+function buildProductEvolutionLifecycleReason({
+  label = "",
+  actionStatus = "",
+  lifecycleState = "",
+  sourceSummary = {},
+  issueTransition = {},
+} = {}) {
+  const actionLabel = label || "This action";
+  if (lifecycleState === "pending") return `${actionLabel} is still pending from the prior diagnosis.`;
+  if (lifecycleState === "reopened/persistent") {
+    const issue = issueTransition.persisting?.[0]?.label;
+    return `${actionLabel} was ${actionStatus}, but new post-action evidence still shows ${issue || "the same issue"}.`;
+  }
+  if (lifecycleState === "monitoring") return `${actionLabel} was ${actionStatus}, and there is not enough new post-action evidence to repeat the same fix.`;
+  if (lifecycleState === "superseded") return `${actionLabel} was ${actionStatus}, and the previous issue is no longer the current best next step.`;
+  if (lifecycleState === "applied") return `${actionLabel} was ${actionStatus}, and new evidence should be interpreted as follow-up context.`;
+  if (sourceSummary.hasNewEvidence) return `${actionLabel} is new relative to the previous action history.`;
+  return `${actionLabel} is a new recommendation for the current diagnosis.`;
+}
+
+function buildProductEvolutionPostActionEvidence({
+  hasPreviousDiagnosis = false,
+  comparisonBaseline = null,
+  sourceSummary = {},
+  metricChanges = [],
+  issueTransition = {},
+} = {}) {
+  if (!hasPreviousDiagnosis) return null;
+  const evidenceTypes = (Array.isArray(sourceSummary.changes) ? sourceSummary.changes : [])
+    .map((change) => change.label || change.type)
+    .filter(Boolean)
+    .slice(0, 5);
+  return {
+    baselineType: comparisonBaseline?.type || "diagnosis",
+    baselineLabel: comparisonBaseline?.label || "Previous Product Diagnosis",
+    baselineAt: comparisonBaseline?.at || null,
+    hasPostActionEvidence: Boolean(sourceSummary.hasNewEvidence),
+    evidenceTypes,
+    metricChanges: (Array.isArray(metricChanges) ? metricChanges : []).slice(0, 8),
+    issueChanges: {
+      persisting: (issueTransition.persisting || []).slice(0, 4),
+      noLongerDetected: (issueTransition.noLongerDetected || []).slice(0, 4),
+      newlyDetected: (issueTransition.newlyDetected || []).slice(0, 4),
+    },
+    summary: buildProductEvolutionPostActionEvidenceText({ sourceSummary, metricChanges, issueTransition }),
+  };
+}
+
+function buildProductEvolutionPostActionEvidenceText({
+  sourceSummary = {},
+  metricChanges = [],
+  issueTransition = {},
+} = {}) {
+  if (!sourceSummary.hasNewEvidence) {
+    return "No new orders, returns, refunds, reviews, customer language or product-content changes were detected after the comparison point.";
+  }
+  const sourceText = summarizeProductEvolutionSourceText(sourceSummary).replace(/\.$/, "");
+  const metricText = summarizeProductEvolutionMetricText(metricChanges).replace(/\.$/, "");
+  const issueText = summarizeProductEvolutionIssueText(issueTransition).replace(/\.$/, "");
+  return [sourceText, metricText, issueText].filter(Boolean).join(". ") || "New post-action evidence was detected in this run.";
+}
+
+function buildProductEvolutionPostActionStatus({
+  hasPreviousDiagnosis = false,
+  previousDiagnosis = {},
+  comparisonBaseline = null,
+  handledActions = [],
+  openActions = [],
+  previousRecommendationLifecycle = [],
+  postActionEvidence = null,
+  sourceSummary = {},
+  metricChanges = [],
+  issueTransition = {},
+} = {}) {
+  if (!hasPreviousDiagnosis) return null;
+  const lifecycleCounts = countProductEvolutionLifecycleStates(previousRecommendationLifecycle);
+  const reopenedCount = lifecycleCounts["reopened/persistent"] || 0;
+  const pendingCount = lifecycleCounts.pending || 0;
+  const monitoringCount = lifecycleCounts.monitoring || 0;
+  const handledCount = (Array.isArray(handledActions) ? handledActions : []).length;
+  const status = getProductEvolutionPostActionStatusState({
+    reopenedCount,
+    pendingCount,
+    monitoringCount,
+    handledCount,
+    sourceSummary,
+    metricChanges,
+    issueTransition,
+  });
+  return {
+    title: "Post-action status",
+    status,
+    tone: getProductEvolutionPostActionTone(status),
+    summary: buildProductEvolutionPostActionStatusSummary({
+      status,
+      handledCount,
+      pendingCount,
+      reopenedCount,
+      sourceSummary,
+      issueTransition,
+    }),
+    historicalDiagnosis: buildProductEvolutionHistoricalDiagnosisText(previousDiagnosis),
+    postActionEvidence: postActionEvidence?.summary || "",
+    nextBestStep: buildProductEvolutionNextBestStepText({ status, pendingCount, reopenedCount, monitoringCount }),
+    comparisonBaseline,
+    lifecycleCounts,
+    lifecycle: previousRecommendationLifecycle.slice(0, 10),
+    alreadyDone: (Array.isArray(handledActions) ? handledActions : []).slice(0, 5).map((action) => ({
+      label: action.label,
+      status: action.status,
+      handledAt: action.handledAt || action.appliedAt || action.createdAt || null,
+    })),
+    pendingActions: (Array.isArray(openActions) ? openActions : []).slice(0, 5).map((action) => ({
+      label: action.label,
+      status: action.status,
+      createdAt: action.createdAt || null,
+    })),
+  };
+}
+
+function countProductEvolutionLifecycleStates(entries = []) {
+  return (Array.isArray(entries) ? entries : []).reduce((counts, entry) => {
+    const state = String(entry?.lifecycleState || "new").trim() || "new";
+    counts.total += 1;
+    counts[state] = (counts[state] || 0) + 1;
+    return counts;
+  }, { total: 0 });
+}
+
+function getProductEvolutionPostActionStatusState({
+  reopenedCount = 0,
+  pendingCount = 0,
+  monitoringCount = 0,
+  handledCount = 0,
+  sourceSummary = {},
+  metricChanges = [],
+  issueTransition = {},
+} = {}) {
+  if (reopenedCount > 0) return "reopened_persistent";
+  if (pendingCount > 0 && handledCount === 0) return "pending";
+  if (hasResolvedPostActionIssue(issueTransition) || hasMeaningfulRiskImprovement(metricChanges)) return "improved";
+  if (monitoringCount > 0 && !sourceSummary.hasNewEvidence) return "monitoring";
+  if (sourceSummary.hasNewEvidence) return "changed";
+  return "no_material_change";
+}
+
+function hasMeaningfulRiskImprovement(metricChanges = []) {
+  return (Array.isArray(metricChanges) ? metricChanges : []).some((change) => (
+    ["riskScore", "returnRate", "refundRate", "negativeReviewCount", "contentIssueCount"].includes(change.key)
+      && Number(change.delta || 0) < 0
+  ));
+}
+
+function getProductEvolutionPostActionTone(status = "") {
+  if (status === "reopened_persistent") return "critical";
+  if (status === "pending" || status === "changed") return "warning";
+  if (status === "improved") return "success";
+  return "info";
+}
+
+function buildProductEvolutionPostActionStatusSummary({
+  status = "",
+  handledCount = 0,
+  pendingCount = 0,
+  reopenedCount = 0,
+  sourceSummary = {},
+  issueTransition = {},
+} = {}) {
+  if (status === "reopened_persistent") {
+    const issue = issueTransition.persisting?.[0]?.label;
+    return `${reopenedCount} prior action${reopenedCount === 1 ? "" : "s"} look reopened because new evidence still shows ${issue || "the same issue"}.`;
+  }
+  if (status === "pending") return `${pendingCount} prior recommendation${pendingCount === 1 ? " is" : "s are"} still pending before this diagnosis should create another fix.`;
+  if (status === "improved") return "The product looks improved relative to the previous diagnosis or handled action.";
+  if (status === "monitoring") return `${handledCount} action${handledCount === 1 ? " was" : "s were"} handled, and there is not enough new evidence yet to repeat the same fix.`;
+  if (status === "changed") {
+    const sourceLabel = sourceSummary.changes?.[0]?.label || "new evidence";
+    return `The diagnosis includes ${sourceLabel.toLowerCase()} after the prior diagnosis/action.`;
+  }
+  return "No material post-action product or evidence movement was detected.";
+}
+
+function buildProductEvolutionHistoricalDiagnosisText(previousDiagnosis = {}) {
+  const completedAt = toIso(previousDiagnosis.completedAt || previousDiagnosis.createdAt);
+  const cause = previousDiagnosis.likelyCause || previousDiagnosis.metrics?.mainIssueLabel || previousDiagnosis.metrics?.primaryIssue || "a product issue";
+  return `Previous diagnosis${completedAt ? ` completed at ${completedAt}` : ""} focused on ${cause}.`;
+}
+
+function buildProductEvolutionNextBestStepText({
+  status = "",
+  pendingCount = 0,
+  reopenedCount = 0,
+  monitoringCount = 0,
+} = {}) {
+  if (status === "reopened_persistent") return `Treat ${reopenedCount === 1 ? "the issue" : "these issues"} as persistent/reopened and escalate the next action instead of repeating the same fix.`;
+  if (status === "pending") return `Review or complete the ${pendingCount === 1 ? "pending recommendation" : "pending recommendations"} before adding another similar action.`;
+  if (status === "improved") return "Avoid unnecessary new fixes; keep monitoring and only act again if fresh evidence returns.";
+  if (status === "monitoring") return `Keep monitoring${monitoringCount ? " the handled action" : ""} or add the product to Watchlist until enough post-action evidence accumulates.`;
+  if (status === "changed") return "Use the new evidence to decide whether the prior recommendation should stay pending, be superseded, or reopen as an escalation.";
+  return "Keep the prior diagnosis as historical context and monitor for new orders, returns, refunds, reviews or customer language.";
 }
 
 function buildProductEvolutionSourceSummary(deterministic = {}) {
@@ -5958,16 +6402,22 @@ function buildProductEvolutionMetricChanges({ previousDiagnosis = {}, determinis
 
   addNumber({ key: "riskScore", label: "Risk score", previous: previousDiagnosis.riskScore, current: deterministic.riskScore, threshold: 1, unit: "points" });
   addNumber({ key: "confidence", label: "Confidence", previous: previousDiagnosis.confidence, current: deterministic.confidence, threshold: 1, unit: "points" });
+  addNumber({ key: "soldUnits", label: "Sold units", previous: previousMetrics.soldUnits, current: currentMetrics.soldUnits, threshold: 1, unit: "units" });
+  addNumber({ key: "salesAmount", label: "Sales", previous: previousMetrics.salesAmount, current: currentMetrics.salesAmount, threshold: 1, unit: "currency" });
   addNumber({ key: "returnUnits", label: "Returned units", previous: previousMetrics.returnUnits, current: currentMetrics.returnUnits, threshold: 1, unit: "units" });
   addNumber({ key: "refundUnits", label: "Refunded units", previous: previousMetrics.refundUnits, current: currentMetrics.refundUnits, threshold: 1, unit: "units" });
+  addNumber({ key: "refundAmount", label: "Refund amount", previous: previousMetrics.refundAmount, current: currentMetrics.refundAmount, threshold: 1, unit: "currency" });
   addNumber({ key: "returnRate", label: "Return rate", previous: previousMetrics.returnRate, current: currentMetrics.returnRate, threshold: 0.2, unit: "%" });
   addNumber({ key: "refundRate", label: "Refund rate", previous: previousMetrics.refundRate, current: currentMetrics.refundRate, threshold: 0.2, unit: "%" });
   addNumber({ key: "negativeReviewCount", label: "Negative reviews", previous: previousMetrics.negativeReviewCount, current: currentMetrics.negativeReviewCount, threshold: 1, unit: "reviews" });
   addNumber({ key: "reviewCount", label: "Review count", previous: previousMetrics.reviewCount, current: currentMetrics.reviewCount, threshold: 1, unit: "reviews" });
+  addNumber({ key: "customerSignalCount", label: "Customer signals", previous: previousMetrics.customerSignalCount, current: currentMetrics.customerSignalCount, threshold: 1, unit: "signals" });
+  addNumber({ key: "signalCount", label: "Evidence signals", previous: previousMetrics.signalCount || previousMetrics.issueCount, current: currentMetrics.signalCount || currentMetrics.issueCount, threshold: 1, unit: "signals" });
+  addNumber({ key: "evidenceStrengthScore", label: "Evidence strength", previous: previousMetrics.evidenceStrengthScore, current: currentMetrics.evidenceStrengthScore, threshold: 2, unit: "points" });
   addNumber({ key: "contentIssueCount", label: "Content issues", previous: previousMetrics.contentIssueCount, current: currentMetrics.contentIssueCount, threshold: 1, unit: "issues" });
   addNumber({ key: "productMomentumScore", label: "Sales Momentum", previous: previousMetrics.productMomentumScore || previousMetrics.productMomentum?.score, current: currentMetrics.productMomentumScore || currentMetrics.productMomentum?.score, threshold: 3, unit: "points" });
 
-  return changes.slice(0, 12);
+  return changes.slice(0, 16);
 }
 
 function buildProductEvolutionIssueTransition({ previousDiagnosis = {}, deterministic = {} } = {}) {
@@ -6066,17 +6516,47 @@ function normalizePreviousDiagnosisRecommendations(recommendations = []) {
     .slice(0, 8);
 }
 
-function buildProductEvolutionCandidateTransitions({ recommendationCandidates = [], handledActionKeys = new Set(), actionOnly = false } = {}) {
+function buildProductEvolutionCandidateTransitions({
+  recommendationCandidates = [],
+  handledActionKeys = new Set(),
+  openActionKeys = new Set(),
+  previousRecommendationLifecycle = [],
+  sourceSummary = {},
+  issueTransition = {},
+  actionOnly = false,
+} = {}) {
+  const productEvolution = {
+    previousRecommendationLifecycle,
+    handledActionKeys: Array.from(handledActionKeys),
+    openActionKeys: Array.from(openActionKeys),
+    sourceSummary,
+    issueTransition,
+    recommendationPolicy: {
+      suppressExactHandledRecommendationsWhenNoNewEvidence: actionOnly,
+    },
+  };
   return (Array.isArray(recommendationCandidates) ? recommendationCandidates : [])
     .map((candidate) => {
       const candidateKeys = buildProductEvolutionActionKeySet(candidate);
       const matched = Array.from(candidateKeys).some((key) => handledActionKeys.has(key));
+      const openMatched = Array.from(candidateKeys).some((key) => openActionKeys.has(key));
+      const decision = getProductEvolutionRecommendationDecision(candidate, productEvolution);
       return {
         actionId: candidate.id || "",
         type: candidate.type || "",
         reason: candidate.reason || "",
         previouslyHandled: matched,
-        recommendedTreatment: matched && actionOnly ? "suppress_unless_new_evidence" : matched ? "frame_as_follow_up" : "new_or_unhandled",
+        previouslyPending: openMatched || decision.lifecycleState === "pending",
+        lifecycleState: decision.lifecycleState,
+        lifecycleLabel: getProductEvolutionLifecycleLabel(decision.lifecycleState),
+        matchedPreviousAction: decision.matchedLifecycle ? {
+          actionId: decision.matchedLifecycle.actionId || null,
+          label: decision.matchedLifecycle.label || null,
+          actionStatus: decision.matchedLifecycle.actionStatus || null,
+          handledAt: decision.matchedLifecycle.handledAt || null,
+        } : null,
+        keepInCurrentDiagnosis: decision.keep,
+        recommendedTreatment: decision.recommendedTreatment,
       };
     })
     .filter((candidate) => candidate.actionId)
@@ -6149,13 +6629,12 @@ function summarizeProductEvolutionIssueText(issueTransition = {}) {
 }
 
 function applyProductEvolutionToRecommendationCandidates(candidates = [], productEvolution = null) {
-  if (!productEvolution?.recommendationPolicy?.suppressExactHandledRecommendationsWhenNoNewEvidence) {
+  if (!productEvolution?.hasPreviousDiagnosis && !productEvolution?.previousRecommendationLifecycle?.length) {
     return candidates;
   }
-  const handledKeys = new Set(productEvolution.handledActionKeys || []);
   return (Array.isArray(candidates) ? candidates : []).filter((candidate) => {
-    const candidateKeys = buildProductEvolutionActionKeySet(candidate);
-    return !Array.from(candidateKeys).some((key) => handledKeys.has(key));
+    const decision = getProductEvolutionRecommendationDecision(candidate, productEvolution);
+    return decision.keep;
   });
 }
 
@@ -8849,29 +9328,115 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
 }
 
 function shouldKeepRecommendationAfterProductEvolution(action = {}, productEvolution = null) {
-  if (!productEvolution?.recommendationPolicy?.suppressExactHandledRecommendationsWhenNoNewEvidence) return true;
-  return !getMatchingProductEvolutionHandledAction(action, productEvolution);
+  return getProductEvolutionRecommendationDecision(action, productEvolution).keep;
 }
 
 function attachProductEvolutionContextToRecommendation(action = {}, productEvolution = null) {
-  const matchedAction = getMatchingProductEvolutionHandledAction(action, productEvolution);
-  if (!matchedAction) return action;
-  const status = normalizeProductEvolutionActionStatus(matchedAction.status);
-  const context = {
+  const decision = getProductEvolutionRecommendationDecision(action, productEvolution);
+  const matchedAction = decision.matchedLifecycle || getMatchingProductEvolutionHandledAction(action, productEvolution);
+  if (!productEvolution?.hasPreviousDiagnosis && !matchedAction) return action;
+  const status = normalizeProductEvolutionActionStatus(matchedAction?.status || matchedAction?.actionStatus);
+  const context = matchedAction ? {
     previousActionId: matchedAction.actionId || null,
     previousActionLabel: matchedAction.label || null,
-    previousActionStatus: status,
+    previousActionStatus: matchedAction.actionStatus || status,
     previousActionHandledAt: matchedAction.handledAt || matchedAction.appliedAt || matchedAction.createdAt || null,
     transitionKind: productEvolution?.transitionKind || null,
-  };
+    lifecycleState: decision.lifecycleState,
+    lifecycleLabel: decision.lifecycleLabel,
+    recommendedTreatment: decision.recommendedTreatment,
+    postActionEvidence: productEvolution?.postActionEvidence?.summary || "",
+  } : null;
   return {
     ...action,
     payload: {
       ...(action.payload || {}),
-      productEvolutionContext: context,
-      whyThisAction: action.payload?.whyThisAction || buildProductEvolutionFollowUpRationale(action, matchedAction, productEvolution),
+      lifecycleState: decision.lifecycleState,
+      lifecycleLabel: decision.lifecycleLabel,
+      recommendedTreatment: decision.recommendedTreatment,
+      productEvolutionContext: context || undefined,
+      ...((matchedAction || action.payload?.whyThisAction) ? {
+        whyThisAction: action.payload?.whyThisAction || buildProductEvolutionFollowUpRationale(action, matchedAction, productEvolution, decision),
+      } : {}),
     },
   };
+}
+
+function getProductEvolutionRecommendationDecision(action = {}, productEvolution = null) {
+  if (!productEvolution || typeof productEvolution !== "object") {
+    return {
+      keep: true,
+      lifecycleState: "new",
+      lifecycleLabel: getProductEvolutionLifecycleLabel("new"),
+      recommendedTreatment: "new_or_unhandled",
+      matchedLifecycle: null,
+    };
+  }
+  const matchedLifecycle = getMatchingProductEvolutionLifecycleEntry(action, productEvolution);
+  if (!matchedLifecycle) {
+    return {
+      keep: true,
+      lifecycleState: "new",
+      lifecycleLabel: getProductEvolutionLifecycleLabel("new"),
+      recommendedTreatment: "new_or_unhandled",
+      matchedLifecycle: null,
+    };
+  }
+  const lifecycleState = matchedLifecycle.lifecycleState || "new";
+  const monitoringAction = isProductEvolutionMonitoringRecommendation(action);
+  let keep = true;
+  let recommendedTreatment = "frame_as_follow_up";
+
+  if (lifecycleState === "pending") {
+    keep = true;
+    recommendedTreatment = "carry_forward_pending";
+  } else if (lifecycleState === "reopened/persistent") {
+    keep = true;
+    recommendedTreatment = "escalate_persistent_issue";
+  } else if (lifecycleState === "monitoring") {
+    keep = monitoringAction;
+    recommendedTreatment = monitoringAction ? "monitor_after_handled_action" : "suppress_repeat_fix_monitoring";
+  } else if (lifecycleState === "applied" || lifecycleState === "superseded") {
+    keep = false;
+    recommendedTreatment = lifecycleState === "superseded" ? "suppress_superseded_action" : "suppress_already_applied_action";
+  }
+
+  return {
+    keep,
+    lifecycleState,
+    lifecycleLabel: getProductEvolutionLifecycleLabel(lifecycleState),
+    recommendedTreatment,
+    matchedLifecycle,
+  };
+}
+
+function getMatchingProductEvolutionLifecycleEntry(action = {}, productEvolution = null) {
+  const lifecycle = Array.isArray(productEvolution?.previousRecommendationLifecycle)
+    ? productEvolution.previousRecommendationLifecycle
+    : [];
+  if (!lifecycle.length) return null;
+  const actionKeys = buildProductEvolutionActionKeySet(action);
+  if (!actionKeys.size) return null;
+  return lifecycle.find((entry) => {
+    const entryKeys = buildProductEvolutionActionKeySet({
+      id: entry.actionId,
+      actionId: entry.actionId,
+      label: entry.label,
+      actionAliases: entry.actionKeys,
+    });
+    return Array.from(actionKeys).some((key) => entryKeys.has(key));
+  }) || null;
+}
+
+function isProductEvolutionMonitoringRecommendation(action = {}) {
+  const text = normalizeRecommendationRationaleKey([
+    action.id,
+    action.actionId,
+    action.label,
+    action.type,
+    action.payload?.issue,
+  ].filter(Boolean).join(" "));
+  return text.includes("watchlist") || text.includes("monitor");
 }
 
 function getMatchingProductEvolutionHandledAction(action = {}, productEvolution = null) {
@@ -8887,9 +9452,15 @@ function getMatchingProductEvolutionHandledAction(action = {}, productEvolution 
   }) || null;
 }
 
-function buildProductEvolutionFollowUpRationale(action = {}, matchedAction = {}, productEvolution = {}) {
-  const label = matchedAction.label || action.label || "this action";
-  const status = normalizeProductEvolutionActionStatus(matchedAction.status);
+function buildProductEvolutionFollowUpRationale(action = {}, matchedAction = {}, productEvolution = {}, decision = {}) {
+  const label = matchedAction?.label || action.label || "this action";
+  const status = normalizeProductEvolutionActionStatus(matchedAction?.actionStatus || matchedAction?.status);
+  if (decision.lifecycleState === "pending") {
+    return `ProductPulse is carrying forward ${label} as pending context from the prior diagnosis, so the merchant can finish or review it before adding a similar new fix.`;
+  }
+  if (decision.lifecycleState === "reopened/persistent") {
+    return `ProductPulse is treating ${label} as a persistent/reopened issue because it was already handled and new post-action evidence still supports the same problem. The next step should escalate or verify the prior fix rather than repeat the original action blindly.`;
+  }
   if (productEvolution?.sourceSummary?.hasNewEvidence) {
     return `ProductPulse is treating ${label} as previous context because it was ${status} after the last diagnosis. This recommendation should be read as a follow-up only: current evidence or product changes still support checking whether the prior action fully addressed the issue.`;
   }
@@ -9006,6 +9577,15 @@ function attachAiActionRationale(action = {}, rationaleMap = new Map()) {
 
 function buildProductEvolutionRationaleSuffix(context = null) {
   if (!context?.previousActionLabel || !context.previousActionStatus) return "";
+  if (context.lifecycleState === "reopened/persistent") {
+    return `Previous context: ${context.previousActionLabel} was ${context.previousActionStatus}, and current post-action evidence suggests the issue is persistent/reopened, so this should be handled as an escalation rather than a first-time fix.`;
+  }
+  if (context.lifecycleState === "pending") {
+    return `Previous context: ${context.previousActionLabel} is still pending, so this recommendation is carried forward rather than created as a new first-time action.`;
+  }
+  if (context.lifecycleState === "monitoring") {
+    return `Previous context: ${context.previousActionLabel} was ${context.previousActionStatus}, and there is not enough new evidence yet to repeat the same fix.`;
+  }
   return `Previous context: ${context.previousActionLabel} was ${context.previousActionStatus}${context.previousActionHandledAt ? ` at ${context.previousActionHandledAt}` : ""}, so this recommendation should be treated as a follow-up rather than a first-time baseline action.`;
 }
 

@@ -1807,6 +1807,15 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(productEvolution.transitionKind).toBe("actions_changed");
     expect(productEvolution.handledActionsSincePreviousDiagnosis).toHaveLength(1);
+    expect(productEvolution.previousRecommendationLifecycle[0]).toMatchObject({
+      actionId: "rewrite-product-description",
+      lifecycleState: "monitoring",
+      actionStatus: "applied",
+    });
+    expect(productEvolution.postActionStatus).toMatchObject({
+      status: "monitoring",
+      tone: "info",
+    });
     expect(secondWithEvolution.metrics.productEvolution.summary).toContain("Handled actions since then");
     expect(reuseDecision.shouldReuse).toBe(false);
     expect(reuseDecision.blockers).toContain("product_actions_changed_since_previous_diagnosis");
@@ -3057,8 +3066,124 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
 
     expect(productEvolution.transitionKind).toBe("actions_changed");
+    expect(productEvolution.previousRecommendationLifecycle[0]).toMatchObject({
+      actionId: "rewrite-product-description",
+      lifecycleState: "monitoring",
+      actionStatus: "applied",
+    });
+    expect(productEvolution.postActionStatus.nextBestStep).toContain("Watchlist");
     expect(filteredCandidates.map((candidate) => candidate.id)).not.toContain("rewrite-product-description");
     expect(recommendations.map((item) => item.id)).not.toContain("rewrite-product-description");
+  });
+
+  it("marks a handled recommendation as reopened when new post-action evidence still supports the issue", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      mainIssueLabel: "Product content",
+      riskScore: 72,
+      confidence: 80,
+      issueSignalCounts: { product_content: 1 },
+      sourceCoverage: ["Shopify products", "Reviews"],
+      estimatedImpact: { revenueAtRisk: 0 },
+      product: {
+        id: "gid://shopify/Product/reopened",
+        title: "Reopened Content Product",
+        handle: "reopened-content-product",
+        description: "",
+        descriptionHtml: "",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        customerSignalCount: 1,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 1,
+        signalCount: 2,
+        topReturnReasons: [],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 1,
+        incrementalDiagnosis: {
+          mode: "incremental",
+          aiEvidenceSnippetCount: 1,
+          customerText: { analyzedItems: 1, reason: "new review text" },
+        },
+        contentAnalysis: {
+          issues: [{
+            code: "missing_description",
+            issueCode: "product_content",
+            label: "Missing product description",
+            severity: "high",
+            evidence: "The product description is still missing after the prior action.",
+          }],
+          advisories: [],
+        },
+        textInsights: { sentiment: { total: 1, negative: 1, negativeRatio: 1 }, repeatedLanguage: [] },
+        refundInsights: {},
+        mediaCount: 1,
+        mediaWithoutAltCount: 0,
+      },
+    };
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot: {
+        productGid: deterministic.product.id,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      previousDiagnosis: {
+        id: "diagnosis-previous-reopened",
+        productGid: deterministic.product.id,
+        riskScore: 70,
+        confidence: 78,
+        likelyCause: "Product content",
+        issues: [{ issue: "Product content", issueCode: "product_content" }],
+        recommendations: [{ id: "rewrite-product-description", label: "Rewrite product description" }],
+        metrics: { contentIssueCount: 1, signalCount: 1 },
+        completedAt: "2026-05-10T00:00:00.000Z",
+      },
+      actionRecords: [{
+        id: "action-reopened",
+        diagnosisId: "diagnosis-previous-reopened",
+        productGid: deterministic.product.id,
+        actionType: "rewrite-product-description",
+        label: "Rewrite product description",
+        status: "applied",
+        payload: { canonicalActionId: "rewrite-product-description" },
+        createdAt: "2026-05-11T00:00:00.000Z",
+        appliedAt: "2026-05-11T00:00:00.000Z",
+      }],
+      recommendationCandidates: [{ id: "rewrite-product-description", type: "PDP copy" }],
+    });
+    const filteredCandidates = __productPulseDiagnosisTestHooks.applyProductEvolutionToRecommendationCandidates(
+      [{ id: "rewrite-product-description", type: "PDP copy" }],
+      productEvolution,
+    );
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: deterministic.product.id,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic: __productPulseDiagnosisTestHooks.attachProductEvolutionToDeterministic(deterministic, productEvolution),
+      ai: {
+        report: {
+          recommendation_copy: {
+            product_description: "A clear replacement description for shoppers.",
+          },
+        },
+      },
+      mainIssue: "product_content",
+    });
+
+    expect(productEvolution.previousRecommendationLifecycle[0].lifecycleState).toBe("reopened/persistent");
+    expect(productEvolution.postActionStatus.status).toBe("reopened_persistent");
+    expect(filteredCandidates.map((candidate) => candidate.id)).toContain("rewrite-product-description");
+    expect(recommendations.find((item) => item.id === "rewrite-product-description")?.payload).toMatchObject({
+      lifecycleState: "reopened/persistent",
+      recommendedTreatment: "escalate_persistent_issue",
+    });
   });
 
   it("surfaces title and description mismatch as a semantic advisory when product categories are clearly disconnected", () => {

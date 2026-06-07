@@ -8798,6 +8798,9 @@ function getProductDetailModel(product) {
   const baseEvidenceSources = getProductEvidenceSources(product);
   const checkedItems = getProductCheckedItems(product);
   const mainFinding = sanitizeProductMainFinding(product.mainFinding);
+  const postActionStatus = normalizeProductPostActionStatus(
+    product.postActionStatus || metrics.diagnosisReport?.postActionStatus || metrics.productEvolution?.postActionStatus,
+  );
   const riskTrendValues = getProductRiskTrendValues(product);
   const riskDisplay = getProductRiskDisplay(product.riskScore, riskTrendValues, product.riskTone, hasRiskSnapshot);
   const monthlyOrderActivity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
@@ -8982,6 +8985,7 @@ function getProductDetailModel(product) {
     mainFindingDetail: mainFinding?.detail || (issueText
       ? `ProductPulse found repeated ${issueCategory.toLowerCase()} signals for ${product.title}: ${issueText}. The current signal set includes ${sourceCoverage.join(", ")}.`
       : `Only ${sourceCoverage.join(", ") || "Shopify product"} data is available for ${product.title}. Run Catalog Scan to create risk signals before Product Diagnosis.`),
+    postActionStatus,
     recommendedFix: hasFullDiagnosis ? (firstAction?.title || firstAction?.label || "No deterministic action yet") : "Run Product Diagnosis",
     recommendedFixDetail: hasFullDiagnosis
       ? (firstAction ? `${firstAction.type} - ${firstAction.effort} effort` : "No stored recommendation from current product signals.")
@@ -11948,6 +11952,55 @@ function sanitizeProductMainFinding(mainFinding) {
   };
 }
 
+function normalizeInlineText(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeProductPostActionStatus(status) {
+  if (!status || typeof status !== "object") return null;
+  const summary = normalizeInlineText(status.summary);
+  const historicalDiagnosis = normalizeInlineText(status.historicalDiagnosis || status.historical_diagnosis);
+  const postActionEvidence = normalizeInlineText(status.postActionEvidence || status.post_action_evidence);
+  const nextBestStep = normalizeInlineText(status.nextBestStep || status.next_best_step);
+  const lifecycle = Array.isArray(status.lifecycle)
+    ? status.lifecycle.map(normalizeProductPostActionLifecycleEntry).filter(Boolean).slice(0, 6)
+    : [];
+  if (!summary && !historicalDiagnosis && !postActionEvidence && !nextBestStep && !lifecycle.length) return null;
+  return {
+    title: normalizeInlineText(status.title) || "Post-action status",
+    status: normalizeInlineText(status.status) || "changed",
+    tone: normalizeProductPostActionTone(status.tone || status.status),
+    summary,
+    historicalDiagnosis,
+    postActionEvidence,
+    nextBestStep,
+    lifecycle,
+    lifecycleCounts: status.lifecycleCounts && typeof status.lifecycleCounts === "object" ? status.lifecycleCounts : {},
+  };
+}
+
+function normalizeProductPostActionLifecycleEntry(entry = {}) {
+  if (!entry || typeof entry !== "object") return null;
+  const label = normalizeInlineText(entry.label || entry.actionLabel || entry.actionId);
+  if (!label) return null;
+  const state = normalizeRecommendedActionLifecycleState(entry.lifecycleState || entry.status);
+  return {
+    label,
+    state,
+    stateLabel: getRecommendedActionLifecycleLabel(state),
+    tone: getRecommendedActionLifecycleTone(state),
+    actionStatus: normalizeInlineText(entry.actionStatus || entry.status),
+  };
+}
+
+function normalizeProductPostActionTone(value = "") {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("critical") || normalized.includes("reopened") || normalized.includes("persistent")) return "critical";
+  if (normalized.includes("success") || normalized.includes("improved")) return "success";
+  if (normalized.includes("warning") || normalized.includes("pending") || normalized.includes("changed")) return "warning";
+  return "info";
+}
+
 function removeNonActionableContentFindingText(value) {
   const paragraphs = String(value || "").split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean);
   const filtered = paragraphs.filter((paragraph) => !isNonActionableContentText(paragraph));
@@ -12014,27 +12067,62 @@ function getProductRecommendedActions(product) {
   const normalizedActions = consolidateDescriptionRecommendedActions(filteredGenericReviewActions, product);
   const rankedActions = rankRecommendedActionsForDisplay(normalizedActions, product);
 
-  return rankedActions.map((action, index) => ({
-    id: action.id,
-    label: action.label,
-    type: action.type,
-    status: action.status,
-    effort: action.effort,
-    icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
-    iconSymbol: getActionIconSymbol(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
-    title: getRecommendedActionTitle(action, product),
-    detail: getRecommendedActionDetail(action),
-    reason: getRecommendedActionReason(action, product),
-    evidence: getRecommendedActionEvidence(action, product),
-    priority: index === 0 ? "Primary next step" : getRecommendedActionPriority(action, product),
-    application: getRecommendedActionApplication(action, product),
-    meta: getRecommendedActionMeta(action),
-    action: getRecommendedActionButtonLabel(action, index),
-    mode: getRecommendedActionMode(action, index),
-    payload: action.payload || {},
-    appliedRecord: getRecommendedActionHistoryRecord(action, actionHistory, product),
-    submit: getRecommendedActionMode(action, index) === "submit",
-  }));
+  return rankedActions.map((action, index) => {
+    const lifecycleState = normalizeRecommendedActionLifecycleState(action.lifecycleState || action.payload?.lifecycleState || action.payload?.productEvolutionContext?.lifecycleState);
+    return {
+      id: action.id,
+      label: action.label,
+      type: action.type,
+      status: action.status,
+      effort: action.effort,
+      lifecycleState,
+      lifecycleLabel: getRecommendedActionLifecycleLabel(lifecycleState),
+      lifecycleTone: getRecommendedActionLifecycleTone(lifecycleState),
+      icon: getActionIcon(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
+      iconSymbol: getActionIconSymbol(`${action.id || ""} ${action.type || ""} ${action.label || ""}`),
+      title: getRecommendedActionTitle(action, product),
+      detail: getRecommendedActionDetail(action),
+      reason: getRecommendedActionReason(action, product),
+      evidence: getRecommendedActionEvidence(action, product),
+      priority: index === 0 ? "Primary next step" : getRecommendedActionPriority(action, product),
+      application: getRecommendedActionApplication(action, product),
+      meta: getRecommendedActionMeta(action),
+      action: getRecommendedActionButtonLabel(action, index),
+      mode: getRecommendedActionMode(action, index),
+      payload: action.payload || {},
+      appliedRecord: getRecommendedActionHistoryRecord(action, actionHistory, product),
+      submit: getRecommendedActionMode(action, index) === "submit",
+    };
+  });
+}
+
+function normalizeRecommendedActionLifecycleState(value = "") {
+  const normalized = String(value || "new").trim().toLowerCase().replace(/_/g, "-");
+  if (normalized.includes("pending")) return "pending";
+  if (normalized.includes("reopened") || normalized.includes("persistent")) return "reopened/persistent";
+  if (normalized.includes("monitor")) return "monitoring";
+  if (normalized.includes("superseded")) return "superseded";
+  if (normalized.includes("applied") || normalized.includes("reviewed")) return "applied";
+  return "new";
+}
+
+function getRecommendedActionLifecycleLabel(state = "") {
+  const normalized = normalizeRecommendedActionLifecycleState(state);
+  if (normalized === "pending") return "Pending";
+  if (normalized === "applied") return "Applied";
+  if (normalized === "monitoring") return "Monitoring";
+  if (normalized === "reopened/persistent") return "Reopened";
+  if (normalized === "superseded") return "Superseded";
+  return "New";
+}
+
+function getRecommendedActionLifecycleTone(state = "") {
+  const normalized = normalizeRecommendedActionLifecycleState(state);
+  if (normalized === "reopened/persistent") return "red";
+  if (normalized === "pending") return "amber";
+  if (normalized === "monitoring") return "blue";
+  if (normalized === "applied" || normalized === "superseded") return "green";
+  return "violet";
 }
 
 function rankRecommendedActionsForDisplay(actions = [], product = {}) {
@@ -15514,6 +15602,9 @@ export function ProductDiagnosisScreen({ product, actionData }) {
               <p key={`${detail.slug}-main-finding-${index}`}>{renderMainFindingTextBlock(paragraph)}</p>
             ))}
           </div>
+          {detail.postActionStatus && (
+            <ProductPostActionStatusCard status={detail.postActionStatus} />
+          )}
         </div>
       </div>
     </BetaFeedbackPanelFrame>
@@ -31416,6 +31507,56 @@ function sortRecommendedActionsForPanel(actions = [], sortKey = "priority", prod
   return key === "priority" ? moveRelationshipDescriptionFixAheadOfEvidenceReview(sorted, product) : sorted;
 }
 
+function ProductPostActionStatusCard({ status }) {
+  if (!status) return null;
+  const lifecycle = Array.isArray(status.lifecycle) ? status.lifecycle : [];
+  const bodyRows = [
+    status.historicalDiagnosis ? { label: "Done", value: status.historicalDiagnosis } : null,
+    status.postActionEvidence ? { label: "Changed", value: status.postActionEvidence } : null,
+    status.nextBestStep ? { label: "Next", value: status.nextBestStep } : null,
+  ].filter(Boolean);
+  return (
+    <aside className={`ppPostActionStatus ppPostActionStatus-${status.tone}`} aria-label={status.title || "Post-action status"}>
+      <div className="ppPostActionStatusHeader">
+        <span className="ppPostActionStatusIcon" aria-hidden="true">
+          <s-icon type={getProductPostActionStatusIcon(status.tone)} size="small"></s-icon>
+        </span>
+        <div>
+          <span>{status.title || "Post-action status"}</span>
+          {status.summary && <strong>{status.summary}</strong>}
+        </div>
+      </div>
+      {bodyRows.length > 0 && (
+        <dl className="ppPostActionStatusRows">
+          {bodyRows.map((row) => (
+            <div key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {lifecycle.length > 0 && (
+        <div className="ppPostActionLifecycleList" aria-label="Recommendation lifecycle">
+          {lifecycle.slice(0, 4).map((entry) => (
+            <span className={`ppPostActionLifecycle ppPostActionLifecycle-${entry.tone}`} key={`${entry.label}-${entry.state}`}>
+              {entry.stateLabel}
+              <small>{entry.label}</small>
+            </span>
+          ))}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function getProductPostActionStatusIcon(tone = "") {
+  if (tone === "critical") return "alert-circle";
+  if (tone === "success") return "check-circle";
+  if (tone === "warning") return "clock";
+  return "info";
+}
+
 function getActionSortRank(value = "", { highFirst = true } = {}) {
   const normalized = String(value || "").toLowerCase();
   const highOrder = { high: 3, medium: 2, optional: 1, low: 1 };
@@ -31432,6 +31573,7 @@ function ProductRecommendedActionCompact({ action, index, onOpen }) {
   const badgeLabel = action.priority || action.type || action.effort || "Recommended";
   const indicators = getCompactRecommendedActionMetricItems(action);
   const description = getCompactRecommendedActionDescription(action);
+  const showLifecycle = action.lifecycleState && action.lifecycleState !== "new";
   return (
     <button
       className="ppCompactRecommendedAction"
@@ -31442,6 +31584,11 @@ function ProductRecommendedActionCompact({ action, index, onOpen }) {
       <span className="ppCompactRecommendedIndex">{index + 1}</span>
       <span className="ppCompactRecommendedContent">
         <strong>{action.title}</strong>
+        {showLifecycle && (
+          <span className={`ppCompactRecommendedLifecycle ppCompactRecommendedLifecycle-${action.lifecycleTone || "blue"}`}>
+            {action.lifecycleLabel || getRecommendedActionLifecycleLabel(action.lifecycleState)}
+          </span>
+        )}
         <span className="ppCompactRecommendedDescription">{description}</span>
       </span>
       <span className={`ppCompactRecommendedBadge ppCompactRecommendedBadge-${getCompactActionPriorityTone(badgeLabel)}`}>

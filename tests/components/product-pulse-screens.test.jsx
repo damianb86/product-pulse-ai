@@ -6902,6 +6902,45 @@ describe("ProductPulse screens", () => {
     ]);
   });
 
+  it("renders closed-loop post-action status and recommendation lifecycle", () => {
+    const selectedProduct = {
+      ...defaultView.products.find((product) => product.slug === "trail-run-vest"),
+      postActionStatus: {
+        title: "Post-action status",
+        status: "reopened_persistent",
+        tone: "critical",
+        summary: "A prior description action was applied, but new review evidence still points to the same fit issue.",
+        historicalDiagnosis: "Previous diagnosis focused on fit and sizing.",
+        postActionEvidence: "New customer language arrived after the applied action.",
+        nextBestStep: "Escalate the reopened issue instead of repeating the same copy fix.",
+        lifecycle: [{
+          label: "Rewrite product description",
+          lifecycleState: "reopened/persistent",
+          actionStatus: "applied",
+        }],
+      },
+      recommendedActions: [{
+        id: "rewrite-product-description",
+        label: "Rewrite product description",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          lifecycleState: "reopened/persistent",
+          lifecycleLabel: "Reopened / persistent",
+          recommendedTreatment: "escalate_persistent_issue",
+          draftText: "Updated shopper-facing guidance.",
+        },
+      }],
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={selectedProduct} />);
+    const postActionStatus = screen.getByLabelText("Post-action status");
+
+    expect(within(postActionStatus).getByText("A prior description action was applied, but new review evidence still points to the same fit issue.")).toBeInTheDocument();
+    expect(within(postActionStatus).getByText("Escalate the reopened issue instead of repeating the same copy fix.")).toBeInTheDocument();
+    expect(container.querySelector(".ppCompactRecommendedLifecycle")?.textContent).toContain("Reopened");
+  });
+
   it("adds main finding question blocks for stored diagnosis text that omitted them", () => {
     const selectedProduct = {
       ...defaultView.products.find((product) => product.slug === "trail-run-vest"),
