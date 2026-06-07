@@ -128,15 +128,140 @@ function renderMonitor(initialMonitor, options = {}) {
   return render(<RouterProvider router={router} />);
 }
 
+function makeRunningJob(id, overrides = {}) {
+  return {
+    id,
+    kind: "product-diagnosis",
+    name: "Product Diagnosis",
+    displayTitle: "GEN QuietDesk Mini Fan",
+    status: "Running",
+    productHref: "/app/products/gen-quietdesk-mini-fan",
+    startedAtIso: new Date(Date.now() - 5000).toISOString(),
+    updatedAtIso: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function installMockNotification({ permission = "default", requestPermission = vi.fn(), notifications = [] } = {}) {
+  function MockNotification(title, options = {}) {
+    this.title = title;
+    this.options = options;
+    this.close = vi.fn();
+    this.onclick = null;
+    notifications.push(this);
+  }
+
+  MockNotification.permission = permission;
+  MockNotification.requestPermission = requestPermission;
+
+  Object.defineProperty(window, "Notification", {
+    configurable: true,
+    writable: true,
+    value: MockNotification,
+  });
+
+  return MockNotification;
+}
+
 afterEach(() => {
   vi.useRealTimers();
   window.localStorage.clear();
+  Reflect.deleteProperty(window, "Notification");
+  Reflect.deleteProperty(window, "AudioContext");
+  Reflect.deleteProperty(window, "webkitAudioContext");
   document.body.classList.remove("ppWizardActive");
   document.body.classList.remove("ppWizardBackgroundProcessesActive");
   document.body.classList.remove("ppWatchlistWizardBackgroundProcessesActive");
 });
 
 describe("ProductPulseJobMonitor", () => {
+  it("asks once per browser for job completion notifications when a job is active", async () => {
+    const requestPermission = vi.fn();
+    installMockNotification({ permission: "default", requestPermission });
+    const runningJob = makeRunningJob("job-notification-prompt");
+
+    const { unmount } = renderMonitor({
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    });
+
+    const prompt = await screen.findByRole("dialog", { name: "Job completion notifications" });
+    expect(prompt).toHaveTextContent("Enable job completion notifications?");
+    expect(window.localStorage.getItem("productPulse.jobNotificationsPrompt.v1")).toBe("shown");
+
+    fireEvent.click(within(prompt).getByRole("button", { name: "Not now" }));
+    expect(window.localStorage.getItem("productPulse.jobNotificationsPrompt.v1")).toBe("dismissed");
+    expect(requestPermission).not.toHaveBeenCalled();
+
+    unmount();
+    renderMonitor({
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    });
+    expect(screen.queryByRole("dialog", { name: "Job completion notifications" })).not.toBeInTheDocument();
+  });
+
+  it("requests browser notification permission from the one-time job prompt", async () => {
+    const requestPermission = vi.fn(async () => "granted");
+    installMockNotification({ permission: "default", requestPermission });
+    const runningJob = makeRunningJob("job-notification-enable");
+
+    renderMonitor({
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    });
+
+    const prompt = await screen.findByRole("dialog", { name: "Job completion notifications" });
+    fireEvent.click(within(prompt).getByRole("button", { name: "Enable notifications" }));
+
+    await waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1));
+    expect(window.localStorage.getItem("productPulse.jobNotificationsPrompt.v1")).toBe("granted");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Job completion notifications" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("sends a browser notification when a background job completes after permission was granted", async () => {
+    const notifications = [];
+    installMockNotification({ permission: "granted", notifications });
+    window.localStorage.setItem("productPulse.jobNotificationsPrompt.v1", "granted");
+    const runningJob = makeRunningJob("job-browser-notification", {
+      displayTitle: "GEN QuietDesk Mini Fan",
+      productHref: "/app/products/gen-quietdesk-mini-fan",
+    });
+    let monitor = {
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    };
+
+    renderMonitor(() => monitor);
+
+    monitor = {
+      activeJobs: [],
+      recentJobs: [{
+        ...runningJob,
+        status: "Completed",
+        finishedAtIso: new Date().toISOString(),
+      }],
+      logs: [],
+    };
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: runningJob } }));
+    });
+
+    await waitFor(() => {
+      expect(notifications).toHaveLength(1);
+    });
+    expect(notifications[0].title).toBe("Product Diagnosis finished");
+    expect(notifications[0].options.body).toBe("GEN QuietDesk Mini Fan is ready to review.");
+    expect(notifications[0].options.tag).toBe("productpulse-job-job-browser-notification");
+  });
+
   it("opens the background processes popover when the wizard requests it", async () => {
     renderMonitor({ activeJobs: [], recentJobs: [], logs: [] });
 

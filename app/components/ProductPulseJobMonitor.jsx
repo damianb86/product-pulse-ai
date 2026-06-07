@@ -7,6 +7,9 @@ const JOB_STATUS_ACTIVE_POLL_MS = 10_000;
 const JOB_STATUS_IDLE_POLL_MS = 180_000;
 const JOB_STATUS_INITIAL_LOAD_MS = 30_000;
 const CREDIT_SUMMARY_REFRESH_MS = 60_000;
+const JOB_NOTIFICATION_PERMISSION_STORAGE_KEY = "productPulse.jobNotificationsPrompt.v1";
+
+let productPulseJobAudioContext = null;
 
 export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false, shop = "" }) {
   const fetcher = useFetcher();
@@ -21,6 +24,8 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const [selectedJobId, setSelectedJobId] = useState(null);
   const [completedJobNotice, setCompletedJobNotice] = useState(null);
   const [failedJobNotice, setFailedJobNotice] = useState(null);
+  const [notificationPromptVisible, setNotificationPromptVisible] = useState(false);
+  const [notificationPreference, setNotificationPreference] = useState(() => getStoredJobNotificationPreference());
   const [now, setNow] = useState(null);
   const observedJobsRef = useRef(new Map());
   const announcedFailedJobIdsRef = useRef(new Set());
@@ -74,6 +79,22 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
         job={completedJobNotice}
         onDismiss={() => setCompletedJobNotice(null)}
         buildAppPath={buildAppPath}
+      />
+  ) : null;
+  const notificationPrompt = notificationPromptVisible ? (
+      <JobNotificationPermissionPrompt
+        onEnable={async () => {
+          primeProductPulseJobCompletionSound();
+          const preference = await requestJobNotificationPermission();
+          setNotificationPreference(preference);
+          setNotificationPromptVisible(false);
+        }}
+        onDismiss={() => {
+          primeProductPulseJobCompletionSound();
+          persistJobNotificationPreference("dismissed");
+          setNotificationPreference("dismissed");
+          setNotificationPromptVisible(false);
+        }}
       />
   ) : null;
   const selectedJob = useMemo(
@@ -202,6 +223,11 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
     if (finishedOrDisappearedJobs.length) {
       dispatchProductPulseJobsFinishedEvent(finishedOrDisappearedJobs);
+      const completedJobsForUserFeedback = externallyFinishedJobs.filter((job) => job.status === "Completed");
+      if (completedJobsForUserFeedback.length) {
+        playProductPulseJobCompletionSound();
+        notifyProductPulseCompletedJobs(completedJobsForUserFeedback, buildAppPath);
+      }
       const completedAnalysisJob = externallyFinishedJobs.find((job) => isCompletionNoticeJob(job));
       const failedJob = externallyFinishedJobs.find((job) => (
         job.status === "Failed" && !announcedFailedJobIdsRef.current.has(job.id)
@@ -215,7 +241,18 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       }
       revalidator.revalidate();
     }
-  }, [activeJobs, completedJobNotice, recentJobs, revalidator]);
+  }, [activeJobs, buildAppPath, completedJobNotice, recentJobs, revalidator]);
+
+  useEffect(() => {
+    if (!hasActiveJobs || notificationPromptVisible) return;
+    const preference = syncStoredJobNotificationPreference(notificationPreference);
+    if (preference !== notificationPreference) setNotificationPreference(preference);
+    if (preference) return;
+
+    persistJobNotificationPreference("shown");
+    setNotificationPreference("shown");
+    setNotificationPromptVisible(true);
+  }, [hasActiveJobs, notificationPreference, notificationPromptVisible]);
 
   useEffect(() => {
     if (!completedJobNotice) return undefined;
@@ -426,6 +463,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
         {topbar}
         {failureNotice}
         {completionNotice}
+        {notificationPrompt}
         <button className="ppJobDockMinimized" type="button" onClick={toggleMinimized} aria-label="Open development job monitor">
           <span className={`ppJobDockPulse${hasActiveJobs ? " isRunning" : ""}`} />
           <strong>Dev jobs</strong>
@@ -441,6 +479,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
         {topbar}
         {failureNotice}
         {completionNotice}
+        {notificationPrompt}
       </>
     );
   }
@@ -450,6 +489,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       {topbar}
       {failureNotice}
       {completionNotice}
+      {notificationPrompt}
       <aside className="ppDevJobPanel" aria-label="Development job monitor">
         <div className="ppDevJobPanelHeader">
           <div>
@@ -1144,6 +1184,24 @@ function JobFailureNotice({ job, onDismiss, buildAppPath = defaultBuildAppPath }
   );
 }
 
+function JobNotificationPermissionPrompt({ onEnable, onDismiss }) {
+  return (
+    <aside className="ppJobNotificationPrompt" role="dialog" aria-label="Job completion notifications">
+      <span className="ppJobNotificationPromptIcon" aria-hidden="true">
+        <s-icon type="info" size="small"></s-icon>
+      </span>
+      <div>
+        <strong>Enable job completion notifications?</strong>
+        <p>ProductPulse can play a completion sound and send a browser notification when background jobs finish.</p>
+      </div>
+      <div className="ppJobNotificationPromptActions">
+        <button className="ppSecondaryButton" type="button" onClick={onDismiss}>Not now</button>
+        <button className="ppPrimaryButton" type="button" onClick={onEnable}>Enable notifications</button>
+      </div>
+    </aside>
+  );
+}
+
 function JobNotice({ job, tone, title, message, detail, role, ariaLive, onDismiss, buildAppPath = defaultBuildAppPath }) {
   const action = getJobNoticeAction(job);
   const actionHref = buildAppPath(action.href);
@@ -1201,6 +1259,162 @@ function dispatchProductPulseWizardJobEvent(detail) {
 function dispatchProductPulseJobsFinishedEvent(jobs) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("productpulse:jobs-finished", { detail: { jobs } }));
+}
+
+function getStoredJobNotificationPreference() {
+  if (typeof window === "undefined" || !window.localStorage) return "";
+  try {
+    return window.localStorage.getItem(JOB_NOTIFICATION_PERMISSION_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function persistJobNotificationPreference(preference) {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(JOB_NOTIFICATION_PERMISSION_STORAGE_KEY, preference);
+  } catch {
+    // localStorage can be blocked in some embedded browser/privacy modes.
+  }
+}
+
+function canUseBrowserNotifications() {
+  return typeof window !== "undefined" && typeof window.Notification === "function";
+}
+
+function syncStoredJobNotificationPreference(currentPreference = "") {
+  if (!canUseBrowserNotifications()) {
+    persistJobNotificationPreference("unsupported");
+    return "unsupported";
+  }
+  if (window.Notification.permission === "granted") {
+    persistJobNotificationPreference("granted");
+    return "granted";
+  }
+  if (window.Notification.permission === "denied") {
+    persistJobNotificationPreference("denied");
+    return "denied";
+  }
+  return getStoredJobNotificationPreference() || currentPreference || "";
+}
+
+async function requestJobNotificationPermission() {
+  if (!canUseBrowserNotifications()) {
+    persistJobNotificationPreference("unsupported");
+    return "unsupported";
+  }
+
+  if (window.Notification.permission === "granted") {
+    persistJobNotificationPreference("granted");
+    return "granted";
+  }
+  if (window.Notification.permission === "denied") {
+    persistJobNotificationPreference("denied");
+    return "denied";
+  }
+
+  try {
+    const permission = await window.Notification.requestPermission();
+    const preference = permission === "granted" ? "granted" : permission === "denied" ? "denied" : "dismissed";
+    persistJobNotificationPreference(preference);
+    return preference;
+  } catch {
+    persistJobNotificationPreference("dismissed");
+    return "dismissed";
+  }
+}
+
+function notifyProductPulseCompletedJobs(jobs = [], buildAppPath = defaultBuildAppPath) {
+  if (!canUseBrowserNotifications() || window.Notification.permission !== "granted") return;
+  jobs.forEach((job) => {
+    try {
+      const action = getJobNoticeAction(job);
+      const href = buildAppPath(action.href);
+      const notification = new window.Notification(getBrowserJobNotificationTitle(job), {
+        body: getBrowserJobNotificationBody(job),
+        icon: getJobNoticeImageUrl(job) || undefined,
+        tag: `productpulse-job-${job.id || getJobTitle(job) || Date.now()}`,
+      });
+      notification.onclick = () => {
+        window.focus?.();
+        if (href) window.location.href = href;
+        notification.close?.();
+      };
+    } catch {
+      // Browser notifications can fail in embedded surfaces even after permission is granted.
+    }
+  });
+}
+
+function getBrowserJobNotificationTitle(job) {
+  if (job?.kind === "fast-product-scan") return "Catalog Scan finished";
+  if (job?.kind === "product-diagnosis") return "Product Diagnosis finished";
+  return `${getJobTitle(job) || "Background job"} finished`;
+}
+
+function getBrowserJobNotificationBody(job) {
+  if (job?.kind === "fast-product-scan") return "Your ProductPulse catalog scan is ready to review.";
+  if (job?.kind === "product-diagnosis") return `${getJobTitle(job)} is ready to review.`;
+  return getJobSubtitle(job) || "A ProductPulse background job is complete.";
+}
+
+function primeProductPulseJobCompletionSound() {
+  const context = getProductPulseJobAudioContext();
+  if (!context) return;
+  if (context.state === "suspended") {
+    try {
+      void context.resume();
+    } catch {
+      // Audio can be blocked until a user gesture is accepted by the browser.
+    }
+  }
+}
+
+function playProductPulseJobCompletionSound() {
+  const context = getProductPulseJobAudioContext();
+  if (!context) return;
+
+  try {
+    if (context.state === "suspended") void context.resume();
+    const startAt = context.currentTime + 0.02;
+    const master = context.createGain();
+    master.gain.setValueAtTime(0.0001, startAt);
+    master.gain.exponentialRampToValueAtTime(0.075, startAt + 0.025);
+    master.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.46);
+    master.connect(context.destination);
+
+    [523.25, 659.25, 783.99].forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const noteStart = startAt + (index * 0.085);
+      const noteEnd = noteStart + 0.18;
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, noteStart);
+      gain.gain.setValueAtTime(0.0001, noteStart);
+      gain.gain.exponentialRampToValueAtTime(0.38, noteStart + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+      oscillator.connect(gain);
+      gain.connect(master);
+      oscillator.start(noteStart);
+      oscillator.stop(noteEnd + 0.04);
+    });
+  } catch {
+    // Sound is best-effort and should never block job monitoring.
+  }
+}
+
+function getProductPulseJobAudioContext() {
+  if (typeof window === "undefined") return null;
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextConstructor) return null;
+  try {
+    if (!productPulseJobAudioContext) productPulseJobAudioContext = new AudioContextConstructor();
+    return productPulseJobAudioContext;
+  } catch {
+    return null;
+  }
 }
 
 function JobNoticeMedia({ job, tone }) {
