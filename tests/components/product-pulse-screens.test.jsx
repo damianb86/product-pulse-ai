@@ -5923,6 +5923,35 @@ describe("ProductPulse screens", () => {
     expect(screen.getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
   });
 
+  it("explains review collection workflow actions as internal routing", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "move-to-review-collection",
+        label: "Review collection workflow",
+        type: "Merchandising review",
+        effort: "Low",
+        status: "Manual review required",
+        payload: {
+          collectionName: "ProductPulse Needs Review",
+          suggestedTag: "needs-merchandising-review",
+          trigger: "The product should be grouped for internal review or quality workflow tracking.",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Review collection workflow" }));
+
+    expect(screen.getByText("Workflow review")).toBeInTheDocument();
+    expect(screen.getAllByText(/not suggesting a public customer review collection/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Check whether \"ProductPulse Needs Review\" is an internal workflow collection, saved view or tag and not a customer-facing merchandising collection.")).toBeInTheDocument();
+    expect(screen.getByText("Assign the follow-up to merchandising, QA or operations")).toBeInTheDocument();
+    expect(screen.getByText("Add internal review tag")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add internal tag" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add QA tag" })).not.toBeInTheDocument();
+  });
+
   it("does not render generic product evidence review actions", () => {
     const product = {
       ...defaultView.startHere,

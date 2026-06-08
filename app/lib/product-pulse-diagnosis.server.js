@@ -8261,7 +8261,7 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.pricing.shouldRecommend) candidates.push({ id: "review-product-pricing", type: "Commercial review", reason: recipeSignals.pricing.reason });
   if (recipeSignals.status.shouldRecommend) candidates.push({ id: "set-product-draft", type: "High-risk action", reason: recipeSignals.status.reason });
   if (recipeSignals.inventory.shouldRecommend) candidates.push({ id: "limit-variant-inventory", type: "Inventory hold", reason: recipeSignals.inventory.reason });
-  if (recipeSignals.collection.shouldRecommend) candidates.push({ id: "move-to-review-collection", type: "Collection workflow", reason: recipeSignals.collection.reason });
+  if (recipeSignals.collection.shouldRecommend) candidates.push({ id: "move-to-review-collection", type: "Merchandising review", reason: recipeSignals.collection.reason });
   if (recipeSignals.media.shouldRecommend) candidates.push({ id: "improve-product-media", type: "Media guidance", reason: recipeSignals.media.reason });
   if (recipeSignals.mediaOrder.shouldRecommend) candidates.push({ id: "reorder-product-media", type: "Media order", reason: recipeSignals.mediaOrder.reason });
   if (recipeSignals.contextualMedia.shouldRecommend) candidates.push({ id: "add-contextual-media-recommendation", type: "Media guidance", reason: recipeSignals.contextualMedia.reason });
@@ -9155,16 +9155,32 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
   }
 
   if (recipeSignals.collection.shouldRecommend) {
+    const collectionName = getReviewCollectionName(deterministic);
     recommendations.push({
       id: "move-to-review-collection",
-      label: "Add to review collection",
-      type: "Collection workflow",
+      label: "Review collection workflow",
+      type: "Merchandising review",
       effort: "Low",
-      status: "Ready",
+      status: "Manual review required",
       payload: {
-        collectionName: getReviewCollectionName(deterministic),
+        collectionName,
+        suggestedTag: "needs-merchandising-review",
         issue: mainIssue,
         trigger: recipeSignals.collection.reason,
+        whyThisAction: `ProductPulse is not asking you to create a public customer review collection. It is suggesting an internal merchandising or QA review workflow because ${recipeSignals.collection.reason.toLowerCase()} Grouping this product in "${collectionName}" or tagging it keeps the follow-up visible without changing shopper-facing copy.`,
+        expectedAction: `Check whether your team uses an internal Shopify collection, saved view or tag like "${collectionName}" for products that need review. If it exists, add the product there manually or use the internal tag option. If the store does not use that workflow, mark this action reviewed or dismiss it after deciding who owns the follow-up.`,
+        reviewChecklist: [
+          "Confirm the product has enough risk, return, refund, review or content evidence to need a tracked internal follow-up.",
+          `Check whether "${collectionName}" is an internal workflow collection, saved view or tag and not a customer-facing merchandising collection.`,
+          "Decide who owns the next step: merchandising copy, QA/supplier review, operations follow-up or no action.",
+          "Do not move the product into a public collection unless your store intentionally uses that collection for internal review only.",
+        ],
+        nextSteps: [
+          "Open the strongest product evidence and confirm the workflow reason",
+          `Add the product to "${collectionName}" or apply the internal review tag if your team uses that workflow`,
+          "Assign the follow-up to merchandising, QA or operations",
+          "Mark reviewed or dismiss if no internal routing is needed",
+        ],
       },
     });
   }
@@ -11330,12 +11346,12 @@ function getRecommendationRecipeMetadata(action, { deterministic, mainIssue, ind
   if (id === "move-to-review-collection") {
     return {
       ...common,
-      proposedChange: `Move or add this product to "${payload.collectionName || "ProductPulse Needs Review"}".`,
-      shopifyField: "Collection membership",
-      expectedImpact: "Group risky products for quality, merchandising or operations review.",
-      applicationRisk: "Medium",
+      proposedChange: `Review whether this product belongs in the internal "${payload.collectionName || "ProductPulse Needs Review"}" workflow or should get an internal review tag.`,
+      shopifyField: "Internal workflow routing",
+      expectedImpact: "Keep products with meaningful evidence visible for merchandising, QA or operations follow-up without changing shopper-facing content.",
+      applicationRisk: "Low",
       approval: "Manual approval required",
-      priorityGroup: "Medium-impact catalog fix",
+      priorityGroup: "Internal workflow",
       impactLevel: "Medium impact",
       actionTier: 2,
     };

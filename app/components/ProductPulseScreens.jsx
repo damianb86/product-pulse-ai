@@ -13232,6 +13232,15 @@ function isEvidenceReviewRecommendedAction(action = {}) {
     || Boolean(Array.isArray(payload.reviewSections) && payload.reviewSections.length);
 }
 
+function isReviewCollectionWorkflowRecommendedAction(action = {}) {
+  const payload = action.payload || {};
+  const normalized = getActionIdentityText(action);
+  return action.id === "move-to-review-collection"
+    || normalized.includes("move-to-review-collection")
+    || normalized.includes("review collection workflow")
+    || (normalized.includes("merchandising review") && Boolean(payload.collectionName));
+}
+
 function getEvidenceReviewReason(action = {}, product = {}) {
   if (!isEvidenceReviewRecommendedAction(action)) return "";
   const payload = action.payload || {};
@@ -13367,7 +13376,8 @@ function getEvidenceReviewNextSteps(action = {}) {
 function isManualProductReviewRecommendedAction(action = {}) {
   if (isEvidenceReviewRecommendedAction(action) || isRetentionRecommendedAction(action) || isPairingExpectationInvestigation(action)) return false;
   const normalized = getActionIdentityText(action);
-  return normalized.includes("supplier")
+  return isReviewCollectionWorkflowRecommendedAction(action)
+    || normalized.includes("supplier")
     || normalized.includes("qa")
     || normalized.includes("operational")
     || normalized.includes("commercial review")
@@ -13392,6 +13402,11 @@ function getManualProductReviewReason(action = {}, product = {}) {
   const trigger = String(payload.trigger || action.reason || "").trim();
   const triggerText = trigger ? ` because ${trigger.replace(/\.$/, "").toLowerCase()}` : "";
   const title = product?.title ? ` for ${product.title}` : "";
+
+  if (isReviewCollectionWorkflowRecommendedAction(action)) {
+    const collectionName = payload.collectionName || "ProductPulse Needs Review";
+    return `ProductPulse is not suggesting a public customer review collection${title}. It is suggesting internal workflow routing${triggerText}. Check whether your team uses "${collectionName}" or a similar saved view/tag to track products that need merchandising, QA or operations review before deciding whether to route, tag, mark reviewed or dismiss.`;
+  }
 
   if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality") || normalized.includes("durability") || normalized.includes("safety")) {
     const brief = String(payload.aiReviewBrief || payload.qaNote || "").trim();
@@ -13424,6 +13439,7 @@ function getManualProductReviewApplicationIntro(action = {}, product = {}) {
 
 function getManualProductReviewOperation(action = {}) {
   const normalized = getActionIdentityText(action);
+  if (isReviewCollectionWorkflowRecommendedAction(action)) return "Review workflow routing";
   if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality")) return "Review supplier / QA evidence";
   if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("commercial")) return "Review commercial evidence";
   if (normalized.includes("inventory") || normalized.includes("availability")) return "Review inventory scope";
@@ -13433,6 +13449,7 @@ function getManualProductReviewOperation(action = {}) {
 
 function getManualProductReviewTarget(action = {}) {
   const normalized = getActionIdentityText(action);
+  if (isReviewCollectionWorkflowRecommendedAction(action)) return "Internal collection workflow";
   if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality")) return "Supplier / QA workflow";
   if (normalized.includes("pricing") || normalized.includes("price") || normalized.includes("commercial")) return "Commercial product review";
   if (normalized.includes("inventory") || normalized.includes("availability")) return "Inventory and variant availability";
@@ -13446,7 +13463,13 @@ function getManualProductReviewChecklistItems(action = {}, product = {}) {
   const normalized = getActionIdentityText(action);
   const items = [];
 
-  if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality") || normalized.includes("durability") || normalized.includes("safety")) {
+  if (isReviewCollectionWorkflowRecommendedAction(action)) {
+    const collectionName = payload.collectionName || "ProductPulse Needs Review";
+    items.push("Confirm the product has enough risk, return, refund, review or content evidence to need a tracked internal follow-up.");
+    items.push(`Check whether "${collectionName}" is an internal workflow collection, saved view or tag and not a customer-facing merchandising collection.`);
+    items.push("Decide who owns the next step: merchandising copy, QA/supplier review, operations follow-up or no action.");
+    items.push("Do not move the product into a public collection unless your store intentionally uses that collection for internal review only.");
+  } else if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality") || normalized.includes("durability") || normalized.includes("safety")) {
     items.push("Confirm whether the evidence describes a physical product, supplier, durability, sizing, packaging, safety or fulfillment issue.");
     items.push("Check if the problem is concentrated in a SKU, variant, batch, vendor, recent order window or repeated customer complaint.");
     items.push("Use the QA note as the internal summary, but verify the raw evidence before escalating.");
@@ -13483,6 +13506,16 @@ function getManualProductReviewNextSteps(action = {}) {
   const payload = action.payload || {};
   if (Array.isArray(payload.nextSteps) && payload.nextSteps.length) return uniqueStrings(payload.nextSteps).slice(0, 4);
   const normalized = getActionIdentityText(action);
+
+  if (isReviewCollectionWorkflowRecommendedAction(action)) {
+    const collectionName = payload.collectionName || "ProductPulse Needs Review";
+    return [
+      "Open the strongest product evidence and confirm the workflow reason",
+      `Add the product to "${collectionName}" or apply the internal review tag if your team uses that workflow`,
+      "Assign the follow-up to merchandising, QA or operations",
+      "Mark reviewed or dismiss if no internal routing is needed",
+    ];
+  }
 
   if (normalized.includes("supplier") || normalized.includes("qa") || normalized.includes("quality") || normalized.includes("durability") || normalized.includes("safety")) {
     return [
@@ -13531,7 +13564,8 @@ function getRecommendedActionDetail(action) {
   if (payload.productStatus) return `Set Shopify product status to ${payload.productStatus}.`;
   if (Array.isArray(payload.tags) && payload.tags.length) return payload.tags.join(", ");
   if (payload.collectionId && payload.collectionName) return `Add this product to the existing ${payload.collectionName} collection.`;
-  if (payload.collectionName) return `Add or move this product to ${payload.collectionName}.`;
+  if (payload.collectionName && isReviewCollectionWorkflowRecommendedAction(action)) return `Review whether this product belongs in the internal ${payload.collectionName} workflow or should get an internal review tag.`;
+  if (payload.collectionName) return `Review whether this product belongs in ${payload.collectionName}.`;
   if (Array.isArray(payload.reviewSections) && payload.reviewSections.length) {
     return payload.reviewSections
       .map((section) => `${section.label}: ${formatInteger(section.count || section.items?.length || 0)} signal${Number(section.count || section.items?.length || 0) === 1 ? "" : "s"}`)
@@ -32514,17 +32548,25 @@ function getInvestigationOptionalShopifyAction(action = {}) {
   if (isRetentionRecommendedAction(action)) return "None";
   if (isPairingExpectationInvestigation(action)) return "Update product description / FAQ";
   if (action.payload?.tag || (Array.isArray(action.payload?.tags) && action.payload.tags.length)) return "Add internal tag";
-  if (getInvestigationTagForAction(action)) return "Add QA review tag";
+  if (getInvestigationTagForAction(action)) return isReviewCollectionWorkflowRecommendedAction(action) ? "Add internal review tag" : "Add QA review tag";
   return "None";
 }
 
 function getInvestigationTagForAction(action = {}) {
   if (action.payload?.tag) return String(action.payload.tag).trim();
   if (Array.isArray(action.payload?.tags) && action.payload.tags.length) return String(action.payload.tags[0] || "").trim();
+  if (action.payload?.suggestedTag) return String(action.payload.suggestedTag).trim();
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
   if (isPairingExpectationInvestigation(action)) return "";
+  if (isReviewCollectionWorkflowRecommendedAction(action)) return "needs-merchandising-review";
   if (normalized.includes("qa") || normalized.includes("supplier") || normalized.includes("quality")) return "qa-review-needed";
   return "";
+}
+
+function getInvestigationTagButtonLabel(action = {}) {
+  if (!getInvestigationTagForAction(action)) return "Mark reviewed";
+  if (isReviewCollectionWorkflowRecommendedAction(action)) return "Add internal tag";
+  return "Add QA tag";
 }
 
 function getInvestigationPrimaryActionLabel(action = {}, mode = "") {
@@ -34142,6 +34184,7 @@ function getRecommendedActionModalKicker(actionKind = "applyable", action = {}) 
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""}`.toLowerCase();
   if (isRetentionRecommendedAction(action)) return isRetentionDropAction(action) ? "Retention review" : "Retention opportunity";
   if (normalized.includes("source") || normalized.includes("integrity") || normalized.includes("mismatch")) return "Verification needed";
+  if (isReviewCollectionWorkflowRecommendedAction(action)) return "Workflow review";
   if (normalized.includes("qa") || normalized.includes("supplier")) return "Manual follow-up";
   return "Investigation recommended";
 }
@@ -34304,7 +34347,7 @@ function RecommendedActionMiniDock({
             disabled={disabled}
           >
             <s-icon type="tag" size="small"></s-icon>
-            <span>Add QA tag</span>
+            <span>{getInvestigationTagButtonLabel(action)}</span>
           </button>
         )}
         <button
@@ -34492,7 +34535,7 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
           disabled={pending || applied}
         >
           <s-icon type={investigationTag ? "tag" : "check"} size="small"></s-icon>
-          <span>{investigationTag ? "Add QA tag" : "Mark reviewed"}</span>
+          <span>{investigationTag ? getInvestigationTagButtonLabel(action) : "Mark reviewed"}</span>
         </button>
       )}
       {!showHeader && application.externalEditUrl && (
