@@ -6541,15 +6541,15 @@ function getProductEvolutionDatedItemsAfter(items = [], baselineDate = null) {
 
 function getProductEvolutionEvidenceDate(item = {}) {
   return parseValidDate(
-    item?.createdAt
-      || item?.processedAt
-      || item?.updatedAt
-      || item?.orderDate
+    item?.orderDate
       || item?.orderProcessedAt
       || item?.orderCreatedAt
       || item?.reviewDate
       || item?.date
-      || item?.changedAt,
+      || item?.changedAt
+      || item?.createdAt
+      || item?.processedAt
+      || item?.updatedAt,
   );
 }
 

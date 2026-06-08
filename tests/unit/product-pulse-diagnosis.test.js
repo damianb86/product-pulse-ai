@@ -3326,6 +3326,115 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(filteredCandidates.map((candidate) => candidate.id)).not.toContain("rewrite-product-description");
   });
 
+  it("uses Shopify occurrence dates before cache update dates for post-action evidence", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      mainIssueLabel: "Product content",
+      riskScore: 72,
+      confidence: 80,
+      issueSignalCounts: { product_content: 1 },
+      sourceCoverage: ["Shopify products", "Shopify orders"],
+      estimatedImpact: { revenueAtRisk: 0 },
+      product: {
+        id: "gid://shopify/Product/historical-order-update",
+        title: "Historical Order Update Product",
+        handle: "historical-order-update-product",
+        description: "",
+        descriptionHtml: "",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        customerSignalCount: 0,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 0,
+        signalCount: 1,
+        topReturnReasons: [],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        contentIssueCount: 1,
+        incrementalDiagnosis: {
+          mode: "incremental",
+          aiEvidenceSnippetCount: 0,
+          customerText: { analyzedItems: 0, reason: "previous_cache_reused" },
+          cache: {
+            customerText: { returnItems: [], reviewItems: [] },
+            refunds: { items: [] },
+            sourceEvents: {
+              sales: [{
+                id: "historical-sale-updated-after-action",
+                orderId: "historical-order",
+                lineItemId: "historical-line",
+                productId: "gid://shopify/Product/historical-order-update",
+                quantity: 1,
+                amount: 40,
+                orderDate: "2026-05-09T00:00:00.000Z",
+                orderProcessedAt: "2026-05-09T00:00:00.000Z",
+                orderCreatedAt: "2026-05-09T00:00:00.000Z",
+                createdAt: "2026-05-12T00:00:00.000Z",
+                updatedAt: "2026-05-12T00:00:00.000Z",
+              }],
+              returns: [],
+              refunds: [],
+            },
+          },
+        },
+        contentAnalysis: {
+          issues: [{
+            code: "missing_description",
+            issueCode: "product_content",
+            label: "Missing product description",
+            severity: "high",
+            evidence: "The only Shopify order evidence occurred before the action.",
+          }],
+          advisories: [],
+        },
+        textInsights: { sentiment: { total: 0, negative: 0, negativeRatio: 0 }, repeatedLanguage: [] },
+        refundInsights: {},
+        mediaCount: 1,
+        mediaWithoutAltCount: 0,
+      },
+      evidenceSnippets: [],
+    };
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot: {
+        productGid: deterministic.product.id,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      previousDiagnosis: {
+        id: "diagnosis-previous-historical-order-update",
+        productGid: deterministic.product.id,
+        riskScore: 70,
+        confidence: 78,
+        likelyCause: "Product content",
+        issues: [{ issue: "Product content", issueCode: "product_content" }],
+        recommendations: [{ id: "rewrite-product-description", label: "Rewrite product description" }],
+        metrics: { contentIssueCount: 1, signalCount: 1 },
+        completedAt: "2026-05-10T00:00:00.000Z",
+      },
+      actionRecords: [{
+        id: "action-historical-order-update",
+        diagnosisId: "diagnosis-previous-historical-order-update",
+        productGid: deterministic.product.id,
+        actionType: "rewrite-product-description",
+        label: "Rewrite product description",
+        status: "applied",
+        payload: { canonicalActionId: "rewrite-product-description" },
+        createdAt: "2026-05-11T00:00:00.000Z",
+        appliedAt: "2026-05-11T00:00:00.000Z",
+      }],
+      recommendationCandidates: [{ id: "rewrite-product-description", type: "PDP copy" }],
+    });
+
+    expect(productEvolution.sourceSummary.hasNewEvidence).toBe(false);
+    expect(productEvolution.sourceSummary.eventCounts.salesEvents).toBe(0);
+    expect(productEvolution.sourceSummary.postBaseline.latestEvidenceAt).toBeNull();
+    expect(productEvolution.postActionStatus.status).toBe("monitoring");
+  });
+
   it("surfaces title and description mismatch as a semantic advisory when product categories are clearly disconnected", () => {
     const connected = __productPulseDiagnosisTestHooks.analyzeProductContentDeterministically({
       title: "Rembrandt Night Watch Canvas Print",
