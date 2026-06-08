@@ -27,6 +27,10 @@ afterEach(() => {
   vi.restoreAllMocks();
   window.localStorage.removeItem(__productPulseScreensTestHooks.productDetailPanelCollapseStorageKey);
   window.localStorage.removeItem(__productPulseScreensTestHooks.watchRecentRunsWindowStorageKey);
+  window.localStorage.removeItem(__productPulseScreensTestHooks.initialProductWorkflowGlobalDismissKey);
+  Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index))
+    .filter((key) => key?.startsWith(__productPulseScreensTestHooks.initialProductWorkflowProductSeenPrefix))
+    .forEach((key) => window.localStorage.removeItem(key));
   window.localStorage.removeItem(WIZARD_STORAGE_KEY);
   window.localStorage.removeItem(WATCHLIST_WIZARD_STORAGE_KEY);
   delete window.shopify;
@@ -2666,7 +2670,7 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText(/Fit runs small around waist and inseam/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Add fit note").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Product Diagnosis completed/ })).toBeInTheDocument();
-    expect(screen.getByText("Re-analyze")).toBeInTheDocument();
+    expect(screen.getByText("Check for new signals")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "More actions for Core Linen Trouser" }));
     const watchButton = screen.getByRole("menuitem", { name: "Add to Watchlist" });
     expect(watchButton).toBeInTheDocument();
@@ -4604,6 +4608,58 @@ describe("ProductPulse screens", () => {
     fireEvent.click(watchButton);
     expect(screen.getByRole("heading", { name: "Remove watched product" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove from Watchlist" })).toBeInTheDocument();
+  });
+
+  it("shows the recommended workflow once for a product with only its first diagnosis", async () => {
+    const product = {
+      ...defaultView.startHere,
+      productGid: "gid://shopify/Product/initial-workflow-one",
+      handle: "initial-workflow-one",
+      title: "GEN Linen Breeze Shirt",
+      diagnosisCount: 1,
+    };
+    const firstRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Keep improving this product" });
+    expect(within(dialog).getByText("Recommended workflow")).toBeInTheDocument();
+    expect(within(dialog).getByText("Apply suggested actions")).toBeInTheDocument();
+    expect(within(dialog).getByText("Wait for new evidence")).toBeInTheDocument();
+    expect(within(dialog).getByText("Track it over time")).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close recommended workflow" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
+    expect(window.localStorage.getItem(`${__productPulseScreensTestHooks.initialProductWorkflowProductSeenPrefix}${product.productGid}`)).toBe("true");
+
+    firstRender.unmount();
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
+  });
+
+  it("can disable the recommended workflow modal for the browser", async () => {
+    const product = {
+      ...defaultView.startHere,
+      productGid: "gid://shopify/Product/initial-workflow-global-one",
+      handle: "initial-workflow-global-one",
+      diagnosisCount: 1,
+    };
+    const firstRender = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const dialog = await screen.findByRole("dialog", { name: "Keep improving this product" });
+
+    fireEvent.click(within(dialog).getByLabelText("Don't show this recommendation again in this browser."));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
+    expect(window.localStorage.getItem(__productPulseScreensTestHooks.initialProductWorkflowGlobalDismissKey)).toBe("true");
+
+    firstRender.unmount();
+    renderWithRouter(<ProductDiagnosisScreen
+      data={defaultView}
+      product={{
+        ...defaultView.startHere,
+        productGid: "gid://shopify/Product/initial-workflow-global-two",
+        handle: "initial-workflow-global-two",
+        diagnosisCount: 1,
+      }}
+    />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Keep improving this product" })).not.toBeInTheDocument());
   });
 
   it("lets product detail delete local analysis from product actions", () => {
@@ -6900,6 +6956,45 @@ describe("ProductPulse screens", () => {
       "What should we do now?",
       "How much does it matter?",
     ]);
+  });
+
+  it("renders closed-loop post-action status and recommendation lifecycle", () => {
+    const selectedProduct = {
+      ...defaultView.products.find((product) => product.slug === "trail-run-vest"),
+      postActionStatus: {
+        title: "Post-action status",
+        status: "reopened_persistent",
+        tone: "critical",
+        summary: "A prior description action was applied, but new review evidence still points to the same fit issue.",
+        historicalDiagnosis: "Previous diagnosis focused on fit and sizing.",
+        postActionEvidence: "New customer language arrived after the applied action.",
+        nextBestStep: "Escalate the reopened issue instead of repeating the same copy fix.",
+        lifecycle: [{
+          label: "Rewrite product description",
+          lifecycleState: "reopened/persistent",
+          actionStatus: "applied",
+        }],
+      },
+      recommendedActions: [{
+        id: "rewrite-product-description",
+        label: "Rewrite product description",
+        type: "PDP copy",
+        effort: "Low",
+        status: "Draft",
+        payload: {
+          lifecycleState: "reopened/persistent",
+          lifecycleLabel: "Reopened / persistent",
+          recommendedTreatment: "escalate_persistent_issue",
+          draftText: "Updated shopper-facing guidance.",
+        },
+      }],
+    };
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={selectedProduct} />);
+    const postActionStatus = screen.getByLabelText("Post-action status");
+
+    expect(within(postActionStatus).getByText("A prior description action was applied, but new review evidence still points to the same fit issue.")).toBeInTheDocument();
+    expect(within(postActionStatus).getByText("Escalate the reopened issue instead of repeating the same copy fix.")).toBeInTheDocument();
+    expect(container.querySelector(".ppCompactRecommendedLifecycle")?.textContent).toContain("Reopened");
   });
 
   it("adds main finding question blocks for stored diagnosis text that omitted them", () => {

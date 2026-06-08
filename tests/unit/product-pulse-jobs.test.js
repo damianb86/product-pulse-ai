@@ -163,7 +163,7 @@ describe("ProductPulse product job helpers", () => {
     expect(collapsible).toContain("Frequently asked questions");
     expect(collapsible).toContain("<summary style=");
     expect(collapsible).toContain("productpulse-callout");
-    expect(collapsible).toContain("background:#eff6ff");
+    expect(collapsible).toContain("border-left:2px solid #2563eb");
     expect(modal).toContain("<dialog");
     expect(modal).toContain("productpulse-faq-dialog-create-product-faq");
     expect(modal).toContain("showModal()");
