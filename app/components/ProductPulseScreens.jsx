@@ -15980,8 +15980,12 @@ export function ProductDiagnosisScreen({ product, actionData }) {
 
                 <BetaFeedbackPanelFrame panel={issuesFeedbackPanel}>
                   <div className="ppProductPanel ppIssuesOverviewPanel">
-                    <div className="ppBetaFeedbackPanelHeaderLine">
-                      <h2>Issues detected <span>{detail.detectedIssues.length}</span></h2>
+                    <div className="ppIssuesPanelHeader">
+                      <div>
+                        <span>Diagnostic review</span>
+                        <h2>Issues detected <small>{detail.detectedIssues.length}</small></h2>
+                        <p>Evidence-backed product issues found in the latest Product Diagnosis.</p>
+                      </div>
                       <BetaFeedbackPanelControls panel={issuesFeedbackPanel} />
                     </div>
                     <div className="ppIssuesTableWrap">
