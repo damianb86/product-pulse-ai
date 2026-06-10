@@ -338,6 +338,7 @@ const activeDiagnosisQueueWorkers = global.productPulseDiagnosisQueueWorkers || 
 const activeMockDatasetWorkers = global.productPulseMockDatasetWorkers || new Set();
 const inlineWorkerSkipLogKeys = global.productPulseInlineWorkerSkipLogKeys || new Set();
 const staleFastProductScanSweeps = global.productPulseStaleFastProductScanSweeps || new Map();
+const staleProductPulseJobSweeps = global.productPulseStaleProductPulseJobSweeps || new Map();
 const dashboardCache = global.productPulseDashboardCache || new Map();
 const analyticsCache = global.productPulseAnalyticsCache || new Map();
 const jobMonitorCache = global.productPulseJobMonitorCache || new Map();
@@ -349,6 +350,10 @@ if (!global.productPulseJobWorkers) {
 
 if (!global.productPulseStaleFastProductScanSweeps) {
   global.productPulseStaleFastProductScanSweeps = staleFastProductScanSweeps;
+}
+
+if (!global.productPulseStaleProductPulseJobSweeps) {
+  global.productPulseStaleProductPulseJobSweeps = staleProductPulseJobSweeps;
 }
 
 if (!global.productPulseDashboardCache) {
@@ -2074,6 +2079,7 @@ export async function runSelectedProductDiagnosesForShop(shop, productIds = [], 
 
 export async function getRecentJobsForShop(shop) {
   await failStaleFastProductScans(shop);
+  await recoverExpiredProductPulseJobsForShop(shop);
   const [jobs, activeJobs] = await Promise.all([
     prisma.catalogSignalJob.findMany({
       where: { shop },
@@ -2108,6 +2114,7 @@ export async function getJobMonitorForShop(shop, options = {}) {
 
   perf?.mark("jobStatus.cache.miss");
   await measureProductPulseStep(perf, "jobStatus.failStaleFastProductScans", () => failStaleFastProductScans(shop));
+  await measureProductPulseStep(perf, "jobStatus.recoverExpiredProductPulseJobs", () => recoverExpiredProductPulseJobsForShop(shop));
   const activeWhere = { shop, status: { in: ["Queued", "Running"] } };
   const [recentJobs, activeJobsRaw, logs, pointSummary, settingsForPointSummary] = await Promise.all([
     includeRecentJobs ? measureProductPulseStep(perf, "jobStatus.recentJobs", () => prisma.catalogSignalJob.findMany({
@@ -2364,6 +2371,7 @@ export async function getBackgroundProcessesForShop(shop, options = {}) {
 
   perf?.mark("backgroundProcesses.cache.miss", { page: requestedPage, includeLogs });
   await measureProductPulseStep(perf, "backgroundProcesses.failStaleFastProductScans", () => failStaleFastProductScans(shop));
+  await measureProductPulseStep(perf, "backgroundProcesses.recoverExpiredProductPulseJobs", () => recoverExpiredProductPulseJobsForShop(shop));
   const [total, statusGroups, kindGroups, logs] = await Promise.all([
     measureProductPulseStep(perf, "backgroundProcesses.total", () => prisma.catalogSignalJob.count({ where: { shop } })),
     measureProductPulseStep(perf, "backgroundProcesses.statusGroups", () => prisma.catalogSignalJob.groupBy({
@@ -4975,18 +4983,14 @@ async function resolveProductDiagnosisBatchModeQueue(tx, shop, { pointBalance, n
   }
 
   const cutoff = new Date(now.getTime() - PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS);
+  const recentBatchJobQuery = buildRecentBatchModeJobWhere(shop, cutoff);
   const recentBatchJob = await tx.catalogSignalJob.findFirst({
-    where: {
-      shop,
-      kind: PRODUCT_DIAGNOSIS_KIND,
-      createdAt: { gte: cutoff },
-      payload: { path: ["batchMode", "freeCreditMode"], equals: true },
-    },
-    orderBy: [{ createdAt: "desc" }],
+    where: recentBatchJobQuery,
+    orderBy: [{ startedAt: "desc" }],
   });
   const lastFreeDate = maxDate(
     parseDate(batchSummary.lastFreeBatchDiagnosisAt),
-    recentBatchJob?.createdAt,
+    recentBatchJob?.startedAt,
   );
   if (lastFreeDate && now.getTime() - lastFreeDate.getTime() < PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS) {
     const nextAt = new Date(lastFreeDate.getTime() + PRODUCT_PULSE_BATCH_MODE_COOLDOWN_MS);
@@ -5991,23 +5995,7 @@ function ensureProductDiagnosisQueueWorker(shop, options = {}) {
 }
 
 async function requeueExpiredProductPulseJobs(shop) {
-  const now = new Date();
-  const staleUnleasedCutoff = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
-  const where = {
-    kind: { in: [FAST_PRODUCT_SCAN_KIND, PRODUCT_DIAGNOSIS_KIND, SHOPIFY_MOCK_DATASET_KIND] },
-    status: "Running",
-    OR: [
-      { leaseExpiresAt: { lte: now } },
-      { leaseExpiresAt: null, updatedAt: { lte: staleUnleasedCutoff } },
-    ],
-    NOT: {
-      AND: [
-        { kind: PRODUCT_DIAGNOSIS_KIND },
-        { payload: { path: ["openAiBatch", "status"], equals: "waiting" } },
-      ],
-    },
-    ...(shop ? { shop } : {}),
-  };
+  const where = buildExpiredProductPulseJobWhere(shop);
   const recovered = await prisma.catalogSignalJob.updateMany({
     where,
     data: {
@@ -6041,6 +6029,53 @@ async function requeueExpiredProductPulseJobs(shop) {
       });
     }
   }
+
+  return recovered.count;
+}
+
+async function recoverExpiredProductPulseJobsForShop(shop) {
+  const normalizedShop = String(shop || "").trim();
+  if (!normalizedShop) return 0;
+  const nowMs = Date.now();
+  const lastSweepMs = staleProductPulseJobSweeps.get(normalizedShop) || 0;
+  if (nowMs - lastSweepMs < STALE_JOB_SWEEP_INTERVAL_MS) return 0;
+  staleProductPulseJobSweeps.set(normalizedShop, nowMs);
+
+  const recoveredCount = await requeueExpiredProductPulseJobs(normalizedShop);
+  if (recoveredCount > 0) {
+    invalidateJobMonitorCache(normalizedShop);
+    invalidateBackgroundProcessCache(normalizedShop);
+    invalidateProductPulseDashboardCache(normalizedShop);
+  }
+  return recoveredCount;
+}
+
+function buildExpiredProductPulseJobWhere(shop, now = new Date()) {
+  const staleUnleasedCutoff = new Date(now.getTime() - STALE_JOB_TIMEOUT_MS);
+  return {
+    kind: { in: [FAST_PRODUCT_SCAN_KIND, PRODUCT_DIAGNOSIS_KIND, SHOPIFY_MOCK_DATASET_KIND] },
+    status: "Running",
+    OR: [
+      { leaseExpiresAt: { lte: now } },
+      { leaseExpiresAt: null, updatedAt: { lte: staleUnleasedCutoff } },
+    ],
+    NOT: {
+      AND: [
+        { kind: PRODUCT_DIAGNOSIS_KIND },
+        { payload: { path: ["openAiBatch", "status"], equals: "waiting" } },
+      ],
+    },
+    ...(shop ? { shop } : {}),
+  };
+}
+
+function buildRecentBatchModeJobWhere(shop, cutoff) {
+  return {
+    shop,
+    kind: PRODUCT_DIAGNOSIS_KIND,
+    startedAt: { gte: cutoff },
+    payload: { path: ["batchMode", "freeCreditMode"], equals: true },
+  };
 }
 
 async function resumeProductDiagnosisJobFromOpenAiBatchGroup(groupId) {
@@ -9659,6 +9694,8 @@ export const __productPulseJobsTestHooks = {
   formatSnapshotForDiagnosis,
   formatProductRow,
   formatBackgroundProcess,
+  buildExpiredProductPulseJobWhere,
+  buildRecentBatchModeJobWhere,
   buildBackgroundProcessStats,
   filterProductSnapshots,
   formatShopifyProductSearchResult,

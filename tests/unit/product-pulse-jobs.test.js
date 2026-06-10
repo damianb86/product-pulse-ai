@@ -64,6 +64,40 @@ describe("ProductPulse product job helpers", () => {
     ]));
   });
 
+  it("builds expired worker lease recovery criteria without requeueing OpenAI Batch waits", () => {
+    const now = new Date("2026-06-10T05:00:00.000Z");
+    const where = productPulseJobsTestHooks.buildExpiredProductPulseJobWhere("store.myshopify.com", now);
+
+    expect(where).toMatchObject({
+      shop: "store.myshopify.com",
+      status: "Running",
+      OR: [
+        { leaseExpiresAt: { lte: now } },
+        { leaseExpiresAt: null },
+      ],
+      NOT: {
+        AND: [
+          { kind: "product-diagnosis" },
+          { payload: { path: ["openAiBatch", "status"], equals: "waiting" } },
+        ],
+      },
+    });
+    expect(where.OR[1].updatedAt.lte.toISOString()).toBe("2026-06-10T03:00:00.000Z");
+  });
+
+  it("uses CatalogSignalJob.startedAt for recent free Batch mode Product Diagnosis jobs", () => {
+    const cutoff = new Date("2026-06-09T05:00:00.000Z");
+    const where = productPulseJobsTestHooks.buildRecentBatchModeJobWhere("store.myshopify.com", cutoff);
+
+    expect(where).toEqual({
+      shop: "store.myshopify.com",
+      kind: "product-diagnosis",
+      startedAt: { gte: cutoff },
+      payload: { path: ["batchMode", "freeCreditMode"], equals: true },
+    });
+    expect(where.createdAt).toBeUndefined();
+  });
+
   it("uses stored product image metrics for product table rows", () => {
     const row = productPulseJobsTestHooks.formatProductRow("damian-xdcxxupp.myshopify.com", {
       productGid: "gid://shopify/Product/1234567890",
