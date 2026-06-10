@@ -18,6 +18,9 @@ const PRODUCT_PULSE_AI_LEVELS = {
 };
 const GEMINI_PRIMARY_RETRY_MS = 24 * 60 * 60 * 1000;
 const GEMINI_MODEL_RETRY_DELAY_MS = 750;
+const OPENAI_REQUEST_MAX_ATTEMPTS = 3;
+const OPENAI_REQUEST_RETRY_BASE_DELAY_MS = 750;
+const OPENAI_REQUEST_TIMEOUT_MS = 120000;
 
 const AI_TASKS = {
   signal_classification: {
@@ -2193,29 +2196,16 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, model
     data: { provider: OPENAI_PROVIDER, model, task, requestContext },
   });
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      input: prompt,
-      max_output_tokens: taskConfig.maxOutputTokens,
-      temperature: taskConfig.temperature,
-    }),
+  const json = await requestOpenAIResponseJsonWithRetry({
+    apiKey,
+    model,
+    task,
+    taskConfig,
+    prompt,
+    shop,
+    jobId,
+    requestContext,
   });
-
-  const json = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = json.error?.message || `OpenAI request failed with HTTP ${response.status}.`;
-    const error = new Error(message);
-    error.status = response.status;
-    error.code = json.error?.code || json.error?.type || null;
-    error.details = json.error || null;
-    throw error;
-  }
 
   const text = extractOpenAIText(json);
   if (!text) throw new Error(`OpenAI returned an empty ${task} response.`);
@@ -2238,6 +2228,128 @@ async function generateWithOpenAI({ shop, jobId, task, taskConfig, prompt, model
   });
 
   return { provider: OPENAI_PROVIDER, model, task, usage, text };
+}
+
+async function requestOpenAIResponseJsonWithRetry({ apiKey, model, task, taskConfig, prompt, shop, jobId, requestContext }) {
+  const body = JSON.stringify({
+    model,
+    input: prompt,
+    max_output_tokens: taskConfig.maxOutputTokens,
+    temperature: taskConfig.temperature,
+  });
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= OPENAI_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body,
+        signal: buildOpenAIRequestAbortSignal(),
+      });
+
+      const json = await response.json().catch(() => ({}));
+      if (response.ok) return json;
+
+      const error = buildOpenAIHttpError(response, json);
+      lastError = error;
+      if (!shouldRetryOpenAIRequest(error) || attempt >= OPENAI_REQUEST_MAX_ATTEMPTS) throw error;
+      await logOpenAIRetry({ shop, jobId, task, model, requestContext, attempt, error });
+      await sleep(getOpenAIRetryDelayMs(attempt, error));
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryOpenAIRequest(error) || attempt >= OPENAI_REQUEST_MAX_ATTEMPTS) throw error;
+      await logOpenAIRetry({ shop, jobId, task, model, requestContext, attempt, error });
+      await sleep(getOpenAIRetryDelayMs(attempt, error));
+    }
+  }
+
+  throw lastError || new Error("OpenAI request failed.");
+}
+
+function buildOpenAIHttpError(response, json) {
+  const message = json.error?.message || `OpenAI request failed with HTTP ${response.status}.`;
+  const error = new Error(message);
+  error.status = response.status;
+  error.code = json.error?.code || json.error?.type || null;
+  error.details = json.error || null;
+  const retryAfter = response.headers?.get?.("retry-after");
+  if (retryAfter) error.retryAfterMs = parseRetryAfterMs(retryAfter);
+  return error;
+}
+
+function buildOpenAIRequestAbortSignal() {
+  if (typeof AbortSignal === "undefined" || typeof AbortSignal.timeout !== "function") return undefined;
+  return AbortSignal.timeout(OPENAI_REQUEST_TIMEOUT_MS);
+}
+
+function shouldRetryOpenAIRequest(error) {
+  const status = Number(error?.status || 0);
+  if (status === 408 || status === 409 || status === 425 || status === 429) return true;
+  if (status >= 500 && status < 600) return true;
+
+  const message = [
+    error?.message,
+    error?.code,
+    error?.name,
+    error?.cause?.message,
+    error?.cause?.code,
+    error?.cause?.name,
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  return (
+    message.includes("fetch failed") ||
+    message.includes("timeout") ||
+    message.includes("headers timeout") ||
+    message.includes("und_err_headers_timeout") ||
+    message.includes("aborted") ||
+    message.includes("aborterror") ||
+    message.includes("network") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout") ||
+    message.includes("enotfound") ||
+    message.includes("eai_again") ||
+    message.includes("socket")
+  );
+}
+
+async function logOpenAIRetry({ shop, jobId, task, model, requestContext, attempt, error }) {
+  await Promise.resolve(recordJobLog({
+    shop,
+    jobId,
+    level: "warn",
+    event: "product_diagnosis.openai_request_retry",
+    message: `OpenAI ${task} request failed on attempt ${attempt}; retrying.`,
+    data: {
+      provider: OPENAI_PROVIDER,
+      model,
+      task,
+      requestContext,
+      attempt,
+      nextAttempt: attempt + 1,
+      maxAttempts: OPENAI_REQUEST_MAX_ATTEMPTS,
+      retryDelayMs: getOpenAIRetryDelayMs(attempt, error),
+      error: serializeError(error),
+    },
+  })).catch(() => {});
+}
+
+function getOpenAIRetryDelayMs(attempt, error = null) {
+  if (process.env.NODE_ENV === "test") return 0;
+  if (Number.isFinite(error?.retryAfterMs) && error.retryAfterMs >= 0) return Math.min(error.retryAfterMs, 10000);
+  return Math.min(OPENAI_REQUEST_RETRY_BASE_DELAY_MS * (2 ** Math.max(0, attempt - 1)), 5000);
+}
+
+function parseRetryAfterMs(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  if (/^\d+$/.test(normalized)) return Number.parseInt(normalized, 10) * 1000;
+  const timestamp = Date.parse(normalized);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, timestamp - Date.now());
 }
 
 function resolveOpenAIModel(taskConfig) {

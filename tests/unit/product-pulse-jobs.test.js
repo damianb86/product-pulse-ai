@@ -780,6 +780,109 @@ describe("ProductPulse product job helpers", () => {
     expect(process.productHref).toBe("/app/products/gen-failed-product");
   });
 
+  it("refunds consumed credits when a Product Diagnosis job fails", async () => {
+    const creditCalls = [];
+    const refund = await productPulseJobsTestHooks.refundFailedProductDiagnosisJobCredits(
+      {
+        id: "job-failed-credit-refund",
+        shop: "test.myshopify.com",
+        kind: "product-diagnosis",
+        status: "Running",
+        payload: {
+          pointCost: 1,
+          pointsConsumed: 1,
+          creditsConsumed: 1,
+          pointLedgerEntryId: "ledger-debit-1",
+          productGid: "gid://shopify/Product/123",
+          productTitle: "GEN Failed Product",
+        },
+      },
+      new Error("OpenAI returned HTTP 429."),
+      {
+        creditStorePointsForShop: async (shop, input) => {
+          creditCalls.push({ shop, input });
+          return {
+            status: "success",
+            amount: input.amount,
+            credited: true,
+            ledgerEntry: { id: "ledger-refund-1" },
+            balance: { available: 10, label: "10.0" },
+          };
+        },
+      },
+    );
+
+    expect(refund).toMatchObject({
+      status: "success",
+      refunded: true,
+      amount: 1,
+      ledgerEntry: { id: "ledger-refund-1" },
+    });
+    expect(creditCalls).toHaveLength(1);
+    expect(creditCalls[0]).toMatchObject({
+      shop: "test.myshopify.com",
+      input: {
+        amount: 1,
+        idempotencyKey: "product-diagnosis-failure-refund:job-failed-credit-refund",
+        metadata: {
+          source: "product_diagnosis_refund",
+          jobId: "job-failed-credit-refund",
+          originalLedgerEntryId: "ledger-debit-1",
+          failed: true,
+          error: "OpenAI returned HTTP 429.",
+        },
+      },
+    });
+  });
+
+  it("does not refund failed Product Diagnosis jobs twice", async () => {
+    const creditStorePointsForShop = async () => {
+      throw new Error("Credit store should not be called.");
+    };
+    const refund = await productPulseJobsTestHooks.refundFailedProductDiagnosisJobCredits(
+      {
+        id: "job-already-refunded",
+        shop: "test.myshopify.com",
+        kind: "product-diagnosis",
+        status: "Running",
+        payload: {
+          pointCost: 1,
+          pointLedgerEntryId: "ledger-debit-1",
+          pointRefundLedgerEntryId: "ledger-refund-1",
+        },
+      },
+      null,
+      { creditStorePointsForShop },
+    );
+
+    expect(refund).toBeNull();
+  });
+
+  it("does not refund no-charge Batch mode Product Diagnosis failures", async () => {
+    const creditStorePointsForShop = async () => {
+      throw new Error("Credit store should not be called.");
+    };
+    const refund = await productPulseJobsTestHooks.refundFailedProductDiagnosisJobCredits(
+      {
+        id: "job-batch-no-charge",
+        shop: "test.myshopify.com",
+        kind: "product-diagnosis",
+        status: "Running",
+        payload: {
+          pointCost: 0,
+          pointsConsumed: 0,
+          creditsConsumed: 0,
+          batchMode: { freeCreditMode: true },
+          pointDebitStatus: "batch_mode_no_charge",
+        },
+      },
+      null,
+      { creditStorePointsForShop },
+    );
+
+    expect(refund).toBeNull();
+  });
+
   it("summarizes background process counts by status and kind", () => {
     const stats = productPulseJobsTestHooks.buildBackgroundProcessStats([
       { kind: "product-diagnosis", status: "Running", updatedAt: new Date("2026-05-24T14:02:00.000Z") },

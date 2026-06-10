@@ -239,6 +239,50 @@ describe("ProductPulse AI provider fallback", () => {
     }));
   });
 
+  it("retries transient OpenAI fetch failures before failing the AI task", async () => {
+    process.env.PRODUCT_PULSE_AI_LEVEL = "2";
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        const error = new TypeError("fetch failed");
+        error.cause = {
+          name: "HeadersTimeoutError",
+          code: "UND_ERR_HEADERS_TIMEOUT",
+          message: "Headers Timeout Error",
+        };
+        throw error;
+      }
+
+      return new Response(JSON.stringify({ output_text: "OpenAI recovered after retry." }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateProductDiagnosisTestText({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-openai-retry",
+      product: { title: "Linen Shirt", handle: "linen-shirt", metrics: {} },
+    });
+
+    expect(result).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.4-nano",
+      text: "OpenAI recovered after retry.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocks.recordJobLog).toHaveBeenCalledWith(expect.objectContaining({
+      level: "warn",
+      event: "product_diagnosis.openai_request_retry",
+      data: expect.objectContaining({
+        task: "test_text",
+        attempt: 1,
+        nextAttempt: 2,
+        maxAttempts: 3,
+      }),
+    }));
+  });
+
   it("continues product diagnosis when the optional content-gap task has a transient fetch failure", async () => {
     process.env.PRODUCT_PULSE_AI_LEVEL = "2";
     const requests = [];

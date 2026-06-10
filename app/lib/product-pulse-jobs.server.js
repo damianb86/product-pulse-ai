@@ -2289,8 +2289,9 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
   };
 }
 
-async function refundFailedProductDiagnosisJobCredits(job, error = null) {
+async function refundFailedProductDiagnosisJobCredits(job, error = null, options = {}) {
   if (job.kind !== PRODUCT_DIAGNOSIS_KIND) return null;
+  if (!isActiveStatus(job.status)) return null;
   const payload = job.payload || {};
   const explicitPointCost = Number(payload.pointCost ?? payload.creditCost);
   if (payload.batchMode?.freeCreditMode || explicitPointCost === 0) return null;
@@ -2298,7 +2299,9 @@ async function refundFailedProductDiagnosisJobCredits(job, error = null) {
 
   const amount = getRefundableProductDiagnosisPointAmount(job);
   if (amount <= 0) return null;
-  const refund = await creditStorePointsForShop(job.shop, {
+  const creditPoints = options.creditStorePointsForShop || creditStorePointsForShop;
+  const recordLog = options.recordJobLog || recordJobLog;
+  const refund = await creditPoints(job.shop, {
     amount,
     reason: `Product Diagnosis refund credit product-diagnosis-failure-refund:${job.id} - ${payload.productTitle || "selected product"}`,
     idempotencyKey: `product-diagnosis-failure-refund:${job.id}`,
@@ -2314,7 +2317,7 @@ async function refundFailedProductDiagnosisJobCredits(job, error = null) {
   });
 
   if (!isPointCreditRecorded(refund)) {
-    await recordJobLog({
+    await recordLog({
       shop: job.shop,
       jobId: job.id,
       level: "error",
@@ -9659,6 +9662,7 @@ export const __productPulseJobsTestHooks = {
   buildBackgroundProcessStats,
   filterProductSnapshots,
   formatShopifyProductSearchResult,
+  refundFailedProductDiagnosisJobCredits,
   getAppliedProductReviewToastMetadata,
   getProductTableFilterOptions,
   getShopifyProductAdminUrl,
