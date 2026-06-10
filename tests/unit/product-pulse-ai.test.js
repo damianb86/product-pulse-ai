@@ -239,6 +239,89 @@ describe("ProductPulse AI provider fallback", () => {
     }));
   });
 
+  it("continues product diagnosis when the optional content-gap task has a transient fetch failure", async () => {
+    process.env.PRODUCT_PULSE_AI_LEVEL = "2";
+    const requests = [];
+    const fetchMock = vi.fn(async (_url, options) => {
+      const body = JSON.parse(options.body);
+      requests.push(body);
+      const input = String(body.input || "");
+      if (input.includes("content_quality_score")) {
+        throw new TypeError("fetch failed");
+      }
+
+      let response = {
+        classified_signals: [],
+        clusters: [],
+        granular_findings: [],
+        repeated_language: [],
+        sentiment_summary: {},
+        main_issue: "product_quality",
+        issue_summary: "Deterministic issue signals were used.",
+        source_agreement: "single_source",
+      };
+      if (input.includes("main_finding_title")) {
+        response = {
+          main_finding_title: "Product quality needs review",
+          main_finding_detail: "The deterministic issue signals are still usable.",
+          evidence_summary: "Deterministic evidence was enough to produce a report.",
+          basket_context_interpretation: "",
+          recommendation_copy: {},
+          action_rationales: [],
+        };
+      } else if (input.includes("emergent_sentiments")) {
+        response = { emergent_sentiments: [], discarded_suggestions: [], summary: "No emergent sentiment." };
+      }
+
+      return new Response(JSON.stringify({ output_text: JSON.stringify(response) }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runProductDiagnosisAiAnalysis({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-content-gap-failure",
+      input: {
+        product: {
+          title: "AIRELUXE",
+          handle: "t3-aireluxe-professional-hair-dryer-new",
+          description: "Professional hair dryer.",
+        },
+        deterministic: {
+          riskScore: 33,
+          confidence: 65,
+          mainIssue: "quality_defect",
+          mainIssueLabel: "Quality defect",
+          evidenceSummary: "Refund evidence suggests a quality issue.",
+          metrics: {},
+        },
+        evidenceSnippets: [
+          { source: "shopify_refund_note", text: "Stopped working after one use." },
+        ],
+        recommendationCandidates: [],
+      },
+    });
+
+    expect(requests.some((request) => String(request.input || "").includes("main_finding_title"))).toBe(true);
+    expect(result.report.main_finding_title).toBe("Product quality needs review");
+    expect(result.contentGaps).toMatchObject({
+      missing: [],
+      present: [],
+      notes: "AI PDP content-gap analysis was unavailable; deterministic product evidence was used.",
+    });
+    expect(result.modelsUsed.contentGap).toMatchObject({
+      provider: "unavailable",
+      model: "content-gap-unavailable",
+      task: "content_gap",
+    });
+    expect(mocks.recordJobLog).toHaveBeenCalledWith(expect.objectContaining({
+      level: "warn",
+      event: "product_diagnosis.content_gap_failed",
+    }));
+  });
+
   it("uses Gemini when AI level 1 is configured", async () => {
     process.env.PRODUCT_PULSE_AI_LEVEL = "1";
     const fetchMock = vi.fn(async (url) => {

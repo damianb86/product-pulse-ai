@@ -880,7 +880,10 @@ function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, 
               <li key={product.id || product.href}>
                 <ProductSearchMedia product={product} />
                 <span className="ppGlobalTopbarProductCopy">
-                  <strong>{product.title}</strong>
+                  <span className="ppGlobalTopbarProductTitle">
+                    <strong>{product.title}</strong>
+                    <ShopifyProductStatusTag product={product} />
+                  </span>
                   <small>{getProductSearchSubtitle(product)}</small>
                 </span>
                 <Link className="ppGlobalTopbarOpenButton" to={buildAppPath(product.href)} onClick={onClose} aria-label={`Open ${product.title || "product"}`}>
@@ -895,6 +898,25 @@ function ProductSearchPopover({ id, searchQuery, setSearchQuery, searchFetcher, 
       </div>
     </div>
   );
+}
+
+function ShopifyProductStatusTag({ product = {} }) {
+  const status = getShopifyProductStatusTag(product);
+  if (!status.label) return null;
+  return (
+    <span className={`ppShopifyProductStatusTag ppShopifyProductStatusTag-${status.tone}`}>
+      {status.label}
+    </span>
+  );
+}
+
+function getShopifyProductStatusTag(product = {}) {
+  const normalized = String(product.shopifyStatus || product.status || "").trim().toUpperCase();
+  if (normalized === "ACTIVE") return { label: product.shopifyStatusLabel || "Active", tone: "active" };
+  if (normalized === "DRAFT") return { label: product.shopifyStatusLabel || "Draft", tone: "draft" };
+  if (normalized === "ARCHIVED") return { label: product.shopifyStatusLabel || "Archived", tone: "archived" };
+  const label = product.shopifyStatusLabel || "";
+  return { label, tone: product.shopifyStatusTone || "unknown" };
 }
 
 function ProductSearchMedia({ product }) {
@@ -1127,9 +1149,15 @@ function getJobRefreshSnapshot(job) {
     id: job.id,
     status: job.status,
     kind: job.kind,
+    name: job.name || "",
+    productGid: job.productGid || job.productId || "",
     productTitle: job.productTitle || job.displayTitle || "",
     productHandle: job.productHandle || "",
     productHref: job.productHref || "",
+    displayTitle: job.displayTitle || job.productTitle || "",
+    displaySubtitle: job.displaySubtitle || "",
+    source: job.source || "",
+    errorMessage: job.errorMessage || "",
     imageUrl: getJobNoticeImageUrl(job),
     imageAlt: getJobNoticeImageAlt(job),
     updatedAtIso: job.updatedAtIso || "",

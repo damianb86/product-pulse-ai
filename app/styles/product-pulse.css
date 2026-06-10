@@ -27877,6 +27877,10 @@ s-page[inline-size="large-500"] {
   min-width: 0;
 }
 
+.ppShopifyProductResultText > div strong {
+  min-width: 0;
+}
+
 .ppShopifyProductResultText strong,
 .ppShopifyProductResultText p,
 .ppShopifyProductResultText small {
@@ -27901,6 +27905,41 @@ s-page[inline-size="large-500"] {
   margin-top: 4px;
   color: var(--pp-slate-500);
   font-size: 12px;
+}
+
+.ppShopifyProductStatusTag {
+  min-height: 18px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border: 1px solid var(--pp-slate-200);
+  border-radius: 999px;
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+  font-size: 10.5px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppShopifyProductStatusTag-active {
+  border-color: rgba(var(--pp-success-green-rgb), 0.28);
+  background: var(--pp-green-soft);
+  color: var(--pp-success-green);
+}
+
+.ppShopifyProductStatusTag-draft {
+  border-color: rgba(var(--pp-warning-amber-rgb), 0.32);
+  background: var(--pp-amber-soft);
+  color: var(--pp-warning-amber);
+}
+
+.ppShopifyProductStatusTag-archived {
+  border-color: var(--pp-slate-300);
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-600);
 }
 
 .ppShopifyProductResultAction {
@@ -31624,6 +31663,40 @@ s-page[inline-size="large-500"] {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ppBackgroundProcessFailure {
+  display: grid;
+  grid-template-columns: 18px auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.18);
+  border-radius: 8px;
+  background: var(--pp-red-soft);
+  color: var(--pp-risk-red);
+}
+
+.ppBackgroundProcessFailure s-icon {
+  margin-top: 1px;
+  transform: scale(0.86);
+}
+
+.ppBackgroundProcessFailure span {
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ppBackgroundProcessFailure p {
+  min-width: 0;
+  margin: 0;
+  color: var(--pp-slate-800);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .ppBackgroundProcessStatusIcon {
@@ -35611,6 +35684,17 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarProductCopy,
 .ppGlobalTopbarJobCopy {
+  min-width: 0;
+}
+
+.ppGlobalTopbarProductTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ppGlobalTopbarProductTitle strong {
   min-width: 0;
 }
 

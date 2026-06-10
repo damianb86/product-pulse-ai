@@ -70,7 +70,27 @@ const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 3;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
 const SHOP_SOURCE_EVENT_CACHE_KEY_PREFIX = "diagnosis-source-events";
 const SHOP_SOURCE_EVENT_CACHE_FRESH_MS = Math.max(30_000, Number(process.env.PRODUCT_PULSE_SHOPIFY_SOURCE_CACHE_FRESH_MS || 10 * 60 * 1000));
+const SHOP_SOURCE_EVENT_CACHE_MAX_HIT_LAG_MS = Math.max(0, Number(process.env.PRODUCT_PULSE_SHOPIFY_SOURCE_CACHE_MAX_HIT_LAG_MS ?? 30_000));
 const SHOP_SOURCE_EVENT_CACHE_WRITE_BATCH_SIZE = 400;
+const PRODUCT_EVOLUTION_KNOWN_ISSUE_KEYS = new Set([
+  "fit_sizing",
+  "color_expectation",
+  "durability",
+  "quality_defect",
+  "compatibility",
+  "setup_expectation",
+  "shipping_delivery",
+  "product_content",
+  "product_quality",
+  "safety_concern",
+  "subjective_negative_reaction",
+  "negative_sentiment",
+  "repeated_language",
+  "return_rate_anomaly",
+  "refund_impact",
+  "review_feed_integrity",
+  "source_integrity",
+]);
 const SEO_TITLE_MAX_LENGTH = 70;
 const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
@@ -145,7 +165,6 @@ const US_STATE_NAMES = {
 };
 
 function buildProductDiagnosisPerfContext({ shop, jobId, snapshot } = {}) {
-  const memory = getProductDiagnosisPerfMemorySnapshot();
   return {
     shop,
     jobId,
@@ -153,233 +172,36 @@ function buildProductDiagnosisPerfContext({ shop, jobId, snapshot } = {}) {
     handle: snapshot?.handle || null,
     productTitle: snapshot?.productTitle || snapshot?.title || null,
     startedAt: Date.now(),
-    steps: [],
-    events: [],
-    eventCounts: {},
-    droppedEvents: 0,
     flushed: false,
-    peakMemory: {
-      ...memory,
-      stage: "product_diagnosis.context_created",
-      elapsedMs: 0,
-    },
   };
 }
 
 async function measureProductDiagnosisPerfStep(stage, context, callback, data = {}, summarizeResult = null) {
-  const startedAt = Date.now();
-  const memoryBefore = getProductDiagnosisPerfMemorySnapshot();
-  try {
-    const result = await callback();
-    const resultData = typeof summarizeResult === "function" ? summarizeResult(result) : {};
-    recordProductDiagnosisPerfStep(context, {
-      stage,
-      status: "done",
-      durationMs: Date.now() - startedAt,
-      data: { ...data, ...resultData },
-      memoryBefore,
-      memoryAfter: getProductDiagnosisPerfMemorySnapshot(),
-    });
-    return result;
-  } catch (error) {
-    recordProductDiagnosisPerfStep(context, {
-      stage,
-      status: "failed",
-      durationMs: Date.now() - startedAt,
-      data: {
-        ...data,
-        error: error instanceof Error ? error.message : String(error),
-      },
-      memoryBefore,
-      memoryAfter: getProductDiagnosisPerfMemorySnapshot(),
-    });
-    throw error;
-  }
+  void stage;
+  void context;
+  void data;
+  void summarizeResult;
+  return callback();
 }
 
 function logProductDiagnosisPerf(event, context = {}, data = {}, level = "warn") {
-  if (process.env.NODE_ENV === "test") return;
-  if (context?.steps && context?.eventCounts) {
-    recordProductDiagnosisPerfEvent(context, event, data, level);
-    return;
-  }
-  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
-  console[method]("[product-pulse-diagnosis-perf]", {
-    event,
-    at: new Date().toISOString(),
-    ...getProductDiagnosisPerfMemorySnapshot(),
-    shop: context.shop,
-    jobId: context.jobId,
-    productGid: context.productGid,
-    handle: context.handle,
-    productTitle: context.productTitle,
-    ...data,
-  });
-}
-
-function recordProductDiagnosisPerfStep(context, { stage, status, durationMs, data = {}, memoryBefore = null, memoryAfter = null } = {}) {
-  if (!context?.steps) return;
-  const after = memoryAfter || getProductDiagnosisPerfMemorySnapshot();
-  updateProductDiagnosisPeakMemory(context, after, stage);
-  context.steps.push({
-    stage,
-    status,
-    durationMs: productDiagnosisPerfRound(Number(durationMs || 0)),
-    heapDeltaMb: memoryBefore ? productDiagnosisPerfRound(after.heapUsedMb - memoryBefore.heapUsedMb) : null,
-    rssDeltaMb: memoryBefore ? productDiagnosisPerfRound(after.rssMb - memoryBefore.rssMb) : null,
-    memory: after,
-    data: sanitizeProductDiagnosisSummaryValue(data),
-  });
+  void event;
+  void context;
+  void data;
+  void level;
 }
 
 function recordProductDiagnosisPerfEvent(context, event, data = {}, level = "warn") {
-  if (!context?.eventCounts) return;
-  const memory = getProductDiagnosisPerfMemorySnapshot();
-  updateProductDiagnosisPeakMemory(context, memory, event);
-  context.eventCounts[event] = (context.eventCounts[event] || 0) + 1;
-  context.events.push({
-    event,
-    level,
-    elapsedMs: Date.now() - Number(context.startedAt || Date.now()),
-    memory,
-    data: sanitizeProductDiagnosisSummaryValue(data),
-  });
-  const maxEvents = 80;
-  if (context.events.length > maxEvents) {
-    context.events.shift();
-    context.droppedEvents += 1;
-  }
+  void context;
+  void event;
+  void data;
+  void level;
 }
 
 function flushProductDiagnosisSummaryLog(context, data = {}, level = "warn") {
-  if (process.env.NODE_ENV === "test") return;
-  if (!context || context.flushed) return;
-  context.flushed = true;
-  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
-  const finalMemory = getProductDiagnosisPerfMemorySnapshot();
-  updateProductDiagnosisPeakMemory(context, finalMemory, "product_diagnosis.summary");
-  const steps = Array.isArray(context.steps) ? context.steps : [];
-  const payload = {
-    event: level === "error" ? "product_diagnosis.summary.failed" : "product_diagnosis.summary.completed",
-    at: new Date().toISOString(),
-    shop: context.shop,
-    jobId: context.jobId,
-    productGid: context.productGid,
-    handle: context.handle,
-    productTitle: context.productTitle,
-    durationMs: Number(data.durationMs || 0) || Date.now() - Number(context.startedAt || Date.now()),
-    finalMemory,
-    peakMemory: context.peakMemory || finalMemory,
-    stepCount: steps.length,
-    steps: steps.slice(0, 120).map(formatProductDiagnosisStep),
-    droppedSteps: Math.max(0, steps.length - 120),
-    slowestSteps: buildProductDiagnosisTopSteps(steps, "durationMs"),
-    highestMemorySteps: buildProductDiagnosisTopSteps(steps, "memory.rssMb"),
-    slowestAiTasks: buildProductDiagnosisSlowestAiTasks(context.events || []),
-    eventCounts: context.eventCounts || {},
-    recentEvents: (context.events || []).slice(-20),
-    droppedEvents: context.droppedEvents || 0,
-    ...sanitizeProductDiagnosisSummaryValue(data),
-  };
-  console[method]("[product-pulse-diagnosis-summary]", JSON.stringify(payload));
-}
-
-function buildProductDiagnosisTopSteps(steps, sortKey) {
-  return [...(steps || [])]
-    .sort((a, b) => getProductDiagnosisSortValue(b, sortKey) - getProductDiagnosisSortValue(a, sortKey))
-    .slice(0, 10)
-    .map(formatProductDiagnosisStep);
-}
-
-function formatProductDiagnosisStep(step = {}) {
-  return {
-    stage: step.stage,
-    status: step.status,
-    durationMs: step.durationMs,
-    heapDeltaMb: step.heapDeltaMb,
-    rssDeltaMb: step.rssDeltaMb,
-    memory: step.memory,
-    data: step.data,
-  };
-}
-
-function buildProductDiagnosisSlowestAiTasks(events = []) {
-  return events
-    .filter((entry) => ["product_diagnosis.ai_task.done", "product_diagnosis.ai_task.failed", "product_diagnosis.ai_task.cached"].includes(entry?.event))
-    .map((entry) => ({
-      event: entry.event,
-      task: entry.data?.task || null,
-      provider: entry.data?.provider || null,
-      model: entry.data?.model || null,
-      durationMs: Number(entry.data?.durationMs || 0),
-      textChars: entry.data?.textChars ?? null,
-      usage: entry.data?.usage || null,
-      error: entry.data?.error || null,
-      memory: entry.memory || null,
-    }))
-    .sort((a, b) => b.durationMs - a.durationMs)
-    .slice(0, 10);
-}
-
-function getProductDiagnosisSortValue(value, key) {
-  if (key === "durationMs") return Number(value?.durationMs || 0);
-  if (key === "memory.rssMb") return Number(value?.memory?.rssMb || 0);
-  return 0;
-}
-
-function updateProductDiagnosisPeakMemory(context, memory, stage) {
-  if (!context || !memory) return;
-  const currentPeak = context.peakMemory || {};
-  const currentPeakValue = Math.max(Number(currentPeak.rssMb || 0), Number(currentPeak.heapUsedMb || 0));
-  const nextPeakValue = Math.max(Number(memory.rssMb || 0), Number(memory.heapUsedMb || 0));
-  if (!currentPeakValue || nextPeakValue >= currentPeakValue) {
-    context.peakMemory = {
-      ...memory,
-      stage,
-      elapsedMs: Date.now() - Number(context.startedAt || Date.now()),
-    };
-  }
-}
-
-function sanitizeProductDiagnosisSummaryValue(value, depth = 0) {
-  if (value == null) return value;
-  if (typeof value === "string") return value.length > 300 ? `${value.slice(0, 300)}...` : value;
-  if (typeof value === "number" || typeof value === "boolean") return value;
-  if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value)) {
-    if (depth >= 2) return { count: value.length };
-    return {
-      count: value.length,
-      sample: value.slice(0, 5).map((item) => sanitizeProductDiagnosisSummaryValue(item, depth + 1)),
-    };
-  }
-  if (typeof value === "object") {
-    if (depth >= 3) return "[object]";
-    return Object.fromEntries(
-      Object.entries(value)
-        .slice(0, 24)
-        .map(([key, item]) => [key, sanitizeProductDiagnosisSummaryValue(item, depth + 1)]),
-    );
-  }
-  return String(value);
-}
-
-function getProductDiagnosisPerfMemorySnapshot() {
-  const memory = process.memoryUsage();
-  return {
-    heapUsedMb: productDiagnosisPerfToMb(memory.heapUsed),
-    heapTotalMb: productDiagnosisPerfToMb(memory.heapTotal),
-    rssMb: productDiagnosisPerfToMb(memory.rss),
-    externalMb: productDiagnosisPerfToMb(memory.external),
-  };
-}
-
-function productDiagnosisPerfToMb(value) {
-  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
-}
-
-function productDiagnosisPerfRound(value) {
-  return Math.round(Number(value || 0) * 10) / 10;
+  if (context) context.flushed = true;
+  void data;
+  void level;
 }
 
 function summarizeReconstructedRiskHistory(history) {
@@ -1122,7 +944,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     shopSourceCache = await measureProductDiagnosisPerfStep(
       "shopify_source_event_cache",
       diagnosisPerfContext,
-      () => getShopSourceEventCacheForDiagnosis({ shop, windowDays }),
+      () => getShopSourceEventCacheForDiagnosis({ shop, windowDays, referenceAt: fetchStartedAt }),
       { windowDays },
       (result) => ({
         usable: Boolean(result?.usable),
@@ -5641,6 +5463,7 @@ function buildProductDiagnosisEvolutionContextFromRecords({
   const sourceSummary = buildProductEvolutionSourceSummary(deterministic, {
     baselineAt: hasPreviousDiagnosis ? comparisonBaseline.at : null,
     baselineType: comparisonBaseline.type,
+    previousDiagnosis,
   });
   const metricChanges = hasPreviousDiagnosis
     ? buildProductEvolutionMetricChanges({ previousDiagnosis, deterministic })
@@ -6060,7 +5883,8 @@ function buildProductEvolutionLifecycleEntry({
       baselineType: action ? "action" : "diagnosis",
     })
     : sourceSummary;
-  const lifecycleState = getProductEvolutionLifecycleState({ actionStatus, action, sourceSummary: actionSourceSummary, issueTransition });
+  const subjectIssueKeys = buildProductEvolutionSubjectIssueKeys({ action, recommendation });
+  const lifecycleState = getProductEvolutionLifecycleState({ actionStatus, action, sourceSummary: actionSourceSummary, issueTransition, subjectIssueKeys });
   return {
     actionId,
     label,
@@ -6081,11 +5905,13 @@ function buildProductEvolutionLifecycleEntry({
       sourceSummary: actionSourceSummary,
       metricChanges: [],
       issueTransition,
+      subjectIssueKeys,
     }),
     sourceDiagnosisId: action?.sourceDiagnosisId || null,
     matchedStoredAction: Boolean(action),
-    issueKey: action?.field || action?.operation || null,
-    reason: buildProductEvolutionLifecycleReason({ label, actionStatus, lifecycleState, sourceSummary: actionSourceSummary, issueTransition }),
+    issueKey: subjectIssueKeys[0] || action?.field || action?.operation || null,
+    subjectIssueKeys,
+    reason: buildProductEvolutionLifecycleReason({ label, actionStatus, lifecycleState, sourceSummary: actionSourceSummary, issueTransition, subjectIssueKeys }),
     actionKeys: Array.from(buildProductEvolutionActionKeySet({
       id: actionId,
       actionId,
@@ -6100,10 +5926,11 @@ function getProductEvolutionLifecycleState({
   action = null,
   sourceSummary = {},
   issueTransition = {},
+  subjectIssueKeys = [],
 } = {}) {
   const status = normalizeProductEvolutionActionStatus(actionStatus);
   if (!action || isOpenProductEvolutionActionStatus(status)) return "pending";
-  if (hasPersistentPostActionIssue(sourceSummary, issueTransition)) return "reopened/persistent";
+  if (hasPersistentPostActionIssue(sourceSummary, issueTransition, subjectIssueKeys)) return "reopened/persistent";
   if (["dismissed", "ignored"].includes(status)) return "superseded";
   if (["applied", "reviewed"].includes(status)) {
     if (!sourceSummary.hasNewEvidence) return "monitoring";
@@ -6113,8 +5940,17 @@ function getProductEvolutionLifecycleState({
   return "new";
 }
 
-function hasPersistentPostActionIssue(sourceSummary = {}, issueTransition = {}) {
-  return Boolean(sourceSummary.hasNewEvidence && Array.isArray(issueTransition.persisting) && issueTransition.persisting.length > 0);
+function hasPersistentPostActionIssue(sourceSummary = {}, issueTransition = {}, subjectIssueKeys = []) {
+  if (!sourceSummary.hasNewEvidence) return false;
+  const persistingKeys = new Set((Array.isArray(issueTransition.persisting) ? issueTransition.persisting : [])
+    .map((issue) => normalizeIssueCode(issue?.key || issue?.issueCode || issue?.label))
+    .filter(Boolean));
+  if (!persistingKeys.size) return false;
+  const postActionIssueKeys = getProductEvolutionPostActionIssueKeySet(sourceSummary);
+  if (!postActionIssueKeys.size) return false;
+  const subjectKeys = normalizeProductEvolutionIssueKeys(subjectIssueKeys);
+  const candidateKeys = subjectKeys.length ? subjectKeys : Array.from(persistingKeys);
+  return candidateKeys.some((key) => persistingKeys.has(key) && postActionIssueKeys.has(key));
 }
 
 function hasResolvedPostActionIssue(issueTransition = {}) {
@@ -6139,11 +5975,13 @@ function buildProductEvolutionLifecycleReason({
   lifecycleState = "",
   sourceSummary = {},
   issueTransition = {},
+  subjectIssueKeys = [],
 } = {}) {
   const actionLabel = label || "This action";
   if (lifecycleState === "pending") return `${actionLabel} is still pending from the prior diagnosis.`;
   if (lifecycleState === "reopened/persistent") {
-    const issue = issueTransition.persisting?.[0]?.label;
+    const issue = getProductEvolutionPostActionPersistingIssues(issueTransition, sourceSummary, subjectIssueKeys)[0]?.label
+      || issueTransition.persisting?.[0]?.label;
     return `${actionLabel} was ${actionStatus}, but new post-action evidence still shows ${issue || "the same issue"}.`;
   }
   if (lifecycleState === "monitoring") return `${actionLabel} was ${actionStatus}, and there is not enough new post-action evidence to repeat the same fix.`;
@@ -6159,12 +5997,14 @@ function buildProductEvolutionPostActionEvidence({
   sourceSummary = {},
   metricChanges = [],
   issueTransition = {},
+  subjectIssueKeys = [],
 } = {}) {
   if (!hasPreviousDiagnosis) return null;
   const evidenceTypes = (Array.isArray(sourceSummary.changes) ? sourceSummary.changes : [])
     .map((change) => change.label || change.type)
     .filter(Boolean)
     .slice(0, 5);
+  const issueChanges = buildProductEvolutionPostActionIssueChanges(issueTransition, sourceSummary, subjectIssueKeys);
   return {
     baselineType: comparisonBaseline?.type || "diagnosis",
     baselineLabel: comparisonBaseline?.label || "Previous Product Diagnosis",
@@ -6172,13 +6012,165 @@ function buildProductEvolutionPostActionEvidence({
     hasPostActionEvidence: Boolean(sourceSummary.hasNewEvidence),
     evidenceTypes,
     metricChanges: (Array.isArray(metricChanges) ? metricChanges : []).slice(0, 8),
-    issueChanges: {
-      persisting: (issueTransition.persisting || []).slice(0, 4),
-      noLongerDetected: (issueTransition.noLongerDetected || []).slice(0, 4),
-      newlyDetected: (issueTransition.newlyDetected || []).slice(0, 4),
-    },
-    summary: buildProductEvolutionPostActionEvidenceText({ sourceSummary, metricChanges, issueTransition }),
+    issueChanges,
+    summary: buildProductEvolutionPostActionEvidenceText({ sourceSummary, metricChanges, issueTransition: issueChanges }),
   };
+}
+
+function buildProductEvolutionPostActionIssueChanges(issueTransition = {}, sourceSummary = {}, subjectIssueKeys = []) {
+  const postActionIssueKeys = getProductEvolutionPostActionIssueKeySet(sourceSummary);
+  const subjectKeys = new Set(normalizeProductEvolutionIssueKeys(subjectIssueKeys));
+  const shouldFilterPersisting = Boolean(sourceSummary.hasNewEvidence && postActionIssueKeys.size);
+  const matchesPostActionIssue = (issue = {}) => {
+    const key = normalizeIssueCode(issue.key || issue.issueCode || issue.label);
+    if (!key) return false;
+    if (!postActionIssueKeys.has(key)) return false;
+    return !subjectKeys.size || subjectKeys.has(key);
+  };
+  const filterPostActionIssueList = (issues = []) => (Array.isArray(issues) ? issues : [])
+    .filter((issue) => {
+      if (!sourceSummary.hasNewEvidence || !postActionIssueKeys.size) return true;
+      const key = normalizeIssueCode(issue?.key || issue?.issueCode || issue?.label);
+      return Boolean(key && postActionIssueKeys.has(key));
+    });
+
+  return {
+    persisting: (shouldFilterPersisting
+      ? (Array.isArray(issueTransition.persisting) ? issueTransition.persisting : []).filter(matchesPostActionIssue)
+      : (issueTransition.persisting || [])
+    ).slice(0, 4),
+    noLongerDetected: (issueTransition.noLongerDetected || []).slice(0, 4),
+    newlyDetected: filterPostActionIssueList(issueTransition.newlyDetected).slice(0, 4),
+  };
+}
+
+function getProductEvolutionPostActionPersistingIssues(issueTransition = {}, sourceSummary = {}, subjectIssueKeys = []) {
+  return buildProductEvolutionPostActionIssueChanges(issueTransition, sourceSummary, subjectIssueKeys).persisting || [];
+}
+
+function getProductEvolutionPostActionIssueKeySet(sourceSummary = {}) {
+  return new Set(normalizeProductEvolutionIssueKeys([
+    ...(Array.isArray(sourceSummary.postActionIssueKeys) ? sourceSummary.postActionIssueKeys : []),
+    ...(Array.isArray(sourceSummary.postActionIssueCounts) ? sourceSummary.postActionIssueCounts.map((item) => item?.key || item?.issueCode || item?.label) : []),
+    ...(Array.isArray(sourceSummary.postBaseline?.issueKeys) ? sourceSummary.postBaseline.issueKeys : []),
+    ...(Array.isArray(sourceSummary.postBaseline?.issueCounts) ? sourceSummary.postBaseline.issueCounts.map((item) => item?.key || item?.issueCode || item?.label) : []),
+  ]));
+}
+
+function buildProductEvolutionSubjectIssueKeys({ action = null, recommendation = null } = {}) {
+  return normalizeProductEvolutionIssueKeys([
+    collectProductEvolutionIssueCandidateValues(action),
+    collectProductEvolutionIssueCandidateValues(recommendation),
+  ].flat());
+}
+
+function collectProductEvolutionIssueCandidateValues(subject = null) {
+  if (!subject || typeof subject !== "object") return [];
+  const payload = subject.payload && typeof subject.payload === "object" ? subject.payload : {};
+  return [
+    subject.issue,
+    subject.issueCode,
+    subject.issueKey,
+    subject.reasonCategory,
+    subject.actionId,
+    subject.id,
+    subject.actionType,
+    subject.label,
+    subject.type,
+    subject.field,
+    subject.shopifyField,
+    subject.operation,
+    payload.issue,
+    payload.issueCode,
+    payload.issueKey,
+    payload.reasonCategory,
+    payload.trigger,
+    payload.proposedChange,
+    payload.canonicalActionId,
+    payload.sourceActionId,
+    payload.shopifyField,
+    payload.field,
+    payload.operation,
+    ...(Array.isArray(subject.actionKeys) ? subject.actionKeys : []),
+    ...(Array.isArray(subject.actionAliases) ? subject.actionAliases : []),
+    ...(Array.isArray(payload.actionKeys) ? payload.actionKeys : []),
+    ...(Array.isArray(payload.actionAliases) ? payload.actionAliases : []),
+  ].filter(Boolean);
+}
+
+function normalizeProductEvolutionIssueKeys(values = []) {
+  return uniqueBy((Array.isArray(values) ? values : [values])
+    .flatMap((value) => {
+      if (value == null) return [];
+      if (Array.isArray(value)) return normalizeProductEvolutionIssueKeys(value);
+      const key = inferProductEvolutionIssueKey(value);
+      return key ? [key] : [];
+    }), (key) => key);
+}
+
+function inferProductEvolutionIssueKey(value = "") {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    const payload = value.payload && typeof value.payload === "object" ? value.payload : {};
+    return normalizeProductEvolutionIssueKeys([
+      value.issueCode,
+      value.issue,
+      value.issueKey,
+      value.category,
+      value.issueCategory,
+      value.reasonCategory,
+      value.reasonCode,
+      value.reasonLabel,
+      value.reasonText,
+      value.returnReason,
+      value.refundReason,
+      value.label,
+      value.title,
+      value.text,
+      value.analysisText,
+      value.source,
+      payload.issue,
+      payload.issueCode,
+      payload.issueKey,
+      payload.reasonCategory,
+      payload.trigger,
+    ])[0] || "";
+  }
+
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const normalized = normalizeText(text).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (!normalized) return "";
+  if (normalized.includes("too_big")
+    || normalized.includes("too_large")
+    || normalized.includes("too_small")
+    || normalized.includes("too_tight")
+    || normalized.includes("too_loose")
+    || normalized.includes("runs_small")
+    || normalized.includes("runs_large")
+    || normalized.includes("wrong_size")
+  ) return "fit_sizing";
+
+  const direct = normalizeIssueCode(text);
+  if (direct) {
+    if (direct === "product_quality") return "quality_defect";
+    if (PRODUCT_EVOLUTION_KNOWN_ISSUE_KEYS.has(direct)) return direct;
+  }
+
+  if (normalized.includes("damaged")
+    || normalized.includes("broken")
+    || normalized.includes("defective")
+    || normalized.includes("supplier")
+    || normalized.includes("qa")
+    || normalized.includes("quality_control")
+  ) return "quality_defect";
+  if (normalized.includes("seo")
+    || normalized.includes("pdp")
+    || normalized.includes("copy")
+    || normalized.includes("description")
+    || normalized.includes("metadata")
+  ) return "product_content";
+  return "";
 }
 
 function buildProductEvolutionPostActionEvidenceText({
@@ -6274,8 +6266,9 @@ function getProductEvolutionPostActionStatusState({
   if (reopenedCount > 0) return "reopened_persistent";
   if (pendingCount > 0 && handledCount === 0) return "pending";
   if (monitoringCount > 0 && !sourceSummary.hasNewEvidence) return "monitoring";
-  if (hasResolvedPostActionIssue(issueTransition) || hasMeaningfulRiskImprovement(metricChanges)) return "improved";
+  if (hasResolvedPostActionIssue(issueTransition)) return "improved";
   if (sourceSummary.hasNewEvidence) return "changed";
+  if (hasMeaningfulRiskImprovement(metricChanges)) return "improved";
   return "no_material_change";
 }
 
@@ -6334,7 +6327,7 @@ function buildProductEvolutionNextBestStepText({
   return "Keep the prior diagnosis as historical context and monitor for new orders, returns, refunds, reviews or customer language.";
 }
 
-function buildProductEvolutionSourceSummary(deterministic = {}, { baselineAt = null, baselineType = "diagnosis" } = {}) {
+function buildProductEvolutionSourceSummary(deterministic = {}, { baselineAt = null, baselineType = "diagnosis", previousDiagnosis = null } = {}) {
   const incremental = deterministic.metrics?.incrementalDiagnosis || {};
   const productContent = incremental.productContent || {};
   const customerText = incremental.customerText || {};
@@ -6344,7 +6337,7 @@ function buildProductEvolutionSourceSummary(deterministic = {}, { baselineAt = n
   const changes = [];
   const baselineDate = parseValidDate(baselineAt);
   if (baselineDate) {
-    const postBaseline = buildProductEvolutionPostBaselineSourceSummary(deterministic, baselineDate);
+    const postBaseline = buildProductEvolutionPostBaselineSourceSummary(deterministic, baselineDate, { previousDiagnosis });
     const eventCounts = postBaseline.eventCounts || {};
     if (postBaseline.productContentChanged) {
       changes.push({
@@ -6357,25 +6350,25 @@ function buildProductEvolutionSourceSummary(deterministic = {}, { baselineAt = n
     if (eventCounts.salesEvents > 0) {
       changes.push({
         type: "orders",
-        label: "New orders after action",
+        label: "New/current orders",
         count: eventCounts.salesEvents,
-        detail: "Shopify order activity was detected after the comparison point.",
+        detail: "Shopify order activity was detected after the comparison point or was newly present compared with the previous diagnosis cache.",
       });
     }
     if (eventCounts.returnEvents > 0) {
       changes.push({
         type: "returns",
-        label: "New returns after action",
+        label: "New/current returns",
         count: eventCounts.returnEvents,
-        detail: "Return activity was detected after the comparison point.",
+        detail: "Return activity was detected after the comparison point or was newly present compared with the previous diagnosis cache.",
       });
     }
     if (eventCounts.refundEvents > 0) {
       changes.push({
         type: "refunds",
-        label: "New refunds after action",
+        label: "New/current refunds",
         count: eventCounts.refundEvents,
-        detail: "Refund activity was detected after the comparison point.",
+        detail: "Refund activity was detected after the comparison point or was newly present compared with the previous diagnosis cache.",
       });
     }
     if (eventCounts.reviewEvents > 0) {
@@ -6409,6 +6402,8 @@ function buildProductEvolutionSourceSummary(deterministic = {}, { baselineAt = n
       sourceFingerprintChanged: false,
       sourceExtractionComplete: incremental.sourceChanges?.sourceExtractionComplete !== false,
       eventCounts,
+      postActionIssueCounts: postBaseline.issueCounts || [],
+      postActionIssueKeys: postBaseline.issueKeys || [],
       postBaseline,
       changes: changes.slice(0, 8),
     };
@@ -6477,16 +6472,17 @@ function buildProductEvolutionSourceSummary(deterministic = {}, { baselineAt = n
   };
 }
 
-function buildProductEvolutionPostBaselineSourceSummary(deterministic = {}, baselineDate = null) {
+function buildProductEvolutionPostBaselineSourceSummary(deterministic = {}, baselineDate = null, { previousDiagnosis = null } = {}) {
   const baseline = parseValidDate(baselineDate);
   const incremental = deterministic.metrics?.incrementalDiagnosis || {};
   const cache = incremental.cache || {};
   const cachedSourceEvents = cache.sourceEvents || {};
+  const previousSourceEvents = previousDiagnosis?.metrics?.incrementalDiagnosis?.cache?.sourceEvents || {};
   const customerTextCache = cache.customerText || {};
   const refundCache = cache.refunds || {};
-  const sourceSales = getProductEvolutionDatedItemsAfter(cachedSourceEvents.sales, baseline);
-  const sourceReturns = getProductEvolutionDatedItemsAfter(cachedSourceEvents.returns, baseline);
-  const sourceRefunds = getProductEvolutionDatedItemsAfter(cachedSourceEvents.refunds, baseline);
+  const sourceSales = getProductEvolutionSourceItemsAfterOrNew(cachedSourceEvents.sales, previousSourceEvents.sales, "sales", baseline);
+  const sourceReturns = getProductEvolutionSourceItemsAfterOrNew(cachedSourceEvents.returns, previousSourceEvents.returns, "returns", baseline);
+  const sourceRefunds = getProductEvolutionSourceItemsAfterOrNew(cachedSourceEvents.refunds, previousSourceEvents.refunds, "refunds", baseline);
   const returnTextItems = getProductEvolutionDatedItemsAfter(customerTextCache.returnItems, baseline);
   const reviewTextItems = getProductEvolutionDatedItemsAfter(customerTextCache.reviewItems, baseline);
   const refundTextItems = getProductEvolutionDatedItemsAfter(refundCache.items, baseline);
@@ -6505,6 +6501,15 @@ function buildProductEvolutionPostBaselineSourceSummary(deterministic = {}, base
     refundTextEvents: refundTextItems.length,
     evidenceSnippets: evidenceSnippets.length,
   };
+  const issueSummary = buildProductEvolutionPostBaselineIssueSummary([
+    ...sourceReturns,
+    ...sourceRefunds,
+    ...returnTextItems,
+    ...reviewTextItems,
+    ...refundTextItems,
+    ...evidenceSnippets,
+    ...(productContentChanged ? [{ issueCode: "product_content", count: 1 }] : []),
+  ]);
   const outcomeEvidenceCount = eventCounts.salesEvents
     + eventCounts.returnEvents
     + eventCounts.refundEvents
@@ -6516,6 +6521,8 @@ function buildProductEvolutionPostBaselineSourceSummary(deterministic = {}, base
   return {
     baselineAt: toIso(baseline),
     eventCounts,
+    issueCounts: issueSummary.counts,
+    issueKeys: issueSummary.keys,
     hasOutcomeEvidence: outcomeEvidenceCount > 0,
     productContentChanged,
     latestEvidenceAt: getLatestProductEvolutionEvidenceDate([
@@ -6537,6 +6544,53 @@ function getProductEvolutionDatedItemsAfter(items = [], baselineDate = null) {
     const date = getProductEvolutionEvidenceDate(item);
     return Boolean(date && date.getTime() > baseline.getTime());
   });
+}
+
+function buildProductEvolutionPostBaselineIssueSummary(items = []) {
+  const counts = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const key = inferProductEvolutionIssueKey(item);
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + getProductEvolutionIssueEvidenceWeight(item));
+  });
+  const ordered = Array.from(counts.entries())
+    .sort((first, second) => second[1] - first[1])
+    .map(([key, count]) => ({
+      key,
+      label: getHumanIssueLabel(key),
+      count,
+    }));
+  return {
+    keys: ordered.map((item) => item.key),
+    counts: ordered,
+  };
+}
+
+function getProductEvolutionIssueEvidenceWeight(item = {}) {
+  const quantity = Number(item.quantity ?? item.returnQuantity ?? item.refundedQuantity ?? item.count ?? 1);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+}
+
+function getProductEvolutionSourceItemsAfterOrNew(items = [], previousItems = [], type = "", baselineDate = null) {
+  const currentItems = Array.isArray(items) ? items : [];
+  const datedItems = getProductEvolutionDatedItemsAfter(currentItems, baselineDate);
+  const previousKeys = buildProductEvolutionSourceEventKeySet(previousItems, type);
+  if (!previousKeys.size) return datedItems;
+
+  const seen = new Set(datedItems.map((item) => getSourceEventCacheKey(type, item)).filter(Boolean));
+  const newlyKnownItems = currentItems.filter((item) => {
+    const key = getSourceEventCacheKey(type, item);
+    if (!key || previousKeys.has(key) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return [...datedItems, ...newlyKnownItems];
+}
+
+function buildProductEvolutionSourceEventKeySet(items = [], type = "") {
+  return new Set((Array.isArray(items) ? items : [])
+    .map((item) => getSourceEventCacheKey(type, item))
+    .filter(Boolean));
 }
 
 function getProductEvolutionEvidenceDate(item = {}) {
@@ -8270,7 +8324,6 @@ function buildRuleRecommendationCandidates(deterministic) {
   if (recipeSignals.template.shouldRecommend && !isDisabledProductAction("switch-product-template")) candidates.push({ id: "switch-product-template", type: "Product template", reason: recipeSignals.template.reason });
   if (recipeSignals.sourceMismatch.shouldRecommend) candidates.push({ id: "fix-source-review-mismatch", type: "Source integrity", reason: recipeSignals.sourceMismatch.reason });
   if (recipeSignals.missingSource.shouldRecommend) candidates.push({ id: "connect-missing-source", type: "Evidence coverage", reason: recipeSignals.missingSource.reason });
-  if (recipeSignals.monitoringCoverage.shouldRecommend) candidates.push({ id: "improve-monitoring-coverage", type: "Monitoring coverage", reason: recipeSignals.monitoringCoverage.reason });
   if (recipeSignals.baselineScan.shouldRecommend) candidates.push({ id: "create-baseline-scan", type: "Baseline scan", reason: recipeSignals.baselineScan.reason });
   if (recipeSignals.watchlist.shouldRecommend) candidates.push({ id: "add-to-watchlist", type: "Watchlist", reason: recipeSignals.watchlist.reason });
   if (recipeSignals.fullDiagnosis.shouldRecommend) candidates.push({ id: "run-full-diagnosis", type: "Diagnosis", reason: recipeSignals.fullDiagnosis.reason });
@@ -9224,6 +9277,7 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
     const missingSources = recipeSignals.missingSource.sources || [];
     const missingSourceText = missingSources.join(", ") || "the missing evidence source";
     const missingSourceVerb = missingSources.length === 1 ? "is" : "are";
+    const includeMonitoringContext = Boolean(recipeSignals.monitoringCoverage.shouldRecommend);
     recommendations.push({
       id: "connect-missing-source",
       label: "Review source coverage in Connect",
@@ -9232,53 +9286,27 @@ function buildFinalRecommendations({ snapshot, deterministic, ai, mainIssue }) {
       status: "Manual setup required",
       payload: {
         missingSources,
+        productMomentumScore: includeMonitoringContext ? deterministic.metrics.productMomentumScore : undefined,
         issue: "coverage",
-        trigger: recipeSignals.missingSource.reason,
-        whyThisAction: `ProductPulse has enough product signal or commercial activity to care about this product, but diagnosis confidence is limited because ${missingSourceText} ${missingSourceVerb} not connected or imported.`,
-        expectedAction: `Open Connect and confirm whether ${missingSourceText} should exist for this shop. If it should, connect the provider or upload/import the source, then rerun Product Diagnosis for this product.`,
+        trigger: includeMonitoringContext
+          ? `${recipeSignals.missingSource.reason} ${recipeSignals.monitoringCoverage.reason}`
+          : recipeSignals.missingSource.reason,
+        whyThisAction: includeMonitoringContext
+          ? `ProductPulse has enough product signal or commercial activity to care about this product, and Sales Momentum is high enough that missing coverage from ${missingSourceText} can hide expensive changes until they are already visible in returns, refunds or reviews.`
+          : `ProductPulse has enough product signal or commercial activity to care about this product, but diagnosis confidence is limited because ${missingSourceText} ${missingSourceVerb} not connected or imported.`,
+        expectedAction: `Open Connect and confirm whether ${missingSourceText} should exist for this shop. If it should, connect the provider or upload/import the source, then rerun Product Diagnosis for this product.${includeMonitoringContext ? " Keep this product on Watchlist if stronger monitoring coverage is still needed." : ""}`,
         reviewChecklist: [
           `Confirm whether this store actually uses ${missingSourceText}.`,
           "If the source exists, connect the provider or upload the latest file in Connect.",
+          ...(includeMonitoringContext ? ["Because Sales Momentum is high, confirm coverage before relying on this diagnosis as complete monitoring."] : []),
           "If the source does not exist for this store, dismiss this action so it does not block product decisions.",
         ],
         nextSteps: [
           "Open Connect and inspect the missing source",
           "Connect or import the source when it exists for this shop",
           "Rerun Product Diagnosis so the product uses the new evidence",
+          ...(includeMonitoringContext ? ["Keep the product on Watchlist if periodic monitoring still matters"] : []),
           "Dismiss if the shop does not use that source",
-        ],
-        destinationHref: "/app/connect",
-        destinationLabel: "Open Connect",
-      },
-    });
-  }
-
-  if (recipeSignals.monitoringCoverage.shouldRecommend) {
-    const missingSources = recipeSignals.missingSource.sources || [];
-    const missingSourceText = missingSources.join(", ") || "additional source coverage";
-    recommendations.push({
-      id: "improve-monitoring-coverage",
-      label: "Improve monitoring coverage",
-      type: "Monitoring coverage",
-      effort: "Medium",
-      status: "Manual setup required",
-      payload: {
-        missingSources,
-        productMomentumScore: deterministic.metrics.productMomentumScore,
-        issue: "coverage",
-        trigger: recipeSignals.monitoringCoverage.reason,
-        whyThisAction: `This product has high Sales Momentum, so missing coverage from ${missingSourceText} can hide expensive problems until they are already visible in returns, refunds or reviews.`,
-        expectedAction: `Check whether ${missingSourceText} can be connected or imported. If yes, add it to ProductPulse monitoring and rerun the diagnosis; if not, keep the action dismissed after confirming the source is unavailable.`,
-        reviewChecklist: [
-          "Confirm the product is commercially important enough to justify stronger monitoring.",
-          `Check whether ${missingSourceText} can provide product-level evidence.`,
-          "Connect/import the missing source before relying on this diagnosis as complete.",
-        ],
-        nextSteps: [
-          "Open Connect and verify missing monitoring sources",
-          "Connect or import any available product-level source",
-          "Rerun Product Diagnosis and keep the product on Watchlist if needed",
-          "Dismiss if no additional source is available",
         ],
         destinationHref: "/app/connect",
         destinationLabel: "Open Connect",
@@ -9691,8 +9719,12 @@ function buildProductEvolutionFollowUpRationale(action = {}, matchedAction = {},
   if (decision.lifecycleState === "reopened/persistent") {
     return `ProductPulse is treating ${label} as a persistent/reopened issue because it was already handled and new post-action evidence still supports the same problem. The next step should escalate or verify the prior fix rather than repeat the original action blindly.`;
   }
-  if (productEvolution?.sourceSummary?.hasNewEvidence) {
-    return `ProductPulse is treating ${label} as previous context because it was ${status} after the last diagnosis. This recommendation should be read as a follow-up only: current evidence or product changes still support checking whether the prior action fully addressed the issue.`;
+  if (productEvolution?.sourceSummary?.hasNewEvidence || decision.matchedLifecycle?.postActionEvidence?.hasPostActionEvidence) {
+    const persistingIssues = decision.matchedLifecycle?.postActionEvidence?.issueChanges?.persisting || [];
+    if (persistingIssues.length) {
+      return `ProductPulse is treating ${label} as previous context because it was ${status} after the last diagnosis. Current post-action evidence still touches ${persistingIssues[0].label || "the same issue"}, so this should be read as follow-up context rather than a fresh baseline recommendation.`;
+    }
+    return `ProductPulse is treating ${label} as previous context because it was ${status} after the last diagnosis. Current post-action evidence changes the diagnosis context, but it does not show this same issue persisted, so this should not be repeated as the same baseline fix.`;
   }
   return `ProductPulse found that ${label} was already ${status} after the last diagnosis. This action should not be repeated as a new baseline recommendation unless new evidence appears or the merchant decides the prior handling was incomplete.`;
 }
@@ -15570,12 +15602,21 @@ function getShopSourceEventLookbackCutoffDate(windowDays = DIAGNOSIS_DEFAULT_WIN
   return new Date(Date.now() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000);
 }
 
-function isShopSourceEventCacheFresh(fetchedThroughAt) {
+function getShopSourceEventCacheFreshness(fetchedThroughAt, { referenceAt = null } = {}) {
   const parsed = parseValidDate(fetchedThroughAt);
-  return Boolean(parsed && Date.now() - parsed.getTime() <= SHOP_SOURCE_EVENT_CACHE_FRESH_MS);
+  if (!parsed) return { usable: false, stale: true, reason: "shop_source_event_cache_fetched_through_missing", ageMs: null };
+  const reference = parseValidDate(referenceAt) || new Date();
+  const ageMs = Math.max(0, reference.getTime() - parsed.getTime());
+  if (ageMs > SHOP_SOURCE_EVENT_CACHE_FRESH_MS) {
+    return { usable: false, stale: true, reason: "shop_source_event_cache_stale", ageMs };
+  }
+  if (ageMs > SHOP_SOURCE_EVENT_CACHE_MAX_HIT_LAG_MS) {
+    return { usable: false, stale: true, reason: "shop_source_event_cache_behind_diagnosis", ageMs };
+  }
+  return { usable: true, stale: false, reason: "shop_source_event_cache_hit", ageMs };
 }
 
-async function getShopSourceEventCacheForDiagnosis({ shop, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS } = {}) {
+async function getShopSourceEventCacheForDiagnosis({ shop, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, referenceAt = null } = {}) {
   if (!shop || !hasShopSourceEventCacheModels()) {
     return { usable: false, reason: "shop_source_event_cache_unavailable", events: null };
   }
@@ -15610,16 +15651,17 @@ async function getShopSourceEventCacheForDiagnosis({ shop, windowDays = DIAGNOSI
   }
 
   const fetchedThroughAt = toIso(state.fetchedThroughAt || state.updatedAt);
-  const fresh = isShopSourceEventCacheFresh(fetchedThroughAt);
+  const freshness = getShopSourceEventCacheFreshness(fetchedThroughAt, { referenceAt });
   return {
-    usable: fresh,
-    stale: !fresh,
-    reason: fresh ? "shop_source_event_cache_hit" : "shop_source_event_cache_stale",
+    usable: freshness.usable,
+    stale: freshness.stale,
+    reason: freshness.reason,
     state,
     events,
     counts,
     cacheKey,
     fetchedThroughAt,
+    cacheAgeMs: freshness.ageMs,
     sinceDate: fetchedThroughAt ? buildIncrementalSinceDate(fetchedThroughAt, normalizedWindowDays) : getSinceDate(normalizedWindowDays),
   };
 }
@@ -20211,6 +20253,7 @@ export const __productPulseDiagnosisTestHooks = {
   getNoChangeDiagnosisReuseDecision,
   getIncrementalSourceFetchContext,
   getShopSourceEventCacheKey,
+  getShopSourceEventCacheFreshness,
   buildShopSourceEventRow,
   mergeIncrementalSourceEvents,
   selectDiagnosisRelationshipSalesForSummary,

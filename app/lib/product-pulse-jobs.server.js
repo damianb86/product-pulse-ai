@@ -2289,6 +2289,60 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
   };
 }
 
+async function refundFailedProductDiagnosisJobCredits(job, error = null) {
+  if (job.kind !== PRODUCT_DIAGNOSIS_KIND) return null;
+  const payload = job.payload || {};
+  const explicitPointCost = Number(payload.pointCost ?? payload.creditCost);
+  if (payload.batchMode?.freeCreditMode || explicitPointCost === 0) return null;
+  if (!payload.pointLedgerEntryId || payload.pointRefundLedgerEntryId) return null;
+
+  const amount = getRefundableProductDiagnosisPointAmount(job);
+  if (amount <= 0) return null;
+  const refund = await creditStorePointsForShop(job.shop, {
+    amount,
+    reason: `Product Diagnosis refund credit product-diagnosis-failure-refund:${job.id} - ${payload.productTitle || "selected product"}`,
+    idempotencyKey: `product-diagnosis-failure-refund:${job.id}`,
+    metadata: {
+      source: "product_diagnosis_refund",
+      jobId: job.id,
+      originalLedgerEntryId: payload.pointLedgerEntryId,
+      productGid: payload.productGid || null,
+      productTitle: payload.productTitle || null,
+      failed: true,
+      error: error instanceof Error ? error.message : error ? String(error) : null,
+    },
+  });
+
+  if (!isPointCreditRecorded(refund)) {
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      level: "error",
+      event: "product_diagnosis.points_refund_failed",
+      message: refund.message || "Failed Product Diagnosis refund credit could not be recorded.",
+      data: {
+        pointRefundStatus: refund.status,
+        pointBalance: refund.balance || null,
+      },
+    });
+    return { status: refund.status, refunded: false, balance: refund.balance || null };
+  }
+
+  return {
+    status: refund.status,
+    refunded: true,
+    amount,
+    ledgerEntry: refund.ledgerEntry || null,
+    balance: refund.balance || null,
+  };
+}
+
+function getRefundableProductDiagnosisPointAmount(job) {
+  const payload = job.payload || {};
+  const amount = Number(payload.pointsConsumed || payload.creditsConsumed || payload.pointCost || 1);
+  return Number.isFinite(amount) && amount > 0 ? amount : 1;
+}
+
 export async function getBackgroundProcessesForShop(shop, options = {}) {
   const requestedPage = normalizeBackgroundProcessPage(options.page);
   const includeLogs = Boolean(options.includeLogs);
@@ -6537,6 +6591,18 @@ async function shopifyGraphql(admin, query, variables) {
 }
 
 async function markJobFailed(jobId, error, source = "Catalog Scan failed") {
+  const job = await prisma.catalogSignalJob.findUnique({ where: { id: jobId } });
+  const pointRefund = job ? await refundFailedProductDiagnosisJobCredits(job, error) : null;
+  const failedPayload = pointRefund?.refunded
+    ? {
+      ...(job.payload || {}),
+      creditsConsumed: 0,
+      pointsConsumed: 0,
+      pointRefundLedgerEntryId: pointRefund.ledgerEntry?.id || null,
+      pointDebitStatus: "refunded",
+    }
+    : job?.payload;
+
   await prisma.catalogSignalJob.updateMany({
     where: {
       id: jobId,
@@ -6548,6 +6614,7 @@ async function markJobFailed(jobId, error, source = "Catalog Scan failed") {
         progress: 100,
         source,
         errorMessage: error instanceof Error ? error.message : String(error),
+        ...(failedPayload ? { payload: failedPayload } : {}),
         finishedAt: new Date(),
       }),
     },
@@ -6577,25 +6644,10 @@ function sleep(ms) {
 }
 
 function logProductPulseWorkerProgress(event, context = {}, data = {}, level = "warn") {
-  if (process.env.NODE_ENV === "test") return;
-  if (shouldSuppressAggregatedWorkerProgress(event)) return;
-  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
-  const job = context.job || null;
-  const payload = {
-    event,
-    at: new Date().toISOString(),
-    shop: context.shop || job?.shop,
-    jobId: job?.id,
-    kind: job?.kind,
-    ...getProductPulseWorkerMemorySnapshot(),
-    ...data,
-  };
-  console[method]("[product-pulse-worker]", payload);
-}
-
-function shouldSuppressAggregatedWorkerProgress(event) {
-  const normalized = String(event || "");
-  return normalized.startsWith("quick_scan.") || normalized.startsWith("product_diagnosis.");
+  void event;
+  void context;
+  void data;
+  void level;
 }
 
 function logInlineWorkerSkipOnce(event, job, data = {}) {
@@ -6607,40 +6659,11 @@ function logInlineWorkerSkipOnce(event, job, data = {}) {
 }
 
 async function measureProductDiagnosisWorkerStep(job, stage, callback, data = {}, summarizeResult = null) {
-  logProductPulseWorkerProgress(`product_diagnosis.${stage}.started`, { job }, data);
-  const startedAt = Date.now();
-  try {
-    const result = await callback();
-    const resultData = typeof summarizeResult === "function" ? summarizeResult(result) : {};
-    logProductPulseWorkerProgress(`product_diagnosis.${stage}.done`, { job }, {
-      durationMs: Date.now() - startedAt,
-      ...data,
-      ...resultData,
-    });
-    return result;
-  } catch (error) {
-    logProductPulseWorkerProgress(`product_diagnosis.${stage}.failed`, { job }, {
-      durationMs: Date.now() - startedAt,
-      ...data,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    }, "error");
-    throw error;
-  }
-}
-
-function getProductPulseWorkerMemorySnapshot() {
-  const memory = process.memoryUsage();
-  return {
-    heapUsedMb: productPulseWorkerToMb(memory.heapUsed),
-    heapTotalMb: productPulseWorkerToMb(memory.heapTotal),
-    rssMb: productPulseWorkerToMb(memory.rss),
-    externalMb: productPulseWorkerToMb(memory.external),
-  };
-}
-
-function productPulseWorkerToMb(value) {
-  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
+  void job;
+  void stage;
+  void data;
+  void summarizeResult;
+  return callback();
 }
 
 function formatProductRow(shop, snapshot, latestDiagnosis = null, resolvedAction = null, settings = undefined, watchedItem = null, scoreHistory = []) {
@@ -7770,12 +7793,16 @@ function formatShopifyProductSearchResult(product, statusByProductGid = new Map(
   const vendorAndType = [product.vendor, product.productType].filter(Boolean).join(" / ");
   const firstCollection = collections[0]?.title;
   const productPulseStatus = statusByProductGid.get(product.id) || "catalog";
+  const shopifyStatus = getShopifyProductSearchStatus(product.status);
 
   return {
     id: product.id,
     title: product.title || product.handle || "Shopify product",
     handle: product.handle || "",
     status: product.status || "Unknown",
+    shopifyStatus: shopifyStatus.value,
+    shopifyStatusLabel: shopifyStatus.label,
+    shopifyStatusTone: shopifyStatus.tone,
     vendor: product.vendor || "",
     productType: product.productType || "",
     sku: variants[0]?.sku || "",
@@ -7790,6 +7817,14 @@ function formatShopifyProductSearchResult(product, statusByProductGid = new Map(
     productPulseStatusDetail: getProductPulseSearchStatusDetail(productPulseStatus),
     href: product.handle ? `/app/products/${product.handle}` : `/app/products/${encodeURIComponent(product.id)}`,
   };
+}
+
+function getShopifyProductSearchStatus(status) {
+  const normalized = String(status || "").trim().toUpperCase();
+  if (normalized === "ACTIVE") return { value: "active", label: "Active", tone: "active" };
+  if (normalized === "DRAFT") return { value: "draft", label: "Draft", tone: "draft" };
+  if (normalized === "ARCHIVED") return { value: "archived", label: "Archived", tone: "archived" };
+  return { value: normalized.toLowerCase() || "unknown", label: normalized ? toTitleCase(normalized) : "Unknown", tone: "unknown" };
 }
 
 function getProductPulseSearchStatusLabel(status) {
@@ -7809,6 +7844,13 @@ function buildShopifyProductSearchQuery(query) {
   if (/^gid:\/\/shopify\/Product\/\d+$/i.test(trimmed)) return `id:${trimmed.split("/").pop()}`;
   if (/^\d{5,}$/.test(trimmed)) return `id:${trimmed}`;
   return trimmed;
+}
+
+function toTitleCase(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function normalizeShopifyProductGid(value) {
@@ -8713,6 +8755,7 @@ function getPdpCopyActionLabel(issueCategory) {
 }
 
 function formatJob(job) {
+  const productGid = getJobProductGid(job);
   const productTitle = getJobProductTitle(job);
   const productHandle = getJobProductHandle(job);
   const productImageUrl = getJobProductImageUrl(job);
@@ -8726,6 +8769,7 @@ function formatJob(job) {
     id: job.id,
     kind: job.kind,
     name: getJobDisplayName(job.kind),
+    productGid,
     productTitle,
     productHandle,
     productHref: productHandle ? `/app/products/${productHandle}` : null,
@@ -8768,6 +8812,16 @@ function getJobPointCost(job) {
   if (job.kind === FAST_PRODUCT_SCAN_KIND) return 0;
   if (job.kind === PRODUCT_DIAGNOSIS_KIND) return 1;
   return 0;
+}
+
+function getJobProductGid(job) {
+  const payload = job.payload || {};
+  const candidates = [
+    payload.productGid,
+    payload.shopifyProductId,
+    payload.productId,
+  ];
+  return candidates.map(normalizeJobPayloadString).find((value) => value?.startsWith("gid://shopify/Product/")) || null;
 }
 
 function getJobDisplayName(kind) {
@@ -8858,9 +8912,11 @@ function formatJobLog(log) {
 
 function formatBackgroundProcess(job, logs = []) {
   const formatted = formatJob(job);
+  const failureSummary = getBackgroundProcessFailureSummary(formatted, logs);
   return {
     ...formatted,
     rawSource: job.source || "",
+    failureSummary,
     payloadItems: formatBackgroundProcessPayloadItems(job.payload),
     logCount: logs.length,
     logs,
@@ -8868,6 +8924,34 @@ function formatBackgroundProcess(job, logs = []) {
     statusKey: normalizeBackgroundProcessKey(job.status),
     kindKey: normalizeBackgroundProcessKey(job.kind),
   };
+}
+
+function getBackgroundProcessFailureSummary(process, logs = []) {
+  if (process.status !== "Failed") return "";
+  const direct = process.errorMessage || (process.source && process.source !== process.displaySubtitle ? process.source : "");
+  const logDetail = getBackgroundProcessFailureLogDetail(logs);
+  return truncateBackgroundProcessText(direct || logDetail || process.displaySubtitle || "No failure detail was stored.", 220);
+}
+
+function getBackgroundProcessFailureLogDetail(logs = []) {
+  const failureLog = logs.find((log) => ["error", "failed", "warn", "warning"].includes(String(log.level || "").toLowerCase()))
+    || logs.find((log) => /fail|error|denied|timeout/i.test(`${log.event || ""} ${log.message || ""}`));
+  if (!failureLog) return "";
+  const data = failureLog.data || {};
+  const dataError = typeof data.error === "string"
+    ? data.error
+    : typeof data.error?.message === "string"
+      ? data.error.message
+      : typeof data.message === "string"
+        ? data.message
+        : "";
+  return [failureLog.message, dataError].filter(Boolean).join(" ");
+}
+
+function truncateBackgroundProcessText(value, limit = 220) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
 }
 
 function ensureWorkersForJobs(shop, jobs = []) {
@@ -9574,6 +9658,7 @@ export const __productPulseJobsTestHooks = {
   formatBackgroundProcess,
   buildBackgroundProcessStats,
   filterProductSnapshots,
+  formatShopifyProductSearchResult,
   getAppliedProductReviewToastMetadata,
   getProductTableFilterOptions,
   getShopifyProductAdminUrl,

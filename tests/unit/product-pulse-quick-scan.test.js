@@ -144,6 +144,70 @@ describe("ProductPulse Catalog Scan", () => {
     expect(candidates[0].metrics.topReturnReasons).toContain("Size Too Small");
   });
 
+  it("skips draft and archived Shopify products during Catalog Scan scoring", () => {
+    const products = [
+      {
+        id: "gid://shopify/Product/active",
+        handle: "active-shirt",
+        title: "Active Shirt",
+        status: "ACTIVE",
+        productType: "Apparel",
+        variants: [{ id: "gid://shopify/ProductVariant/active", title: "M", sku: "ACT-M" }],
+      },
+      {
+        id: "gid://shopify/Product/draft",
+        handle: "draft-shirt",
+        title: "Draft Shirt",
+        status: "DRAFT",
+        productType: "Apparel",
+        variants: [{ id: "gid://shopify/ProductVariant/draft", title: "M", sku: "DRF-M" }],
+      },
+      {
+        id: "gid://shopify/Product/archived",
+        handle: "archived-shirt",
+        title: "Archived Shirt",
+        status: "ARCHIVED",
+        productType: "Apparel",
+        variants: [{ id: "gid://shopify/ProductVariant/archived", title: "M", sku: "ARC-M" }],
+      },
+    ];
+    const highRiskEvents = (productId, variantId) => [
+      ...Array.from({ length: 20 }, () => ({
+        type: "sale",
+        productId,
+        variantId,
+        quantity: 1,
+        amount: 80,
+      })),
+      ...Array.from({ length: 9 }, () => ({
+        type: "return",
+        productId,
+        variantId,
+        quantity: 1,
+        reason: "SIZE_TOO_SMALL",
+        note: "too small",
+        occurredAt: new Date().toISOString(),
+      })),
+    ];
+
+    const candidates = buildQuickScanCandidates({
+      windowDays: 60,
+      products,
+      events: [
+        ...highRiskEvents("gid://shopify/Product/active", "gid://shopify/ProductVariant/active"),
+        ...highRiskEvents("gid://shopify/Product/draft", "gid://shopify/ProductVariant/draft"),
+        ...highRiskEvents("gid://shopify/Product/archived", "gid://shopify/ProductVariant/archived"),
+      ],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      productGid: "gid://shopify/Product/active",
+      handle: "active-shirt",
+    });
+    expect(candidates[0].metrics.productStatus).toBe("ACTIVE");
+  });
+
   it("honors the configured minimum Catalog Scan risk score", () => {
     const candidates = buildQuickScanCandidates({
       windowDays: 60,

@@ -1756,6 +1756,50 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText("product_diagnosis.completed")).not.toBeInTheDocument();
   });
 
+  it("renders failure summaries for failed background processes", () => {
+    renderWithRouter(<BackgroundProcessesScreen
+      data={{
+        developmentMode: false,
+        backgroundProcesses: {
+          updatedAt: "2026-05-24T15:00:00.000Z",
+          activeProcesses: [],
+          processes: [
+            {
+              id: "job-failed-diagnosis",
+              name: "Product Diagnosis",
+              displayTitle: "GEN Failed Product",
+              displaySubtitle: "Product Diagnosis failed",
+              status: "Failed",
+              progress: 100,
+              failureSummary: "Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.",
+              updatedAtIso: "2026-05-24T15:00:00.000Z",
+              startedAtIso: "2026-05-24T14:59:00.000Z",
+              executionStartedAtIso: "2026-05-24T14:59:00.000Z",
+              finishedAtIso: "2026-05-24T15:00:00.000Z",
+              elapsedMs: 60_000,
+              logCount: 0,
+              logs: [],
+            },
+          ],
+          logs: [],
+          stats: {
+            total: 1,
+            active: 0,
+            running: 0,
+            queued: 0,
+            completed: 0,
+            failed: 1,
+            logs: 0,
+            kindCounts: { "Product Diagnosis": 1 },
+          },
+        },
+      }}
+    />);
+
+    expect(screen.getByText("Failure detail")).toBeInTheDocument();
+    expect(screen.getByText("Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.")).toBeInTheDocument();
+  });
+
   it("searches live Shopify products without resubmitting the same query loop", async () => {
     const action = vi.fn(async ({ request }) => {
       const formData = await request.formData();
@@ -1783,6 +1827,7 @@ describe("ProductPulse screens", () => {
     fireEvent.change(screen.getByPlaceholderText("Search by title, handle, product ID or SKU"), { target: { value: "denim" } });
 
     await waitFor(() => expect(screen.getByText("Vintage Denim Jacket")).toBeInTheDocument());
+    expect(within(screen.getByRole("dialog", { name: "Find Shopify product" })).getByText("Active")).toBeInTheDocument();
     await new Promise((resolve) => { window.setTimeout(resolve, 450); });
     expect(action).toHaveBeenCalledTimes(1);
   });
@@ -1820,7 +1865,7 @@ describe("ProductPulse screens", () => {
             id: "gid://shopify/Product/456",
             title: "Denim Tote",
             handle: "denim-tote",
-            status: "ACTIVE",
+            status: "DRAFT",
             detail: "Zuam / Bags",
             sku: "DT-1",
             imageUrl: null,
@@ -1842,6 +1887,7 @@ describe("ProductPulse screens", () => {
     await waitFor(() => expect(action).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("heading", { name: "Find Shopify product" })).toBeInTheDocument();
     expect(screen.getByText("Denim Tote")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "Find Shopify product" })).getByText("Draft")).toBeInTheDocument();
     expect(screen.getByLabelText(/Added to Candidates.*still run Product Diagnosis/i)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Run Product Diagnosis" })[0]).not.toBeDisabled();
   });
@@ -2369,6 +2415,45 @@ describe("ProductPulse screens", () => {
 
     expect(link).toHaveAttribute("href", "/app/products/timeline-jacket/metric-timelines");
     expect(container.querySelector(".ppProductMetricTimelineIcon")).toHaveAttribute("src", "/assets/metric-timelines-icon.png");
+  });
+
+  it("revalidates the current product detail when its Product Diagnosis job finishes", async () => {
+    const loader = vi.fn(() => null);
+    const product = {
+      ...defaultView.startHere,
+      id: "gid://shopify/Product/revalidate-detail",
+      productGid: "gid://shopify/Product/revalidate-detail",
+      handle: "core-linen-trouser",
+      slug: "core-linen-trouser",
+    };
+    const router = createMemoryRouter([
+      {
+        path: "/app/products/:productId",
+        loader,
+        element: <ProductDiagnosisScreen data={defaultView} product={product} />,
+      },
+    ], { initialEntries: ["/app/products/core-linen-trouser"] });
+
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
+    await screen.findByRole("heading", { name: "Core Linen Trouser" });
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("productpulse:jobs-finished", {
+        detail: {
+          jobs: [{
+            id: "job-detail-revalidation",
+            kind: "product-diagnosis",
+            name: "Product Diagnosis",
+            status: "Completed",
+            productGid: "gid://shopify/Product/revalidate-detail",
+            productHref: "/app/products/core-linen-trouser",
+          }],
+        },
+      }));
+    });
+
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
   });
 
   it("links product detail to higher and lower risk sibling products", () => {
@@ -5919,8 +6004,34 @@ describe("ProductPulse screens", () => {
     expect(screen.getAllByText(/ProductPulse suggests this because Diagnosis coverage is limited by missing sources/).length).toBeGreaterThan(0);
     expect(screen.getByText("Confirm whether this store actually uses Judge.me reviews and Shopify returns.")).toBeInTheDocument();
     expect(screen.getByText("Rerun Product Diagnosis so the product uses the new evidence")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Connect" })).toHaveAttribute("href", "/app/connect");
+    const connectLink = screen.getByRole("link", { name: "Open Connect" });
+    expect(connectLink).toHaveAttribute("href", "/app/connect");
+    expect(connectLink).not.toHaveAttribute("target");
     expect(screen.getByRole("button", { name: "Review evidence" })).toBeInTheDocument();
+  });
+
+  it("opens monitoring coverage Connect actions inside the app tab", () => {
+    const product = {
+      ...defaultView.startHere,
+      recommendedActions: [{
+        id: "improve-monitoring-coverage",
+        label: "Improve monitoring coverage",
+        type: "Monitoring coverage",
+        effort: "Medium",
+        status: "Manual setup required",
+        payload: {
+          missingSources: ["external reviews"],
+          trigger: "This product has enough Sales Momentum to deserve stronger monitoring coverage before issues become expensive.",
+        },
+      }],
+    };
+
+    renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open recommended action Improve monitoring coverage" }));
+
+    const connectLink = screen.getByRole("link", { name: "Open Connect" });
+    expect(connectLink).toHaveAttribute("href", "/app/connect");
+    expect(connectLink).not.toHaveAttribute("target");
   });
 
   it("explains review collection workflow actions as internal routing", () => {

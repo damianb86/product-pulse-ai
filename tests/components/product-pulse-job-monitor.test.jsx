@@ -86,6 +86,7 @@ function renderMonitor(initialMonitor, options = {}) {
                 title: "Core Linen Trouser",
                 handle: "core-linen-trouser",
                 href: "/app/products/core-linen-trouser",
+                status: "ACTIVE",
                 riskScore: 84,
                 primaryIssue: "Fit complaints",
                 detail: "ProductPulse Lab / Apparel",
@@ -112,6 +113,7 @@ function renderMonitor(initialMonitor, options = {}) {
                 title: "Core Linen Trouser",
                 handle: "core-linen-trouser",
                 href: "/app/products/core-linen-trouser",
+                status: "ACTIVE",
                 riskScore: 84,
                 primaryIssue: "Fit complaints",
                 detail: "ProductPulse Lab / Apparel",
@@ -456,6 +458,7 @@ describe("ProductPulseJobMonitor", () => {
     await waitFor(() => {
       expect(screen.getByText("Core Linen Trouser")).toBeVisible();
     });
+    expect(within(screen.getByRole("dialog", { name: "Search products" })).getByText("Active")).toBeVisible();
     expect(screen.getByAltText("Core Linen Trouser product photo")).toHaveAttribute("src", "https://cdn.example.com/core-linen-trouser.jpg");
     expect(screen.getByText((content) => content.includes("/core-linen-trouser") && content.includes("ProductPulse Lab / Apparel"))).toBeVisible();
     expect(screen.getByRole("link", { name: "Open Core Linen Trouser" })).toHaveAttribute("href", "/app/products/core-linen-trouser");
@@ -813,6 +816,43 @@ describe("ProductPulseJobMonitor", () => {
     } finally {
       window.removeEventListener("productpulse:wizard", handleWizardEvent);
     }
+  });
+
+  it("shows detailed failure errors when a running Product Diagnosis job fails", async () => {
+    const runningJob = makeRunningJob("job-failed-toast", {
+      displayTitle: "GEN Failed Product",
+      productHref: "/app/products/gen-failed-product",
+    });
+    let monitor = {
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    };
+
+    renderMonitor(() => monitor);
+
+    monitor = {
+      activeJobs: [],
+      recentJobs: [
+        {
+          ...runningJob,
+          status: "Failed",
+          source: "Product Diagnosis failed",
+          errorMessage: "Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.",
+          finishedAtIso: new Date().toISOString(),
+        },
+      ],
+      logs: [],
+    };
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("productpulse:jobs-queued", { detail: { job: runningJob } }));
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Product Diagnosis failed");
+    expect(alert).toHaveTextContent("GEN Failed Product could not be analyzed.");
+    expect(alert).toHaveTextContent("Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.");
   });
 
   it("announces active Catalog Scan jobs that disappear from Current", async () => {

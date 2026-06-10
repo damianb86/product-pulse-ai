@@ -24,7 +24,7 @@ import { buildReturnRefundRelationshipSummaries } from "./product-pulse-return-r
 import { buildProductPurchaseContextSummaries } from "./product-pulse-purchase-context.server";
 import { buildProductRelationshipSummaries } from "./product-pulse-product-relationships.server";
 import { upsertProductPulseProductRollups } from "./product-pulse-product-rollup.server";
-import { createProductPulsePerfLogger, measureProductPulseStep } from "./product-pulse-perf.server";
+import { createProductPulsePerfLogger } from "./product-pulse-perf.server";
 
 export const QUICK_SCAN_DEFAULT_WINDOW_DAYS = 60;
 export const QUICK_SCAN_MINIMUM_DURATION_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_MINIMUM_DURATION_MS", 0, { min: 0, max: 60_000 });
@@ -287,10 +287,19 @@ export function buildQuickScanCandidates({
 }) {
   const productIndex = new Map();
   const variantIndex = new Map();
+  const excludedProductIds = new Set();
+  const excludedVariantIds = new Set();
 
   products.forEach((product) => {
     if (!product?.id) return;
     const normalized = normalizeProduct(product);
+    if (!isQuickScanAnalyzableProduct(normalized)) {
+      excludedProductIds.add(normalized.id);
+      normalized.variants.forEach((variant) => {
+        if (variant.id) excludedVariantIds.add(variant.id);
+      });
+      return;
+    }
     productIndex.set(normalized.id, normalized);
     normalized.variants.forEach((variant) => {
       if (variant.id) variantIndex.set(variant.id, normalized.id);
@@ -302,8 +311,10 @@ export function buildQuickScanCandidates({
   });
 
   const aggregates = new Map();
+  const analyzableEvents = [];
 
   events.forEach((event) => {
+    if (isExcludedQuickScanProductEvent(event, { excludedProductIds, excludedVariantIds })) return;
     const productId = event.productId || variantIndex.get(event.variantId);
     if (!productId) return;
     const product = productIndex.get(productId) || normalizeProduct({
@@ -312,10 +323,12 @@ export function buildQuickScanCandidates({
       title: event.title,
       variants: [],
     });
+    if (!isQuickScanAnalyzableProduct(product)) return;
     productIndex.set(productId, product);
 
     const aggregate = getProductAggregate(aggregates, product);
     applyEventToAggregate(aggregate, event);
+    analyzableEvents.push(event);
   });
 
   productIndex.forEach((product, productId) => {
@@ -336,14 +349,14 @@ export function buildQuickScanCandidates({
   const aggregateList = Array.from(aggregates.values());
   const returnRefundRelationshipSummaries = buildReturnRefundRelationshipSummaries({
     products: Array.from(productIndex.values()),
-    events,
+    events: analyzableEvents,
   });
   markQuickScanProgress(perf, "quick_scan.scoring.return_refund_relationships", logContext, {
     summaries: returnRefundRelationshipSummaries.size,
   });
   const productPurchaseContextSummaries = buildProductPurchaseContextSummaries({
     products: Array.from(productIndex.values()),
-    events,
+    events: analyzableEvents,
     assumeCompleteOrderEvents: true,
   });
   markQuickScanProgress(perf, "quick_scan.scoring.purchase_context", logContext, {
@@ -351,7 +364,7 @@ export function buildQuickScanCandidates({
   });
   const productRelationshipSummaries = buildProductRelationshipSummaries({
     products: Array.from(productIndex.values()),
-    events,
+    events: analyzableEvents,
     windowDays,
     assumeCompleteOrderEvents: true,
   });
@@ -385,6 +398,7 @@ export function buildQuickScanCandidates({
   markQuickScanProgress(perf, "quick_scan.scoring.score_and_filter", logContext, {
     candidates: candidates.length,
     products: aggregateList.length,
+    skippedInactiveProducts: excludedProductIds.size,
   });
   return candidates;
 }
@@ -2003,6 +2017,22 @@ function normalizeProduct(product) {
   };
 }
 
+function isQuickScanAnalyzableProduct(product = {}) {
+  const normalized = normalizeQuickScanProductStatus(product.status);
+  return !normalized || normalized === "ACTIVE";
+}
+
+function isExcludedQuickScanProductEvent(event = {}, { excludedProductIds = new Set(), excludedVariantIds = new Set() } = {}) {
+  return Boolean(
+    (event.productId && excludedProductIds.has(event.productId))
+      || (event.variantId && excludedVariantIds.has(event.variantId)),
+  );
+}
+
+function normalizeQuickScanProductStatus(status) {
+  return String(status || "").trim().toUpperCase();
+}
+
 function normalizeProductFeaturedMedia(media = {}) {
   const normalized = normalizeProductMedia(media);
   if (!normalized.image?.url && !normalized.preview?.image?.url) return null;
@@ -2905,7 +2935,6 @@ function getQuickScanExtractionCounts(extraction = {}) {
 }
 
 function createQuickScanLogContext({ shop, jobId, startedAt = Date.now() } = {}) {
-  const memory = getQuickScanMemorySnapshot();
   return {
     shop,
     jobId,
@@ -2915,196 +2944,36 @@ function createQuickScanLogContext({ shop, jobId, startedAt = Date.now() } = {})
     eventCounts: {},
     droppedEvents: 0,
     flushed: false,
-    peakMemory: {
-      ...memory,
-      stage: "quick_scan.context_created",
-      elapsedMs: 0,
-    },
   };
 }
 
 async function measureQuickScanStep(perf, stage, logContext, callback, data = {}) {
-  const startedAt = Date.now();
-  const memoryBefore = getQuickScanMemorySnapshot();
-  try {
-    await ensureQuickScanJobActive(logContext?.jobId, logContext);
-    const result = await measureProductPulseStep(perf, stage, callback, data);
-    recordQuickScanStep(logContext, {
-      stage,
-      status: "done",
-      durationMs: Date.now() - startedAt,
-      data,
-      memoryBefore,
-      memoryAfter: getQuickScanMemorySnapshot(),
-    });
-    return result;
-  } catch (error) {
-    recordQuickScanStep(logContext, {
-      stage,
-      status: "failed",
-      durationMs: Date.now() - startedAt,
-      data: {
-        ...data,
-        error: getErrorMessage(error),
-      },
-      memoryBefore,
-      memoryAfter: getQuickScanMemorySnapshot(),
-    });
-    throw error;
-  }
+  void perf;
+  void stage;
+  void data;
+  await ensureQuickScanJobActive(logContext?.jobId, logContext);
+  return callback();
 }
 
 function markQuickScanProgress(perf, stage, logContext, data = {}, level = "warn") {
-  perf?.mark(stage, data);
-  logQuickScanProgress(stage, logContext, data, level);
+  void perf;
+  void stage;
+  void logContext;
+  void data;
+  void level;
 }
 
 function logQuickScanProgress(event, logContext, data = {}, level = "warn") {
-  if (process.env.NODE_ENV === "test") return;
-  if (!logContext?.shop && !logContext?.jobId) return;
-  recordQuickScanEvent(logContext, event, data, level);
-}
-
-function recordQuickScanStep(logContext, { stage, status, durationMs, data = {}, memoryBefore = null, memoryAfter = null } = {}) {
-  if (!logContext) return;
-  const after = memoryAfter || getQuickScanMemorySnapshot();
-  updateQuickScanPeakMemory(logContext, after, stage);
-  logContext.steps.push({
-    stage,
-    status,
-    durationMs: Math.round(Number(durationMs || 0) * 10) / 10,
-    heapDeltaMb: memoryBefore ? roundQuickScanNumber(after.heapUsedMb - memoryBefore.heapUsedMb) : null,
-    rssDeltaMb: memoryBefore ? roundQuickScanNumber(after.rssMb - memoryBefore.rssMb) : null,
-    memory: after,
-    data: sanitizeQuickScanSummaryValue(data),
-  });
-}
-
-function recordQuickScanEvent(logContext, event, data = {}, level = "warn") {
-  if (!logContext) return;
-  const memory = getQuickScanMemorySnapshot();
-  updateQuickScanPeakMemory(logContext, memory, event);
-  logContext.eventCounts[event] = (logContext.eventCounts[event] || 0) + 1;
-
-  const entry = {
-    event,
-    level,
-    elapsedMs: Date.now() - Number(logContext.startedAt || Date.now()),
-    memory,
-    data: sanitizeQuickScanSummaryValue(data),
-  };
-  logContext.events.push(entry);
-  const maxEvents = 80;
-  if (logContext.events.length > maxEvents) {
-    logContext.events.shift();
-    logContext.droppedEvents += 1;
-  }
+  void event;
+  void logContext;
+  void data;
+  void level;
 }
 
 function flushQuickScanSummaryLog(logContext, data = {}, level = "warn") {
-  if (process.env.NODE_ENV === "test") return;
-  if (!logContext || logContext.flushed) return;
-  logContext.flushed = true;
-  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
-  const startedAt = Number(logContext?.startedAt || Date.now());
-  const finalMemory = getQuickScanMemorySnapshot();
-  updateQuickScanPeakMemory(logContext, finalMemory, "quick_scan.summary");
-  const steps = Array.isArray(logContext.steps) ? logContext.steps : [];
-  const payload = {
-    event: level === "error" ? "quick_scan.summary.failed" : "quick_scan.summary.completed",
-    at: new Date().toISOString(),
-    shop: logContext?.shop,
-    jobId: logContext?.jobId,
-    durationMs: Number(data.durationMs || 0) || Date.now() - startedAt,
-    finalMemory,
-    peakMemory: logContext.peakMemory || finalMemory,
-    stepCount: steps.length,
-    steps: steps.slice(0, 120).map(formatQuickScanStep),
-    droppedSteps: Math.max(0, steps.length - 120),
-    slowestSteps: buildQuickScanTopSteps(steps, "durationMs"),
-    highestMemorySteps: buildQuickScanTopSteps(steps, "memory.rssMb"),
-    eventCounts: logContext.eventCounts || {},
-    recentEvents: (logContext.events || []).slice(-20),
-    droppedEvents: logContext.droppedEvents || 0,
-    ...sanitizeQuickScanSummaryValue(data),
-  };
-  console[method]("[product-pulse-quick-scan-summary]", JSON.stringify(payload));
-}
-
-function buildQuickScanTopSteps(steps, sortKey) {
-  return [...(steps || [])]
-    .sort((a, b) => getQuickScanSortValue(b, sortKey) - getQuickScanSortValue(a, sortKey))
-    .slice(0, 8)
-    .map(formatQuickScanStep);
-}
-
-function formatQuickScanStep(step = {}) {
-  return {
-    stage: step.stage,
-    status: step.status,
-    durationMs: step.durationMs,
-    heapDeltaMb: step.heapDeltaMb,
-    rssDeltaMb: step.rssDeltaMb,
-    memory: step.memory,
-    data: step.data,
-  };
-}
-
-function getQuickScanSortValue(value, key) {
-  if (key === "durationMs") return Number(value?.durationMs || 0);
-  if (key === "memory.rssMb") return Number(value?.memory?.rssMb || 0);
-  return 0;
-}
-
-function updateQuickScanPeakMemory(logContext, memory, stage) {
-  if (!logContext || !memory) return;
-  const currentPeak = logContext.peakMemory || {};
-  const currentPeakValue = Math.max(Number(currentPeak.rssMb || 0), Number(currentPeak.heapUsedMb || 0));
-  const nextPeakValue = Math.max(Number(memory.rssMb || 0), Number(memory.heapUsedMb || 0));
-  if (!currentPeakValue || nextPeakValue >= currentPeakValue) {
-    logContext.peakMemory = {
-      ...memory,
-      stage,
-      elapsedMs: Date.now() - Number(logContext.startedAt || Date.now()),
-    };
-  }
-}
-
-function sanitizeQuickScanSummaryValue(value, depth = 0) {
-  if (value == null) return value;
-  if (typeof value === "string") return value.length > 300 ? `${value.slice(0, 300)}...` : value;
-  if (typeof value === "number" || typeof value === "boolean") return value;
-  if (value instanceof Date) return value.toISOString();
-  if (Array.isArray(value)) {
-    if (depth >= 2) return { count: value.length };
-    return {
-      count: value.length,
-      sample: value.slice(0, 5).map((item) => sanitizeQuickScanSummaryValue(item, depth + 1)),
-    };
-  }
-  if (typeof value === "object") {
-    if (depth >= 3) return "[object]";
-    return Object.fromEntries(
-      Object.entries(value)
-        .slice(0, 24)
-        .map(([key, item]) => [key, sanitizeQuickScanSummaryValue(item, depth + 1)]),
-    );
-  }
-  return String(value);
-}
-
-function roundQuickScanNumber(value) {
-  return Math.round(Number(value || 0) * 10) / 10;
-}
-
-function getQuickScanMemorySnapshot() {
-  const memory = process.memoryUsage();
-  return {
-    heapUsedMb: toMb(memory.heapUsed),
-    heapTotalMb: toMb(memory.heapTotal),
-    rssMb: toMb(memory.rss),
-    externalMb: toMb(memory.external),
-  };
+  if (logContext) logContext.flushed = true;
+  void data;
+  void level;
 }
 
 function assertQuickScanPaginationProgress({ label, pageCount, currentCursor, nextCursor, hasNextPage, logContext }) {
@@ -3267,10 +3136,6 @@ function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-function toMb(value) {
-  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
 }
 
 const PRODUCT_CATALOG_BULK_QUERY = `{

@@ -1822,6 +1822,28 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(reuseDecision.recommendationReevaluation.reason).toBe("handled_actions_may_affect_recommendations");
   });
 
+  it("refreshes a fresh shared Shopify source cache when it lags behind the diagnosis start", () => {
+    const behind = __productPulseDiagnosisTestHooks.getShopSourceEventCacheFreshness(
+      "2026-06-08T03:34:13.994Z",
+      { referenceAt: "2026-06-08T03:39:09.611Z" },
+    );
+    const caughtUp = __productPulseDiagnosisTestHooks.getShopSourceEventCacheFreshness(
+      "2026-06-08T03:39:00.000Z",
+      { referenceAt: "2026-06-08T03:39:09.611Z" },
+    );
+
+    expect(behind).toMatchObject({
+      usable: false,
+      stale: true,
+      reason: "shop_source_event_cache_behind_diagnosis",
+    });
+    expect(caughtUp).toMatchObject({
+      usable: true,
+      stale: false,
+      reason: "shop_source_event_cache_hit",
+    });
+  });
+
   it("stores and merges Shopify source events so incremental fetches do not refetch the full window", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const snapshot = {
@@ -3209,6 +3231,192 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("does not reopen a handled fit recommendation when post-action evidence points to quality instead", () => {
+    const productId = "gid://shopify/Product/gen-linen-shirt-fit-26a108d0";
+    const oldFitReturn = {
+      id: "return-old-fit",
+      orderId: "order-old-fit",
+      lineItemId: "line-old-fit",
+      returnLineItemId: "return-line-old-fit",
+      productId,
+      quantity: 7,
+      reasonLabel: "Too small",
+      issueCode: "fit_sizing",
+      createdAt: "2026-06-08T04:02:00.000Z",
+      updatedAt: "2026-06-08T04:02:00.000Z",
+    };
+    const newQualityReturn = {
+      id: "return-new-quality",
+      orderId: "order-new-quality",
+      lineItemId: "line-new-quality",
+      returnLineItemId: "return-line-new-quality",
+      productId,
+      quantity: 4,
+      reasonLabel: "Damaged or defective",
+      issueCode: "quality_defect",
+      createdAt: "2026-06-08T04:11:07.000Z",
+      updatedAt: "2026-06-08T04:11:07.000Z",
+    };
+    const newQualityRefund = {
+      id: "refund-new-quality",
+      refundId: "refund-new-quality",
+      refundLineItemId: "refund-line-new-quality",
+      orderId: "order-new-quality",
+      lineItemId: "line-new-quality",
+      productId,
+      quantity: 4,
+      amount: 192,
+      reasonLabel: "Damaged or defective",
+      issueCode: "quality_defect",
+      createdAt: "2026-06-08T04:11:18.000Z",
+      processedAt: "2026-06-08T04:11:18.000Z",
+      updatedAt: "2026-06-08T04:11:18.000Z",
+    };
+    const deterministic = {
+      mainIssue: "quality_defect",
+      mainIssueLabel: "Product quality",
+      riskScore: 64,
+      confidence: 88,
+      issueSignalCounts: { fit_sizing: 7, quality_defect: 2 },
+      sourceCoverage: ["Shopify orders", "Shopify returns", "Shopify refunds"],
+      estimatedImpact: { revenueAtRisk: 192 },
+      product: {
+        id: productId,
+        title: "Generic Linen Shirt",
+        handle: "gen-linen-shirt-fit-26a108d0",
+        description: "Linen shirt with fit note already applied.",
+        descriptionHtml: "<p>Linen shirt with fit note already applied.</p>",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        soldUnits: 45,
+        returnUnits: 12,
+        refundUnits: 8,
+        returnRate: 26.67,
+        refundRate: 17.78,
+        signalCount: 9,
+        contentIssueCount: 0,
+        topReturnReasons: [{ reason: "damaged-or-defective", count: 4 }],
+        affectedVariants: [],
+        faqNeed: { shouldRecommend: false },
+        incrementalDiagnosis: {
+          mode: "incremental",
+          customerText: { analyzedItems: 1, reason: "new return text" },
+          refunds: { analyzedItems: 1, reason: "new refund context" },
+          cache: {
+            customerText: {
+              returnItems: [{
+                key: "return-text-new-quality",
+                source: "returns",
+                text: "Damaged or defective item returned.",
+                issueCode: "quality_defect",
+                createdAt: "2026-06-08T04:11:07.000Z",
+                updatedAt: "2026-06-08T04:11:07.000Z",
+              }],
+              reviewItems: [],
+            },
+            refunds: {
+              items: [{
+                key: "refund-text-new-quality",
+                source: "refunds",
+                text: "Refunded four damaged or defective units.",
+                issueCode: "quality_defect",
+                createdAt: "2026-06-08T04:11:18.000Z",
+                updatedAt: "2026-06-08T04:11:18.000Z",
+              }],
+            },
+            sourceEvents: {
+              sales: [],
+              returns: [oldFitReturn, newQualityReturn],
+              refunds: [newQualityRefund],
+            },
+          },
+        },
+        contentAnalysis: { issues: [], advisories: [] },
+        textInsights: { sentiment: { total: 1, negative: 1, negativeRatio: 1 }, repeatedLanguage: [] },
+        refundInsights: { dominantIssueCode: "quality_defect" },
+      },
+      evidenceSnippets: [{
+        source: "refund",
+        text: "Refunded four damaged or defective units.",
+        issueCode: "quality_defect",
+        createdAt: "2026-06-08T04:11:18.000Z",
+      }],
+    };
+
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot: {
+        productGid: productId,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      previousDiagnosis: {
+        id: "diagnosis-previous-fit",
+        productGid: productId,
+        riskScore: 85,
+        confidence: 80,
+        likelyCause: "Fit & sizing",
+        issues: [{ issue: "Fit & sizing", issueCode: "fit_sizing" }],
+        recommendations: [{ id: "draft-fit-note", label: "Draft fit note for product description" }],
+        metrics: {
+          soldUnits: 16,
+          returnUnits: 8,
+          refundUnits: 4,
+          returnRate: 50,
+          refundRate: 25,
+          signalCount: 7,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [],
+                returns: [oldFitReturn],
+                refunds: [],
+              },
+            },
+          },
+        },
+        completedAt: "2026-06-08T04:10:07.000Z",
+      },
+      actionRecords: [{
+        id: "action-fit-note",
+        diagnosisId: "diagnosis-previous-fit",
+        productGid: productId,
+        actionType: "draft-fit-note",
+        label: "Draft fit note for product description",
+        status: "applied",
+        payload: { canonicalActionId: "draft-fit-note", issue: "fit_sizing" },
+        createdAt: "2026-06-08T04:10:30.000Z",
+        appliedAt: "2026-06-08T04:10:30.000Z",
+      }],
+      recommendationCandidates: [
+        { id: "draft-fit-note", type: "PDP copy" },
+        { id: "recommend-qa-review", type: "Operational QA" },
+      ],
+    });
+    const filteredCandidates = __productPulseDiagnosisTestHooks.applyProductEvolutionToRecommendationCandidates(
+      [{ id: "draft-fit-note", type: "PDP copy" }, { id: "recommend-qa-review", type: "Operational QA" }],
+      productEvolution,
+    );
+    const fitLifecycle = productEvolution.previousRecommendationLifecycle.find((entry) => entry.actionId === "draft-fit-note");
+
+    expect(productEvolution.sourceSummary.hasNewEvidence).toBe(true);
+    expect(productEvolution.sourceSummary.postActionIssueKeys).toContain("quality_defect");
+    expect(productEvolution.sourceSummary.postActionIssueKeys).not.toContain("fit_sizing");
+    expect(fitLifecycle).toMatchObject({
+      lifecycleState: "applied",
+      actionStatus: "applied",
+      subjectIssueKeys: ["fit_sizing"],
+    });
+    expect(fitLifecycle.postActionEvidence.issueChanges.persisting.map((issue) => issue.key)).not.toContain("fit_sizing");
+    expect(fitLifecycle.reason).not.toContain("still shows Fit & sizing");
+    expect(productEvolution.postActionStatus.status).toBe("changed");
+    expect(productEvolution.postActionStatus.summary).not.toContain("same issue");
+    expect(filteredCandidates.map((candidate) => candidate.id)).not.toContain("draft-fit-note");
+    expect(filteredCandidates.map((candidate) => candidate.id)).toContain("recommend-qa-review");
+  });
+
   it("keeps handled recommendations in monitoring when only historical evidence still matches the issue", () => {
     const deterministic = {
       mainIssue: "product_content",
@@ -3324,6 +3532,132 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(productEvolution.postActionStatus.status).toBe("monitoring");
     expect(productEvolution.postActionStatus.summary).toContain("not enough post-action evidence");
     expect(filteredCandidates.map((candidate) => candidate.id)).not.toContain("rewrite-product-description");
+  });
+
+  it("treats newly cached historical Shopify source events as evolution evidence", () => {
+    const productId = "gid://shopify/Product/newly-cached-historical-order";
+    const knownSale = {
+      id: "known-sale",
+      orderId: "known-order",
+      lineItemId: "known-line",
+      productId,
+      quantity: 1,
+      amount: 40,
+      orderDate: "2026-05-08T00:00:00.000Z",
+      orderProcessedAt: "2026-05-08T00:00:00.000Z",
+      orderCreatedAt: "2026-05-08T00:00:00.000Z",
+      createdAt: "2026-05-08T00:00:00.000Z",
+      updatedAt: "2026-05-08T00:00:00.000Z",
+    };
+    const newlyCachedSale = {
+      id: "newly-cached-historical-sale",
+      orderId: "newly-cached-order",
+      lineItemId: "newly-cached-line",
+      productId,
+      quantity: 1,
+      amount: 48,
+      orderDate: "2026-05-09T00:00:00.000Z",
+      orderProcessedAt: "2026-05-09T00:00:00.000Z",
+      orderCreatedAt: "2026-05-09T00:00:00.000Z",
+      createdAt: "2026-05-09T00:00:00.000Z",
+      updatedAt: "2026-05-09T00:00:00.000Z",
+    };
+    const deterministic = {
+      riskScore: 70,
+      confidence: 78,
+      mainIssue: "product_content",
+      mainIssueLabel: "Product content",
+      product: {
+        id: productId,
+        title: "Newly Cached Historical Product",
+        handle: "newly-cached-historical-product",
+        description: "",
+        descriptionHtml: "",
+        variants: [],
+        media: [],
+      },
+      metrics: {
+        signalCount: 1,
+        contentIssueCount: 1,
+        incrementalDiagnosis: {
+          mode: "incremental",
+          aiEvidenceSnippetCount: 0,
+          customerText: { analyzedItems: 0, reason: "previous_cache_reused" },
+          cache: {
+            customerText: { returnItems: [], reviewItems: [] },
+            refunds: { items: [] },
+            sourceEvents: {
+              sales: [knownSale, newlyCachedSale],
+              returns: [],
+              refunds: [],
+            },
+          },
+        },
+        contentAnalysis: {
+          issues: [{
+            code: "missing_description",
+            issueCode: "product_content",
+            label: "Missing product description",
+            severity: "high",
+          }],
+          advisories: [],
+        },
+        textInsights: { sentiment: { total: 0, negative: 0, negativeRatio: 0 }, repeatedLanguage: [] },
+        refundInsights: {},
+      },
+      evidenceSnippets: [],
+    };
+
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot: {
+        productGid: productId,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      previousDiagnosis: {
+        id: "diagnosis-previous-newly-cached",
+        productGid: productId,
+        riskScore: 70,
+        confidence: 78,
+        likelyCause: "Product content",
+        issues: [{ issue: "Product content", issueCode: "product_content" }],
+        recommendations: [{ id: "rewrite-product-description", label: "Rewrite product description" }],
+        metrics: {
+          contentIssueCount: 1,
+          signalCount: 1,
+          incrementalDiagnosis: {
+            cache: {
+              sourceEvents: {
+                sales: [knownSale],
+                returns: [],
+                refunds: [],
+              },
+            },
+          },
+        },
+        completedAt: "2026-05-10T00:00:00.000Z",
+      },
+      actionRecords: [{
+        id: "action-newly-cached",
+        diagnosisId: "diagnosis-previous-newly-cached",
+        productGid: productId,
+        actionType: "rewrite-product-description",
+        label: "Rewrite product description",
+        status: "applied",
+        payload: { canonicalActionId: "rewrite-product-description" },
+        createdAt: "2026-05-11T00:00:00.000Z",
+        appliedAt: "2026-05-11T00:00:00.000Z",
+      }],
+      recommendationCandidates: [{ id: "rewrite-product-description", type: "PDP copy" }],
+    });
+
+    expect(productEvolution.transitionKind).toBe("actions_and_evidence_changed");
+    expect(productEvolution.sourceSummary.hasNewEvidence).toBe(true);
+    expect(productEvolution.sourceSummary.eventCounts.salesEvents).toBe(1);
+    expect(productEvolution.sourceSummary.changes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "orders", label: "New/current orders", count: 1 }),
+    ]));
   });
 
   it("uses Shopify occurrence dates before cache update dates for post-action evidence", () => {
@@ -4586,6 +4920,50 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(ids).not.toContain("rewrite-seo-title");
     expect(ids).not.toContain("rewrite-meta-description");
     expect(ids).not.toContain("improve-url-handle");
+  });
+
+  it("folds monitoring coverage into the Connect source coverage action", () => {
+    const recommendations = __productPulseDiagnosisTestHooks.buildFinalRecommendations({
+      snapshot: {
+        productGid: "gid://shopify/Product/missing-coverage",
+        productTitle: "GEN Momentum Product",
+        handle: "gen-momentum-product",
+      },
+      deterministic: {
+        mainIssue: "product_quality",
+        riskScore: 55,
+        confidence: 70,
+        issueSignalCounts: {},
+        sourceCoverage: ["Shopify products"],
+        product: {
+          title: "GEN Momentum Product",
+          handle: "gen-momentum-product",
+          description: "A product with enough sales momentum to justify stronger source coverage.",
+          variants: [],
+          media: [],
+        },
+        metrics: {
+          productMomentumScore: 82,
+          orderAccessDenied: true,
+          reviewCount: 0,
+          topReturnReasons: [],
+          affectedVariants: [],
+          contentAnalysis: { issues: [], advisories: [] },
+          textInsights: {},
+          faqNeed: { shouldRecommend: false },
+        },
+      },
+      mainIssue: "product_quality",
+      ai: { report: { recommendation_copy: {} } },
+    });
+
+    const ids = recommendations.map((item) => item.id);
+    const connectAction = recommendations.find((item) => item.id === "connect-missing-source");
+    expect(ids).toContain("connect-missing-source");
+    expect(ids).not.toContain("improve-monitoring-coverage");
+    expect(connectAction?.payload.productMomentumScore).toBe(82);
+    expect(connectAction?.payload.trigger).toContain("Sales Momentum");
+    expect(connectAction?.payload.nextSteps).toContain("Keep the product on Watchlist if periodic monitoring still matters");
   });
 
   it("keeps subjective softness feedback out of QA and variant actions without concentration", () => {

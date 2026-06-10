@@ -5604,6 +5604,14 @@ function BackgroundProcessCard({ process, showLogs = false }) {
         ) : null}
       </header>
 
+      {process.failureSummary ? (
+        <div className="ppBackgroundProcessFailure">
+          <s-icon type="alert-circle" size="small"></s-icon>
+          <span>Failure detail</span>
+          <p>{process.failureSummary}</p>
+        </div>
+      ) : null}
+
       <div className="ppBackgroundProcessProgress" aria-label={`${process.status || "Process"} progress ${formatInteger(process.progress || 0)}%`}>
         <span style={{ width: `${Math.min(100, Math.max(0, Number(process.progress || 0)))}%` }}></span>
       </div>
@@ -8155,11 +8163,12 @@ function ShopifyProductSearchModal({
                     <div className="ppShopifyProductResultText">
                       <div>
                         <strong>{product.title}</strong>
+                        <ShopifyProductStatusTag product={product} />
                         <ProductSearchStatusIcon product={product} alreadyAdded={alreadyAdded} addedActionLabel={addedActionLabel} addedStatusKind={addedStatusKind} />
                       </div>
                       <p>{product.handle ? `/${product.handle}` : "Shopify product"}</p>
                       <small>
-                        {[product.status, product.detail, product.sku ? `SKU ${product.sku}` : ""].filter(Boolean).join(" - ")}
+                        {[product.detail, product.sku ? `SKU ${product.sku}` : ""].filter(Boolean).join(" - ")}
                       </small>
                     </div>
                     <div className="ppShopifyProductResultActions">
@@ -8243,6 +8252,25 @@ function ShopifyProductResultActionButton({
       </FloatingTablePopover>
     </>
   );
+}
+
+function ShopifyProductStatusTag({ product = {} }) {
+  const status = getShopifyProductStatusTag(product);
+  if (!status.label) return null;
+  return (
+    <span className={`ppShopifyProductStatusTag ppShopifyProductStatusTag-${status.tone}`}>
+      {status.label}
+    </span>
+  );
+}
+
+function getShopifyProductStatusTag(product = {}) {
+  const normalized = String(product.shopifyStatus || product.status || "").trim().toUpperCase();
+  if (normalized === "ACTIVE") return { label: product.shopifyStatusLabel || "Active", tone: "active" };
+  if (normalized === "DRAFT") return { label: product.shopifyStatusLabel || "Draft", tone: "draft" };
+  if (normalized === "ARCHIVED") return { label: product.shopifyStatusLabel || "Archived", tone: "archived" };
+  const label = product.shopifyStatusLabel || "";
+  return { label, tone: product.shopifyStatusTone || "unknown" };
 }
 
 function ProductSearchStatusIcon({ product, alreadyAdded = false, addedActionLabel = "Added", addedStatusKind = "watchlist" }) {
@@ -14212,6 +14240,11 @@ function getRecommendedActionApplication(action, product = null, options = {}) {
   };
 }
 
+function isProductPulseInternalNavigationUrl(value = "") {
+  const url = String(value || "").trim();
+  return url.startsWith("/") && !url.startsWith("//");
+}
+
 function isRetentionRecommendedAction(action = {}) {
   const payload = action.payload || {};
   const normalized = `${action.id || ""} ${action.type || ""} ${action.label || ""} ${action.title || ""} ${payload.recommendationKind || ""} ${payload.retentionActionKind || ""} ${payload.source || ""}`.toLowerCase();
@@ -15131,6 +15164,65 @@ function markInitialProductWorkflowGloballyDismissed() {
   writeProductPulseLocalStorageValue(INITIAL_PRODUCT_WORKFLOW_GLOBAL_DISMISS_KEY, "true");
 }
 
+function isFinishedProductDiagnosisJobForProduct(job = {}, product = {}, currentPath = "") {
+  if (!job || !product) return false;
+  if (!isProductDiagnosisJob(job)) return false;
+  if (!isTerminalProductPulseJobStatus(job.status)) return false;
+  const productValues = getProductDiagnosisJobMatchValues(product, currentPath);
+  if (!productValues.size) return false;
+  return getFinishedJobProductMatchValues(job).some((value) => productValues.has(value));
+}
+
+function isProductDiagnosisJob(job = {}) {
+  const kind = String(job.kind || job.kindKey || "").trim().toLowerCase();
+  const name = String(job.name || "").trim().toLowerCase();
+  if (kind) return kind === "product-diagnosis";
+  return name === "product diagnosis";
+}
+
+function isTerminalProductPulseJobStatus(status = "") {
+  return ["completed", "failed", "canceled", "cancelled"].includes(String(status || "").trim().toLowerCase());
+}
+
+function getProductDiagnosisJobMatchValues(product = {}, currentPath = "") {
+  return new Set([
+    product.productGid,
+    product.id,
+    product.shopifyProductId,
+    product.handle,
+    product.slug,
+    product.href,
+    currentPath,
+    product.handle ? `/app/products/${product.handle}` : "",
+    product.slug ? `/app/products/${product.slug}` : "",
+  ].map(normalizeProductDiagnosisJobMatchValue).filter(Boolean));
+}
+
+function getFinishedJobProductMatchValues(job = {}) {
+  return [
+    job.productGid,
+    job.productId,
+    job.shopifyProductId,
+    job.productHandle,
+    job.handle,
+    job.productHref,
+    job.href,
+  ].map(normalizeProductDiagnosisJobMatchValue).filter(Boolean);
+}
+
+function normalizeProductDiagnosisJobMatchValue(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const withoutQuery = text.split("?")[0].split("#")[0];
+  const productPathMatch = withoutQuery.match(/\/app\/products\/([^/]+)/i);
+  const normalized = productPathMatch?.[1] || withoutQuery;
+  try {
+    return decodeURIComponent(normalized).toLowerCase();
+  } catch {
+    return normalized.toLowerCase();
+  }
+}
+
 function readProductPulseLocalStorageValue(key = "") {
   if (!key || typeof window === "undefined") return "";
   try {
@@ -15197,6 +15289,17 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   useEffect(() => {
     minimizedActionStatesRef.current = minimizedActionStates;
   }, [minimizedActionStates]);
+
+  useEffect(() => {
+    const handleFinishedProductJobs = (event) => {
+      const jobs = Array.isArray(event?.detail?.jobs) ? event.detail.jobs : [];
+      const currentProduct = productRef.current;
+      if (!jobs.some((job) => isFinishedProductDiagnosisJobForProduct(job, currentProduct, location.pathname))) return;
+      revalidator.revalidate();
+    };
+    window.addEventListener("productpulse:jobs-finished", handleFinishedProductJobs);
+    return () => window.removeEventListener("productpulse:jobs-finished", handleFinishedProductJobs);
+  }, [location.pathname, productIdentityKey, revalidator]);
 
   useEffect(() => {
     const nextProduct = productRef.current;
@@ -34431,6 +34534,8 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
   const placeholderApplication = isEditingInline && !effectiveApplication.descriptionChanges?.length
     ? { ...effectiveApplication, descriptionChanges: [] }
     : effectiveApplication;
+  const externalEditUrl = effectiveApplication.externalEditUrl || "";
+  const isInternalExternalEditUrl = isProductPulseInternalNavigationUrl(externalEditUrl);
   const unresolvedPlaceholders = getActionApplicationPlaceholders(placeholderApplication, activeDetailText);
   const metafieldMissing = effectiveApplication.isMetafield && (!String(effectiveApplication.metafieldNamespace || "").trim() || !String(effectiveApplication.metafieldKey || "").trim());
   const disabled = pending || applied || hasPendingHtmlEdit || !hasSelectedDescriptionChanges || metafieldMissing || (actionKind === "applyable" && unresolvedPlaceholders.length > 0);
@@ -34538,11 +34643,18 @@ function ProductRecommendedAction({ action, product, pending = false, onEdit, on
           <span>{investigationTag ? getInvestigationTagButtonLabel(action) : "Mark reviewed"}</span>
         </button>
       )}
-      {!showHeader && application.externalEditUrl && (
-        <a className="ppActionEditFooterButton" href={application.externalEditUrl} target="_blank" rel="noreferrer">
-          <s-icon type="external" size="small"></s-icon>
-          <span>{application.externalEditLabel || "Edit in Shopify"}</span>
-        </a>
+      {!showHeader && externalEditUrl && (
+        isInternalExternalEditUrl ? (
+          <Link className="ppActionEditFooterButton" to={externalEditUrl}>
+            <s-icon type="external" size="small"></s-icon>
+            <span>{effectiveApplication.externalEditLabel || "Edit in Shopify"}</span>
+          </Link>
+        ) : (
+          <a className="ppActionEditFooterButton" href={externalEditUrl} target="_blank" rel="noreferrer">
+            <s-icon type="external" size="small"></s-icon>
+            <span>{effectiveApplication.externalEditLabel || "Edit in Shopify"}</span>
+          </a>
+        )
       )}
       {actionButton}
     </div>

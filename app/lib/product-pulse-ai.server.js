@@ -663,22 +663,52 @@ async function runContentGapAiStep({ shop, jobId, input, classification, usageTr
     return { gapResponse, contentGaps: cachedContentGaps };
   }
 
-  const gapResponse = await generateAiText({
-    shop,
-    jobId,
-    task: "content_gap",
-    prompt: buildContentGapPrompt(input, classification),
-    usageTracker,
-    onPerfEvent,
-  });
-  return {
-    gapResponse,
-    contentGaps: parseAiJson(gapResponse.text, {
-      missing: [],
-      present: [],
-      notes: "AI PDP content-gap analysis was unavailable.",
-    }),
+  const fallbackContentGaps = {
+    missing: [],
+    present: [],
+    notes: "AI PDP content-gap analysis was unavailable; deterministic product evidence was used.",
+    content_issues: [],
+    issue_specific_gaps: [],
   };
+
+  try {
+    const gapResponse = await generateAiText({
+      shop,
+      jobId,
+      task: "content_gap",
+      prompt: buildContentGapPrompt(input, classification),
+      usageTracker,
+      onPerfEvent,
+    });
+    return {
+      gapResponse,
+      contentGaps: parseAiJson(gapResponse.text, {
+        missing: [],
+        present: [],
+        notes: "AI PDP content-gap analysis was unavailable.",
+      }),
+    };
+  } catch (error) {
+    await Promise.resolve(recordJobLog({
+      shop,
+      jobId,
+      level: "warn",
+      event: "product_diagnosis.content_gap_failed",
+      message: "AI PDP content-gap analysis failed; deterministic product evidence will be used.",
+      data: { error: serializeError(error) },
+    })).catch(() => {});
+    const gapResponse = {
+      provider: "unavailable",
+      model: "content-gap-unavailable",
+      task: "content_gap",
+      text: stringifyAiJson(fallbackContentGaps),
+      usage: null,
+    };
+    return {
+      gapResponse,
+      contentGaps: fallbackContentGaps,
+    };
+  }
 }
 
 async function runContentCoverageValidationAiStep({ shop, jobId, input, report, contentGaps, usageTracker, onPerfEvent }) {
@@ -2076,39 +2106,10 @@ async function generateAiText({ shop, jobId, task, prompt, usageTracker = null, 
 }
 
 function emitProductDiagnosisAiPerf(onPerfEvent, event, data = {}, level = "warn") {
-  if (typeof onPerfEvent === "function") {
-    onPerfEvent(event, {
-      ...getProductDiagnosisAiMemorySnapshot(),
-      ...data,
-    }, level);
-    return;
-  }
-  logProductDiagnosisAiPerf(event, data, level);
-}
-
-function logProductDiagnosisAiPerf(event, data = {}, level = "warn") {
-  if (process.env.NODE_ENV === "test") return;
-  const method = level === "error" ? "error" : level === "info" ? "info" : "warn";
-  console[method]("[product-pulse-diagnosis-perf]", {
-    event,
-    at: new Date().toISOString(),
-    ...getProductDiagnosisAiMemorySnapshot(),
-    ...data,
-  });
-}
-
-function getProductDiagnosisAiMemorySnapshot() {
-  const memory = process.memoryUsage();
-  return {
-    heapUsedMb: productDiagnosisAiToMb(memory.heapUsed),
-    heapTotalMb: productDiagnosisAiToMb(memory.heapTotal),
-    rssMb: productDiagnosisAiToMb(memory.rss),
-    externalMb: productDiagnosisAiToMb(memory.external),
-  };
-}
-
-function productDiagnosisAiToMb(value) {
-  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10;
+  void onPerfEvent;
+  void event;
+  void data;
+  void level;
 }
 
 function summarizeAiPerfUsage(usage = {}) {

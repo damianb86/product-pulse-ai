@@ -691,6 +691,34 @@ describe("ProductPulse product job helpers", () => {
     expect(snapshot.metrics.descriptionWordCount).toBeGreaterThan(0);
   });
 
+  it("formats live Shopify search results with product status tags", () => {
+    const format = (status) => productPulseJobsTestHooks.formatShopifyProductSearchResult({
+      id: `gid://shopify/Product/${status.toLowerCase()}`,
+      title: `${status} Product`,
+      handle: `${status.toLowerCase()}-product`,
+      status,
+      variants: { nodes: [] },
+      collections: { nodes: [] },
+    });
+
+    expect(format("ACTIVE")).toMatchObject({
+      status: "ACTIVE",
+      shopifyStatus: "active",
+      shopifyStatusLabel: "Active",
+      shopifyStatusTone: "active",
+    });
+    expect(format("DRAFT")).toMatchObject({
+      shopifyStatus: "draft",
+      shopifyStatusLabel: "Draft",
+      shopifyStatusTone: "draft",
+    });
+    expect(format("ARCHIVED")).toMatchObject({
+      shopifyStatus: "archived",
+      shopifyStatusLabel: "Archived",
+      shopifyStatusTone: "archived",
+    });
+  });
+
   it("formats background process details with payload summaries and per-job logs", () => {
     const process = productPulseJobsTestHooks.formatBackgroundProcess(
       {
@@ -723,6 +751,33 @@ describe("ProductPulse product job helpers", () => {
       { label: "Handle", value: "gen-echolock-voice-safe" },
       { label: "Queued risk score", value: "81" },
     ]));
+  });
+
+  it("adds a compact failure summary to failed background processes", () => {
+    const process = productPulseJobsTestHooks.formatBackgroundProcess(
+      {
+        id: "job-failed",
+        shop: "test.myshopify.com",
+        kind: "product-diagnosis",
+        source: "Product Diagnosis failed",
+        status: "Failed",
+        progress: 100,
+        errorMessage: "Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.",
+        payload: {
+          productGid: "gid://shopify/Product/123",
+          handle: "gen-failed-product",
+          productTitle: "GEN Failed Product",
+        },
+        startedAt: new Date("2026-05-24T14:00:00.000Z"),
+        updatedAt: new Date("2026-05-24T14:02:00.000Z"),
+        finishedAt: new Date("2026-05-24T14:02:00.000Z"),
+      },
+      [],
+    );
+
+    expect(process.failureSummary).toBe("Gemini quota exhausted; OpenAI nano fallback returned HTTP 429.");
+    expect(process.productGid).toBe("gid://shopify/Product/123");
+    expect(process.productHref).toBe("/app/products/gen-failed-product");
   });
 
   it("summarizes background process counts by status and kind", () => {
