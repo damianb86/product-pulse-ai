@@ -5,6 +5,7 @@ APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 APP_ENV_FILE=${APP_ENV_FILE:-}
 APP_DISPLAY_NAME=${APP_DISPLAY_NAME:-"ProductPulse AI"}
 VERIFY_ENV_VARS=${VERIFY_ENV_VARS:-"PRODUCT_PULSE_AI_LEVEL AI_CHATKIT_ENABLED AI_CHAT_STANDARD_MONTHLY_MESSAGE_LIMIT AI_CHAT_CHEAP_MONTHLY_MESSAGE_LIMIT"}
+VERIFY_ENV_SET_VARS=${VERIFY_ENV_SET_VARS:-"OPENAI_WEBHOOK_SECRET"}
 BUILD_APP_BUNDLE=${BUILD_APP_BUNDLE:-auto}
 DOCKER_BUILDKIT=${DOCKER_BUILDKIT:-1}
 COMPOSE_DOCKER_CLI_BUILD=${COMPOSE_DOCKER_CLI_BUILD:-1}
@@ -58,6 +59,15 @@ finish_step() {
   echo
 }
 
+get_app_env_value() {
+  ENV_KEY=$1
+  grep -E "^[[:space:]]*$ENV_KEY=" "$APP_ENV_FILE" \
+    | tail -n 1 \
+    | sed 's/^[^=]*=//' \
+    | sed "s/^[\"']//; s/[\"']$//" \
+    || true
+}
+
 if [ -n "$APP_ENV_FILE" ]; then
   APP_ENV_FILE=$(resolve_file "$APP_ENV_FILE")
 else
@@ -90,19 +100,25 @@ if ! grep -Eq '^[[:space:]]*POSTGRES_ADMIN_PASSWORD=.+' "$SHARED_ENV_FILE"; then
   exit 1
 fi
 
-APP_DATABASE_URL=$(
-  grep -E '^[[:space:]]*DATABASE_URL=' "$APP_ENV_FILE" \
-    | tail -n 1 \
-    | sed 's/^[^=]*=//' \
-    | sed "s/^[\"']//; s/[\"']$//" \
-    || true
-)
+APP_DATABASE_URL=$(get_app_env_value DATABASE_URL)
 case "$APP_DATABASE_URL" in
   *@127.0.0.1:*|*@localhost:*|*@0.0.0.0:*)
     echo "DATABASE_URL points to a loopback host, which will not work from the app container." >&2
     echo "Use the shared PostgreSQL service hostname instead, for example:" >&2
     echo "  DATABASE_URL=postgresql://<app-db-user>:<password>@postgres:5432/<app-db-name>?schema=public&connection_limit=3" >&2
     exit 1
+    ;;
+esac
+
+OPENAI_BATCH_ENABLED=$(get_app_env_value PRODUCT_PULSE_OPENAI_BATCH_ENABLED | tr '[:upper:]' '[:lower:]')
+OPENAI_WEBHOOK_SECRET_VALUE=$(get_app_env_value OPENAI_WEBHOOK_SECRET)
+case "$OPENAI_BATCH_ENABLED" in
+  1|true|yes|on)
+    if [ -z "$OPENAI_WEBHOOK_SECRET_VALUE" ]; then
+      echo "PRODUCT_PULSE_OPENAI_BATCH_ENABLED is enabled but OPENAI_WEBHOOK_SECRET is missing in: $APP_ENV_FILE" >&2
+      echo "Set OPENAI_WEBHOOK_SECRET in the runtime env file used by deploy.sh, not only in the local build env." >&2
+      exit 1
+    fi
     ;;
 esac
 
@@ -162,6 +178,19 @@ if [ -n "$VERIFY_ENV_VARS" ]; then
       echo "$ENV_VAR inside app container: $VALUE"
     else
       echo "Warning: could not read $ENV_VAR from the app container." >&2
+    fi
+  done
+  finish_step
+fi
+
+if [ -n "$VERIFY_ENV_SET_VARS" ]; then
+  start_step "Verifying selected secret environment variables"
+  for ENV_VAR in $VERIFY_ENV_SET_VARS; do
+    VALUE=$(compose exec -T app printenv "$ENV_VAR" 2>/dev/null || true)
+    if [ -n "$VALUE" ]; then
+      echo "$ENV_VAR inside app container: set"
+    else
+      echo "Warning: $ENV_VAR is not set inside the app container." >&2
     fi
   done
   finish_step

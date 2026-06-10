@@ -18,12 +18,32 @@ export const loader = async ({ request }) => {
   const perf = createProductPulsePerfLogger("loader.credits-summary", { route: "/app/credits-summary" });
   const { session } = await authenticate.admin(request);
   perf.mark("authenticate", { shop: session.shop });
+  const url = new URL(request.url);
+  const scope = normalizeCreditSummaryScope(url.searchParams.get("scope"));
 
   try {
+    if (scope === "balance") {
+      const pointBalance = await measureProductPulseStep(
+        perf,
+        "getStorePointBalanceForShop",
+        () => getStorePointBalanceForShop(session.shop),
+      );
+      perf.done({ shop: session.shop, scope, cached: false });
+      return Response.json({
+        scope,
+        pointSummary: null,
+        pointBalance,
+      }, {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
     const cachedSummary = getCachedCreditSummary(session.shop);
     if (cachedSummary) {
       perf.mark("creditsSummary.cache.hit");
-      perf.done({ shop: session.shop, cached: true });
+      perf.done({ shop: session.shop, scope, cached: true });
       return buildCreditSummaryResponse(cachedSummary);
     }
 
@@ -42,7 +62,7 @@ export const loader = async ({ request }) => {
     ]);
     const pointSummary = withProductPulseBatchModeSummary(rawPointSummary, settings);
     setCachedCreditSummary(session.shop, pointSummary);
-    perf.done({ shop: session.shop, cached: false });
+    perf.done({ shop: session.shop, scope, cached: false });
     return buildCreditSummaryResponse(pointSummary);
   } catch (error) {
     perf.fail(error, { shop: session.shop });
@@ -60,6 +80,10 @@ export const loader = async ({ request }) => {
     });
   }
 };
+
+function normalizeCreditSummaryScope(value) {
+  return value === "balance" ? "balance" : "summary";
+}
 
 async function getCreditSummaryFallbackBalance(shop) {
   try {

@@ -4,9 +4,11 @@ import { buildEmbeddedAppHref } from "../lib/product-pulse-app-paths";
 
 const JOB_STATUS_MIN_REFRESH_MS = 10_000;
 const JOB_STATUS_ACTIVE_POLL_MS = 10_000;
-const JOB_STATUS_IDLE_POLL_MS = 180_000;
+const JOB_STATUS_IDLE_POLL_MS = 10_000;
 const JOB_STATUS_INITIAL_LOAD_MS = 30_000;
 const CREDIT_SUMMARY_REFRESH_MS = 60_000;
+const CREDIT_BALANCE_MIN_REFRESH_MS = 10_000;
+const CREDIT_BALANCE_POLL_MS = 10_000;
 const JOB_NOTIFICATION_PERMISSION_STORAGE_KEY = "productPulse.jobNotificationsPrompt.v1";
 
 let productPulseJobAudioContext = null;
@@ -16,6 +18,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const cancelFetcher = useFetcher();
   const searchFetcher = useFetcher();
   const creditFetcher = useFetcher();
+  const creditBalanceFetcher = useFetcher();
   const revalidator = useRevalidator();
   const location = useLocation();
   const [minimized, setMinimized] = useState(() => Boolean(developmentMode));
@@ -27,6 +30,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const [notificationPromptVisible, setNotificationPromptVisible] = useState(false);
   const [notificationPreference, setNotificationPreference] = useState(() => getStoredJobNotificationPreference());
   const [now, setNow] = useState(null);
+  const [creditSnapshot, setCreditSnapshot] = useState({ pointSummary: null, pointBalance: null });
   const observedJobsRef = useRef(new Map());
   const announcedFailedJobIdsRef = useRef(new Set());
   const fetcherLoadRef = useRef(fetcher.load);
@@ -34,9 +38,13 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const searchFetcherLoadRef = useRef(searchFetcher.load);
   const creditFetcherLoadRef = useRef(creditFetcher.load);
   const creditFetcherStateRef = useRef(creditFetcher.state);
+  const creditBalanceFetcherLoadRef = useRef(creditBalanceFetcher.load);
+  const creditBalanceFetcherStateRef = useRef(creditBalanceFetcher.state);
   const lastJobStatusLoadAtRef = useRef(0);
   const lastCreditSummaryLoadAtRef = useRef(0);
+  const lastCreditBalanceLoadAtRef = useRef(0);
   const pendingJobStatusLoadRef = useRef(null);
+  const pendingCreditBalanceLoadRef = useRef(null);
   const handledCancelResponseRef = useRef("");
   const locallyCancelledJobIdsRef = useRef(new Set());
   const lastSearchQueryRef = useRef("");
@@ -48,9 +56,17 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   const activeJobs = useMemo(() => monitor.activeJobs || [], [monitor.activeJobs]);
   const recentJobs = useMemo(() => monitor.recentJobs || [], [monitor.recentJobs]);
   const logs = useMemo(() => monitor.logs || [], [monitor.logs]);
-  const creditSummary = creditFetcher.data?.pointSummary || null;
-  const pointSummary = creditSummary || monitor.pointSummary || initialMonitor?.pointSummary || null;
-  const pointBalance = pointSummary?.balance || creditFetcher.data?.pointBalance || monitor.pointBalance || initialMonitor?.pointBalance || null;
+  const basePointSummary = creditSnapshot.pointSummary || monitor.pointSummary || initialMonitor?.pointSummary || null;
+  const pointSummary = useMemo(
+    () => mergePointSummaryBalance(basePointSummary, creditSnapshot.pointBalance),
+    [basePointSummary, creditSnapshot.pointBalance],
+  );
+  const pointBalance = creditSnapshot.pointBalance
+    || pointSummary?.balance
+    || creditFetcher.data?.pointBalance
+    || monitor.pointBalance
+    || initialMonitor?.pointBalance
+    || null;
   const creditSummaryError = creditFetcher.data?.status === "error" ? creditFetcher.data?.message : "";
   const activeJobCount = Number(monitor.activeJobCount ?? initialMonitor?.activeJobCount ?? activeJobs.length) || 0;
   const hasActiveJobs = activeJobCount > 0;
@@ -131,6 +147,31 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     fetcherLoadRef.current(buildJobStatusRequestPath(jobStatusPath, scope));
   }, [jobStatusPath]);
 
+  const requestCreditBalanceLoad = useCallback((options = {}) => {
+    const { allowHidden = false, force = false } = options;
+    if (!allowHidden && document.hidden) return;
+    if (force && pendingCreditBalanceLoadRef.current) {
+      window.clearTimeout(pendingCreditBalanceLoadRef.current);
+      pendingCreditBalanceLoadRef.current = null;
+    }
+    if (creditBalanceFetcherStateRef.current !== "idle") return;
+
+    const elapsedMs = Date.now() - lastCreditBalanceLoadAtRef.current;
+    const remainingMs = force ? 0 : Math.max(0, CREDIT_BALANCE_MIN_REFRESH_MS - elapsedMs);
+    if (remainingMs > 0) {
+      if (!pendingCreditBalanceLoadRef.current) {
+        pendingCreditBalanceLoadRef.current = window.setTimeout(() => {
+          pendingCreditBalanceLoadRef.current = null;
+          requestCreditBalanceLoad(options);
+        }, remainingMs);
+      }
+      return;
+    }
+
+    lastCreditBalanceLoadAtRef.current = Date.now();
+    creditBalanceFetcherLoadRef.current(buildCreditSummaryRequestPath(creditSummaryPath, "balance"));
+  }, [creditSummaryPath]);
+
   useEffect(() => {
     setNow(Date.now());
     const interval = window.setInterval(() => setNow(Date.now()), 1000);
@@ -143,6 +184,16 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }, [fetcher.data]);
 
   useEffect(() => {
+    if (!creditFetcher.data) return;
+    setCreditSnapshot((current) => mergeCreditSnapshot(current, creditFetcher.data));
+  }, [creditFetcher.data]);
+
+  useEffect(() => {
+    if (!creditBalanceFetcher.data) return;
+    setCreditSnapshot((current) => mergeCreditSnapshot(current, creditBalanceFetcher.data));
+  }, [creditBalanceFetcher.data]);
+
+  useEffect(() => {
     if (initialMonitor || document.hidden) return undefined;
     const timeout = window.setTimeout(() => {
       requestJobStatusLoad();
@@ -152,10 +203,19 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      requestJobStatusLoad();
+      requestJobStatusLoad({
+        scope: activePopoverRef.current === "jobs" ? "popover" : "topbar",
+      });
     }, hasActiveJobs ? JOB_STATUS_ACTIVE_POLL_MS : JOB_STATUS_IDLE_POLL_MS);
     return () => window.clearInterval(interval);
   }, [hasActiveJobs, requestJobStatusLoad]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      requestCreditBalanceLoad();
+    }, CREDIT_BALANCE_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, [requestCreditBalanceLoad]);
 
   useEffect(() => () => {
     if (pendingJobStatusLoadRef.current) {
@@ -163,6 +223,13 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       pendingJobStatusLoadRef.current = null;
     }
   }, [jobStatusPath]);
+
+  useEffect(() => () => {
+    if (pendingCreditBalanceLoadRef.current) {
+      window.clearTimeout(pendingCreditBalanceLoadRef.current);
+      pendingCreditBalanceLoadRef.current = null;
+    }
+  }, [creditSummaryPath]);
 
   useEffect(() => {
     fetcherStateRef.current = fetcher.state;
@@ -185,12 +252,20 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
   }, [creditFetcher.state]);
 
   useEffect(() => {
+    creditBalanceFetcherLoadRef.current = creditBalanceFetcher.load;
+  }, [creditBalanceFetcher.load]);
+
+  useEffect(() => {
+    creditBalanceFetcherStateRef.current = creditBalanceFetcher.state;
+  }, [creditBalanceFetcher.state]);
+
+  useEffect(() => {
     if (activePopover !== "credits") return;
     if (creditFetcherStateRef.current !== "idle") return;
     const elapsedMs = Date.now() - lastCreditSummaryLoadAtRef.current;
     if (creditFetcher.data?.pointSummary && elapsedMs < CREDIT_SUMMARY_REFRESH_MS) return;
     lastCreditSummaryLoadAtRef.current = Date.now();
-    creditFetcherLoadRef.current(creditSummaryPath);
+    creditFetcherLoadRef.current(buildCreditSummaryRequestPath(creditSummaryPath, "summary"));
   }, [activePopover, creditFetcher.data, creditSummaryPath]);
 
   useEffect(() => {
@@ -392,7 +467,7 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       });
       observedJobsRef.current = nextJobs;
 
-      requestJobStatusLoad({ force: true });
+      requestJobStatusLoad({ force: true, scope: "topbar" });
       revalidator.revalidate();
     };
 
@@ -1498,8 +1573,36 @@ function getJobNoticeAction(job) {
 }
 
 function buildJobStatusRequestPath(path, scope) {
-  const normalizedScope = scope === "popover" ? "popover" : "summary";
+  const normalizedScope = scope === "popover" || scope === "topbar" ? scope : "summary";
   return `${path}${path.includes("?") ? "&" : "?"}scope=${normalizedScope}`;
+}
+
+function buildCreditSummaryRequestPath(path, scope) {
+  const normalizedScope = scope === "balance" ? "balance" : "summary";
+  return `${path}${path.includes("?") ? "&" : "?"}scope=${normalizedScope}`;
+}
+
+function mergePointSummaryBalance(pointSummary, pointBalance) {
+  if (!pointSummary || !pointBalance) return pointSummary || null;
+  return {
+    ...pointSummary,
+    balance: pointBalance,
+  };
+}
+
+function mergeCreditSnapshot(current = {}, incoming = {}) {
+  if (!incoming || typeof incoming !== "object") return current || {};
+  const hasIncomingSummary = incoming.pointSummary !== undefined && incoming.pointSummary !== null;
+  const incomingBalance = incoming.pointBalance || incoming.pointSummary?.balance || null;
+  const pointBalance = incomingBalance || current.pointBalance || null;
+  const pointSummary = hasIncomingSummary
+    ? mergePointSummaryBalance(incoming.pointSummary, pointBalance)
+    : mergePointSummaryBalance(current.pointSummary, pointBalance);
+
+  return {
+    pointSummary,
+    pointBalance,
+  };
 }
 
 function mergeJobMonitorSnapshot(current = {}, incoming = {}) {

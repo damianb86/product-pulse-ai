@@ -12,7 +12,7 @@ export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const scope = normalizeJobStatusScope(url.searchParams.get("scope"));
   const developmentMode = isProductPulseDevelopment();
-  const includeRecentJobs = developmentMode || scope === "popover";
+  const includeRecentJobs = developmentMode || scope === "popover" || scope === "topbar";
   const includeLogs = developmentMode && scope === "popover";
 
   try {
@@ -39,7 +39,7 @@ export const loader = async ({ request }) => {
       jobMonitor,
     }, {
       headers: {
-        "Cache-Control": "private, max-age=10",
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {
@@ -49,7 +49,7 @@ export const loader = async ({ request }) => {
 };
 
 function normalizeJobStatusScope(value) {
-  return value === "popover" ? "popover" : "summary";
+  return value === "popover" || value === "topbar" ? value : "summary";
 }
 
 export const action = async ({ request }) => {

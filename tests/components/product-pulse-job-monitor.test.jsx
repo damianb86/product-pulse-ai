@@ -50,7 +50,9 @@ function renderMonitor(initialMonitor, options = {}) {
     {
       path: "/app/credits-summary",
       loader: ({ request }) => {
-        options.onCreditSummary?.(new URL(request.url));
+        const url = new URL(request.url);
+        options.onCreditSummary?.(url);
+        if (typeof options.creditSummaryResponse === "function") return options.creditSummaryResponse(url);
         if (options.creditSummaryResponse) return options.creditSummaryResponse;
         const monitor = getMonitor() || {};
         return {
@@ -62,7 +64,9 @@ function renderMonitor(initialMonitor, options = {}) {
     {
       path: "/apps/product-pulse-ia/app/credits-summary",
       loader: ({ request }) => {
-        options.onCreditSummary?.(new URL(request.url));
+        const url = new URL(request.url);
+        options.onCreditSummary?.(url);
+        if (typeof options.creditSummaryResponse === "function") return options.creditSummaryResponse(url);
         if (options.creditSummaryResponse) return options.creditSummaryResponse;
         const monitor = getMonitor() || {};
         return {
@@ -333,6 +337,109 @@ describe("ProductPulseJobMonitor", () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 50));
     expect(jobStatusRequests).toHaveLength(2);
+  });
+
+  it("polls background processes every 10 seconds and refreshes completed jobs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-10T12:00:00.000Z"));
+    const jobStatusRequests = [];
+    const runningJob = makeRunningJob("job-auto-complete", {
+      displayTitle: "Core Linen Trouser",
+      productHref: "/app/products/core-linen-trouser",
+    });
+    const completedJob = {
+      ...runningJob,
+      status: "Completed",
+      finishedAtIso: new Date().toISOString(),
+      updatedAtIso: new Date().toISOString(),
+    };
+    let monitor = {
+      activeJobs: [runningJob],
+      recentJobs: [runningJob],
+      logs: [],
+    };
+
+    renderMonitor(
+      () => monitor,
+      { onJobStatus: (url) => jobStatusRequests.push(url) },
+    );
+
+    expect(screen.getByRole("button", { name: /background processes, 1 active/i })).toBeVisible();
+
+    monitor = {
+      activeJobs: [],
+      recentJobs: [completedJob],
+      logs: [],
+    };
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await act(async () => {});
+
+    expect(jobStatusRequests.length).toBeGreaterThanOrEqual(1);
+    expect(jobStatusRequests.map((url) => url.searchParams.get("scope"))).toContain("topbar");
+    expect(screen.getByRole("button", { name: /background processes/i })).not.toHaveTextContent("1");
+
+    fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+    expect(screen.getByRole("dialog", { name: /background processes/i })).toHaveTextContent("History");
+    expect(screen.getByRole("dialog", { name: /background processes/i })).toHaveTextContent("Completed");
+    expect(screen.getByText("Core Linen Trouser")).toBeVisible();
+  });
+
+  it("polls only the credit balance every 10 seconds for the top bar number", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-10T12:00:00.000Z"));
+    const creditSummaryRequests = [];
+    let availableCredits = 95;
+
+    renderMonitor(
+      {
+        activeJobs: [],
+        recentJobs: [],
+        logs: [],
+        pointBalance: { available: 95, label: "95.0" },
+        pointSummary: {
+          balance: { available: 95, label: "95.0" },
+          plan: {
+            name: "Free plan",
+            renewalLabel: "Does not renew",
+            allowance: 100,
+            allowanceLabel: "100",
+          },
+          usage: {
+            used: 5,
+            total: 100,
+            usedLabel: "5",
+            totalLabel: "100",
+            percent: 5,
+            percentLabel: "5% used",
+            progressPercent: 5,
+          },
+          activity: [],
+        },
+      },
+      {
+        onCreditSummary: (url) => creditSummaryRequests.push(url),
+        creditSummaryResponse: () => ({
+          scope: "balance",
+          pointSummary: null,
+          pointBalance: { available: availableCredits, label: `${availableCredits}.0` },
+        }),
+      },
+    );
+
+    expect(screen.getByRole("button", { name: "95 Credits available" })).toBeVisible();
+    availableCredits = 93;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await act(async () => {});
+
+    expect(creditSummaryRequests).toHaveLength(1);
+    expect(creditSummaryRequests[0].searchParams.get("scope")).toBe("balance");
+    expect(screen.getByRole("button", { name: "93 Credits available" })).toBeVisible();
   });
 
   it("loads credit summary with Shopify embedded params instead of dropping shop context", async () => {
