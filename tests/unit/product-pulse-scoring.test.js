@@ -58,6 +58,30 @@ describe("ProductPulse scoring", () => {
     expect(model.riskComponents.contentGapScore).toBeGreaterThan(10);
   });
 
+  it("reserves 100/100 product risk for exceptional hard evidence", () => {
+    const model = calculateProductScoreModel({
+      soldUnits: 100,
+      returnUnits: 45,
+      refundUnits: 35,
+      refundAmount: 3500,
+      reviewCount: 60,
+      negativeReviewCount: 30,
+      avgRating: 2.1,
+      contentIssueCount: 8,
+      contentQualityRisk: 15,
+      sentimentTotal: 50,
+      sentimentNegativeCount: 35,
+      recentSignalUnits: 25,
+      signalEventCount: 110,
+      sourceCoverage: ["Shopify product", "Shopify returns", "Shopify refunds", "CSV reviews"],
+      sourceAgreement: true,
+    });
+
+    expect(model.riskComponents.rawScore).toBeGreaterThan(100);
+    expect(model.riskScore).toBeGreaterThanOrEqual(90);
+    expect(model.riskScore).toBeLessThan(100);
+  });
+
   it("keeps financial impact as money outside product risk", () => {
     const model = calculateProductScoreModel({
       returnRate: 20,

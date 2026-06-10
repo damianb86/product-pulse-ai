@@ -10,7 +10,7 @@ export const SOURCE_WEIGHTS = {
   pdpQuestions: 6,
 };
 
-export const PRODUCT_PULSE_SCORING_VERSION = "product_relationship_v1";
+export const PRODUCT_PULSE_SCORING_VERSION = "risk_tail_calibrated_v2";
 
 const PRODUCT_REASON_CATEGORIES = new Set([
   "product_quality",
@@ -421,7 +421,17 @@ function calculateRiskComponents(metrics, options = {}) {
     + relationship_score
     + agreement_bonus
     + recency_bonus;
-  const riskScore = Math.round(clamp(rawScore, 0, 100));
+  const calibratedRisk = calibrateProductRiskScore(rawScore, {
+    metrics,
+    returnsScore,
+    reviewsScore: reviews_score,
+    refundScore: refund_score,
+    sentimentScore: sentiment_score,
+    contentGapScore: content_gap_score,
+    relationshipScore: relationship_score,
+    activeFamilyCount,
+  });
+  const riskScore = Math.round(calibratedRisk);
 
   return {
     base: roundScore(base),
@@ -458,10 +468,51 @@ function calculateRiskComponents(metrics, options = {}) {
     agreementBonus: roundScore(agreement_bonus),
     recencyBonus: roundScore(recency_bonus),
     rawScore: roundScore(rawScore),
+    calibratedScore: roundScore(calibratedRisk),
     calculated: riskScore,
     riskScore,
     calculationState: metrics.calculationState,
   };
+}
+
+export function calibrateProductRiskScore(rawScore, {
+  metrics,
+  returnsScore = 0,
+  reviewsScore = 0,
+  refundScore = 0,
+  sentimentScore = 0,
+  contentGapScore = 0,
+  relationshipScore = 0,
+  activeFamilyCount = 0,
+} = {}) {
+  const normalizedRawScore = Math.max(0, number(rawScore));
+  if (normalizedRawScore <= 80) return clamp(normalizedRawScore, 0, 80);
+
+  const hardSignalUnits = number(metrics.returnUnits) + number(metrics.refundUnits) + number(metrics.negativeReviewCount);
+  const hardMetricScore = number(returnsScore) + number(refundScore) + number(reviewsScore) + number(relationshipScore);
+  const hasExtremeHardEvidence = hardSignalUnits >= 35
+    && activeFamilyCount >= 4
+    && hardMetricScore >= 66
+    && (number(metrics.returnRate) >= 0.28 || number(metrics.refundRate) >= 0.18 || number(metrics.negativeReviewRate) >= 0.35);
+  const hasSevereHardEvidence = hardSignalUnits >= 16
+    && activeFamilyCount >= 3
+    && hardMetricScore >= 48;
+  const softTail = 80 + (19 * (1 - Math.exp(-(normalizedRawScore - 80) / 22)));
+  const ceiling = hasExtremeHardEvidence ? 100 : hasSevereHardEvidence ? 98 : 96;
+  const calibrated = Math.min(softTail, ceiling);
+
+  const weakHardEvidenceCeiling = hardSignalUnits < 3 && hardMetricScore < 12
+    ? 78
+    : hardSignalUnits < 6 && hardMetricScore < 22
+      ? 88
+      : ceiling;
+  const contentOnlyCeiling = hardMetricScore < 8
+    && number(contentGapScore) >= 10
+    && number(sentimentScore) < 4
+    ? 72
+    : weakHardEvidenceCeiling;
+
+  return clamp(Math.min(calibrated, contentOnlyCeiling), 0, 100);
 }
 
 function calculateRelationshipRiskAdjustment(metrics) {
@@ -1909,8 +1960,8 @@ function countIndependentSources({ soldUnits, returnUnits, refundUnits, reviewCo
   const sourceNames = new Set((sourceCoverage || []).map((source) => String(source).toLowerCase()));
   let count = 0;
   if (soldUnits > 0 || sourceNames.has("shopify orders")) count += 1;
-  if (returnUnits > 0 || sourceNames.has("shopify returns")) count += 1;
-  if (refundUnits > 0 || sourceNames.has("shopify refunds")) count += 1;
+  if (returnUnits >= 0.75) count += 1;
+  if (refundUnits >= 0.75) count += 1;
   if (reviewCount > 0 || sourceNames.has("csv review ratings") || sourceNames.has("csv reviews") || sourceNames.has("judge.me reviews")) count += 1;
   if (sentimentTotal > 0) count += 1;
   if (contentIssueCount > 0 || sourceNames.has("shopify products")) count += 1;

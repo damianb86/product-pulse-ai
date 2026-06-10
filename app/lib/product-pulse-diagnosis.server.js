@@ -24,7 +24,7 @@ import {
   recordTimelineForProductAction,
 } from "./product-pulse-timeline.server";
 import { recordWatchlistScanActivities } from "./product-pulse-watchlist.server";
-import { calculateProductScoreModel } from "./product-pulse-scoring";
+import { calculateProductScoreModel, calibrateProductRiskScore } from "./product-pulse-scoring";
 import { buildReturnRefundRelationshipSummary } from "./product-pulse-return-refund-relationship.server";
 import { buildProductPurchaseContextSummary } from "./product-pulse-purchase-context.server";
 import { buildProductRelationshipSummary } from "./product-pulse-product-relationships.server";
@@ -104,6 +104,20 @@ const DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
 const DIAGNOSIS_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE = 25;
 const DIAGNOSIS_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = 5;
 const MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE = 2;
+const SIGNAL_WEIGHT_FULL_STRENGTH_DAYS = 30;
+const SIGNAL_WEIGHT_BUCKET_DAYS = 30;
+const SIGNAL_WEIGHT_AGE_DECAY_RATE = 0.38;
+const SIGNAL_WEIGHT_AGE_DECAY_EXPONENT = 1.15;
+const SIGNAL_WEIGHT_ORDER_DECAY_INTERVAL = 35;
+const SIGNAL_WEIGHT_MIN = 0.03;
+const MIN_EXPECTATION_ISSUE_SIGNALS_FOR_MERCHANT_ISSUE = 3;
+const MIN_EXPECTATION_HARD_EVENTS_FOR_MERCHANT_ISSUE = 2;
+const EXPECTATION_ISSUE_CODES = new Set([
+  "fit_sizing",
+  "color_expectation",
+  "setup_expectation",
+  "compatibility",
+]);
 const DIAGNOSIS_REFUND_QUERY_PLANS = [
   { label: "balanced", ordersFirst: 8, refundLineItemsFirst: DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE, fallbackLineItemsFirst: DIAGNOSIS_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE, orderAdjustmentsFirst: DIAGNOSIS_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE, includeVariantProduct: true, includeAdjustments: true },
   { label: "low-cost", ordersFirst: 5, refundLineItemsFirst: 10, fallbackLineItemsFirst: 18, orderAdjustmentsFirst: 3, includeVariantProduct: true, includeAdjustments: true },
@@ -4318,20 +4332,49 @@ function calculateDeterministicDiagnosis({
     sourceFetchComplete,
   };
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
+  const analysisNow = new Date();
+  const signalWeighting = buildTemporalSignalWeighting({ signalEvents, sales, now: analysisNow });
+  const weightedSignalEvents = signalWeighting.events;
+  const effectiveReturnUnits = signalWeighting.byType.return.effectiveValue;
+  const effectiveRefundUnits = signalWeighting.byType.refund.effectiveValue;
+  const effectiveRefundAmount = roundCurrency(signalWeighting.byType.refund.effectiveAmount || refundAmount);
+  const effectiveNegativeReviewCount = signalWeighting.byType.review.effectiveValue;
+  const effectiveReturnRate = calculateUnitRatePercent(effectiveReturnUnits, soldUnits, returnRate);
+  const effectiveRefundRate = calculateUnitRatePercent(effectiveRefundUnits, soldUnits, refundRate);
+  const effectiveNegativeReviewRate = roundRate(reviewCount ? (effectiveNegativeReviewCount / reviewCount) * 100 : 0);
+  const effectiveRecentSignalUnits = countWeightedRecentSignalEvents(weightedSignalEvents, 30, analysisNow);
+  const effectiveRecentNegativeReviewCount = countWeightedRecentSignalEvents(weightedSignalEvents, 30, analysisNow, "review");
+  const analysisTextInsights = applyTemporalWeightingToTextInsights(textInsights, signalWeighting);
+  const analysisRefundInsights = applyTemporalWeightingToRefundInsights(refundInsights, {
+    effectiveRefundUnits,
+    effectiveRefundRate,
+    effectiveRefundAmount,
+  });
+  const analysisReviewSourceStats = applyTemporalWeightingToReviewSourceStats(reviewSourceStats, signalWeighting);
   const trendOptions = {
     startAt: getSinceDate(windowDays),
-    endAt: new Date().toISOString(),
+    endAt: analysisNow.toISOString(),
   };
-  const signalTrendResult = buildDatedSignalTrend(signalEvents, trendOptions);
+  const weightedTrendEvents = weightedSignalEvents.map((event) => ({
+    ...event,
+    value: Number(event.weightedValue || 0),
+  }));
+  const signalTrendResult = buildDatedSignalTrend(weightedTrendEvents, trendOptions);
   const signalTrend = signalTrendResult.values;
-  const issueSignalTrends = buildIssueTrendMap(signalEvents, trendOptions);
-  const issueSignalCounts = buildIssueSignalCountsFromAnalysis({
+  const issueSignalTrends = buildIssueTrendMap(weightedTrendEvents, trendOptions);
+  const rawIssueSignalCounts = buildIssueSignalCountsFromAnalysis({
     customerTextCache: customerTextState.cache,
     refundTextCache: refundTextState.cache,
     fallback: { returns, refunds, reviews: negativeReviews },
   });
-  applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights);
-  const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + count, 0);
+  applyRefundInsightsToIssueCounts(rawIssueSignalCounts, refundInsights);
+  const issueSignalCounts = mergeWeightedIssueSignalCounts(
+    buildWeightedIssueSignalCounts(weightedSignalEvents),
+    rawIssueSignalCounts,
+    signalWeighting.averageWeight,
+  );
+  const rawCustomerIssueSignalTotal = Object.values(rawIssueSignalCounts).reduce((total, count) => total + count, 0);
+  const weightedCustomerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + Number(count || 0), 0);
   deterministicContent.issues.forEach((issue) => {
     issueSignalCounts[issue.issueCode] = (issueSignalCounts[issue.issueCode] || 0) + 1;
   });
@@ -4341,45 +4384,50 @@ function calculateDeterministicDiagnosis({
     issueSignalCounts,
     product,
     contentAnalysis: deterministicContent,
-    textInsights,
+    textInsights: analysisTextInsights,
     topReturnReasons,
     affectedVariants,
     reviewCount,
-    negativeReviewCount,
-    returnUnits,
-    refundUnits,
+    negativeReviewCount: effectiveNegativeReviewCount,
+    returnUnits: effectiveReturnUnits,
+    refundUnits: effectiveRefundUnits,
   });
   const customerSignalCount = Math.max(
-    returnUnits + refundUnits + negativeReviewCount,
-    customerIssueSignalTotal,
+    effectiveReturnUnits + effectiveRefundUnits + effectiveNegativeReviewCount,
+    weightedCustomerIssueSignalTotal,
   );
   const signalCount = customerSignalCount + deterministicContent.issues.length;
   const scoringMetrics = {
     soldUnits,
     salesAmount,
-    returnUnits,
-    refundUnits,
-    refundAmount,
-    returnRate,
-    refundRate,
+    returnUnits: effectiveReturnUnits,
+    refundUnits: effectiveRefundUnits,
+    refundAmount: effectiveRefundAmount,
+    returnRate: effectiveReturnRate,
+    refundRate: effectiveRefundRate,
     reviewCount,
     avgRating,
-    negativeReviewCount,
-    negativeReviewRate,
-    recentNegativeReviewCount,
+    negativeReviewCount: effectiveNegativeReviewCount,
+    negativeReviewRate: effectiveNegativeReviewRate,
+    recentNegativeReviewCount: effectiveRecentNegativeReviewCount,
     signalCount,
     customerSignalCount,
     contentIssueCount: deterministicContent.issues.length,
     contentQualityRisk: deterministicContent.riskLift,
-    textInsights,
-    refundInsights,
+    textInsights: analysisTextInsights,
+    refundInsights: analysisRefundInsights,
     sourceCoverage,
     signalEvents,
     affectedVariants,
-    reviewSourceStats,
+    reviewSourceStats: analysisReviewSourceStats,
   };
-  const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
-  const scoreSentiment = getScoreSentimentInputs(textInsights, refundInsights);
+  const sourceAgreement = hasSourceAgreement({
+    returnUnits: effectiveReturnUnits,
+    refundUnits: effectiveRefundUnits,
+    negativeReviewCount: effectiveNegativeReviewCount,
+    reviewSourceStats: analysisReviewSourceStats,
+  });
+  const scoreSentiment = getScoreSentimentInputs(analysisTextInsights, analysisRefundInsights);
   const scoreModel = calculateProductScoreModel({
     ...scoringMetrics,
     salesAmount,
@@ -4388,15 +4436,15 @@ function calculateDeterministicDiagnosis({
     storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate,
     sentimentTotal: scoreSentiment.total,
     sentimentNegativeCount: scoreSentiment.negative,
-    subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
-    subjectiveNegativeRatio: textInsights?.subjectiveNegativity?.ratio || 0,
+    subjectiveNegativeCount: analysisTextInsights?.subjectiveNegativity?.count || 0,
+    subjectiveNegativeRatio: analysisTextInsights?.subjectiveNegativity?.ratio || 0,
     variantCount: product.variants?.length || Number(snapshotMetrics.variantCount || 0),
     affectedVariantCount: affectedVariants.length,
     affectedVariantSignalCount: affectedVariants.reduce((sum, variant) => sum + Number(variant.count || 0), 0),
     strongestVariantSignalCount: affectedVariants[0]?.count || 0,
-    recentSignalUnits: countRecentSignalEvents(signalEvents, 30),
+    recentSignalUnits: effectiveRecentSignalUnits,
     signalEventCount: customerSignalCount,
-    effectiveSampleSize: returnUnits + refundUnits + reviewCount + deterministicContent.issues.length,
+    effectiveSampleSize: effectiveReturnUnits + effectiveRefundUnits + reviewCount + deterministicContent.issues.length,
     sourceCoverage,
     sourceAgreement,
     productMatchConfidence: Math.max(judgeMeData.matchConfidence || 0, yotpoData.matchConfidence || 0, looxData.matchConfidence || 0, csvReviewData.matchConfidence || 0, reviews.length ? 0 : 1),
@@ -4405,13 +4453,13 @@ function calculateDeterministicDiagnosis({
     missingReturns: sourceFetchComplete.returns === false,
     missingRefunds: sourceFetchComplete.refunds === false,
     dataQualityIncomplete: shopifyData.orderAccessDenied || sourceExtractionComplete === false,
-    subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
+    subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !effectiveReturnUnits && !effectiveRefundUnits && effectiveNegativeReviewCount <= 2,
     calculationState: "calculated_from_persisted_components",
     windowDays,
     returnRefundRelationshipSummary,
     productPurchaseContextSummary,
     productRelationshipIntelligenceSummary,
-  }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
+  }, { sentimentSharesReviewSource: !(effectiveReturnUnits || effectiveRefundUnits) });
   const riskComponents = scoreModel.riskComponents;
   const riskScore = scoreModel.riskScore;
   const confidence = scoreModel.confidenceScore;
@@ -4463,12 +4511,18 @@ function calculateDeterministicDiagnosis({
       imageAlt: productImage.imageAlt,
       productImageAlt: productImage.imageAlt,
       featuredImageAlt: productImage.imageAlt,
-      returnRate,
-      refundRate,
+      returnRate: effectiveReturnRate,
+      refundRate: effectiveRefundRate,
+      rawReturnRate: returnRate,
+      rawRefundRate: refundRate,
       reviewRating: avgRating,
       avgRating,
       issueCount: signalCount,
       customerSignalCount,
+      rawCustomerSignalCount: Math.max(
+        returnUnits + refundUnits + negativeReviewCount,
+        rawCustomerIssueSignalTotal,
+      ),
       contentIssueCount: deterministicContent.issues.length,
       contentAdvisoryCount: deterministicContent.advisories.length,
       contentQualityScore: deterministicContent.score,
@@ -4478,7 +4532,8 @@ function calculateDeterministicDiagnosis({
       contentIssues: deterministicContent.issues,
       contentAdvisories: deterministicContent.advisories,
       faqNeed,
-      textInsights,
+      textInsights: analysisTextInsights,
+      rawTextInsights: textInsights,
       descriptionLength: deterministicContent.descriptionLength,
       descriptionWordCount: deterministicContent.descriptionWordCount,
       hasDescription: deterministicContent.hasDescription,
@@ -4505,10 +4560,16 @@ function calculateDeterministicDiagnosis({
       evidenceStrengthScore: scoreModel.evidenceStrengthScore,
       scoreCalculationStatus: "Score calculated from persisted components",
       signalCount,
+      rawSignalCount: Math.max(
+        returnUnits + refundUnits + negativeReviewCount,
+        rawCustomerIssueSignalTotal,
+      ) + deterministicContent.issues.length,
       salesAmount,
       avgUnitRevenue: estimatedImpact.avgUnitRevenue,
-      refundAmount,
-      refundInsights,
+      refundAmount: effectiveRefundAmount,
+      rawRefundAmount: refundAmount,
+      refundInsights: analysisRefundInsights,
+      rawRefundInsights: refundInsights,
       returnRefundRelationshipSummary,
       productPurchaseContextSummary,
       productRelationshipIntelligenceSummary,
@@ -4533,10 +4594,14 @@ function calculateDeterministicDiagnosis({
       momentumDirection: productMomentum.direction,
       momentumConfidence: productMomentum.confidence,
       momentumConfidenceLabel: productMomentum.confidenceLabel,
-      returnUnits,
-      refundUnits,
+      returnUnits: effectiveReturnUnits,
+      refundUnits: effectiveRefundUnits,
+      rawReturnUnits: returnUnits,
+      rawRefundUnits: refundUnits,
       soldUnits,
-      recentSignalUnits: countRecentSignalEvents(signalEvents, 30),
+      recentSignalUnits: effectiveRecentSignalUnits,
+      rawRecentSignalUnits: countRecentSignalEvents(signalEvents, 30),
+      signalRecencyWeighting: signalWeighting.summary,
       windowDays,
       storeAvgReturnRate: Number(snapshotMetrics.storeAvgReturnRate || 0),
       storeAvgRefundRate: Number(snapshotMetrics.storeAvgRefundRate || 0),
@@ -4596,23 +4661,27 @@ function calculateDeterministicDiagnosis({
       affectedVariantDetails: affectedVariants,
       variantInsights,
       reviewCount,
-      negativeReviewCount,
-      negativeReviewRate,
-      recentNegativeReviewCount,
+      negativeReviewCount: effectiveNegativeReviewCount,
+      rawNegativeReviewCount: negativeReviewCount,
+      negativeReviewRate: effectiveNegativeReviewRate,
+      rawNegativeReviewRate: negativeReviewRate,
+      recentNegativeReviewCount: effectiveRecentNegativeReviewCount,
+      rawRecentNegativeReviewCount: recentNegativeReviewCount,
       recentNegativeReviewWindowDays: 30,
-      judgeMeReviewCount: reviewSourceStats.judgeMe.reviewCount,
-      judgeMeNegativeReviewCount: reviewSourceStats.judgeMe.negativeReviewCount,
-      judgeMeAverageRating: reviewSourceStats.judgeMe.avgRating,
-      yotpoReviewCount: reviewSourceStats.yotpo.reviewCount,
-      yotpoNegativeReviewCount: reviewSourceStats.yotpo.negativeReviewCount,
-      yotpoAverageRating: reviewSourceStats.yotpo.avgRating,
-      looxReviewCount: reviewSourceStats.loox.reviewCount,
-      looxNegativeReviewCount: reviewSourceStats.loox.negativeReviewCount,
-      looxAverageRating: reviewSourceStats.loox.avgRating,
-      csvReviewCount: reviewSourceStats.csv.reviewCount,
-      csvNegativeReviewCount: reviewSourceStats.csv.negativeReviewCount,
-      csvAverageRating: reviewSourceStats.csv.avgRating,
-      reviewSourceStats,
+      judgeMeReviewCount: analysisReviewSourceStats.judgeMe.reviewCount,
+      judgeMeNegativeReviewCount: analysisReviewSourceStats.judgeMe.negativeReviewCount,
+      judgeMeAverageRating: analysisReviewSourceStats.judgeMe.avgRating,
+      yotpoReviewCount: analysisReviewSourceStats.yotpo.reviewCount,
+      yotpoNegativeReviewCount: analysisReviewSourceStats.yotpo.negativeReviewCount,
+      yotpoAverageRating: analysisReviewSourceStats.yotpo.avgRating,
+      looxReviewCount: analysisReviewSourceStats.loox.reviewCount,
+      looxNegativeReviewCount: analysisReviewSourceStats.loox.negativeReviewCount,
+      looxAverageRating: analysisReviewSourceStats.loox.avgRating,
+      csvReviewCount: analysisReviewSourceStats.csv.reviewCount,
+      csvNegativeReviewCount: analysisReviewSourceStats.csv.negativeReviewCount,
+      csvAverageRating: analysisReviewSourceStats.csv.avgRating,
+      reviewSourceStats: analysisReviewSourceStats,
+      rawReviewSourceStats: reviewSourceStats,
       judgeMeInternalProductId: judgeMeData.internalProductId,
       judgeMeMatchConfidence: judgeMeData.matchConfidence,
       yotpoReviewMatchConfidence: yotpoData.matchConfidence,
@@ -4673,7 +4742,12 @@ function calculateDeterministicDiagnosis({
     riskScore,
     confidence,
     estimatedImpact,
-    sourceAgreement: hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats }),
+    sourceAgreement: hasSourceAgreement({
+      returnUnits: effectiveReturnUnits,
+      refundUnits: effectiveRefundUnits,
+      negativeReviewCount: effectiveNegativeReviewCount,
+      reviewSourceStats: analysisReviewSourceStats,
+    }),
   };
 }
 
@@ -4700,53 +4774,33 @@ function buildReconstructedRiskHistory({
 } = {}) {
   const now = new Date();
   const storedHistory = normalizeStoredReconstructedRiskHistory(storedReconstructedRiskHistory);
-  if (storedHistory.length) {
-    const currentPoint = buildReconstructedRiskHistoryPoint({
-      snapshot,
-      shopifyData,
-      judgeMeData,
-      yotpoData,
-      looxData,
-      csvReviewData,
-      product,
-      sales,
-      returns,
-      refunds,
-      reviews,
-      deterministicContent,
-      periodEnd: now,
-      granularity: "current",
-      sequence: storedHistory.length + 1,
-      windowDays,
-      now,
-      momentumCatalogBaseline,
-    }) || buildCurrentRiskHistoryFallbackPoint({
-      snapshot,
-      product,
-      currentRiskScore,
-      currentConfidence,
-      currentImpactFactors,
-      currentMainIssue,
-      windowDays,
-      now,
-    });
-    return dedupeRiskHistoryPointsByRecordedAt([
-      ...storedHistory,
-      finalizeCurrentRiskHistoryPoint(currentPoint, {
-        now,
-        currentRiskScore,
-        currentConfidence,
-        currentImpactFactors,
-        currentMainIssue,
-      }),
-    ].filter(Boolean));
-  }
-
   const datedEvents = [...sales, ...returns, ...refunds, ...reviews]
     .map((event) => getRiskHistoryEventDate(event))
     .filter(Boolean)
     .sort((first, second) => first.getTime() - second.getTime());
   if (!datedEvents.length) {
+    if (storedHistory.length) {
+      const currentPoint = buildCurrentRiskHistoryFallbackPoint({
+        snapshot,
+        product,
+        currentRiskScore,
+        currentConfidence,
+        currentImpactFactors,
+        currentMainIssue,
+        windowDays,
+        now,
+      });
+      return dedupeRiskHistoryPointsByRecordedAt([
+        ...storedHistory,
+        finalizeCurrentRiskHistoryPoint(currentPoint, {
+          now,
+          currentRiskScore,
+          currentConfidence,
+          currentImpactFactors,
+          currentMainIssue,
+        }),
+      ].filter(Boolean));
+    }
     return [buildCurrentRiskHistoryFallbackPoint({
       snapshot,
       product,
@@ -4770,10 +4824,10 @@ function buildReconstructedRiskHistory({
       looxData,
       csvReviewData,
       product,
-      sales: filterEventsUpTo(sales, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
-      returns: filterEventsUpTo(returns, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
-      refunds: filterEventsUpTo(refunds, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
-      reviews: filterEventsUpTo(reviews, periodEnd, { includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      sales: filterEventsForRiskHistoryWindow(sales, periodEnd, { windowDays, includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      returns: filterEventsForRiskHistoryWindow(returns, periodEnd, { windowDays, includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      refunds: filterEventsForRiskHistoryWindow(refunds, periodEnd, { windowDays, includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
+      reviews: filterEventsForRiskHistoryWindow(reviews, periodEnd, { windowDays, includeUndated: isCurrentRiskHistoryPoint(periodEnd, now) }),
       deterministicContent,
       periodEnd,
       granularity,
@@ -4902,20 +4956,49 @@ function buildReconstructedRiskHistoryPoint({
   const sourceFetchComplete = getDiagnosisSourceFetchCompleteness(shopifyData);
   const sourceExtractionComplete = shopifyData?.incrementalSource?.fetchComplete !== false;
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
-  const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
-  applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights);
-  const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + count, 0);
+  const signalWeighting = buildTemporalSignalWeighting({ signalEvents, sales, now: periodEnd });
+  const weightedSignalEvents = signalWeighting.events;
+  const weightedTrendEvents = weightedSignalEvents.map((event) => ({ ...event, value: Number(event.weightedValue || 0) }));
+  const effectiveReturnUnits = signalWeighting.byType.return.effectiveValue;
+  const effectiveRefundUnits = signalWeighting.byType.refund.effectiveValue;
+  const effectiveRefundAmount = roundCurrency(signalWeighting.byType.refund.effectiveAmount || refundAmount);
+  const effectiveNegativeReviewCount = signalWeighting.byType.review.effectiveValue;
+  const effectiveReturnRate = calculateUnitRatePercent(effectiveReturnUnits, soldUnits, returnRate);
+  const effectiveRefundRate = calculateUnitRatePercent(effectiveRefundUnits, soldUnits, refundRate);
+  const effectiveNegativeReviewRate = roundRate(reviewCount ? (effectiveNegativeReviewCount / reviewCount) * 100 : 0);
+  const effectiveRecentSignalUnits = countWeightedRecentSignalEvents(weightedSignalEvents, 30, periodEnd);
+  const effectiveRecentNegativeReviewCount = countWeightedRecentSignalEvents(weightedSignalEvents, 30, periodEnd, "review");
+  const analysisTextInsights = applyTemporalWeightingToTextInsights(textInsights, signalWeighting);
+  const analysisRefundInsights = applyTemporalWeightingToRefundInsights(refundInsights, {
+    effectiveRefundUnits,
+    effectiveRefundRate,
+    effectiveRefundAmount,
+  });
+  const analysisReviewSourceStats = applyTemporalWeightingToReviewSourceStats(reviewSourceStats, signalWeighting);
+  const rawIssueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
+  applyRefundInsightsToIssueCounts(rawIssueSignalCounts, refundInsights);
+  const issueSignalCounts = mergeWeightedIssueSignalCounts(
+    buildWeightedIssueSignalCounts(weightedSignalEvents),
+    rawIssueSignalCounts,
+    signalWeighting.averageWeight,
+  );
+  const customerIssueSignalTotal = Object.values(issueSignalCounts).reduce((total, count) => total + Number(count || 0), 0);
 
   (deterministicContent?.issues || []).forEach((issue) => {
     issueSignalCounts[issue.issueCode] = (issueSignalCounts[issue.issueCode] || 0) + 1;
   });
 
   const mainIssue = getMainIssueFromCounts(issueSignalCounts, snapshot.primaryIssue);
-  const customerSignalCount = Math.max(returnUnits + refundUnits + negativeReviewCount, customerIssueSignalTotal);
+  const customerSignalCount = Math.max(effectiveReturnUnits + effectiveRefundUnits + effectiveNegativeReviewCount, customerIssueSignalTotal);
   const contentIssueCount = deterministicContent?.issues?.length || 0;
   const signalCount = customerSignalCount + contentIssueCount;
-  const sourceAgreement = hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats });
-  const recentSignalUnits = countRecentSignalEventsFrom(signalEvents, 30, periodEnd);
+  const sourceAgreement = hasSourceAgreement({
+    returnUnits: effectiveReturnUnits,
+    refundUnits: effectiveRefundUnits,
+    negativeReviewCount: effectiveNegativeReviewCount,
+    reviewSourceStats: analysisReviewSourceStats,
+  });
+  const recentSignalUnits = effectiveRecentSignalUnits;
   const productId = product?.id || snapshot?.productGid;
   const pointProducts = product ? [product] : [];
   const returnRefundRelationshipSummary = buildReturnRefundRelationshipSummary({
@@ -4952,45 +5035,45 @@ function buildReconstructedRiskHistoryPoint({
     catalogBaseline: momentumCatalogBaseline,
     now: periodEnd,
   });
-  const scoreSentiment = getScoreSentimentInputs(textInsights, refundInsights);
+  const scoreSentiment = getScoreSentimentInputs(analysisTextInsights, analysisRefundInsights);
   const scoreModel = calculateProductScoreModel({
     soldUnits,
     salesAmount,
-    returnUnits,
-    refundUnits,
-    refundAmount,
-    returnRate,
-    refundRate,
+    returnUnits: effectiveReturnUnits,
+    refundUnits: effectiveRefundUnits,
+    refundAmount: effectiveRefundAmount,
+    returnRate: effectiveReturnRate,
+    refundRate: effectiveRefundRate,
     reviewCount,
     avgRating,
-    negativeReviewCount,
-    negativeReviewRate,
-    recentNegativeReviewCount,
+    negativeReviewCount: effectiveNegativeReviewCount,
+    negativeReviewRate: effectiveNegativeReviewRate,
+    recentNegativeReviewCount: effectiveRecentNegativeReviewCount,
     signalCount,
     customerSignalCount,
     contentIssueCount,
     contentQualityRisk: deterministicContent?.riskLift || 0,
-    textInsights,
-    refundInsights,
+    textInsights: analysisTextInsights,
+    refundInsights: analysisRefundInsights,
     sourceCoverage,
-    signalEvents,
+    signalEvents: weightedTrendEvents,
     affectedVariants,
     variantInsights,
-    reviewSourceStats,
+    reviewSourceStats: analysisReviewSourceStats,
     storeReturnBaseline: snapshotMetrics.storeAvgReturnRate,
     storeRefundBaseline: snapshotMetrics.storeAvgRefundRate,
     storeNegativeReviewBaseline: snapshotMetrics.storeAvgNegativeReviewRate,
     sentimentTotal: scoreSentiment.total,
     sentimentNegativeCount: scoreSentiment.negative,
-    subjectiveNegativeCount: textInsights?.subjectiveNegativity?.count || 0,
-    subjectiveNegativeRatio: textInsights?.subjectiveNegativity?.ratio || 0,
+    subjectiveNegativeCount: analysisTextInsights?.subjectiveNegativity?.count || 0,
+    subjectiveNegativeRatio: analysisTextInsights?.subjectiveNegativity?.ratio || 0,
     variantCount: product?.variants?.length || Number(snapshotMetrics.variantCount || 0),
     affectedVariantCount: affectedVariants.length,
     affectedVariantSignalCount: affectedVariants.reduce((sum, variant) => sum + Number(variant.count || 0), 0),
     strongestVariantSignalCount: affectedVariants[0]?.count || 0,
     recentSignalUnits,
     signalEventCount: customerSignalCount,
-    effectiveSampleSize: returnUnits + refundUnits + reviewCount + contentIssueCount,
+    effectiveSampleSize: effectiveReturnUnits + effectiveRefundUnits + reviewCount + contentIssueCount,
     sourceAgreement,
     productMatchConfidence: Math.max(judgeMeData?.matchConfidence || 0, yotpoData?.matchConfidence || 0, looxData?.matchConfidence || 0, csvReviewData?.matchConfidence || 0, reviews.length ? 0 : 1),
     orderAccessDenied: shopifyData?.orderAccessDenied,
@@ -4998,14 +5081,14 @@ function buildReconstructedRiskHistoryPoint({
     missingReturns: sourceFetchComplete.returns === false,
     missingRefunds: sourceFetchComplete.refunds === false,
     dataQualityIncomplete: shopifyData?.orderAccessDenied || sourceExtractionComplete === false,
-    subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
+    subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !effectiveReturnUnits && !effectiveRefundUnits && effectiveNegativeReviewCount <= 2,
     scoreBreakdownReconstructed: !isCurrentRiskHistoryPoint(periodEnd, now),
     calculationState: isCurrentRiskHistoryPoint(periodEnd, now) ? "current_deep_diagnosis" : "reconstructed_from_deep_diagnosis_events",
     windowDays,
     returnRefundRelationshipSummary,
     productPurchaseContextSummary,
     productRelationshipIntelligenceSummary,
-  }, { sentimentSharesReviewSource: !(returnUnits || refundUnits) });
+  }, { sentimentSharesReviewSource: !(effectiveReturnUnits || effectiveRefundUnits) });
 
   return {
     source: "full-diagnosis-reconstructed",
@@ -5025,21 +5108,33 @@ function buildReconstructedRiskHistoryPoint({
       windowDays,
       soldUnits,
       salesAmount,
-      returnUnits,
-      refundUnits,
-      refundAmount,
-      returnRate,
-      refundRate,
+      returnUnits: effectiveReturnUnits,
+      refundUnits: effectiveRefundUnits,
+      refundAmount: effectiveRefundAmount,
+      returnRate: effectiveReturnRate,
+      refundRate: effectiveRefundRate,
+      rawReturnUnits: returnUnits,
+      rawRefundUnits: refundUnits,
+      rawRefundAmount: refundAmount,
+      rawReturnRate: returnRate,
+      rawRefundRate: refundRate,
       reviewCount,
       avgRating,
-      negativeReviewCount,
-      negativeReviewRate,
-      recentNegativeReviewCount,
+      negativeReviewCount: effectiveNegativeReviewCount,
+      negativeReviewRate: effectiveNegativeReviewRate,
+      rawNegativeReviewCount: negativeReviewCount,
+      rawNegativeReviewRate: negativeReviewRate,
+      recentNegativeReviewCount: effectiveRecentNegativeReviewCount,
+      rawRecentNegativeReviewCount: recentNegativeReviewCount,
       recentNegativeReviewWindowDays: 30,
       signalCount,
       customerSignalCount,
+      rawSignalCount: returnUnits + refundUnits + negativeReviewCount + contentIssueCount,
+      rawCustomerSignalCount: returnUnits + refundUnits + negativeReviewCount,
       contentIssueCount,
       recentSignalUnits,
+      rawRecentSignalUnits: countRecentSignalEventsFrom(signalEvents, 30, periodEnd),
+      signalRecencyWeighting: signalWeighting.summary,
       priorityScore: scoreModel.priorityScore,
       mainIssueIntensity: scoreModel.priorityScore,
       evidenceStrengthScore: scoreModel.evidenceStrengthScore,
@@ -5150,12 +5245,17 @@ function buildReconstructedRiskHistoryPeriodEnds({ earliest, now, granularity })
   return periodEnds;
 }
 
-function filterEventsUpTo(events = [], periodEnd, { includeUndated = false } = {}) {
-  const endTime = periodEnd.getTime();
+function filterEventsForRiskHistoryWindow(events = [], periodEnd, { windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, includeUndated = false } = {}) {
+  const endDate = parseValidDate(periodEnd);
+  if (!endDate) return [];
+  const safeWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const startTime = endDate.getTime() - safeWindowDays * 24 * 60 * 60 * 1000;
+  const endTime = endDate.getTime();
   return events.filter((event) => {
     const date = getRiskHistoryEventDate(event);
     if (!date) return includeUndated;
-    return date.getTime() <= endTime;
+    const time = date.getTime();
+    return time > startTime && time <= endTime;
   });
 }
 
@@ -5223,7 +5323,11 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
   const semanticDeterministic = applyAiSemanticClassificationToDeterministic(deterministic, ai);
   const emergentSentiments = normalizeAiEmergentSentiments(ai);
   const knownEmotions = normalizeAiKnownEmotions(ai, semanticDeterministic.metrics.textInsights);
-  const adjustedRiskComponents = adjustRiskComponentsForContentAnalysis(semanticDeterministic.metrics.riskComponents, contentAnalysis);
+  const adjustedRiskComponents = adjustRiskComponentsForContentAnalysis(
+    semanticDeterministic.metrics.riskComponents,
+    contentAnalysis,
+    semanticDeterministic.metrics,
+  );
   const adjustedRiskScore = adjustedRiskComponents.riskScore;
   const adjustedRiskHistory = adjustReconstructedRiskHistoryForContentAnalysis(
     semanticDeterministic.metrics.reconstructedRiskHistory || semanticDeterministic.metrics.riskHistory,
@@ -7431,10 +7535,15 @@ function pickNoChangeRefreshMetrics(metrics = {}) {
   const keys = [
     "returnRate",
     "refundRate",
+    "rawReturnRate",
+    "rawRefundRate",
     "reviewRating",
     "avgRating",
     "issueCount",
     "customerSignalCount",
+    "rawCustomerSignalCount",
+    "textInsights",
+    "rawTextInsights",
     "revenueAtRisk",
     "marginAtRisk",
     "estimatedImpact",
@@ -7444,10 +7553,13 @@ function pickNoChangeRefreshMetrics(metrics = {}) {
     "evidenceStrengthScore",
     "scoreCalculationStatus",
     "signalCount",
+    "rawSignalCount",
     "salesAmount",
     "avgUnitRevenue",
     "refundAmount",
+    "rawRefundAmount",
     "refundInsights",
+    "rawRefundInsights",
     "returnRefundRelationshipSummary",
     "productPurchaseContextSummary",
     "productRelationshipIntelligenceSummary",
@@ -7474,8 +7586,12 @@ function pickNoChangeRefreshMetrics(metrics = {}) {
     "momentumConfidenceLabel",
     "returnUnits",
     "refundUnits",
+    "rawReturnUnits",
+    "rawRefundUnits",
     "soldUnits",
     "recentSignalUnits",
+    "rawRecentSignalUnits",
+    "signalRecencyWeighting",
     "windowDays",
     "lastSignalAt",
     "signalTrend",
@@ -7490,8 +7606,11 @@ function pickNoChangeRefreshMetrics(metrics = {}) {
     "variantInsights",
     "reviewCount",
     "negativeReviewCount",
+    "rawNegativeReviewCount",
     "negativeReviewRate",
+    "rawNegativeReviewRate",
     "recentNegativeReviewCount",
+    "rawRecentNegativeReviewCount",
     "recentNegativeReviewWindowDays",
     "judgeMeReviewCount",
     "judgeMeNegativeReviewCount",
@@ -7506,6 +7625,7 @@ function pickNoChangeRefreshMetrics(metrics = {}) {
     "csvNegativeReviewCount",
     "csvAverageRating",
     "reviewSourceStats",
+    "rawReviewSourceStats",
     "judgeMeInternalProductId",
     "judgeMeMatchConfidence",
     "yotpoReviewMatchConfidence",
@@ -8306,8 +8426,13 @@ function applyAiSemanticClassificationToDeterministic(deterministic = {}, ai = {
   const fallbackTextInsights = deterministic.metrics?.textInsights || {};
   const aiAggregateReady = shouldUseAiAggregateTextInsights(deterministic, semantic);
   const nextTextInsights = mergeAiSemanticTextInsights(fallbackTextInsights, semantic, { replaceAggregate: aiAggregateReady });
-  const nextIssueSignalCounts = mergeAiIssueSignalCounts(deterministic.issueSignalCounts || {}, semantic.issueSignalCounts);
-  const customerSemanticSignalCount = Object.values(semantic.customerIssueSignalCounts).reduce((total, count) => total + Number(count || 0), 0);
+  const nextIssueSignalCounts = mergeAiIssueSignalCounts(deterministic.issueSignalCounts || {}, semantic.issueSignalCounts, {
+    preserveWeightedCounts: Boolean(deterministic.metrics?.signalRecencyWeighting),
+    averageWeight: deterministic.metrics?.signalRecencyWeighting?.averageWeight,
+  });
+  const customerSemanticSignalCount = Object.values(semantic.customerIssueSignalCounts)
+    .reduce((total, count) => total + Number(count || 0), 0)
+    * Number(deterministic.metrics?.signalRecencyWeighting?.averageWeight || 1);
   const customerSignalCount = Math.max(
     Number(deterministic.metrics?.customerSignalCount || 0),
     customerSemanticSignalCount,
@@ -8711,12 +8836,22 @@ function mergeSemanticRepeatedLanguage(primary = [], fallback = []) {
     .slice(0, 10);
 }
 
-function mergeAiIssueSignalCounts(fallback = {}, aiCounts = {}) {
+function mergeAiIssueSignalCounts(fallback = {}, aiCounts = {}, options = {}) {
   const next = { ...(fallback || {}) };
+  const preserveWeightedCounts = Boolean(options.preserveWeightedCounts);
+  const averageWeight = Number(options.averageWeight || 1);
   Object.entries(aiCounts || {}).forEach(([issueCode, count]) => {
     const normalized = normalizeIssueCode(issueCode);
     if (!normalized) return;
-    next[normalized] = Math.max(Number(next[normalized] || 0), Number(count || 0));
+    const existing = Number(next[normalized] || 0);
+    if (preserveWeightedCounts && existing > 0) {
+      next[normalized] = roundWeightedSignalCount(existing);
+      return;
+    }
+    const nextCount = preserveWeightedCounts
+      ? Number(count || 0) * averageWeight
+      : Number(count || 0);
+    next[normalized] = Math.max(existing, roundWeightedSignalCount(nextCount));
   });
   return next;
 }
@@ -13434,6 +13569,9 @@ function getFilteredAiRepeatedLanguage(ai) {
 function isMerchantFacingIssueSupported(issue, deterministic) {
   const issueCode = normalizeIssueCode(issue.issueCode);
   if (issueCode === "product_content") return true;
+  if (isExpectationIssueCode(issueCode)) {
+    return hasStrongExpectationIssueEvidence(deterministic, issueCode);
+  }
 
   const support = getMerchantIssueSupport(issue, deterministic);
   if (support.sources >= MIN_CUSTOMER_SIGNALS_FOR_MERCHANT_ISSUE && support.signals >= 1) return true;
@@ -13473,6 +13611,67 @@ function getDeterministicIssueSupport(issueCode, metrics) {
     return Math.max(...(metrics.textInsights?.repeatedLanguage || []).map((item) => Number(item.count || 0)), 0);
   }
   return 0;
+}
+
+function isExpectationIssueCode(issueCode) {
+  return EXPECTATION_ISSUE_CODES.has(normalizeIssueCode(issueCode));
+}
+
+function hasStrongExpectationIssueEvidence(deterministic = {}, issueCode = "") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  if (!isExpectationIssueCode(normalizedIssue)) return false;
+
+  const metrics = deterministic.metrics || {};
+  const issueSignals = getExpectationIssueSignalCount(deterministic, normalizedIssue);
+  const returnUnits = Number(metrics.returnUnits || 0);
+  const refundUnits = Number(metrics.refundUnits || 0);
+  const hardEvents = returnUnits + refundUnits;
+  const negativeReviewCount = Number(metrics.negativeReviewCount || 0);
+  const customerSignalCount = Number(metrics.customerSignalCount || metrics.signalEventCount || 0);
+  const textSentiment = metrics.textInsights?.sentiment || {};
+  const negativeTextSignals = Number(textSentiment.negative || 0);
+  const negativeTextRatio = Number(textSentiment.negativeRatio || 0);
+
+  if (issueSignals >= MIN_EXPECTATION_ISSUE_SIGNALS_FOR_MERCHANT_ISSUE
+    && hardEvents >= MIN_EXPECTATION_HARD_EVENTS_FOR_MERCHANT_ISSUE) {
+    return true;
+  }
+
+  if (issueSignals >= 4
+    && negativeReviewCount >= 4
+    && customerSignalCount >= 4
+    && negativeTextRatio >= 0.35) {
+    return true;
+  }
+
+  if (issueSignals >= 5 && negativeTextSignals >= 5 && negativeTextRatio >= 0.45) {
+    return true;
+  }
+
+  return false;
+}
+
+function getExpectationIssueSignalCount(deterministic = {}, issueCode = "") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  const metrics = deterministic.metrics || {};
+  const counts = deterministic.issueSignalCounts || {};
+  const refundIssueCount = countIssueCountRows(metrics.refundInsights?.issueCounts, normalizedIssue);
+  const repeatedLanguageCount = countRepeatedLanguageIssueRows(metrics.textInsights?.repeatedLanguage, normalizedIssue);
+  const granularIssueCount = countGranularTextIssueRows(metrics.textInsights?.granularIssues, normalizedIssue);
+  return Math.max(
+    Number(counts[normalizedIssue] || 0),
+    refundIssueCount,
+    repeatedLanguageCount,
+    granularIssueCount,
+  );
+}
+
+function countGranularTextIssueRows(rows = [], issueCode = "") {
+  const normalizedIssue = normalizeIssueCode(issueCode);
+  return (Array.isArray(rows) ? rows : []).reduce((total, row) => {
+    const label = normalizeIssueCode(row?.issueCode || row?.issue || row?.label);
+    return total + (label === normalizedIssue ? Number(row?.signals || row?.count || 1) : 0);
+  }, 0);
 }
 
 function mergeRelatedMerchantIssues(mergedIssues, issue) {
@@ -15294,6 +15493,7 @@ function buildSignalEvents({ returns, refunds, negativeReviews }) {
         type: "refund",
         createdAt: item.createdAt,
         value: Number(item.quantity || 1),
+        amount: Number(item.amount || 0),
         text,
         issueCode: issueCode === "product_quality" ? "refund_impact" : issueCode,
       };
@@ -15309,6 +15509,333 @@ function buildSignalEvents({ returns, refunds, negativeReviews }) {
       };
     }),
   ].filter((item) => item.createdAt && String(item.text || "").trim());
+}
+
+function buildTemporalSignalWeighting({ signalEvents = [], sales = [], now = new Date() } = {}) {
+  const normalizedNow = parseValidDate(now) || new Date();
+  const salesOrders = buildSignalWeightSalesOrderTimeline(sales);
+  const weightedEvents = (Array.isArray(signalEvents) ? signalEvents : []).map((event) => {
+    const signalAt = parseValidDate(event.createdAt);
+    const ageDays = signalAt
+      ? Math.max(0, (normalizedNow.getTime() - signalAt.getTime()) / (24 * 60 * 60 * 1000))
+      : SIGNAL_WEIGHT_FULL_STRENGTH_DAYS;
+    const ordersAfterSignal = signalAt ? countSalesOrdersAfterDate(salesOrders, signalAt) : 0;
+    const ageWeight = getSignalAgeWeight(ageDays);
+    const orderContinuityWeight = getPostSignalOrderContinuityWeight(ordersAfterSignal);
+    const weight = clamp(ageWeight * orderContinuityWeight, SIGNAL_WEIGHT_MIN, 1);
+    const value = Math.max(0, Number(event.value || 1));
+    const amount = Math.max(0, Number(event.amount || 0));
+    return {
+      ...event,
+      signalAt: signalAt ? signalAt.toISOString() : event.createdAt,
+      ageDays: roundWeightedSignalCount(ageDays),
+      ordersAfterSignal,
+      ageWeight: roundWeightedSignalCount(ageWeight),
+      orderContinuityWeight: roundWeightedSignalCount(orderContinuityWeight),
+      weight: roundWeightedSignalCount(weight),
+      weightedValue: roundWeightedSignalCount(value * weight),
+      weightedAmount: roundCurrency(amount * weight),
+    };
+  });
+  const byType = summarizeWeightedSignalsByType(weightedEvents);
+  const rawValue = Object.values(byType).reduce((total, item) => total + Number(item.rawValue || 0), 0);
+  const effectiveValue = Object.values(byType).reduce((total, item) => total + Number(item.effectiveValue || 0), 0);
+  const issueSignalCounts = buildWeightedIssueSignalCounts(weightedEvents);
+  return {
+    events: weightedEvents,
+    byType,
+    issueSignalCounts,
+    averageWeight: rawValue > 0 ? roundWeightedSignalCount(effectiveValue / rawValue) : 1,
+    summary: {
+      rawSignalCount: roundWeightedSignalCount(rawValue),
+      effectiveSignalCount: roundWeightedSignalCount(effectiveValue),
+      averageWeight: rawValue > 0 ? roundWeightedSignalCount(effectiveValue / rawValue) : 1,
+      fullStrengthWindowDays: SIGNAL_WEIGHT_FULL_STRENGTH_DAYS,
+      bucketDays: SIGNAL_WEIGHT_BUCKET_DAYS,
+      byType,
+    },
+  };
+}
+
+function buildSignalWeightSalesOrderTimeline(sales = []) {
+  const orders = new Map();
+  (Array.isArray(sales) ? sales : []).forEach((event, index) => {
+    const date = parseValidDate(event.createdAt || event.processedAt || event.updatedAt);
+    if (!date) return;
+    const key = String(event.orderId || event.orderName || event.name || event.id || `sale:${index}`);
+    const quantity = Math.max(1, Number(event.quantity || 1));
+    const current = orders.get(key);
+    if (!current || date < current.date) {
+      orders.set(key, { key, date, quantity });
+    } else if (current && date.getTime() === current.date.getTime()) {
+      current.quantity += quantity;
+    }
+  });
+  return [...orders.values()].sort((first, second) => first.date - second.date);
+}
+
+function countSalesOrdersAfterDate(orders = [], date) {
+  if (!date) return 0;
+  return (Array.isArray(orders) ? orders : []).filter((order) => order.date > date).length;
+}
+
+function getSignalAgeWeight(ageDays = 0) {
+  const normalizedAgeDays = Math.max(0, Number(ageDays || 0));
+  if (normalizedAgeDays <= SIGNAL_WEIGHT_FULL_STRENGTH_DAYS) return 1;
+  const bucketDistance = Math.ceil((normalizedAgeDays - SIGNAL_WEIGHT_FULL_STRENGTH_DAYS) / SIGNAL_WEIGHT_BUCKET_DAYS);
+  return Math.exp(-SIGNAL_WEIGHT_AGE_DECAY_RATE * Math.pow(bucketDistance, SIGNAL_WEIGHT_AGE_DECAY_EXPONENT));
+}
+
+function getPostSignalOrderContinuityWeight(ordersAfterSignal = 0) {
+  const orderCount = Math.max(0, Number(ordersAfterSignal || 0));
+  return 1 / Math.sqrt(1 + (orderCount / SIGNAL_WEIGHT_ORDER_DECAY_INTERVAL));
+}
+
+function summarizeWeightedSignalsByType(events = []) {
+  const seed = {
+    return: emptyWeightedSignalSummary(),
+    refund: emptyWeightedSignalSummary(),
+    review: emptyWeightedSignalSummary(),
+  };
+  (Array.isArray(events) ? events : []).forEach((event) => {
+    const key = seed[event.type] ? event.type : "review";
+    const current = seed[key];
+    current.count += 1;
+    current.rawValue += Math.max(0, Number(event.value || 1));
+    current.effectiveValue += Math.max(0, Number(event.weightedValue || 0));
+    current.rawAmount += Math.max(0, Number(event.amount || 0));
+    current.effectiveAmount += Math.max(0, Number(event.weightedAmount || 0));
+    current.maxOrdersAfterSignal = Math.max(current.maxOrdersAfterSignal, Number(event.ordersAfterSignal || 0));
+    current.minWeight = current.count === 1
+      ? Number(event.weight || 1)
+      : Math.min(current.minWeight, Number(event.weight || 1));
+  });
+  return Object.fromEntries(Object.entries(seed).map(([key, value]) => [key, normalizeWeightedSignalSummary(value)]));
+}
+
+function emptyWeightedSignalSummary() {
+  return {
+    count: 0,
+    rawValue: 0,
+    effectiveValue: 0,
+    rawAmount: 0,
+    effectiveAmount: 0,
+    maxOrdersAfterSignal: 0,
+    minWeight: 1,
+  };
+}
+
+function normalizeWeightedSignalSummary(summary = {}) {
+  return {
+    count: Number(summary.count || 0),
+    rawValue: roundWeightedSignalCount(summary.rawValue),
+    effectiveValue: roundWeightedSignalCount(summary.effectiveValue),
+    rawAmount: roundCurrency(summary.rawAmount),
+    effectiveAmount: roundCurrency(summary.effectiveAmount),
+    maxOrdersAfterSignal: Number(summary.maxOrdersAfterSignal || 0),
+    minWeight: roundWeightedSignalCount(summary.count ? summary.minWeight : 1),
+  };
+}
+
+function buildWeightedIssueSignalCounts(events = []) {
+  return (Array.isArray(events) ? events : []).reduce((counts, event) => {
+    const issue = normalizeIssueCode(event.issueCode);
+    if (!issue) return counts;
+    counts[issue] = roundWeightedSignalCount((counts[issue] || 0) + Number(event.weightedValue || 0));
+    return counts;
+  }, {});
+}
+
+function mergeWeightedIssueSignalCounts(weightedCounts = {}, rawCounts = {}, averageWeight = 1) {
+  const next = { ...(weightedCounts || {}) };
+  Object.entries(rawCounts || {}).forEach(([issueCode, count]) => {
+    const issue = normalizeIssueCode(issueCode);
+    if (!issue || next[issue]) return;
+    next[issue] = roundWeightedSignalCount(Number(count || 0) * Number(averageWeight || 1));
+  });
+  return next;
+}
+
+function countWeightedRecentSignalEvents(events = [], days, now = new Date(), type = "") {
+  const referenceDate = parseValidDate(now) || new Date();
+  const normalizedType = String(type || "").trim();
+  return roundWeightedSignalCount((Array.isArray(events) ? events : [])
+    .filter((event) => (!normalizedType || event.type === normalizedType) && isRecentDateFrom(event.createdAt, days, referenceDate))
+    .reduce((total, event) => total + Number(event.weightedValue || event.value || 0), 0));
+}
+
+function roundWeightedSignalCount(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return 0;
+  return Math.round(number * 100) / 100;
+}
+
+function applyTemporalWeightingToTextInsights(insights = {}, signalWeighting = {}) {
+  const returnScale = getWeightedSignalTypeScale(signalWeighting, "return");
+  const reviewScale = getWeightedSignalTypeScale(signalWeighting, "review");
+  const aggregateScale = getWeightedAggregateSignalScale(signalWeighting, ["return", "review"]);
+  const reviews = insights.reviews || {};
+  return {
+    ...(insights || {}),
+    sentiment: scaleSentimentSummary(insights.sentiment, aggregateScale),
+    emotions: scaleCountRows(insights.emotions, aggregateScale),
+    returns: scaleTextSourceSummary(insights.returns, returnScale),
+    reviews: {
+      ...scaleTextSourceSummary(reviews, reviewScale),
+      bySource: Object.fromEntries(Object.entries(reviews.bySource || {}).map(([key, value]) => [
+        key,
+        scaleTextSourceSummary(value, reviewScale),
+      ])),
+    },
+    subjectiveNegativity: scaleSubjectiveNegativitySummary(insights.subjectiveNegativity, aggregateScale),
+    otherReturnClassifications: scaleCountRows(insights.otherReturnClassifications, returnScale),
+    repeatedLanguage: scaleCountRows(insights.repeatedLanguage, aggregateScale),
+    granularIssues: scaleIssueSignalRows(insights.granularIssues, aggregateScale),
+  };
+}
+
+function applyTemporalWeightingToRefundInsights(refundInsights = {}, { effectiveRefundUnits = 0, effectiveRefundRate = 0, effectiveRefundAmount = 0 } = {}) {
+  const rawTotal = Math.max(Number(refundInsights.total || 0), Number(refundInsights.refundUnits || 0), 0);
+  const scale = rawTotal > 0 ? Math.min(1, Number(effectiveRefundUnits || 0) / rawTotal) : 1;
+  const noteCount = roundWeightedSignalCount(Number(refundInsights.noteCount || 0) * scale);
+  const reasonCount = roundWeightedSignalCount(Number(refundInsights.reasonCount || 0) * scale);
+  const highPressure = Number(refundInsights.soldUnits || 0) > 10
+    && Number(effectiveRefundRate || 0) > 20
+    && Number(effectiveRefundUnits || 0) >= 3;
+  const monitorPressure = Number(effectiveRefundUnits || 0) >= 3 && Number(effectiveRefundRate || 0) >= 10;
+  return {
+    ...(refundInsights || {}),
+    rawTotal,
+    rawRefundRate: refundInsights.refundRate,
+    rawRefundAmount: refundInsights.refundAmount,
+    total: roundWeightedSignalCount(effectiveRefundUnits),
+    refundUnits: roundWeightedSignalCount(effectiveRefundUnits),
+    refundRate: roundRate(effectiveRefundRate),
+    refundAmount: roundCurrency(effectiveRefundAmount),
+    noteCount,
+    reasonCount,
+    highPressure,
+    monitorPressure,
+    riskLift: calculateRefundOperationalRiskLift({
+      refundUnits: effectiveRefundUnits,
+      refundRate: effectiveRefundRate,
+      soldUnits: refundInsights.soldUnits,
+      noteCount: Math.max(noteCount, reasonCount),
+    }),
+    shouldSurface: Boolean(
+      highPressure
+      || monitorPressure
+      || (Number(effectiveRefundUnits || 0) >= 2 && Math.max(noteCount, reasonCount) >= 2)
+    ),
+    sentiment: scaleSentimentSummary(refundInsights.sentiment, scale),
+    emotions: scaleCountRows(refundInsights.emotions, scale),
+    topReasons: scaleCountRows(refundInsights.topReasons, scale),
+    repeatedLanguage: scaleCountRows(refundInsights.repeatedLanguage, scale),
+    issueCounts: scaleCountRows(refundInsights.issueCounts, scale),
+  };
+}
+
+function applyTemporalWeightingToReviewSourceStats(reviewSourceStats = {}, signalWeighting = {}) {
+  const scale = getWeightedSignalTypeScale(signalWeighting, "review");
+  return Object.fromEntries(Object.entries(reviewSourceStats || {}).map(([key, stats]) => {
+    const reviewCount = Number(stats?.reviewCount || 0);
+    const negativeReviewCount = roundWeightedSignalCount(Number(stats?.negativeReviewCount || 0) * scale);
+    return [key, {
+      ...(stats || {}),
+      rawNegativeReviewCount: Number(stats?.negativeReviewCount || 0),
+      negativeReviewCount,
+      negativeReviewRate: roundRate(reviewCount ? (negativeReviewCount / reviewCount) * 100 : 0),
+    }];
+  }));
+}
+
+function getWeightedSignalTypeScale(signalWeighting = {}, type = "") {
+  const summary = signalWeighting.byType?.[type] || {};
+  const rawValue = Number(summary.rawValue || 0);
+  if (rawValue <= 0) return 1;
+  return clamp(Number(summary.effectiveValue || 0) / rawValue, 0, 1);
+}
+
+function getWeightedAggregateSignalScale(signalWeighting = {}, types = []) {
+  const selected = (Array.isArray(types) ? types : []).map((type) => signalWeighting.byType?.[type] || {});
+  const rawValue = selected.reduce((total, item) => total + Number(item.rawValue || 0), 0);
+  if (rawValue <= 0) return 1;
+  const effectiveValue = selected.reduce((total, item) => total + Number(item.effectiveValue || 0), 0);
+  return clamp(effectiveValue / rawValue, 0, 1);
+}
+
+function scaleTextSourceSummary(summary = {}, scale = 1) {
+  if (!summary || typeof summary !== "object") return summary;
+  return {
+    ...summary,
+    sentiment: scaleSentimentSummary(summary.sentiment, scale),
+    emotions: scaleCountRows(summary.emotions, scale),
+    subjectiveNegativity: scaleSubjectiveNegativitySummary(summary.subjectiveNegativity, scale),
+    repeatedLanguage: scaleCountRows(summary.repeatedLanguage, scale),
+    examples: summary.examples,
+  };
+}
+
+function scaleSentimentSummary(summary = {}, scale = 1) {
+  if (!summary || typeof summary !== "object") return summary;
+  const positive = roundWeightedSignalCount(Number(summary.positive || 0) * scale);
+  const neutral = roundWeightedSignalCount(Number(summary.neutral || 0) * scale);
+  const negative = roundWeightedSignalCount(Number(summary.negative || 0) * scale);
+  const total = roundWeightedSignalCount(positive + neutral + negative);
+  const dominant = total
+    ? Object.entries({ positive, neutral, negative }).sort((first, second) => second[1] - first[1])[0][0]
+    : summary.dominant || "neutral";
+  return {
+    ...summary,
+    positive,
+    neutral,
+    negative,
+    total,
+    dominant,
+    negativeRatio: total ? roundRate(negative / total, 2) : 0,
+  };
+}
+
+function scaleSubjectiveNegativitySummary(summary = {}, scale = 1) {
+  if (!summary || typeof summary !== "object") return summary;
+  const count = roundWeightedSignalCount(Number(summary.count || 0) * scale);
+  const total = roundWeightedSignalCount(Number(summary.total || 0) * scale);
+  return {
+    ...summary,
+    count,
+    total,
+    ratio: total ? roundRate(count / total, 2) : 0,
+  };
+}
+
+function scaleCountRows(rows = [], scale = 1) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    const count = row.count != null ? roundWeightedSignalCount(Number(row.count || 0) * scale) : row.count;
+    const signals = row.signals != null ? roundWeightedSignalCount(Number(row.signals || 0) * scale) : row.signals;
+    return {
+      ...row,
+      ...(row.count != null ? { count } : {}),
+      ...(row.signals != null ? { signals } : {}),
+      sentiments: row.sentiments ? {
+        positive: roundWeightedSignalCount(Number(row.sentiments.positive || 0) * scale),
+        neutral: roundWeightedSignalCount(Number(row.sentiments.neutral || 0) * scale),
+        negative: roundWeightedSignalCount(Number(row.sentiments.negative || 0) * scale),
+      } : row.sentiments,
+    };
+  }).filter((row) => Number(row?.count ?? row?.signals ?? 1) > 0);
+}
+
+function scaleIssueSignalRows(rows = [], scale = 1) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((row) => {
+    if (!row || typeof row !== "object") return row;
+    return {
+      ...row,
+      signals: roundWeightedSignalCount(Number(row.signals || row.count || 0) * scale),
+    };
+  }).filter((row) => Number(row?.signals || 0) > 0);
 }
 
 function buildIssueSignalCounts({ returns, refunds, reviews }) {
@@ -17417,8 +17944,15 @@ function getMainIssueFromCounts(counts, fallback) {
 function getEvidencePreferredMainIssue(deterministic = {}, proposedIssue = "") {
   const proposed = normalizeIssueCode(proposedIssue) || normalizeIssueCode(deterministic.mainIssue) || "product_quality";
   const counts = deterministic.issueSignalCounts || {};
-  const current = counts[proposed] ? proposed : normalizeIssueCode(deterministic.mainIssue) || proposed;
-  if (Number(counts.setup_expectation || 0) > 0 && hasSetupExpectationTextSignals(deterministic)) return "setup_expectation";
+  const rawCurrent = counts[proposed] ? proposed : normalizeIssueCode(deterministic.mainIssue) || proposed;
+  const current = isExpectationIssueCode(rawCurrent) && !hasStrongExpectationIssueEvidence(deterministic, rawCurrent)
+    ? getStrongestNonExpectationIssueFromCounts(counts) || "product_quality"
+    : rawCurrent;
+  if (Number(counts.setup_expectation || 0) > 0
+    && hasSetupExpectationTextSignals(deterministic)
+    && hasStrongExpectationIssueEvidence(deterministic, "setup_expectation")) {
+    return "setup_expectation";
+  }
   if (shouldPreferFitSizingMainIssue(deterministic, counts, current)) return "fit_sizing";
   if (["quality_defect", "durability", "safety_concern", "refund_impact"].includes(current)) return current;
   if (!hasProductFailureTextSignals(deterministic)) return current;
@@ -17430,8 +17964,17 @@ function getEvidencePreferredMainIssue(deterministic = {}, proposedIssue = "") {
   return "quality_defect";
 }
 
+function getStrongestNonExpectationIssueFromCounts(counts = {}) {
+  const sorted = Object.entries(counts)
+    .map(([issueCode, count]) => [normalizeIssueCode(issueCode), Number(count || 0)])
+    .filter(([issueCode, count]) => issueCode && count > 0 && !isExpectationIssueCode(issueCode))
+    .sort((first, second) => second[1] - first[1]);
+  return sorted[0]?.[0] || "";
+}
+
 function shouldPreferFitSizingMainIssue(deterministic = {}, counts = {}, current = "") {
   if (!hasFitSizingTextSignals(deterministic)) return false;
+  if (!hasStrongExpectationIssueEvidence(deterministic, "fit_sizing")) return false;
   const fitSignals = Number(counts.fit_sizing || 0)
     + countIssueCountRows(deterministic.metrics?.refundInsights?.issueCounts, "fit_sizing")
     + countRepeatedLanguageIssueRows(deterministic.metrics?.textInsights?.repeatedLanguage, "fit_sizing");
@@ -17867,18 +18410,37 @@ function getContentQualityScoreRiskLift(score) {
   return 0;
 }
 
-function adjustRiskComponentsForContentAnalysis(riskComponents = {}, contentAnalysis = {}) {
+function adjustRiskComponentsForContentAnalysis(riskComponents = {}, contentAnalysis = {}, metrics = {}) {
   const next = { ...riskComponents };
   const existingContentScore = Number(next.contentGapScore ?? next.contentRisk ?? 0);
   const contentGapScore = clamp(Math.max(existingContentScore, Number(contentAnalysis.riskLift || 0)), 0, 15);
   const rawScore = Number(next.rawScore ?? next.calculated ?? next.riskScore ?? 0) - existingContentScore + contentGapScore;
-  const riskScore = Math.round(clamp(rawScore, 0, 100));
+  const calibratedScore = calibrateProductRiskScore(rawScore, {
+    metrics,
+    returnsScore: Number(next.returnsScore || 0),
+    reviewsScore: Number(next.reviewsScore || 0),
+    refundScore: Number(next.refundScore || 0),
+    sentimentScore: Number(next.sentimentScore || 0),
+    contentGapScore,
+    relationshipScore: Number(next.relationshipScore || 0),
+    activeFamilyCount: [
+      Number(next.returnsScore || 0),
+      Number(next.reviewsScore || 0),
+      Number(next.sentimentScore || 0),
+      contentGapScore,
+      Number(next.refundScore || 0),
+      Number(next.variantScore || 0),
+      Number(next.relationshipScore || 0),
+    ].filter((score) => score >= 3).length,
+  });
+  const riskScore = Math.round(calibratedScore);
 
   return {
     ...next,
     contentGapScore: roundRate(contentGapScore, 2),
     contentRisk: roundRate(contentGapScore, 2),
     rawScore: roundRate(rawScore, 2),
+    calibratedScore: roundRate(calibratedScore, 2),
     calculated: riskScore,
     riskScore,
     calculationState: next.calculationState || "calculated_from_persisted_components",
@@ -17892,7 +18454,7 @@ function adjustReconstructedRiskHistoryForContentAnalysis(history = [], contentA
   return points.map((point, index) => {
     const isLast = index === points.length - 1 || point.isCurrent;
     const currentComponents = point.metrics?.riskComponents || {};
-    const adjustedComponents = adjustRiskComponentsForContentAnalysis(currentComponents, contentAnalysis);
+    const adjustedComponents = adjustRiskComponentsForContentAnalysis(currentComponents, contentAnalysis, point.metrics || {});
     const riskScore = isLast && Number.isFinite(Number(currentRiskScore))
       ? Math.round(Number(currentRiskScore))
       : adjustedComponents.riskScore;
@@ -18568,11 +19130,14 @@ function buildFallbackClusters(deterministic, mainIssue) {
 }
 
 function hasSourceAgreement({ returnUnits, refundUnits, negativeReviewCount, reviewSourceStats = null }) {
-  const reviewSourceSignals = reviewSourceStats
+  const hasReturnSignal = Number(returnUnits || 0) >= 0.75;
+  const hasRefundSignal = Number(refundUnits || 0) >= 0.75;
+  const hasReviewSignal = Number(negativeReviewCount || 0) >= 0.75;
+  const reviewSourceSignals = hasReviewSignal && reviewSourceStats
     ? [reviewSourceStats.judgeMe?.negativeReviewCount > 0, reviewSourceStats.yotpo?.negativeReviewCount > 0, reviewSourceStats.loox?.negativeReviewCount > 0, reviewSourceStats.csv?.negativeReviewCount > 0].filter(Boolean).length
-    : (negativeReviewCount > 0 ? 1 : 0);
-  const reviewSignalWeight = reviewSourceSignals >= 2 ? 2 : negativeReviewCount > 0 ? 1 : 0;
-  const sourceSignalWeight = [returnUnits > 0, refundUnits > 0].filter(Boolean).length + reviewSignalWeight;
+    : (hasReviewSignal ? 1 : 0);
+  const reviewSignalWeight = reviewSourceSignals >= 2 ? 2 : hasReviewSignal ? 1 : 0;
+  const sourceSignalWeight = [hasReturnSignal, hasRefundSignal].filter(Boolean).length + reviewSignalWeight;
   return sourceSignalWeight >= 2;
 }
 
@@ -20777,6 +21342,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildDiagnosisVariantInsights,
   buildOrderGeographyRows,
   buildIssueSignalCountsFromAnalysis,
+  buildTemporalSignalWeighting,
   calculateDeterministicDiagnosis,
   buildAiDeterministicInput,
   buildMonthlyOrderActivity,
@@ -20791,6 +21357,7 @@ export const __productPulseDiagnosisTestHooks = {
   buildFinalIssues,
   buildDiagnosisReportIssueNames,
   buildFinalRecommendations,
+  hasStrongExpectationIssueEvidence,
   withAiPurchaseContextInterpretation,
   analyzeFaqOpportunity,
   buildRecommendedFaqItems,

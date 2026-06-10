@@ -797,7 +797,7 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(repeatedConfidence).toBeGreaterThan(oneConfidence);
   });
 
-  it("reconstructs cumulative product risk history during deterministic diagnosis", () => {
+  it("reconstructs rolling-window product risk history during deterministic diagnosis", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const snapshot = {
       productGid: "gid://shopify/Product/123",
@@ -859,8 +859,68 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(history[0].granularity).toBe("weekly");
     expect(history.at(-1).isCurrent).toBe(true);
     expect(history.at(-1).riskScore).toBe(deterministic.riskScore);
-    expect(Math.max(...history.map((point) => point.metrics.returnUnits))).toBe(3);
+    expect(Math.max(...history.map((point) => point.metrics.rawReturnUnits))).toBe(3);
+    expect(Math.max(...history.map((point) => point.metrics.returnUnits))).toBeGreaterThan(2.9);
     expect(history.find((point) => point.metrics.returnUnits === 0).riskScore).toBeLessThan(history.at(-1).riskScore);
+  });
+
+  it("rebuilds product risk history from source events instead of preserving stale stored points", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const snapshot = {
+      productGid: "gid://shopify/Product/history-stale",
+      productTitle: "Stable Product",
+      handle: "stable-product",
+      riskScore: 0,
+      metrics: {
+        storeAvgReturnRate: 4,
+        storeAvgRefundRate: 2,
+        storeAvgNegativeReviewRate: 12,
+      },
+    };
+    const product = {
+      id: snapshot.productGid,
+      title: snapshot.productTitle,
+      handle: snapshot.handle,
+      description: "Stable product with clear specs, setup guidance, included parts, compatibility limits, dimensions, care, and warranty details.",
+      descriptionHtml: "<p>Stable product with clear specs, setup guidance, included parts, compatibility limits, dimensions, care, and warranty details.</p>",
+      variants: [{ id: "gid://shopify/ProductVariant/history-stale", title: "Default Title", sku: "STABLE", selectedOptions: [] }],
+      options: [],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: [
+          { id: "sale-stable-1", orderId: "order-stable-1", quantity: 3, amount: 300, createdAt: daysAgo(25) },
+          { id: "sale-stable-2", orderId: "order-stable-2", quantity: 3, amount: 300, createdAt: daysAgo(12) },
+        ],
+        returns: [],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      storedReconstructedRiskHistory: [
+        {
+          recordedAt: daysAgo(14),
+          periodEnd: daysAgo(14),
+          riskScore: 100,
+          confidence: 95,
+          metrics: { reconstructedHistory: true, returnUnits: 20 },
+        },
+      ],
+      windowDays: 60,
+    });
+
+    const history = deterministic.metrics.riskHistory;
+
+    expect(history.some((point) => point.riskScore === 100)).toBe(false);
+    expect(history.at(-1).isCurrent).toBe(true);
+    expect(history.at(-1).riskScore).toBe(deterministic.riskScore);
   });
 
   it("uses full-window relationship sales to calculate before and after purchase relationships", () => {
@@ -1263,6 +1323,106 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("does not promote weak fit or usage expectation text into final report issues", () => {
+    const deterministic = {
+      riskScore: 52,
+      confidence: 68,
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 2 },
+      metrics: {
+        signalCount: 2,
+        customerSignalCount: 2,
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        reviewCount: 24,
+        negativeReviewRate: 8.3,
+        textInsights: {
+          sentiment: { negative: 2, negativeRatio: 0.08 },
+          repeatedLanguage: [{ term: "fit", count: 2, issueCode: "fit_sizing" }],
+        },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        topReturnReasons: [],
+        affectedVariants: [],
+        issueSignalTrends: {},
+        signalTrend: [],
+      },
+    };
+
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic,
+      recommendations: [{ label: "Draft fit note for product description" }],
+      mainIssue: "fit_sizing",
+      ai: {
+        classification: {
+          clusters: [{
+            issue_category: "fit_sizing",
+            human_name: "Fit & sizing",
+            summary: "Two connected reviews mention fit expectations.",
+            signals: 2,
+            source_types: ["reviews"],
+            severity: "medium",
+          }],
+        },
+        emergentSentiments: { emergent_sentiments: [] },
+      },
+    });
+
+    expect(__productPulseDiagnosisTestHooks.hasStrongExpectationIssueEvidence(deterministic, "fit_sizing")).toBe(false);
+    expect(issues.map((issue) => issue.issueCode)).not.toContain("fit_sizing");
+  });
+
+  it("allows expectation issues when aligned with stronger return or refund metrics", () => {
+    const deterministic = {
+      riskScore: 72,
+      confidence: 78,
+      mainIssue: "fit_sizing",
+      issueSignalCounts: { fit_sizing: 3 },
+      metrics: {
+        signalCount: 5,
+        customerSignalCount: 5,
+        returnUnits: 2,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        reviewCount: 16,
+        negativeReviewRate: 18.75,
+        textInsights: {
+          sentiment: { negative: 3, negativeRatio: 0.38 },
+          repeatedLanguage: [{ term: "runs small", count: 3, issueCode: "fit_sizing" }],
+        },
+        contentIssueCount: 0,
+        contentAnalysis: { issues: [] },
+        topReturnReasons: ["Size too small"],
+        affectedVariants: [],
+        issueSignalTrends: {},
+        signalTrend: [],
+      },
+    };
+
+    const issues = __productPulseDiagnosisTestHooks.buildFinalIssues({
+      deterministic,
+      recommendations: [{ label: "Draft fit note for product description" }],
+      mainIssue: "fit_sizing",
+      ai: {
+        classification: {
+          clusters: [{
+            issue_category: "fit_sizing",
+            human_name: "Fit & sizing",
+            summary: "Returns and repeated reviews point to fit expectations.",
+            signals: 3,
+            source_types: ["shopify_returns", "reviews"],
+            severity: "medium",
+          }],
+        },
+        emergentSentiments: { emergent_sentiments: [] },
+      },
+    });
+
+    expect(__productPulseDiagnosisTestHooks.hasStrongExpectationIssueEvidence(deterministic, "fit_sizing")).toBe(true);
+    expect(issues.map((issue) => issue.issueCode)).toContain("fit_sizing");
+  });
+
   it("keeps one or two review-only negatives as weak main-finding evidence", () => {
     const weakRelevance = __productPulseDiagnosisTestHooks.buildSignalRelevanceGuidance({
       metrics: {
@@ -1381,11 +1541,14 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(deterministic.metrics.reviewCount).toBe(3);
     expect(deterministic.metrics.csvReviewCount).toBe(3);
-    expect(deterministic.metrics.csvNegativeReviewCount).toBe(2);
+    expect(deterministic.metrics.rawReviewSourceStats.csv.negativeReviewCount).toBe(2);
+    expect(deterministic.metrics.csvNegativeReviewCount).toBeGreaterThan(0);
+    expect(deterministic.metrics.csvNegativeReviewCount).toBeLessThan(2);
     expect(deterministic.metrics.csvAverageRating).toBe(2.7);
     expect(deterministic.sourceCoverage).toContain("CSV reviews");
     expect(deterministic.evidenceSnippets.filter((snippet) => snippet.source === "csv_review")).toHaveLength(2);
-    expect(deterministic.metrics.textInsights.reviews.sentiment.negative).toBe(2);
+    expect(deterministic.metrics.rawTextInsights.reviews.sentiment.negative).toBe(2);
+    expect(deterministic.metrics.textInsights.reviews.sentiment.negative).toBe(deterministic.metrics.csvNegativeReviewCount);
     expect(deterministic.metrics.textInsights.reviews.examples[0]).toMatchObject({
       source: "csv_review",
       sourceLabel: "CSV reviews",
@@ -1465,17 +1628,19 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(deterministic.metrics.reviewCount).toBe(3);
     expect(deterministic.metrics.yotpoReviewCount).toBe(3);
-    expect(deterministic.metrics.yotpoNegativeReviewCount).toBe(2);
+    expect(deterministic.metrics.rawReviewSourceStats.yotpo.negativeReviewCount).toBe(2);
+    expect(deterministic.metrics.yotpoNegativeReviewCount).toBeGreaterThan(0);
+    expect(deterministic.metrics.yotpoNegativeReviewCount).toBeLessThan(2);
     expect(deterministic.metrics.yotpoAverageRating).toBe(3);
     expect(deterministic.sourceCoverage).toContain("Yotpo reviews");
     expect(deterministic.evidenceSnippets.filter((snippet) => snippet.source === "yotpo_review")).toHaveLength(2);
     expect(deterministic.metrics.reviewSourceStats.yotpo).toMatchObject({
       reviewCount: 3,
-      negativeReviewCount: 2,
+      negativeReviewCount: deterministic.metrics.yotpoNegativeReviewCount,
       avgRating: 3,
     });
     expect(aiInput.metrics.yotpoReviewCount).toBe(3);
-    expect(aiInput.metrics.yotpoNegativeReviewCount).toBe(2);
+    expect(aiInput.metrics.yotpoNegativeReviewCount).toBe(deterministic.metrics.yotpoNegativeReviewCount);
     expect(confidence).toBeGreaterThan(0);
   });
 
@@ -1579,17 +1744,19 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
 
     expect(deterministic.metrics.reviewCount).toBe(2);
     expect(deterministic.metrics.looxReviewCount).toBe(2);
-    expect(deterministic.metrics.looxNegativeReviewCount).toBe(1);
+    expect(deterministic.metrics.rawReviewSourceStats.loox.negativeReviewCount).toBe(1);
+    expect(deterministic.metrics.looxNegativeReviewCount).toBeGreaterThan(0);
+    expect(deterministic.metrics.looxNegativeReviewCount).toBeLessThan(1);
     expect(deterministic.metrics.looxAverageRating).toBe(3.5);
     expect(deterministic.sourceCoverage).toContain("Loox reviews");
     expect(deterministic.evidenceSnippets.filter((snippet) => snippet.source === "loox_review")).toHaveLength(1);
     expect(deterministic.metrics.reviewSourceStats.loox).toMatchObject({
       reviewCount: 2,
-      negativeReviewCount: 1,
+      negativeReviewCount: deterministic.metrics.looxNegativeReviewCount,
       avgRating: 3.5,
     });
     expect(aiInput.metrics.looxReviewCount).toBe(2);
-    expect(aiInput.metrics.looxNegativeReviewCount).toBe(1);
+    expect(aiInput.metrics.looxNegativeReviewCount).toBe(deterministic.metrics.looxNegativeReviewCount);
     expect(confidence).toBeGreaterThan(0);
   });
 
@@ -4783,6 +4950,60 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(counts.shipping_delivery || 0).toBe(0);
   });
 
+  it("keeps signals inside the latest 30 days at full age strength", () => {
+    const now = new Date("2026-06-10T00:00:00.000Z");
+    const weighting = __productPulseDiagnosisTestHooks.buildTemporalSignalWeighting({
+      now,
+      sales: [],
+      signalEvents: [
+        { type: "return", createdAt: "2026-06-01T00:00:00.000Z", value: 1, text: "Too small", issueCode: "fit_sizing" },
+        { type: "return", createdAt: "2026-05-12T00:00:00.000Z", value: 1, text: "Too small", issueCode: "fit_sizing" },
+      ],
+    });
+
+    expect(weighting.events.map((event) => event.ageWeight)).toEqual([1, 1]);
+    expect(weighting.byType.return.effectiveValue).toBe(2);
+  });
+
+  it("decays older signals non-linearly across 30-day buckets", () => {
+    const now = new Date("2026-06-10T00:00:00.000Z");
+    const weighting = __productPulseDiagnosisTestHooks.buildTemporalSignalWeighting({
+      now,
+      sales: [],
+      signalEvents: [
+        { type: "return", createdAt: "2026-05-01T00:00:00.000Z", value: 1, text: "Too small", issueCode: "fit_sizing" },
+        { type: "return", createdAt: "2026-03-01T00:00:00.000Z", value: 1, text: "Too small", issueCode: "fit_sizing" },
+        { type: "return", createdAt: "2025-12-01T00:00:00.000Z", value: 1, text: "Too small", issueCode: "fit_sizing" },
+      ],
+    });
+    const weights = weighting.events.map((event) => event.weight);
+
+    expect(weights[0]).toBeGreaterThan(weights[1]);
+    expect(weights[1]).toBeGreaterThan(weights[2]);
+    expect(weights[2]).toBeLessThan(0.2);
+  });
+
+  it("reduces old signal importance when later orders did not repeat the problem", () => {
+    const now = new Date("2026-06-10T00:00:00.000Z");
+    const sales = Array.from({ length: 70 }, (_, index) => ({
+      id: `order-${index}`,
+      orderId: `order-${index}`,
+      quantity: 1,
+      createdAt: new Date(Date.UTC(2026, 4, 1 + index % 31)).toISOString(),
+    }));
+    const weighting = __productPulseDiagnosisTestHooks.buildTemporalSignalWeighting({
+      now,
+      sales,
+      signalEvents: [
+        { type: "return", createdAt: "2026-04-01T00:00:00.000Z", value: 1, text: "Too small", issueCode: "fit_sizing" },
+      ],
+    });
+
+    expect(weighting.events[0].ordersAfterSignal).toBe(70);
+    expect(weighting.events[0].orderContinuityWeight).toBeLessThan(0.6);
+    expect(weighting.byType.return.effectiveValue).toBeLessThan(0.5);
+  });
+
   it("does not let AI emotion labels contradict positive review sentiment", () => {
     const signals = __productPulseDiagnosisTestHooks.normalizeAiClassifiedSignals([
       {
@@ -7088,6 +7309,10 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
         tags: ["overshirt", "fit-sizing"],
       },
       metrics: {
+        returnUnits: 2,
+        refundUnits: 0,
+        negativeReviewCount: 3,
+        customerSignalCount: 5,
         refundInsights: {
           issueCounts: [{ label: "fit_sizing", count: 3 }],
           examples: [{ text: "Customer says the upper arm felt tight after warm drying.", issueCode: "fit_sizing" }],
@@ -7106,6 +7331,34 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     }, "quality_defect");
 
     expect(issue).toBe("fit_sizing");
+  });
+
+  it("does not prefer fit sizing as the main issue when expectation evidence lacks hard metrics", () => {
+    const issue = __productPulseDiagnosisTestHooks.getEvidencePreferredMainIssue({
+      mainIssue: "fit_sizing",
+      riskScore: 76,
+      issueSignalCounts: { fit_sizing: 2, quality_defect: 2 },
+      product: {
+        title: "GEN DriftWeave Packable Overshirt",
+        productType: "Apparel",
+        tags: ["overshirt", "fit-sizing"],
+      },
+      metrics: {
+        returnUnits: 0,
+        refundUnits: 0,
+        negativeReviewCount: 2,
+        reviewCount: 30,
+        customerSignalCount: 2,
+        textInsights: {
+          sentiment: { negative: 2, negativeRatio: 0.07 },
+          repeatedLanguage: [
+            { term: "fit", count: 2, issueCode: "fit_sizing" },
+          ],
+        },
+      },
+    }, "fit_sizing");
+
+    expect(issue).toBe("quality_defect");
   });
 
   it("does not propose unrelated taxonomy categories without product-specific token overlap", () => {
@@ -7402,8 +7655,15 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
         issueSignalCounts: { setup_expectation: 5 },
         metrics: {
           signalCount: 5,
+          customerSignalCount: 5,
+          returnUnits: 2,
+          refundUnits: 0,
+          negativeReviewCount: 3,
           contentAnalysis: { issues: [] },
-          textInsights: { sentiment: { negative: 0, total: 0, negativeRatio: 0 } },
+          textInsights: {
+            sentiment: { negative: 5, total: 5, negativeRatio: 1 },
+            repeatedLanguage: [{ term: "cable", count: 5, issueCode: "setup_expectation" }],
+          },
         },
       },
       ai: {
