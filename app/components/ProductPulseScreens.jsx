@@ -16604,6 +16604,14 @@ export function ProductMetricTimelinesScreen({ product }) {
   );
 }
 
+const PRODUCT_METRIC_TIMELINE_TOOLTIP_FADE_MS = 140;
+const PRODUCT_METRIC_TIMELINE_TOOLTIP_WRAPPER_STYLE = {
+  outline: "none",
+  zIndex: 8,
+  transition: "none",
+  visibility: "visible",
+};
+
 function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, chart, isHoverLockSource = false, lockedHoverTime = null, onHoverLockToggle, onMove }) {
   const gradientId = `ppMetricTimelineGradient-${chart.key}-${useId().replace(/:/g, "")}`;
   const lockedTooltipIndex = getProductMetricTimelineLockedTooltipIndex(chart, lockedHoverTime);
@@ -16721,9 +16729,10 @@ function ProductMetricTimelineChart({ canMoveDown = false, canMoveUp = false, ch
                 />
                 <RechartsTooltip
                   {...tooltipLockProps}
+                  isAnimationActive={false}
                   content={<ProductMetricTimelineTooltip chart={chart} lockedPoint={lockedTooltipPoint} />}
                   cursor={hasLockedTooltip ? false : { stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
-                  wrapperStyle={{ outline: "none", zIndex: 8 }}
+                  wrapperStyle={PRODUCT_METRIC_TIMELINE_TOOLTIP_WRAPPER_STYLE}
                 />
                 <Area
                   type="monotone"
@@ -16821,9 +16830,10 @@ function ProductMetricTimelineOrderActivityChart({ chart, lockedTooltipIndex = u
       />
       <RechartsTooltip
         {...tooltipLockProps}
+        isAnimationActive={false}
         content={<ProductMetricTimelineOrderActivityTooltip lockedPoint={lockedTooltipPoint} />}
         cursor={hasLockedTooltip ? false : { stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
-        wrapperStyle={{ outline: "none", zIndex: 8 }}
+        wrapperStyle={PRODUCT_METRIC_TIMELINE_TOOLTIP_WRAPPER_STYLE}
       />
       <Line yAxisId="volume" type="monotone" dataKey="orders" stroke="var(--pp-pulse-blue)" strokeWidth={2.5} dot={false} activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color="var(--pp-pulse-blue)" />} isAnimationActive={false} />
       <Line yAxisId="volume" type="monotone" dataKey="returnedOrders" stroke="var(--pp-warning-amber)" strokeWidth={2.4} dot={false} activeDot={hasLockedTooltip ? false : <ProductMetricTimelineActiveDot color="var(--pp-warning-amber)" />} isAnimationActive={false} />
@@ -16889,7 +16899,7 @@ function ProductMetricTimelineEventsChart({ chart, lockedTooltipIndex = undefine
         cursor={hasLockedTooltip ? false : { stroke: "rgba(71, 85, 105, 0.28)", strokeDasharray: "4 4", strokeWidth: 1.4 }}
         isAnimationActive={false}
         wrapperClassName="ppMetricTimelineEventTooltipWrapper"
-        wrapperStyle={{ outline: "none", zIndex: 8 }}
+        wrapperStyle={PRODUCT_METRIC_TIMELINE_TOOLTIP_WRAPPER_STYLE}
       />
       <Scatter
         data={chart.data}
@@ -17052,15 +17062,17 @@ function ProductMetricTimelineLegend({ chart }) {
 
 function ProductMetricTimelineTooltip({ active, payload, chart, lockedPoint = null }) {
   const point = lockedPoint || (Array.isArray(payload) && payload.length ? payload[0]?.payload : null);
-  if (!active || !point) return null;
-  if (chart.kind === "events") return <ProductMetricTimelineEventTooltip event={point} />;
+  const displayPoint = useMetricTimelineTooltipPoint(active, point);
+  const visible = Boolean(active && point);
+  if (!displayPoint) return null;
+  if (chart.kind === "events") return <ProductMetricTimelineEventTooltip event={displayPoint} visible={visible} />;
   return (
-    <div className="ppRetentionLinePopover ppMetricTimelineTooltip" role="tooltip">
-      <strong>{point.label}</strong>
+    <div className={`ppRetentionLinePopover ppMetricTimelineTooltip${visible ? " isVisible" : " isHidden"}`} role="tooltip">
+      <strong>{displayPoint.label}</strong>
       <span className="ppRetentionLinePopoverRows">
-        <span><b>{chart.title}</b><small>{formatProductMetricTimelineValue(point.value, chart.axis)}</small></span>
+        <span><b>{chart.title}</b><small>{formatProductMetricTimelineValue(displayPoint.value, chart.axis)}</small></span>
         {getProductMetricTimelineSecondaryLines(chart).map((line) => {
-          const value = point[line.dataKey];
+          const value = displayPoint[line.dataKey];
           return value != null ? (
             <span key={`${chart.key}-${line.dataKey}`}><b>{line.label}</b><small>{formatProductMetricTimelineValue(value, line.axis || chart.axis)}</small></span>
           ) : null;
@@ -17070,11 +17082,11 @@ function ProductMetricTimelineTooltip({ active, payload, chart, lockedPoint = nu
   );
 }
 
-function ProductMetricTimelineEventTooltip({ event = {} }) {
+function ProductMetricTimelineEventTooltip({ event = {}, visible = true }) {
   const dayEvents = getProductMetricTimelineEventTooltipItems(event);
   const eventCount = dayEvents.length;
   return (
-    <div className={`ppRetentionLinePopover ppMetricTimelineTooltip ppMetricTimelineEventTooltip ppMetricTimelineEventTooltip-${event.tone || "slate"}`} role="tooltip">
+    <div className={`ppRetentionLinePopover ppMetricTimelineTooltip ppMetricTimelineEventTooltip ppMetricTimelineEventTooltip-${event.tone || "slate"}${visible ? " isVisible" : " isHidden"}`} role="tooltip">
       <span className="ppMetricTimelineEventTooltipHeader">
         <strong>{event.dayLabel || event.dateLabel || event.label}</strong>
         <span>{formatInteger(eventCount)} {eventCount === 1 ? "event" : "events"}</span>
@@ -17105,6 +17117,24 @@ function ProductMetricTimelineEventTooltip({ event = {} }) {
       </span>
     </div>
   );
+}
+
+function useMetricTimelineTooltipPoint(active, point) {
+  const [lastPoint, setLastPoint] = useState(point || null);
+
+  useEffect(() => {
+    if (point) {
+      setLastPoint(point);
+      return undefined;
+    }
+    if (!active && lastPoint) {
+      const timeout = window.setTimeout(() => setLastPoint(null), PRODUCT_METRIC_TIMELINE_TOOLTIP_FADE_MS + 40);
+      return () => window.clearTimeout(timeout);
+    }
+    return undefined;
+  }, [active, lastPoint, point]);
+
+  return point || lastPoint;
 }
 
 function getProductMetricTimelineEventTooltipItems(event = {}) {
@@ -17240,15 +17270,17 @@ function formatProductMetricTimelinePointTime(time) {
 
 function ProductMetricTimelineOrderActivityTooltip({ active, payload, lockedPoint = null }) {
   const point = lockedPoint || (Array.isArray(payload) && payload.length ? payload[0]?.payload : null);
-  if (!active || !point) return null;
+  const displayPoint = useMetricTimelineTooltipPoint(active, point);
+  const visible = Boolean(active && point);
+  if (!displayPoint) return null;
   return (
-    <div className="ppRetentionLinePopover ppMetricTimelineTooltip" role="tooltip">
-      <strong>{point.label}</strong>
-      <span><b>Orders</b><small>{formatInteger(point.orders)} orders · {formatInteger(point.orderUnits)} units</small></span>
-      <span><b>Returns</b><small>{formatInteger(point.returnedOrders)} cohorts · {formatInteger(point.returnedUnits)} units</small></span>
-      <span><b>Refunds</b><small>{formatInteger(point.refundedOrders)} cohorts · {formatInteger(point.refundedUnits)} units</small></span>
-      <span><b>Revenue</b><small>{formatMoney(point.revenue || 0)}</small></span>
-      <span><b>Unresolved returns</b><small>{formatInteger(point.unresolvedReturns || 0)}</small></span>
+    <div className={`ppRetentionLinePopover ppMetricTimelineTooltip${visible ? " isVisible" : " isHidden"}`} role="tooltip">
+      <strong>{displayPoint.label}</strong>
+      <span><b>Orders</b><small>{formatInteger(displayPoint.orders)} orders · {formatInteger(displayPoint.orderUnits)} units</small></span>
+      <span><b>Returns</b><small>{formatInteger(displayPoint.returnedOrders)} cohorts · {formatInteger(displayPoint.returnedUnits)} units</small></span>
+      <span><b>Refunds</b><small>{formatInteger(displayPoint.refundedOrders)} cohorts · {formatInteger(displayPoint.refundedUnits)} units</small></span>
+      <span><b>Revenue</b><small>{formatMoney(displayPoint.revenue || 0)}</small></span>
+      <span><b>Unresolved returns</b><small>{formatInteger(displayPoint.unresolvedReturns || 0)}</small></span>
     </div>
   );
 }

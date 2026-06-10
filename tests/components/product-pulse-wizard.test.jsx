@@ -9,6 +9,7 @@ const WIZARD_STORAGE_KEY = "productPulse.onboardingWizard.completed.v1";
 afterEach(() => {
   window.localStorage.removeItem(WIZARD_STORAGE_KEY);
   delete window.__PP_WIZARD_TEST_HAS_CANDIDATES__;
+  delete window.matchMedia;
 });
 
 describe("ProductPulseWizard", () => {
@@ -29,6 +30,18 @@ describe("ProductPulseWizard", () => {
     expect(screen.getByRole("link", { name: "Open Loox CSV export documentation" })).toHaveAttribute("href", "https://help.loox.io/support/solutions/articles/501000162437/");
     expect(screen.getByRole("link", { name: "Open Okendo CSV export documentation" })).toHaveAttribute("href", "https://support.okendo.io/en/articles/13909417-exporting-data-from-okendo");
     expect(screen.getByRole("link", { name: "Open Stamped CSV export documentation" })).toHaveAttribute("href", "https://stampedsupport.stamped.io/hc/en-us/articles/8839244356891-Exporting-Reviews-Checkout-Comments-or-NPS");
+  });
+
+  it("shows only the Judge.me connector coach on mobile Connect", async () => {
+    setWizardMobileViewport(true);
+    renderWizard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
+    expect(await screen.findByRole("dialog", { name: "Connect Judge.me Reviews" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Connect Yotpo Reviews" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Upload reviews by CSV" })).not.toBeInTheDocument();
   });
 
   it("does not start after completion is stored", () => {
@@ -148,12 +161,36 @@ describe("ProductPulseWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Run Catalog Scan" }));
 
-    expect(await screen.findByRole("dialog", { name: "Catalog Scan is running" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Track the Catalog Scan" })).toBeInTheDocument();
+    expect(screen.getByText("Catalog Scan is still running...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Waiting for Catalog Scan" })).toBeDisabled();
     expect(screen.queryByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).not.toBeInTheDocument();
 
     finishQuickScan();
 
     expect(await screen.findByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).toBeInTheDocument();
+  });
+
+  it("hides the wizard when the user leaves Products and resumes when they return", async () => {
+    renderWizard();
+
+    fireEvent.click(await screen.findByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/connect"));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
+    expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/settings"));
+    expect(screen.queryByRole("dialog", { name: "Run Catalog Scan" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Wizard controls" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: "Products" }));
+
+    await waitFor(() => expect(screen.getByTestId("wizard-path")).toHaveTextContent("/app/products?tab=candidates"));
+    expect(await screen.findByRole("dialog", { name: "Run Catalog Scan" })).toBeInTheDocument();
   });
 
   it("skips only the current step without completing the tour", async () => {
@@ -215,7 +252,8 @@ describe("ProductPulseWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Run Catalog Scan" }));
 
-    expect(await screen.findByRole("dialog", { name: "Catalog Scan is running" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Track the Catalog Scan" })).toBeInTheDocument();
+    expect(screen.getByText("Catalog Scan is still running...")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Select a candidate and run Product Diagnosis" })).not.toBeInTheDocument();
 
     finishQuickScan();
@@ -331,6 +369,19 @@ function completeDeepScanWithJob(job) {
   });
 }
 
+function setWizardMobileViewport(matches) {
+  window.matchMedia = (query) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  });
+}
+
 function renderWizard(initialEntry = "/app/dashboard") {
   const router = createMemoryRouter([{ path: "*", element: <WizardHarness /> }], {
     initialEntries: [initialEntry],
@@ -351,8 +402,13 @@ function WizardHarness() {
 
   useEffect(() => {
     const handleOpenBackgroundProcesses = () => setJobsOpen(true);
+    const handleCloseBackgroundProcesses = () => setJobsOpen(false);
     window.addEventListener("productpulse:wizard-open-background-processes", handleOpenBackgroundProcesses);
-    return () => window.removeEventListener("productpulse:wizard-open-background-processes", handleOpenBackgroundProcesses);
+    window.addEventListener("productpulse:wizard-close-background-processes", handleCloseBackgroundProcesses);
+    return () => {
+      window.removeEventListener("productpulse:wizard-open-background-processes", handleOpenBackgroundProcesses);
+      window.removeEventListener("productpulse:wizard-close-background-processes", handleCloseBackgroundProcesses);
+    };
   }, []);
 
   useEffect(() => {
@@ -438,6 +494,10 @@ function WizardHarness() {
           </Link>
         </aside>
       ) : null}
+      <nav aria-label="Test navigation">
+        <Link to="/app/products?tab=candidates">Products</Link>
+        <Link to="/app/settings">Settings</Link>
+      </nav>
       <div className="ppGlobalTopbar">
         <button
           data-pp-background-process-button

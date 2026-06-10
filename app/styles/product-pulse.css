@@ -6723,6 +6723,8 @@ s-page[inline-size="large-500"] {
 .ppMetricTimelineChartPlot .recharts-tooltip-wrapper {
   outline: none;
   pointer-events: none;
+  transition: none !important;
+  will-change: transform;
 }
 .ppMetricTimelineChart:last-child .ppMetricTimelineChartPlot .recharts-tooltip-wrapper {
   position: fixed !important;
@@ -6833,6 +6835,28 @@ s-page[inline-size="large-500"] {
   padding: 7px 8px;
   border-radius: 7px;
   box-shadow: 0 10px 22px rgba(var(--pp-shadow-rgb), 0.14);
+  opacity: 0;
+  transition: opacity 140ms ease;
+  will-change: opacity;
+}
+
+.ppMetricTimelineTooltip.isVisible {
+  opacity: 1;
+  animation: ppMetricTimelineTooltipFadeIn 140ms ease both;
+}
+
+.ppMetricTimelineTooltip.isHidden {
+  opacity: 0;
+}
+
+@keyframes ppMetricTimelineTooltipFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .ppMetricTimelineTooltip > strong {
@@ -37424,6 +37448,13 @@ s-page[inline-size="large-500"] {
     grid-template-columns: 1fr;
   }
 
+  .ppEvidenceObservabilityPanel {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
   .ppEvidenceHeaderMeta {
     justify-items: start;
   }
@@ -37446,8 +37477,21 @@ s-page[inline-size="large-500"] {
   }
 
   .ppEvidenceSourcePanel {
-    margin: 10px;
-    padding: 12px;
+    width: auto;
+    max-width: calc(100% - 12px);
+    min-width: 0;
+    margin: 6px;
+    padding: 8px;
+    overflow: hidden;
+  }
+
+  .ppEvidenceSourcePanel-specialized {
+    gap: 12px;
+    padding: 8px;
+  }
+
+  .ppEvidenceSourcePanel :is(.ppEvidenceReportSectionCard, .ppEvidenceSourceStatCard, .ppEvidenceAiContextBlock, .ppEvidenceFinding, .ppEvidenceMetricCard) {
+    min-width: 0;
   }
 
   .ppEvidenceSourceStatCard {

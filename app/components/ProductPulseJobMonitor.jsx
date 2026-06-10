@@ -275,8 +275,12 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
     });
 
     const finishedJobs = [];
+    const startedJobs = [];
     currentJobs.forEach((job, jobId) => {
       const previous = observedJobsRef.current.get(jobId);
+      if (!previous && isActiveJobStatus(job.status)) {
+        startedJobs.push(job);
+      }
       if (previous && isActiveJobStatus(previous.status) && isTerminalJobStatus(job.status)) {
         finishedJobs.push(job);
       }
@@ -296,8 +300,19 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
 
     observedJobsRef.current = currentJobs;
 
+    startedJobs.forEach((job) => {
+      if (job.kind === "fast-product-scan") {
+        dispatchProductPulseWizardJobEvent({ type: "quick-scan-job-started", job });
+      }
+    });
+
     if (finishedOrDisappearedJobs.length) {
       dispatchProductPulseJobsFinishedEvent(finishedOrDisappearedJobs);
+      finishedOrDisappearedJobs.forEach((job) => {
+        if (job.kind === "fast-product-scan") {
+          dispatchProductPulseWizardJobEvent({ type: "quick-scan-job-finished", job });
+        }
+      });
       const completedJobsForUserFeedback = externallyFinishedJobs.filter((job) => job.status === "Completed");
       if (completedJobsForUserFeedback.length) {
         playProductPulseJobCompletionSound();
@@ -397,9 +412,16 @@ export function ProductPulseJobMonitor({ initialMonitor, developmentMode = false
       requestJobStatusLoad({ force: true, scope: "popover" });
       setActivePopover("jobs");
     };
+    const handleWizardCloseBackgroundProcesses = () => {
+      setActivePopover((current) => (current === "jobs" ? null : current));
+    };
 
     window.addEventListener("productpulse:wizard-open-background-processes", handleWizardOpenBackgroundProcesses);
-    return () => window.removeEventListener("productpulse:wizard-open-background-processes", handleWizardOpenBackgroundProcesses);
+    window.addEventListener("productpulse:wizard-close-background-processes", handleWizardCloseBackgroundProcesses);
+    return () => {
+      window.removeEventListener("productpulse:wizard-open-background-processes", handleWizardOpenBackgroundProcesses);
+      window.removeEventListener("productpulse:wizard-close-background-processes", handleWizardCloseBackgroundProcesses);
+    };
   }, [requestJobStatusLoad]);
 
   useEffect(() => {
