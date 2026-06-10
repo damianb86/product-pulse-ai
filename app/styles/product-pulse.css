@@ -11727,6 +11727,38 @@ s-page[inline-size="large-500"] {
   gap: 8px;
 }
 
+.ppOrderActivityCoverageNotice {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--pp-warning-amber-rgb), 0.34);
+  border-radius: 8px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.08);
+  color: var(--pp-slate-700);
+}
+
+.ppOrderActivityCoverageNotice span {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(var(--pp-warning-amber-rgb), 0.14);
+  color: var(--pp-warning-amber);
+}
+
+.ppOrderActivityCoverageNotice p {
+  min-width: 0;
+  margin: 0;
+  color: var(--pp-slate-700);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .ppOrderActivityStat {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);

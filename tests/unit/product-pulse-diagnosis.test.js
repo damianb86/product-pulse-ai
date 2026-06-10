@@ -250,6 +250,142 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(query).toContain("altText");
   });
 
+  it("builds product-targeted sales queries with processed date and SKU filters", () => {
+    expect(__productPulseDiagnosisTestHooks.buildDiagnosisSalesOrderQuery({
+      sinceDate: "2026-03-12",
+      sku: `AIR "LUXE"`,
+    })).toBe(`processed_at:>=2026-03-12 sku:"AIR \\"LUXE\\""`);
+  });
+
+  it("finds product sales through targeted SKU queries when the limited global order scan misses them", async () => {
+    const product = {
+      id: "gid://shopify/Product/8443102757120",
+      title: "AIRELUXE",
+      handle: "t3-aireluxe-professional-hair-dryer-new",
+      variants: [{ id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "AIR-LUXE" }],
+    };
+    const snapshot = {
+      productGid: product.id,
+      productTitle: product.title,
+      handle: product.handle,
+    };
+    const graphqlCalls = [];
+    const admin = {
+      graphql: vi.fn(async (_query, { variables }) => {
+        graphqlCalls.push(variables);
+        const isTargetedSkuQuery = String(variables.query || "").includes('sku:"AIR-LUXE"');
+        const lineItems = isTargetedSkuQuery
+          ? [
+            {
+              id: "gid://shopify/LineItem/target-product",
+              quantity: 482,
+              title: "AIRELUXE",
+              sku: "AIR-LUXE",
+              product: { id: product.id, handle: product.handle, title: product.title, featuredMedia: null, media: { nodes: [] } },
+              variant: { id: "gid://shopify/ProductVariant/1", title: "Default Title", sku: "AIR-LUXE", selectedOptions: [] },
+              originalTotalSet: { shopMoney: { amount: "76394.69" } },
+            },
+            {
+              id: "gid://shopify/LineItem/co-product",
+              quantity: 2,
+              title: "Diffuser Attachment",
+              sku: "AIR-DIFFUSER",
+              product: { id: "gid://shopify/Product/related", handle: "air-diffuser", title: "Diffuser Attachment", featuredMedia: null, media: { nodes: [] } },
+              variant: { id: "gid://shopify/ProductVariant/related", title: "Default Title", sku: "AIR-DIFFUSER", selectedOptions: [] },
+              originalTotalSet: { shopMoney: { amount: "58.00" } },
+            },
+          ]
+          : [{
+            id: "gid://shopify/LineItem/unrelated",
+            quantity: 1,
+            title: "Other product",
+            sku: "OTHER-SKU",
+            product: { id: "gid://shopify/Product/999", handle: "other-product", title: "Other product", featuredMedia: null, media: { nodes: [] } },
+            variant: { id: "gid://shopify/ProductVariant/999", title: "Default Title", sku: "OTHER-SKU", selectedOptions: [] },
+            originalTotalSet: { shopMoney: { amount: "19.00" } },
+          }];
+
+        return new Response(JSON.stringify({
+          data: {
+            orders: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [{
+                id: isTargetedSkuQuery ? "gid://shopify/Order/target" : "gid://shopify/Order/unrelated",
+                createdAt: "2026-06-01T10:00:00.000Z",
+                processedAt: "2026-06-01T10:00:00.000Z",
+                customer: { id: "gid://shopify/Customer/1" },
+                lineItems: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: lineItems },
+              }],
+            },
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+    };
+
+    const result = await __productPulseDiagnosisTestHooks.fetchShopifySalesEventBundle({
+      shop: "test-shop.myshopify.com",
+      jobId: "job-targeted-sales",
+      admin,
+      product,
+      snapshot,
+      windowDays: 90,
+      sinceDate: "2026-03-12",
+      includeAllProductCandidates: true,
+    });
+
+    expect(graphqlCalls.map((call) => call.query)).toEqual([
+      'processed_at:>=2026-03-12 sku:"AIR-LUXE"',
+      "processed_at:>=2026-03-12",
+    ]);
+    expect(result.sales).toHaveLength(1);
+    expect(result.sales[0]).toMatchObject({
+      productId: product.id,
+      variantId: "gid://shopify/ProductVariant/1",
+      sku: "AIR-LUXE",
+      quantity: 482,
+      amount: 76394.69,
+    });
+    expect(result.relationshipSales).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: product.id, sku: "AIR-LUXE" }),
+      expect.objectContaining({ productId: "gid://shopify/Product/related", sku: "AIR-DIFFUSER", quantity: 2 }),
+    ]));
+    expect(result.fetchComplete).toBe(true);
+    expect(result.extraction).toMatchObject({
+      productSalesComplete: true,
+      targeted: {
+        scannedOrders: 1,
+        matchedLineItems: 1,
+        relationshipLineItems: 2,
+      },
+    });
+  });
+
+  it("marks product sales extraction incomplete when targeted order pagination cannot finish safely", () => {
+    const completeness = __productPulseDiagnosisTestHooks.getSalesExtractionCompleteness({
+      targeted: {
+        skipped: false,
+        hitPageLimit: true,
+        paginationStalled: false,
+        possibleLineItemMisses: 1,
+      },
+      global: {
+        hitPageLimit: false,
+        paginationStalled: false,
+      },
+    });
+
+    expect(completeness).toMatchObject({
+      fetchComplete: false,
+      productSalesComplete: false,
+      shopSourceSalesComplete: true,
+      incompletenessReason: "targeted_order_page_limit_reached",
+      incompletenessReasons: [
+        "targeted_order_page_limit_reached",
+        "targeted_order_line_items_capped_before_product_line",
+      ],
+    });
+  });
+
   it("backfills missing sale lines from matched return and refund evidence", () => {
     const product = {
       id: "gid://shopify/Product/123",

@@ -25,6 +25,17 @@
 - Use cursor pagination for products and orders.
 - Avoid customer PII; aggregate product-level signals.
 
+## Product Diagnosis Order Extraction
+- Product Diagnosis reads product sales through Shopify Admin GraphQL `orders` with a `processed_at` lower bound and a product-variant SKU filter, then cursor-paginates each SKU until Shopify returns no next page.
+- `PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDER_MAX_PAGES=0` is the default and means uncapped product-order pagination. This is the intended production default for high-volume stores.
+- If an operational cap is required, set `PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDER_MAX_PAGES` to a positive integer. The maximum product-order search envelope is:
+  `MAX_PAGES * PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDERS_PAGE_SIZE * min(unique_variant_skus, PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDER_MAX_SKUS)`.
+- Product Diagnosis marks order extraction incomplete when the targeted SKU scan reaches that cap, Shopify pagination stalls, or an order has more line items than the configured line-item page and the product line cannot be confirmed in the returned slice. Incomplete extraction lowers confidence and is surfaced in the Monthly order activity panel instead of silently presenting a partial count as complete.
+- Products without variant SKUs fall back to the limited global order scan. That fallback preserves best-effort signals, but it is marked incomplete if the global scan hits its cap.
+- Every order fetched by a targeted SKU scan is expanded into compact line-level sales cache rows for all returned line items, not only the product being diagnosed. Those rows are appended to the shared per-shop cache with `skipDuplicates`, so a multi-product order can be associated with several products without duplicating the same line event.
+- Product Diagnosis can read those partial product-specific sales rows even when the full shop-level cache is not complete. It still runs the targeted SKU scan unless the full shop cache is usable, because a partial basket hit does not prove that all orders for the next product are already cached.
+- The shared shop source-event cache is persisted only when shop-level sales, refunds and returns are complete. Product-scoped sales can still be complete through targeted SKU pagination even when the shop-level relationship scan is intentionally limited.
+
 ## Planned Read Queries
 - Products and variants: title, handle, status, tags, collections, variant count.
 - Orders/refunds: product line item context, refund amount, refund date and aggregate counts.

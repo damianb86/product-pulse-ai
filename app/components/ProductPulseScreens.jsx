@@ -8832,6 +8832,7 @@ function getProductDetailModel(product) {
   const riskTrendValues = getProductRiskTrendValues(product);
   const riskDisplay = getProductRiskDisplay(product.riskScore, riskTrendValues, product.riskTone, hasRiskSnapshot);
   const monthlyOrderActivity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
+  const sourceDataQuality = normalizeProductSourceDataQuality(metrics.incrementalDiagnosis, metrics);
   const returnRatePrediction = normalizeProductReturnRatePrediction(metrics.returnRatePrediction);
   const productRetention = normalizeProductRetention(metrics.productRetention);
   const productMomentum = normalizeProductMomentum(metrics.productMomentum);
@@ -8996,6 +8997,7 @@ function getProductDetailModel(product) {
     riskHistory: Array.isArray(metrics.riskHistory) ? metrics.riskHistory : [],
     monthlyOrderActivity,
     hasMonthlyOrderActivity,
+    sourceDataQuality,
     returnRatePrediction,
     hasReturnRatePrediction,
     productRetention,
@@ -10021,6 +10023,66 @@ function normalizeProductMonthlyOrderActivity(activity = null) {
         totalOrderUnits,
         summary.refundRate ?? (totalOrders ? (totalRefundedOrders / totalOrders) * 100 : 0),
       ),
+    },
+  };
+}
+
+function normalizeProductSourceDataQuality(incrementalDiagnosis = null, metrics = {}) {
+  const incremental = asPlainObject(incrementalDiagnosis);
+  const sourceChanges = asPlainObject(incremental.sourceChanges);
+  const sourceEvents = asPlainObject(incremental.sourceEvents || sourceChanges.sourceEventFetch);
+  const sourceEventFetch = asPlainObject(sourceChanges.sourceEventFetch || sourceEvents);
+  const sourceFetchComplete = asPlainObject(
+    sourceChanges.sourceFetchComplete
+      || sourceEventFetch.sourceFetchComplete
+      || sourceEvents.sourceFetchComplete,
+  );
+  const salesExtraction = asPlainObject(
+    sourceEventFetch.salesExtraction
+      || sourceEvents.salesExtraction
+      || sourceChanges.salesExtraction,
+  );
+  const targeted = asPlainObject(salesExtraction.targeted);
+  const limits = asPlainObject(targeted.limits);
+  const reasons = Array.isArray(salesExtraction.incompletenessReasons)
+    ? salesExtraction.incompletenessReasons.filter(Boolean).map(String)
+    : [];
+  const fallbackReason = firstNonEmptyString(
+    salesExtraction.incompletenessReason,
+    sourceFetchComplete.sales === false ? "sales_source_fetch_incomplete" : "",
+    metrics.orderAccessDenied ? "shopify_order_access_denied" : "",
+  );
+  const orderActivityComplete = metrics.orderAccessDenied
+    ? false
+    : salesExtraction.productSalesComplete === false
+      || sourceFetchComplete.sales === false
+      ? false
+      : null;
+
+  return {
+    orderActivityComplete,
+    sourceExtractionComplete: sourceChanges.sourceExtractionComplete !== false,
+    sourceFetchComplete,
+    salesExtraction,
+    reasons: reasons.length ? reasons : (fallbackReason ? [fallbackReason] : []),
+    primaryReason: reasons[0] || fallbackReason || null,
+    targeted: {
+      skipped: targeted.skipped === true,
+      skipReason: targeted.skipReason || null,
+      productSkuCount: Number(salesExtraction.productSkuCount || 0),
+      scannedOrders: Number(targeted.scannedOrders || 0),
+      matchedLineItems: Number(targeted.matchedLineItems || 0),
+      pages: Number(targeted.pages || 0),
+      possibleLineItemMisses: Number(targeted.possibleLineItemMisses || 0),
+      limits: {
+        ordersFirst: optionalFiniteMetricNumber(limits.ordersFirst),
+        lineItemsFirst: optionalFiniteMetricNumber(limits.lineItemsFirst),
+        maxPages: optionalFiniteMetricNumber(limits.maxPages),
+        maxPagesMode: limits.maxPagesMode || "",
+        maxSkus: optionalFiniteMetricNumber(limits.maxSkus),
+        maxOrdersPerSku: optionalFiniteMetricNumber(limits.maxOrdersPerSku),
+        maxOrdersAcrossSkus: optionalFiniteMetricNumber(limits.maxOrdersAcrossSkus),
+      },
     },
   };
 }
@@ -20604,6 +20666,36 @@ function ProductChartAiInterpretation({ detail, chartKey }) {
   );
 }
 
+function getOrderActivityCoverageNotice(detail = {}) {
+  const quality = detail.sourceDataQuality || {};
+  if (quality.orderActivityComplete !== false) return null;
+  const reason = quality.primaryReason || "";
+  const targeted = quality.targeted || {};
+  const limits = targeted.limits || {};
+  const maxOrdersAcrossSkus = Number(limits.maxOrdersAcrossSkus || 0);
+  const skuCount = Number(targeted.productSkuCount || 0);
+
+  if (reason === "shopify_order_access_denied") {
+    return "Order activity may be partial because Shopify order access is not available for this store session.";
+  }
+  if (reason === "targeted_order_page_limit_reached") {
+    const capText = maxOrdersAcrossSkus > 0
+      ? ` Current cap: up to ${formatInteger(maxOrdersAcrossSkus)} orders across ${formatInteger(Math.max(skuCount, 1))} SKU${skuCount === 1 ? "" : "s"}.`
+      : "";
+    return `Order activity may be partial because ProductPulse reached the configured product-order extraction cap before Shopify finished paginating this product.${capText}`;
+  }
+  if (reason === "targeted_order_line_items_capped_before_product_line") {
+    return "Order activity may be partial because some matched Shopify orders contain more line items than ProductPulse inspected and the product line could not be confirmed in the returned slice.";
+  }
+  if (reason === "targeted_order_pagination_stalled") {
+    return "Order activity may be partial because Shopify order pagination stopped advancing before ProductPulse could confirm the end of the product order history.";
+  }
+  if (reason === "global_order_scan_limited_without_product_sku" || targeted.skipReason === "no_variant_skus") {
+    return "Order activity may be partial because this product has no variant SKU for targeted Shopify order search, so ProductPulse used the limited shop-level order scan.";
+  }
+  return "Order activity may be partial because ProductPulse could not verify a complete Shopify order extraction for this product.";
+}
+
 function ProductOrderActivityPanel({ detail }) {
   const [visibleOrderActivitySeries, setVisibleOrderActivitySeries] = useState(() => ({ ...ORDER_ACTIVITY_DEFAULT_VISIBLE_SERIES }));
   const [collapsed, setCollapsed] = useProductDetailPanelCollapsed("monthlyOrderActivity");
@@ -20639,6 +20731,7 @@ function ProductOrderActivityPanel({ detail }) {
     }),
     buildProductBetaRelatedEntity(detail),
   );
+  const orderActivityCoverageNotice = getOrderActivityCoverageNotice(detail);
   const toggleOrderActivitySeries = (key) => {
     setVisibleOrderActivitySeries((current) => ({ ...current, [key]: !current[key] }));
   };
@@ -20664,6 +20757,14 @@ function ProductOrderActivityPanel({ detail }) {
 
         <ProductDetailPanelCollapseRegion collapsed={collapsed}>
           <>
+            {orderActivityCoverageNotice && (
+              <div className="ppOrderActivityCoverageNotice" role="status">
+                <span aria-hidden="true">
+                  <s-icon type="alert-triangle" size="small"></s-icon>
+                </span>
+                <p>{orderActivityCoverageNotice}</p>
+              </div>
+            )}
             <div className="ppOrderActivitySummary">
               <OrderActivityStat icon="shopify-orders" label="Total orders" value={formatInteger(summary.totalOrders)} detail={`${formatInteger(summary.totalOrderUnits)} units ordered`} tone="blue" />
               <OrderActivityStat icon="shopify-returns" label="Returned units" value={formatInteger(summary.totalReturnedUnits)} detail={`${formatPercent(summary.returnRate)} of ordered units`} tone="amber" />

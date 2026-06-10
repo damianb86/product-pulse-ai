@@ -3823,6 +3823,59 @@ describe("ProductPulse screens", () => {
     expect(JSON.parse(window.localStorage.getItem(storageKey) || "{}")).not.toHaveProperty("monthlyOrderActivity");
   });
 
+  it("warns when monthly order activity is based on incomplete Shopify order extraction", () => {
+    const product = {
+      ...defaultView.startHere,
+      metrics: {
+        ...defaultView.startHere.metrics,
+        monthlyOrderActivity: {
+          windowDays: 90,
+          months: [
+            {
+              key: "2026-06",
+              label: "Jun 2026",
+              shortLabel: "Jun",
+              orders: 5,
+              orderUnits: 5,
+              revenue: 889,
+            },
+          ],
+          summary: {
+            totalOrders: 5,
+            totalOrderUnits: 5,
+            totalRevenue: 889,
+          },
+        },
+        incrementalDiagnosis: {
+          sourceChanges: {
+            sourceFetchComplete: { sales: false, refunds: true, returns: true },
+            sourceEventFetch: {
+              salesExtraction: {
+                productSalesComplete: false,
+                incompletenessReason: "targeted_order_page_limit_reached",
+                incompletenessReasons: ["targeted_order_page_limit_reached"],
+                productSkuCount: 2,
+                targeted: {
+                  limits: {
+                    maxOrdersAcrossSkus: 100,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const { container } = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={product} />);
+    const orderPanel = container.querySelector(".ppProductOrderActivityPanel");
+
+    expect(orderPanel).toBeInTheDocument();
+    expect(within(orderPanel).getByText(/Order activity may be partial because ProductPulse reached the configured product-order extraction cap/)).toBeInTheDocument();
+    expect(within(orderPanel).getByText(/Current cap: up to 100 orders across 2 SKUs/)).toBeInTheDocument();
+    expect(orderPanel.querySelector(".ppOrderActivityCoverageNotice")).toBeInTheDocument();
+  });
+
   it("renders a small AI interpretation fallback when chart text is missing", () => {
     const product = {
       ...defaultView.startHere,

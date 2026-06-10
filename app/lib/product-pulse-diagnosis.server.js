@@ -52,6 +52,8 @@ const DIAGNOSIS_DEFAULT_WINDOW_DAYS = 60;
 const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS_FOR_DIAGNOSIS = 365;
 const PRODUCT_RETENTION_MAX_COHORT_AGE_DAYS_FOR_DIAGNOSIS = 180;
 const MAX_ORDER_PAGES = 12;
+const DIAGNOSIS_TARGETED_ORDER_MAX_PAGES = getNonNegativeIntegerEnv("PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDER_MAX_PAGES", 0);
+const DIAGNOSIS_TARGETED_ORDER_MAX_SKUS = getBoundedIntegerEnv("PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDER_MAX_SKUS", 20, 1, 100);
 const MAX_JUDGEME_REVIEW_PAGES = 3;
 const MAX_JUDGEME_SYNC_PAGES = 5;
 const MAX_YOTPO_PRODUCT_REVIEW_PAGES = 3;
@@ -66,7 +68,7 @@ const RECONSTRUCTED_RISK_HISTORY_MAX_MONTHLY_POINTS = 24;
 const RECONSTRUCTED_RISK_HISTORY_MONTHLY_THRESHOLD_DAYS = 370;
 const RECONSTRUCTED_RISK_HISTORY_MIN_LOOKBACK_DAYS = 365;
 const PRODUCT_MOMENTUM_BASELINE_DAYS = 90;
-const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 3;
+const SOURCE_EVENT_CACHE_SCHEMA_VERSION = 4;
 const MAX_SOURCE_EVENT_CACHE_ITEMS = 2500;
 const SHOP_SOURCE_EVENT_CACHE_KEY_PREFIX = "diagnosis-source-events";
 const SHOP_SOURCE_EVENT_CACHE_FRESH_MS = Math.max(30_000, Number(process.env.PRODUCT_PULSE_SHOPIFY_SOURCE_CACHE_FRESH_MS || 10 * 60 * 1000));
@@ -95,7 +97,9 @@ const SEO_TITLE_MAX_LENGTH = 70;
 const SEO_META_DESCRIPTION_MAX_LENGTH = 160;
 const JUDGEME_BASE_URLS = ["https://api.judge.me/api/v1", "https://judge.me/api/v1"];
 const DIAGNOSIS_ORDERS_PAGE_SIZE = 8;
+const DIAGNOSIS_TARGETED_ORDERS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDERS_PAGE_SIZE", 25, 1, 250);
 const DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
+const DIAGNOSIS_TARGETED_ORDER_LINE_ITEMS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_DIAGNOSIS_TARGETED_ORDER_LINE_ITEMS_PAGE_SIZE", 100, 1, 250);
 const DIAGNOSIS_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
 const DIAGNOSIS_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE = 25;
 const DIAGNOSIS_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = 5;
@@ -110,6 +114,22 @@ const DIAGNOSIS_RETURN_QUERY_PLANS = [
   { label: "low-cost", ordersFirst: 5, returnsFirst: 2, returnLineItemsFirst: 10, includeVariantProduct: true },
   { label: "minimal", ordersFirst: 4, returnsFirst: 2, returnLineItemsFirst: 8, includeVariantProduct: false },
 ];
+
+function getNonNegativeIntegerEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value) || value < 0) return Math.max(0, Math.trunc(Number(fallback || 0)));
+  return Math.trunc(value);
+}
+
+function getBoundedIntegerEnv(name, fallback, min, max) {
+  const lowerBound = Math.trunc(Number(min || 0));
+  const upperBound = Math.trunc(Number(max || lowerBound));
+  const fallbackValue = Number.isFinite(Number(fallback)) ? Math.trunc(Number(fallback)) : lowerBound;
+  const value = Number(process.env[name]);
+  const normalized = Number.isFinite(value) ? Math.trunc(value) : fallbackValue;
+  return Math.max(lowerBound, Math.min(upperBound, normalized));
+}
+
 const US_STATE_NAMES = {
   AL: "Alabama",
   AK: "Alaska",
@@ -929,6 +949,8 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   let rawFetchedCounts = { salesEvents: 0, refundEvents: 0, returnEvents: 0 };
   let shopSourceCache = null;
   let shopSourceCacheUsed = false;
+  let shopProductSalesCache = null;
+  let shopSourceSalesAppendPersisted = null;
   let shopSourceCachePersisted = null;
   let sourceFetchMode = incrementalSource.shopifyCanReuse ? "incremental_fetch" : "full_window_fetch";
   let sourceFetchReason = incrementalSource.reason;
@@ -937,8 +959,10 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   let sourcePreviousWindowDays = incrementalSource.previousWindowDays;
   let orderAccessDenied = false;
   let salesFetchComplete = true;
+  let shopSourceSalesFetchComplete = true;
   let refundFetchComplete = true;
   let returnFetchComplete = true;
+  let salesExtraction = null;
 
   try {
     shopSourceCache = await measureProductDiagnosisPerfStep(
@@ -981,6 +1005,31 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
   } else {
     const shouldUseShopCacheRefresh = Boolean(shopSourceCache?.stale && shopSourceCache.events);
     const sharedCacheModelsAvailable = hasShopSourceEventCacheModels();
+    if (sharedCacheModelsAvailable) {
+      try {
+        shopProductSalesCache = await measureProductDiagnosisPerfStep(
+          "shopify_product_sales_source_cache",
+          diagnosisPerfContext,
+          () => getShopProductSourceSalesCacheForDiagnosis({ shop, product, snapshot, windowDays }),
+          { windowDays },
+          (result) => ({
+            usable: Boolean(result?.usable),
+            reason: result?.reason || null,
+            salesEvents: result?.events?.length || 0,
+          }),
+        );
+      } catch (error) {
+        await recordJobLog({
+          shop,
+          jobId,
+          level: "warn",
+          event: "product_diagnosis.shop_product_sales_cache_read_failed",
+          message: "Shared product sales cache read failed; diagnosis will continue with Shopify sales extraction.",
+          data: { error: serializeError(error), productGid: snapshot.productGid },
+        });
+        shopProductSalesCache = { usable: false, reason: "shop_product_sales_cache_read_failed", events: [] };
+      }
+    }
     sourceSinceDate = shouldUseShopCacheRefresh
       ? shopSourceCache.sinceDate
       : (sharedCacheModelsAvailable ? null : (incrementalSource.shopifyCanReuse ? incrementalSource.sinceDate : null));
@@ -993,6 +1042,8 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
 
   try {
     const salesBundle = await measureProductDiagnosisPerfStep("shopify_sales_bundle", diagnosisPerfContext, () => fetchShopifySalesEventBundle({
+      shop,
+      jobId,
       admin,
       product,
       snapshot,
@@ -1007,13 +1058,22 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
     }, (result) => ({
       salesEvents: result?.sales?.length || 0,
       relationshipSalesEvents: result?.relationshipSales?.length || 0,
+      fetchComplete: result?.fetchComplete !== false,
+      productSalesComplete: result?.extraction?.productSalesComplete !== false,
+      shopSourceSalesComplete: result?.extraction?.shopSourceSalesComplete !== false,
+      incompletenessReason: result?.extraction?.incompletenessReason || null,
     }));
     sales = salesBundle.sales;
     relationshipSales = salesBundle.relationshipSales;
     sourceSalesEvents = salesBundle.relationshipSales.length ? salesBundle.relationshipSales : salesBundle.sales;
+    salesFetchComplete = salesBundle.fetchComplete !== false;
+    shopSourceSalesFetchComplete = salesBundle.extraction?.shopSourceSalesComplete !== false;
+    salesExtraction = salesBundle.extraction || null;
     if (!sharedCacheModelsAvailable && incrementalSource.shopifyCanReuse) {
       try {
         const relationshipBundle = await measureProductDiagnosisPerfStep("shopify_relationship_sales_full_bundle", diagnosisPerfContext, () => fetchShopifySalesEventBundle({
+          shop,
+          jobId,
           admin,
           product,
           snapshot,
@@ -1022,6 +1082,10 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
         }), { windowDays, sinceDate: null }, (result) => ({
           salesEvents: result?.sales?.length || 0,
           relationshipSalesEvents: result?.relationshipSales?.length || 0,
+          fetchComplete: result?.fetchComplete !== false,
+          productSalesComplete: result?.extraction?.productSalesComplete !== false,
+          shopSourceSalesComplete: result?.extraction?.shopSourceSalesComplete !== false,
+          incompletenessReason: result?.extraction?.incompletenessReason || null,
         }));
         relationshipSales = relationshipBundle.relationshipSales;
         sourceSalesEvents = relationshipBundle.relationshipSales.length ? relationshipBundle.relationshipSales : sourceSalesEvents;
@@ -1118,6 +1182,15 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       returnEvents: sourceReturnEvents.length,
     };
 
+    if (!shopSourceCacheUsed && shopProductSalesCache?.events?.length) {
+      sourceSalesEvents = mergeSourceEventList({
+        type: "sales",
+        previous: shopProductSalesCache.events,
+        current: sourceSalesEvents,
+        windowDays,
+      });
+    }
+
     if (shouldUseShopCacheRefresh) {
       const mergedShopSourceEvents = mergeIncrementalSourceEvents({
         previous: shopSourceCache.events,
@@ -1138,7 +1211,38 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       sourceReturnEvents = mergedProductSourceEvents.returns;
     }
 
-    if (sharedCacheModelsAvailable && salesFetchComplete && refundFetchComplete && returnFetchComplete && !orderAccessDenied) {
+    if (sharedCacheModelsAvailable && sourceSalesEvents.length && !orderAccessDenied) {
+      try {
+        shopSourceSalesAppendPersisted = await measureProductDiagnosisPerfStep(
+          "shopify_source_event_sales_cache_append",
+          diagnosisPerfContext,
+          () => appendShopSourceEventCacheRows({
+            shop,
+            sourceType: "sales",
+            events: sourceSalesEvents,
+            windowDays,
+          }),
+          { windowDays, mode: sourceFetchMode },
+          (result) => ({
+            skipped: Boolean(result?.skipped),
+            rows: result?.rows || 0,
+            inserted: result?.inserted || 0,
+            reason: result?.reason || null,
+          }),
+        );
+      } catch (error) {
+        await recordJobLog({
+          shop,
+          jobId,
+          level: "warn",
+          event: "product_diagnosis.shop_source_event_sales_cache_append_failed",
+          message: "Shared Shopify sales cache append failed; diagnosis results are still valid for this run.",
+          data: { error: serializeError(error), productGid: snapshot.productGid },
+        });
+      }
+    }
+
+    if (sharedCacheModelsAvailable && shopSourceSalesFetchComplete && refundFetchComplete && returnFetchComplete && !orderAccessDenied) {
       try {
         shopSourceCachePersisted = await measureProductDiagnosisPerfStep(
           "shopify_source_event_cache_write",
@@ -1148,7 +1252,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
             windowDays,
             sourceEvents: { sales: sourceSalesEvents, refunds: sourceRefundEvents, returns: sourceReturnEvents },
             fetchedThroughAt: fetchStartedAt,
-            sourceFetchComplete: { sales: salesFetchComplete, refunds: refundFetchComplete, returns: returnFetchComplete },
+            sourceFetchComplete: { sales: shopSourceSalesFetchComplete, refunds: refundFetchComplete, returns: returnFetchComplete },
           }),
           { windowDays, mode: sourceFetchMode },
           (result) => ({
@@ -1168,6 +1272,19 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
           data: { error: serializeError(error), productGid: snapshot.productGid },
         });
       }
+    } else if (sharedCacheModelsAvailable) {
+      shopSourceCachePersisted = {
+        skipped: true,
+        reason: !shopSourceSalesFetchComplete
+          ? "shop_source_sales_scan_incomplete"
+          : !refundFetchComplete
+            ? "refund_source_fetch_incomplete"
+            : !returnFetchComplete
+              ? "return_source_fetch_incomplete"
+              : orderAccessDenied
+                ? "order_access_denied"
+                : "source_fetch_incomplete",
+      };
     }
   }
 
@@ -1207,7 +1324,7 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
       mode: sourceFetchMode,
       incremental: Boolean(sourceSinceDate),
       shopSourceCacheUsed,
-      previousSalesEvents: shopSourceCache?.events?.sales?.length || incrementalSource.previousSourceEvents?.sales?.length || 0,
+      previousSalesEvents: shopSourceCache?.events?.sales?.length || shopProductSalesCache?.events?.length || incrementalSource.previousSourceEvents?.sales?.length || 0,
       previousRefundEvents: shopSourceCache?.events?.refunds?.length || incrementalSource.previousSourceEvents?.refunds?.length || 0,
       previousReturnEvents: shopSourceCache?.events?.returns?.length || incrementalSource.previousSourceEvents?.returns?.length || 0,
     },
@@ -1252,12 +1369,19 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
           returnEvents: returns.length,
         },
         sourceEventCounts: merged.sourceEventCounts,
+        salesExtraction,
         shopSourceCache: {
           used: shopSourceCacheUsed,
           reason: shopSourceCache?.reason || null,
           stale: Boolean(shopSourceCache?.stale),
           fetchedThroughAt: shopSourceCache?.fetchedThroughAt || null,
           counts: shopSourceCache?.counts || null,
+          productSales: {
+            used: Boolean(shopProductSalesCache?.usable),
+            reason: shopProductSalesCache?.reason || null,
+            salesEvents: shopProductSalesCache?.events?.length || 0,
+          },
+          salesAppend: shopSourceSalesAppendPersisted || null,
           persisted: shopSourceCachePersisted || null,
         },
         sourceFetchComplete: {
@@ -1292,12 +1416,19 @@ async function fetchShopifyDiagnosisData({ shop, jobId, admin, snapshot, windowD
         returnEvents: returns.length,
       },
       sourceEventCounts: merged.sourceEventCounts,
+      salesExtraction,
       shopSourceCache: {
         used: shopSourceCacheUsed,
         reason: shopSourceCache?.reason || null,
         stale: Boolean(shopSourceCache?.stale),
         fetchedThroughAt: shopSourceCache?.fetchedThroughAt || null,
         counts: shopSourceCache?.counts || null,
+        productSales: {
+          used: Boolean(shopProductSalesCache?.usable),
+          reason: shopProductSalesCache?.reason || null,
+          salesEvents: shopProductSalesCache?.events?.length || 0,
+        },
+        salesAppend: shopSourceSalesAppendPersisted || null,
         persisted: shopSourceCachePersisted || null,
       },
       sourceFetchComplete: {
@@ -2021,13 +2152,24 @@ async function fetchShopifyProduct({ admin, snapshot }) {
   return normalizeShopifyProduct(data?.products?.nodes?.[0], snapshot);
 }
 
-async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProductCandidates = false }) {
+async function fetchShopifySalesEventBundle({ shop = "", jobId = null, admin, product, snapshot, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sinceDate = null, includeAllProductCandidates = false }) {
   if (!admin?.graphql) return { sales: [], relationshipSales: [] };
   const sales = [];
   const relationshipSales = [];
-  let cursor = null;
   const querySinceDate = normalizeShopifySinceDate(sinceDate, windowDays);
+  const stats = buildSalesExtractionStats({ product, querySinceDate, includeAllProductCandidates });
 
+  const targetedBundle = await fetchShopifyTargetedSalesEvents({
+    admin,
+    product,
+    snapshot,
+    querySinceDate,
+    stats,
+  });
+  mergeSalesEventList(sales, targetedBundle.sales);
+  mergeSalesEventList(relationshipSales, targetedBundle.relationshipSales);
+
+  let cursor = null;
   for (let page = 0; page < MAX_ORDER_PAGES; page += 1) {
     const data = await shopifyGraphql(
       admin,
@@ -2039,14 +2181,19 @@ async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDa
         lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
       },
     );
+    const orders = data?.orders?.nodes || [];
+    stats.global.pages += 1;
+    stats.global.scannedOrders += orders.length;
+    stats.global.hasNextPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
 
-    (data?.orders?.nodes || []).forEach((order) => {
+    orders.forEach((order) => {
       const geography = null;
       const orderDate = toIso(getShopifyOrderDate(order));
       const customerKey = order.customer?.id || null;
       const orderLineItems = getNodes(order.lineItems);
       const basketLineItems = normalizeDiagnosisBasketLineItems(orderLineItems);
       const basketFingerprint = stableSignature(basketLineItems);
+      stats.global.scannedLineItems += orderLineItems.length;
       orderLineItems.forEach((lineItem) => {
         const event = normalizeDiagnosisOrderLineItemSaleEvent({
           lineItem,
@@ -2060,16 +2207,310 @@ async function fetchShopifySalesEventBundle({ admin, product, snapshot, windowDa
           geography,
         });
         if (!event.productId && !includeAllProductCandidates) return;
-        if (event.productId || event.variantId || event.sku || event.title) relationshipSales.push(event);
-        if (lineItemMatchesProduct(lineItem, product, snapshot)) sales.push(event);
+        if (event.productId || event.variantId || event.sku || event.title) {
+          mergeSalesEventList(relationshipSales, [event]);
+          stats.global.relationshipLineItems += 1;
+        }
+        if (lineItemMatchesProduct(lineItem, product, snapshot)) {
+          mergeSalesEventList(sales, [event]);
+          stats.global.matchedLineItems += 1;
+        } else {
+          captureSalesUnmatchedSample(stats, "global", lineItem);
+        }
       });
     });
 
     if (!data?.orders?.pageInfo?.hasNextPage) break;
-    cursor = data.orders.pageInfo.endCursor;
+    if (page + 1 >= MAX_ORDER_PAGES) stats.global.hitPageLimit = true;
+    const nextCursor = data.orders.pageInfo.endCursor || null;
+    if (!nextCursor || nextCursor === cursor) {
+      stats.global.paginationStalled = true;
+      break;
+    }
+    cursor = nextCursor;
+  }
+
+  stats.finalSalesEvents = sales.length;
+  stats.finalRelationshipSalesEvents = relationshipSales.length;
+  const completeness = getSalesExtractionCompleteness(stats);
+  const extraction = {
+    ...stats,
+    ...completeness,
+  };
+  await Promise.resolve(recordJobLog({
+    shop,
+    jobId,
+    event: "product_diagnosis.shopify_sales_extracted",
+    message: "Shopify sales line items were extracted for product diagnosis.",
+    data: {
+      productGid: snapshot.productGid,
+      windowDays,
+      sinceDate: querySinceDate,
+      ...extraction,
+    },
+  })).catch(() => {});
+
+  return {
+    sales,
+    relationshipSales,
+    fetchComplete: completeness.productSalesComplete,
+    extraction,
+  };
+}
+
+async function fetchShopifyTargetedSalesEvents({ admin, product, snapshot, querySinceDate, stats }) {
+  const skus = getProductVariantSkusForOrderSearch(product);
+  if (!skus.length) {
+    stats.targeted.skipped = true;
+    stats.targeted.skipReason = "no_variant_skus";
+    return { sales: [], relationshipSales: [] };
+  }
+
+  const sales = [];
+  const relationshipSales = [];
+  for (const sku of skus) {
+    const query = buildDiagnosisSalesOrderQuery({ sinceDate: querySinceDate, sku });
+    const skuStats = {
+      sku,
+      pages: 0,
+      scannedOrders: 0,
+      scannedLineItems: 0,
+      matchedLineItems: 0,
+      relationshipLineItems: 0,
+      ordersWithMoreLineItems: 0,
+      possibleLineItemMisses: 0,
+      hasNextPage: false,
+      hitPageLimit: false,
+      paginationStalled: false,
+    };
+    stats.targeted.queries.push({ sku, query });
+    let cursor = null;
+    let shouldContinue = true;
+
+    while (shouldContinue) {
+      const data = await shopifyGraphql(
+        admin,
+        buildDiagnosisSalesQuery(),
+        {
+          after: cursor,
+          query,
+          ordersFirst: DIAGNOSIS_TARGETED_ORDERS_PAGE_SIZE,
+          lineItemsFirst: DIAGNOSIS_TARGETED_ORDER_LINE_ITEMS_PAGE_SIZE,
+        },
+      );
+      const orders = data?.orders?.nodes || [];
+      skuStats.pages += 1;
+      skuStats.scannedOrders += orders.length;
+      skuStats.hasNextPage = Boolean(data?.orders?.pageInfo?.hasNextPage);
+
+      orders.forEach((order) => {
+        const geography = null;
+        const orderDate = toIso(getShopifyOrderDate(order));
+        const customerKey = order.customer?.id || null;
+        const orderLineItems = getNodes(order.lineItems);
+        const basketLineItems = normalizeDiagnosisBasketLineItems(orderLineItems);
+        const basketFingerprint = stableSignature(basketLineItems);
+        const hasMoreLineItems = Boolean(order.lineItems?.pageInfo?.hasNextPage);
+        let matchedOrderLine = false;
+        skuStats.scannedLineItems += orderLineItems.length;
+        if (hasMoreLineItems) skuStats.ordersWithMoreLineItems += 1;
+        orderLineItems.forEach((lineItem) => {
+          const event = normalizeDiagnosisOrderLineItemSaleEvent({
+            lineItem,
+            order,
+            product,
+            snapshot,
+            orderDate,
+            customerKey,
+            basketLineItems,
+            basketFingerprint,
+            geography,
+          });
+          if (event.productId || event.variantId || event.sku || event.title) {
+            mergeSalesEventList(relationshipSales, [event]);
+            skuStats.relationshipLineItems += 1;
+          }
+          if (lineItemMatchesProduct(lineItem, product, snapshot)) {
+            matchedOrderLine = true;
+            mergeSalesEventList(sales, [event]);
+            skuStats.matchedLineItems += 1;
+          } else {
+            captureSalesUnmatchedSample(stats, "targeted", lineItem, sku);
+          }
+        });
+        if (hasMoreLineItems && !matchedOrderLine) {
+          skuStats.possibleLineItemMisses += 1;
+          captureSalesUnmatchedOrderSample(stats, order, sku, orderLineItems.length);
+        }
+      });
+
+      if (!data?.orders?.pageInfo?.hasNextPage) {
+        shouldContinue = false;
+        continue;
+      }
+      if (DIAGNOSIS_TARGETED_ORDER_MAX_PAGES > 0 && skuStats.pages >= DIAGNOSIS_TARGETED_ORDER_MAX_PAGES) {
+        skuStats.hitPageLimit = true;
+        shouldContinue = false;
+        continue;
+      }
+      const nextCursor = data.orders.pageInfo.endCursor || null;
+      if (!nextCursor || nextCursor === cursor) {
+        skuStats.paginationStalled = true;
+        shouldContinue = false;
+        continue;
+      }
+      cursor = nextCursor;
+    }
+
+    stats.targeted.pages += skuStats.pages;
+    stats.targeted.scannedOrders += skuStats.scannedOrders;
+    stats.targeted.scannedLineItems += skuStats.scannedLineItems;
+    stats.targeted.matchedLineItems += skuStats.matchedLineItems;
+    stats.targeted.relationshipLineItems += skuStats.relationshipLineItems;
+    stats.targeted.ordersWithMoreLineItems += skuStats.ordersWithMoreLineItems;
+    stats.targeted.possibleLineItemMisses += skuStats.possibleLineItemMisses;
+    stats.targeted.hasNextPage = stats.targeted.hasNextPage || skuStats.hasNextPage;
+    stats.targeted.hitPageLimit = stats.targeted.hitPageLimit || skuStats.hitPageLimit;
+    stats.targeted.paginationStalled = stats.targeted.paginationStalled || skuStats.paginationStalled;
+    stats.targeted.perSku.push(skuStats);
   }
 
   return { sales, relationshipSales };
+}
+
+function buildDiagnosisSalesOrderQuery({ sinceDate, sku = "" } = {}) {
+  const parts = [`processed_at:>=${sinceDate}`];
+  const normalizedSku = String(sku || "").trim();
+  if (normalizedSku) parts.push(`sku:"${escapeShopifyQueryValue(normalizedSku)}"`);
+  return parts.join(" ");
+}
+
+function getProductVariantSkusForOrderSearch(product = {}) {
+  return Array.from(new Set((product.variants || [])
+    .map((variant) => String(variant?.sku || "").trim())
+    .filter(Boolean)))
+    .slice(0, DIAGNOSIS_TARGETED_ORDER_MAX_SKUS);
+}
+
+function mergeSalesEventList(target, events = []) {
+  if (!Array.isArray(target)) return;
+  const seen = new Set(target.map(getSaleLineIdentity).filter(Boolean));
+  events.forEach((event) => {
+    const key = getSaleLineIdentity(event);
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    target.push(event);
+  });
+}
+
+function buildSalesExtractionStats({ product = {}, querySinceDate, includeAllProductCandidates = false } = {}) {
+  return {
+    querySinceDate,
+    includeAllProductCandidates,
+    productVariantCount: product.variants?.length || 0,
+    productSkuCount: getProductVariantSkusForOrderSearch(product).length,
+    targeted: {
+      skipped: false,
+      skipReason: null,
+      pages: 0,
+      scannedOrders: 0,
+      scannedLineItems: 0,
+      matchedLineItems: 0,
+      relationshipLineItems: 0,
+      hasNextPage: false,
+      hitPageLimit: false,
+      queries: [],
+      perSku: [],
+      unmatchedSamples: [],
+      unmatchedOrderSamples: [],
+      ordersWithMoreLineItems: 0,
+      possibleLineItemMisses: 0,
+      paginationStalled: false,
+      limits: {
+        ordersFirst: DIAGNOSIS_TARGETED_ORDERS_PAGE_SIZE,
+        lineItemsFirst: DIAGNOSIS_TARGETED_ORDER_LINE_ITEMS_PAGE_SIZE,
+        maxPages: DIAGNOSIS_TARGETED_ORDER_MAX_PAGES,
+        maxPagesMode: DIAGNOSIS_TARGETED_ORDER_MAX_PAGES > 0 ? "limited" : "uncapped",
+        maxSkus: DIAGNOSIS_TARGETED_ORDER_MAX_SKUS,
+        maxOrdersPerSku: DIAGNOSIS_TARGETED_ORDER_MAX_PAGES > 0
+          ? DIAGNOSIS_TARGETED_ORDER_MAX_PAGES * DIAGNOSIS_TARGETED_ORDERS_PAGE_SIZE
+          : null,
+        maxOrdersAcrossSkus: DIAGNOSIS_TARGETED_ORDER_MAX_PAGES > 0
+          ? DIAGNOSIS_TARGETED_ORDER_MAX_PAGES * DIAGNOSIS_TARGETED_ORDERS_PAGE_SIZE * getProductVariantSkusForOrderSearch(product).length
+          : null,
+      },
+    },
+    global: {
+      pages: 0,
+      scannedOrders: 0,
+      scannedLineItems: 0,
+      matchedLineItems: 0,
+      relationshipLineItems: 0,
+      hasNextPage: false,
+      hitPageLimit: false,
+      paginationStalled: false,
+      unmatchedSamples: [],
+      limits: {
+        ordersFirst: DIAGNOSIS_ORDERS_PAGE_SIZE,
+        lineItemsFirst: DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE,
+        maxPages: MAX_ORDER_PAGES,
+      },
+    },
+    finalSalesEvents: 0,
+    finalRelationshipSalesEvents: 0,
+  };
+}
+
+function getSalesExtractionCompleteness(stats = {}) {
+  const targeted = stats.targeted || {};
+  const global = stats.global || {};
+  const targetedAvailable = !targeted.skipped;
+  const targetedIncomplete = targetedAvailable && Boolean(
+    targeted.hitPageLimit
+      || targeted.paginationStalled
+      || Number(targeted.possibleLineItemMisses || 0) > 0,
+  );
+  const globalFallbackIncomplete = !targetedAvailable && Boolean(global.hitPageLimit || global.paginationStalled);
+  const productSalesComplete = !targetedIncomplete && !globalFallbackIncomplete;
+  const reasons = [
+    targeted.hitPageLimit ? "targeted_order_page_limit_reached" : null,
+    targeted.paginationStalled ? "targeted_order_pagination_stalled" : null,
+    Number(targeted.possibleLineItemMisses || 0) > 0 ? "targeted_order_line_items_capped_before_product_line" : null,
+    globalFallbackIncomplete ? "global_order_scan_limited_without_product_sku" : null,
+  ].filter(Boolean);
+
+  return {
+    fetchComplete: productSalesComplete,
+    productSalesComplete,
+    shopSourceSalesComplete: !global.hitPageLimit && !global.paginationStalled,
+    incompletenessReason: reasons[0] || null,
+    incompletenessReasons: reasons,
+  };
+}
+
+function captureSalesUnmatchedSample(stats, mode, lineItem = {}, sku = "") {
+  const bucket = mode === "targeted" ? stats.targeted?.unmatchedSamples : stats.global?.unmatchedSamples;
+  if (!Array.isArray(bucket) || bucket.length >= 8) return;
+  bucket.push({
+    querySku: sku || "",
+    title: truncateText(lineItem.title || "", 120),
+    sku: String(lineItem.sku || lineItem.variant?.sku || ""),
+    productId: lineItem.product?.id || lineItem.variant?.product?.id || "",
+    variantId: lineItem.variant?.id || "",
+    handle: lineItem.product?.handle || lineItem.variant?.product?.handle || "",
+  });
+}
+
+function captureSalesUnmatchedOrderSample(stats, order = {}, sku = "", scannedLineItemCount = 0) {
+  const bucket = stats.targeted?.unmatchedOrderSamples;
+  if (!Array.isArray(bucket) || bucket.length >= 8) return;
+  bucket.push({
+    querySku: sku || "",
+    orderId: order.id || "",
+    processedAt: order.processedAt || order.createdAt || "",
+    scannedLineItemCount,
+    lineItemsHasNextPage: Boolean(order.lineItems?.pageInfo?.hasNextPage),
+  });
 }
 
 function normalizeDiagnosisOrderLineItemSaleEvent({
@@ -2277,6 +2718,24 @@ function diagnosisEventMatchesProduct(event = {}, product = {}, snapshot = {}) {
   return false;
 }
 
+function getDiagnosisProductIdCandidates(product = {}, snapshot = {}) {
+  return Array.from(new Set([
+    product.id,
+    snapshot.productGid,
+    String(product.numericId || ""),
+    extractNumericShopifyId(product.id),
+    extractNumericShopifyId(snapshot.productGid),
+  ].filter(Boolean).map(String)));
+}
+
+function getDiagnosisVariantIdCandidates(product = {}) {
+  return Array.from(new Set((product.variants || []).flatMap((variant) => [
+    variant.id,
+    variant.numericId,
+    extractNumericShopifyId(variant.id),
+  ]).filter(Boolean).map(String)));
+}
+
 function hasStableDiagnosisEventProductIdentifier(event = {}) {
   return Boolean(event.productId || event.variantId || event.sku || event.title);
 }
@@ -2297,6 +2756,10 @@ function buildDiagnosisSalesQuery() {
               id
             }
             lineItems(first: $lineItemsFirst) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               nodes {
                 id
                 quantity
@@ -3938,8 +4401,10 @@ function calculateDeterministicDiagnosis({
     sourceAgreement,
     productMatchConfidence: Math.max(judgeMeData.matchConfidence || 0, yotpoData.matchConfidence || 0, looxData.matchConfidence || 0, csvReviewData.matchConfidence || 0, reviews.length ? 0 : 1),
     orderAccessDenied: shopifyData.orderAccessDenied,
-    missingOrders: shopifyData.orderAccessDenied,
-    dataQualityIncomplete: shopifyData.orderAccessDenied,
+    missingOrders: shopifyData.orderAccessDenied || sourceFetchComplete.sales === false,
+    missingReturns: sourceFetchComplete.returns === false,
+    missingRefunds: sourceFetchComplete.refunds === false,
+    dataQualityIncomplete: shopifyData.orderAccessDenied || sourceExtractionComplete === false,
     subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
     calculationState: "calculated_from_persisted_components",
     windowDays,
@@ -4434,6 +4899,8 @@ function buildReconstructedRiskHistoryPoint({
   const refundInsights = buildRefundOperationalInsights({ refunds, refundRate, soldUnits, refundUnits, refundAmount });
   const reviewSourceStats = buildReviewSourceStats(reviews);
   const sourceCoverage = buildSourceCoverage({ shopifyData, judgeMeData, yotpoData, looxData, csvReviewData, soldUnits, returnUnits, refundUnits, reviewCount });
+  const sourceFetchComplete = getDiagnosisSourceFetchCompleteness(shopifyData);
+  const sourceExtractionComplete = shopifyData?.incrementalSource?.fetchComplete !== false;
   const signalEvents = buildSignalEvents({ returns, refunds, negativeReviews });
   const issueSignalCounts = buildIssueSignalCounts({ returns, refunds, reviews: negativeReviews });
   applyRefundInsightsToIssueCounts(issueSignalCounts, refundInsights);
@@ -4527,8 +4994,10 @@ function buildReconstructedRiskHistoryPoint({
     sourceAgreement,
     productMatchConfidence: Math.max(judgeMeData?.matchConfidence || 0, yotpoData?.matchConfidence || 0, looxData?.matchConfidence || 0, csvReviewData?.matchConfidence || 0, reviews.length ? 0 : 1),
     orderAccessDenied: shopifyData?.orderAccessDenied,
-    missingOrders: shopifyData?.orderAccessDenied,
-    dataQualityIncomplete: shopifyData?.orderAccessDenied,
+    missingOrders: shopifyData?.orderAccessDenied || sourceFetchComplete.sales === false,
+    missingReturns: sourceFetchComplete.returns === false,
+    missingRefunds: sourceFetchComplete.refunds === false,
+    dataQualityIncomplete: shopifyData?.orderAccessDenied || sourceExtractionComplete === false,
     subjectiveOnlyIssue: mainIssue === "subjective_negative_reaction" && !returnUnits && !refundUnits && negativeReviewCount <= 2,
     scoreBreakdownReconstructed: !isCurrentRiskHistoryPoint(periodEnd, now),
     calculationState: isCurrentRiskHistoryPoint(periodEnd, now) ? "current_deep_diagnosis" : "reconstructed_from_deep_diagnosis_events",
@@ -15690,6 +16159,78 @@ async function readShopSourceEventsForWindow({ shop, windowDays = DIAGNOSIS_DEFA
   return { sales, refunds, returns };
 }
 
+async function getShopProductSourceSalesCacheForDiagnosis({ shop, product = {}, snapshot = {}, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS } = {}) {
+  if (!shop || !hasShopSourceEventCacheModels()) {
+    return { usable: false, reason: "shop_source_event_cache_unavailable", events: [] };
+  }
+  const productIds = getDiagnosisProductIdCandidates(product, snapshot);
+  const variantIds = getDiagnosisVariantIdCandidates(product);
+  const filters = [];
+  if (productIds.length) filters.push({ productGid: { in: productIds } });
+  if (variantIds.length) filters.push({ variantGid: { in: variantIds } });
+  if (!filters.length) return { usable: false, reason: "product_cache_identifiers_missing", events: [] };
+
+  const normalizedWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const cutoff = getShopSourceEventLookbackCutoffDate(normalizedWindowDays);
+  const rows = await prisma.productPulseShopSourceEvent.findMany({
+    where: {
+      shop,
+      sourceType: "sales",
+      eventAt: { gte: cutoff },
+      OR: filters,
+    },
+    select: { payload: true },
+    orderBy: [{ eventAt: "desc" }, { updatedAt: "desc" }],
+    take: MAX_SOURCE_EVENT_CACHE_ITEMS,
+  });
+  const events = filterDiagnosisEventsForProduct(
+    normalizeSourceEventList(rows.map((row) => row.payload).filter(Boolean), "sales", normalizedWindowDays),
+    product,
+    snapshot,
+  );
+
+  return {
+    usable: events.length > 0,
+    reason: events.length ? "shop_product_sales_cache_hit" : "shop_product_sales_cache_miss",
+    events,
+    counts: { salesEvents: events.length },
+  };
+}
+
+async function appendShopSourceEventCacheRows({ shop, sourceType = "sales", events = [], windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS } = {}) {
+  if (!shop || !hasShopSourceEventCacheModels()) return { skipped: true, reason: "shop_source_event_cache_unavailable" };
+  const normalizedWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
+  const normalized = normalizeSourceEventList(events, sourceType, normalizedWindowDays);
+  const now = new Date();
+  const rows = normalized.map((event) => buildShopSourceEventRow({
+    shop,
+    sourceType,
+    event,
+    now,
+  })).filter(Boolean);
+  if (!rows.length) return { skipped: true, reason: "source_event_rows_empty", rows: 0, inserted: 0 };
+
+  const cutoff = getShopSourceEventLookbackCutoffDate(normalizedWindowDays);
+  await prisma.productPulseShopSourceEvent.deleteMany({
+    where: {
+      shop,
+      sourceType,
+      eventAt: { lt: cutoff },
+    },
+  });
+  const result = await prisma.productPulseShopSourceEvent.createMany({
+    data: rows,
+    skipDuplicates: true,
+  });
+
+  return {
+    skipped: false,
+    sourceType,
+    rows: rows.length,
+    inserted: Number(result?.count || 0),
+  };
+}
+
 async function persistShopSourceEventCache({ shop, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, sourceEvents = {}, fetchedThroughAt = null, sourceFetchComplete = {} } = {}) {
   if (!shop || !hasShopSourceEventCacheModels()) return { skipped: true, reason: "shop_source_event_cache_unavailable" };
   const normalizedWindowDays = Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS));
@@ -15817,6 +16358,8 @@ function buildIncrementalSourceFetchSummary(source = null) {
     rawFetchedCounts: source.rawFetchedCounts || null,
     mergedCounts: source.mergedCounts || null,
     sourceEventCounts: source.sourceEventCounts || null,
+    sourceFetchComplete: source.sourceFetchComplete || null,
+    salesExtraction: source.salesExtraction || null,
     shopSourceCache: source.shopSourceCache || null,
     fetchComplete: source.fetchComplete !== false,
   };
@@ -20212,6 +20755,10 @@ function toIso(value) {
 
 export const __productPulseDiagnosisTestHooks = {
   buildDiagnosisSalesQuery,
+  buildDiagnosisSalesOrderQuery,
+  fetchShopifySalesEventBundle,
+  getProductVariantSkusForOrderSearch,
+  getSalesExtractionCompleteness,
   buildDiagnosisRefundsQuery,
   buildDiagnosisReturnsQuery,
   buildRefundOrderQueries,
