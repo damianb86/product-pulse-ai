@@ -4240,43 +4240,62 @@ s-page[inline-size="large-500"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 3px;
   min-width: 0;
+  padding: 3px;
+  border: 1px solid rgba(var(--pp-slate-500-rgb), 0.12);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.88) 100%),
+    var(--pp-cloud-white);
+  box-shadow:
+    0 10px 24px rgba(var(--pp-shadow-rgb), 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .ppProductRiskSiblingLink {
-  min-height: 28px;
+  position: relative;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border: 1px solid rgba(var(--pp-slate-500-rgb), 0.16);
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.68);
+  background: transparent;
   color: var(--pp-slate-700);
   text-decoration: none;
-  box-shadow: 0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
-  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: none;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .ppProductRiskSiblingLink:hover {
-  border-color: rgba(var(--pp-pulse-blue-rgb), 0.32);
-  background: rgba(var(--pp-pulse-blue-rgb), 0.06);
-  color: var(--pp-pulse-blue);
-  box-shadow: 0 3px 10px rgba(var(--pp-pulse-blue-rgb), 0.08);
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.16);
+  background: rgba(var(--pp-pulse-blue-rgb), 0.055);
+  color: var(--pp-slate-900);
+  box-shadow: 0 6px 16px rgba(var(--pp-pulse-blue-rgb), 0.10);
+  transform: translateY(-1px);
+}
+
+.ppProductRiskSiblingLink:focus-visible {
+  outline: none;
+  border-color: rgba(var(--pp-pulse-blue-rgb), 0.45);
+  box-shadow:
+    0 0 0 3px rgba(var(--pp-pulse-blue-rgb), 0.14),
+    0 6px 16px rgba(var(--pp-pulse-blue-rgb), 0.10);
 }
 
 .ppProductRiskSiblingLink > span {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
 }
 
 .ppProductRiskSiblingLink strong,
 .ppProductRiskSiblingLink small {
   display: block;
-  max-width: 118px;
+  max-width: 124px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4285,30 +4304,56 @@ s-page[inline-size="large-500"] {
 .ppProductRiskSiblingLink strong {
   color: inherit;
   font-size: 11px;
-  font-weight: 800;
-  line-height: 1.05;
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1.08;
 }
 
 .ppProductRiskSiblingLink small {
   color: var(--pp-slate-500);
-  font-size: 9px;
-  font-weight: 750;
-  line-height: 1.05;
+  font-size: 9.5px;
+  font-weight: 720;
+  line-height: 1.08;
 }
 
 .ppProductRiskSiblingLink s-icon {
-  color: inherit;
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(var(--pp-shadow-rgb), 0.045);
+  color: var(--pp-slate-500);
+  transform: scale(0.82);
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.ppProductRiskSiblingLink:hover s-icon,
+.ppProductRiskSiblingLink:focus-visible s-icon {
+  background: rgba(var(--pp-pulse-blue-rgb), 0.12);
+  color: var(--pp-pulse-blue);
+  transform: scale(0.86);
 }
 
 .ppProductRiskSiblingLink.isUnavailable {
-  border-color: rgba(var(--pp-slate-500-rgb), 0.1);
+  border-color: transparent;
   background: transparent;
   color: var(--pp-slate-400);
   box-shadow: none;
   cursor: default;
 }
 
+.ppProductRiskSiblingLink.isUnavailable:hover {
+  transform: none;
+}
+
 .ppProductRiskSiblingLink.isUnavailable small {
+  color: var(--pp-slate-400);
+}
+
+.ppProductRiskSiblingLink.isUnavailable s-icon {
+  background: rgba(var(--pp-slate-500-rgb), 0.07);
   color: var(--pp-slate-400);
 }
 
