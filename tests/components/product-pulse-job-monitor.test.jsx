@@ -647,6 +647,43 @@ describe("ProductPulseJobMonitor", () => {
     expect(creditsDialog).toHaveTextContent("may take up to 24 hours to complete");
   });
 
+  it("does not show Batch mode on the credits control when credits are available", () => {
+    renderMonitor({
+      activeJobs: [],
+      recentJobs: [],
+      logs: [],
+      pointBalance: { available: 330, label: "330" },
+      pointSummary: {
+        balance: { available: 330, label: "330" },
+        plan: {
+          name: "Starter",
+          renewalLabel: "Renews every 30 days",
+          allowance: 100,
+          allowanceLabel: "100",
+        },
+        usage: {
+          used: 0,
+          total: 100,
+          usedLabel: "0",
+          totalLabel: "100",
+          percent: 0,
+          percentLabel: "0% used",
+          progressPercent: 0,
+        },
+        batchMode: {
+          active: true,
+          cooldownHours: 24,
+          nextFreeBatchDiagnosisAt: "2026-05-21T12:00:00.000Z",
+          message: "ProductPulse is letting this store run Product Diagnosis without credits through the free Batch queue.",
+        },
+        activity: [],
+      },
+    });
+
+    const creditsButton = screen.getByRole("button", { name: "330 Credits available" });
+    expect(creditsButton).not.toHaveClass("isBatchMode");
+  });
+
   it("shows active and past jobs from the top bar with product navigation", () => {
     const initialMonitor = {
       activeJobs: [
@@ -749,6 +786,40 @@ describe("ProductPulseJobMonitor", () => {
     expect(batchJob.querySelector(".ppGlobalTopbarJobStateIcon-batch-mode")).toBeInTheDocument();
     expect(within(batchJob).getByText("Free Batch")).toBeVisible();
     expect(within(batchJob).queryByText(/credit/i)).not.toBeInTheDocument();
+  });
+
+  it("labels OpenAI Batch API waits as Free Batch", () => {
+    const initialMonitor = {
+      activeJobs: [
+        {
+          id: "job-paid-openai-batch",
+          kind: "product-diagnosis",
+          name: "Product Diagnosis",
+          displayTitle: "Core Linen Trouser",
+          displaySubtitle: "Waiting on OpenAI Batch API",
+          status: "Running",
+          progress: 55,
+          productHref: "/app/products/core-linen-trouser",
+          startedAtIso: new Date(Date.now() - 5000).toISOString(),
+          updatedAtIso: new Date().toISOString(),
+          pointsConsumed: 1,
+          openAiBatch: {
+            status: "waiting",
+          },
+        },
+      ],
+      recentJobs: [],
+      logs: [],
+    };
+
+    renderMonitor(initialMonitor);
+    fireEvent.click(screen.getByRole("button", { name: /background processes/i }));
+
+    const job = document.querySelector(".ppGlobalTopbarJobItem.isCurrent");
+    expect(job).toBeInTheDocument();
+    expect(job).toHaveClass("isBatchMode");
+    expect(within(job).getByText("Free Batch")).toBeVisible();
+    expect(within(job).queryByText("1 credit")).not.toBeInTheDocument();
   });
 
   it("confirms before cancelling an active job from the top bar popover", async () => {

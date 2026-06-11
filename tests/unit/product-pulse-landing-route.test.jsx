@@ -8,7 +8,7 @@ import {
 
 describe("product pulse landing route hrefs", () => {
   it("builds dashboard hrefs inside the Shopify app proxy and preserves auth params", () => {
-    const url = new URL("https://app-ppa.zuam.dev/apps/product-pulse-ia?embedded=1&hmac=signed&host=encoded-host&id_token=jwt&locale=en&session=session-token&shop=demo-shop.myshopify.com&timestamp=1780595434&wizard=old");
+    const url = new URL("https://app-product-pulse.zuam.dev/apps/product-pulse-ia?embedded=1&hmac=signed&host=encoded-host&id_token=jwt&locale=en&session=session-token&shop=demo-shop.myshopify.com&timestamp=1780595434&wizard=old");
 
     expect(buildLandingAppRouteHref(url, "/app/dashboard", { wizard: "start" }))
       .toBe("/apps/product-pulse-ia/app/dashboard?embedded=1&hmac=signed&host=encoded-host&id_token=jwt&locale=en&session=session-token&shop=demo-shop.myshopify.com&timestamp=1780595434&wizard=start");
@@ -17,14 +17,14 @@ describe("product pulse landing route hrefs", () => {
   });
 
   it("builds public hrefs inside the Shopify app proxy", () => {
-    const url = new URL("https://app-ppa.zuam.dev/apps/product-pulse-ia?embedded=1&host=encoded-host&locale=en&shop=demo-shop.myshopify.com");
+    const url = new URL("https://app-product-pulse.zuam.dev/apps/product-pulse-ia?embedded=1&host=encoded-host&locale=en&shop=demo-shop.myshopify.com");
 
     expect(buildLandingPublicRouteHref(url, "/"))
       .toBe("/apps/product-pulse-ia/?shop=demo-shop.myshopify.com&host=encoded-host&embedded=1&locale=en");
   });
 
   it("falls back to auth when the landing URL is missing shop context", () => {
-    const url = new URL("https://app-ppa.zuam.dev/apps/product-pulse-ia");
+    const url = new URL("https://app-product-pulse.zuam.dev/apps/product-pulse-ia");
 
     expect(buildLandingAppRouteHref(url, "/app/dashboard")).toBe("/auth/login");
   });
@@ -35,7 +35,7 @@ describe("product pulse landing route hrefs", () => {
   });
 
   it("builds root app redirects inside the Shopify app proxy", () => {
-    const url = new URL("https://app-ppa.zuam.dev/apps/product-pulse-ia?embedded=1&host=encoded-host&locale=en&shop=demo-shop.myshopify.com");
+    const url = new URL("https://app-product-pulse.zuam.dev/apps/product-pulse-ia?embedded=1&host=encoded-host&locale=en&shop=demo-shop.myshopify.com");
 
     expect(buildRootAppRedirectHref(url, "/app/products", "demo-shop.myshopify.com"))
       .toBe("/apps/product-pulse-ia/app/products?shop=demo-shop.myshopify.com&host=encoded-host&embedded=1&locale=en");

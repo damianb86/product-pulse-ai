@@ -1,5 +1,5 @@
 /* eslint-env node */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../app/db.server", () => ({ default: {} }));
 vi.mock("../../app/shopify.server", () => ({
@@ -41,6 +41,16 @@ const context = {
 };
 
 describe("ProductPulse AI internal action registry", () => {
+  beforeEach(() => {
+    vi.stubEnv("AI_ASSISTANT_ENABLED", "true");
+    vi.stubEnv("AI_INTERNAL_ACTIONS_ENABLED", "true");
+    vi.stubEnv("AI_ACTION_CONFIRMATIONS_ENABLED", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("creates tenant-scoped action proposals without accepting tenant input", async () => {
     const { registry, store, productRepository } = createActionRegistry();
 

@@ -2324,6 +2324,14 @@ function scoreProductAggregate(aggregate, storeTotals, {
     (aggregate.returnUnits > 0 && aggregate.refundUnits > 0)
     || (csvRatingRisk > 0 && (aggregate.returnUnits > 0 || aggregate.refundUnits > 0)),
   );
+  const trendOptions = {
+    dateField: "occurredAt",
+    startAt: getSinceDate(windowDays),
+    endAt: new Date().toISOString(),
+  };
+  const signalTrendResult = buildDatedSignalTrend(aggregate.signalEvents, trendOptions);
+  const signalTrend = signalTrendResult.values;
+  const issueSignalTrends = buildIssueTrendMap(aggregate.signalEvents, trendOptions);
   const scoreModel = calculateProductScoreModel({
     soldUnits: aggregate.soldUnits,
     salesAmount: aggregate.salesAmount,
@@ -2347,6 +2355,8 @@ function scoreProductAggregate(aggregate, storeTotals, {
     strongestVariantSignalCount: affectedVariants[0]?.count || 0,
     recentSignalUnits: aggregate.recentSignalUnits,
     signalEventCount: signalCount,
+    signalTrend,
+    lastSignalAt: aggregate.lastSignalAt,
     effectiveSampleSize: aggregate.returnUnits + aggregate.refundUnits + csvRatingSummary.ratingCount,
     sourceCoverage,
     sourceAgreement: hasCrossSourceAgreement,
@@ -2376,15 +2386,7 @@ function scoreProductAggregate(aggregate, storeTotals, {
     csvRatingSummary,
     csvRatingRisk,
   });
-  const trendOptions = {
-    dateField: "occurredAt",
-    startAt: getSinceDate(windowDays),
-    endAt: new Date().toISOString(),
-  };
-  const signalTrendResult = buildDatedSignalTrend(aggregate.signalEvents, trendOptions);
-  const signalTrend = signalTrendResult.values;
   const riskTrend = buildRiskTrendFromSignalTrend(signalTrend, riskScore);
-  const issueSignalTrends = buildIssueTrendMap(aggregate.signalEvents, trendOptions);
   const confidenceResult = {
     confidence: scoreModel.confidenceScore,
     factors: scoreModel.confidenceFactors,

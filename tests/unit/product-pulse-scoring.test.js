@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   PRODUCT_PULSE_SCORING_VERSION,
   calculateCoverageScore,
@@ -31,10 +31,10 @@ describe("ProductPulse scoring", () => {
       issueCount: 5,
     });
 
-    expect(risk).toBe(64);
+    expect(risk).toBe(53);
   });
 
-  it("classifies products with several bad signal families as high risk", () => {
+  it("keeps several bad signal families below critical risk without recent hard evidence", () => {
     const model = calculateProductScoreModel({
       soldUnits: 80,
       returnUnits: 14,
@@ -52,13 +52,16 @@ describe("ProductPulse scoring", () => {
       sourceAgreement: true,
     });
 
-    expect(model.riskScore).toBeGreaterThanOrEqual(80);
+    expect(model.riskScore).toBeGreaterThanOrEqual(65);
+    expect(model.riskScore).toBeLessThan(75);
     expect(model.riskComponents.returnsScore).toBeGreaterThan(15);
     expect(model.riskComponents.reviewsScore).toBeGreaterThan(15);
     expect(model.riskComponents.contentGapScore).toBeGreaterThan(10);
+    expect(model.riskComponents.riskFamilyWeights.returns).toBeGreaterThan(model.riskComponents.riskFamilyWeights.content);
+    expect(model.riskComponents.riskFamilyWeights.content).toBeGreaterThan(model.riskComponents.riskFamilyWeights.sentiment);
   });
 
-  it("reserves 100/100 product risk for exceptional hard evidence", () => {
+  it("reserves near-100 product risk for exceptional hard evidence", () => {
     const model = calculateProductScoreModel({
       soldUnits: 100,
       returnUnits: 45,
@@ -77,9 +80,54 @@ describe("ProductPulse scoring", () => {
       sourceAgreement: true,
     });
 
-    expect(model.riskComponents.rawScore).toBeGreaterThan(100);
-    expect(model.riskScore).toBeGreaterThanOrEqual(90);
-    expect(model.riskScore).toBeLessThan(100);
+    expect(model.riskComponents.rawScore).toBeGreaterThan(85);
+    expect(model.riskScore).toBeGreaterThanOrEqual(85);
+    expect(model.riskScore).toBeLessThan(95);
+  });
+
+  it("discounts stale risk signals compared with recent persistent signals", () => {
+    const now = new Date("2026-06-11T12:00:00.000Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now.getTime());
+    const baseInput = {
+      soldUnits: 100,
+      returnUnits: 12,
+      refundUnits: 8,
+      refundAmount: 800,
+      reviewCount: 30,
+      negativeReviewCount: 10,
+      avgRating: 2.8,
+      contentIssueCount: 6,
+      contentQualityRisk: 12,
+      sentimentTotal: 30,
+      sentimentNegativeCount: 15,
+      sourceCoverage: ["Shopify product", "Shopify returns", "Shopify refunds", "CSV reviews"],
+      sourceAgreement: true,
+      signalEventCount: 30,
+      windowDays: 90,
+    };
+
+    try {
+      const fresh = calculateProductScoreModel({
+        ...baseInput,
+        recentSignalUnits: 18,
+        signalTrend: [1, 2, 4, 8, 15],
+        lastSignalAt: "2026-06-10T00:00:00.000Z",
+      });
+      const stale = calculateProductScoreModel({
+        ...baseInput,
+        recentSignalUnits: 0,
+        signalTrend: [15, 8, 4, 2, 1],
+        lastSignalAt: "2026-03-01T00:00:00.000Z",
+      });
+
+      expect(fresh.riskScore).toBeGreaterThan(stale.riskScore);
+      expect(fresh.riskScore - stale.riskScore).toBeGreaterThanOrEqual(8);
+      expect(fresh.riskComponents.temporalHardSignalMultiplier).toBeGreaterThan(stale.riskComponents.temporalHardSignalMultiplier);
+      expect(fresh.riskComponents.recencyBonus).toBeGreaterThan(stale.riskComponents.recencyBonus);
+      expect(stale.riskComponents.lastSignalAgeDays).toBeGreaterThan(90);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("keeps financial impact as money outside product risk", () => {

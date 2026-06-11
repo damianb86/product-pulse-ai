@@ -2411,6 +2411,93 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     });
   });
 
+  it("preserves cached Shopify aliases for product relationship timelines", () => {
+    const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const sourceProductId = "gid://shopify/Product/cache-alias-source";
+    const beforeProductId = "gid://shopify/Product/cache-alias-before";
+    const afterProductId = "gid://shopify/Product/cache-alias-after";
+    const snapshot = {
+      shop: "relationship-alias-cache-test.myshopify.com",
+      productGid: sourceProductId,
+      productTitle: "Cache Alias Source Product",
+      handle: "cache-alias-source-product",
+      metrics: {},
+    };
+    const product = {
+      id: sourceProductId,
+      title: "Cache Alias Source Product",
+      handle: "cache-alias-source-product",
+      description: "Relationship alias cache test source product.",
+      descriptionHtml: "<p>Relationship alias cache test source product.</p>",
+      variants: [{ id: "gid://shopify/ProductVariant/cache-alias-source", title: "Default Title", sku: "CACHE-ALIAS-SOURCE", selectedOptions: [] }],
+      options: [],
+      tags: [],
+      collections: [],
+      media: [],
+    };
+    const previousCachedSales = [
+      { type: "sale", id: "before-alias-c1", orderId: "before-alias-order-c1", orderLineItemId: "before-alias-line-c1", productGid: beforeProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-before", title: "Bought Before Alias", customerGid: "customer-alias-1", quantity: 1, amount: 35, orderDate: daysAgo(35) },
+      { type: "sale", id: "source-alias-c1", orderId: "source-alias-order-c1", orderLineItemId: "source-alias-line-c1", productGid: sourceProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-source", title: "Cache Alias Source Product", customerGid: "customer-alias-1", quantity: 1, amount: 50, orderDate: daysAgo(20), basketLineItems: [
+        { orderLineItemId: "source-alias-line-c1", productGid: sourceProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-source", title: "Cache Alias Source Product", quantity: 1, amount: 50 },
+        { orderLineItemId: "same-alias-line-c1", productGid: beforeProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-before", title: "Bought Before Alias", quantity: 1, amount: 35 },
+      ] },
+      { type: "sale", id: "before-alias-c2", orderId: "before-alias-order-c2", orderLineItemId: "before-alias-line-c2", productGid: beforeProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-before", title: "Bought Before Alias", customerGid: "customer-alias-2", quantity: 1, amount: 35, orderDate: daysAgo(34) },
+      { type: "sale", id: "source-alias-c2", orderId: "source-alias-order-c2", orderLineItemId: "source-alias-line-c2", productGid: sourceProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-source", title: "Cache Alias Source Product", customerGid: "customer-alias-2", quantity: 1, amount: 50, orderDate: daysAgo(19) },
+    ];
+    const incrementalRelationshipSales = [
+      { type: "sale", id: "after-alias-c1", orderId: "after-alias-order-c1", orderLineItemId: "after-alias-line-c1", productGid: afterProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-after", title: "Bought After Alias", customerGid: "customer-alias-1", quantity: 1, amount: 42, orderDate: daysAgo(6) },
+      { type: "sale", id: "after-alias-c2", orderId: "after-alias-order-c2", orderLineItemId: "after-alias-line-c2", productGid: afterProductId, variantGid: "gid://shopify/ProductVariant/cache-alias-after", title: "Bought After Alias", customerGid: "customer-alias-2", quantity: 1, amount: 42, orderDate: daysAgo(5) },
+    ];
+
+    const merged = __productPulseDiagnosisTestHooks.mergeIncrementalSourceEvents({
+      previous: { sales: previousCachedSales, refunds: [], returns: [] },
+      current: { sales: incrementalRelationshipSales, refunds: [], returns: [] },
+      windowDays: 60,
+    });
+    const relationshipSales = __productPulseDiagnosisTestHooks.selectDiagnosisRelationshipSalesForSummary({
+      sourceSalesEvents: merged.sales,
+      relationshipSales: incrementalRelationshipSales,
+      backfilledSales: previousCachedSales.filter((saleEvent) => saleEvent.productGid === sourceProductId),
+    });
+    const deterministic = __productPulseDiagnosisTestHooks.calculateDeterministicDiagnosis({
+      snapshot,
+      shopifyData: {
+        product,
+        sales: relationshipSales.filter((saleEvent) => saleEvent.productId === sourceProductId),
+        relationshipSales,
+        returns: [],
+        refunds: [],
+        orderAccessDenied: false,
+      },
+      judgeMeData: { connected: false, reviews: [], matchConfidence: 0 },
+      csvReviewData: { connected: false, reviews: [], matchConfidence: 0 },
+      windowDays: 60,
+    });
+
+    expect(merged.sales.find((event) => event.id === "source-alias-c1")).toMatchObject({
+      productId: sourceProductId,
+      variantId: "gid://shopify/ProductVariant/cache-alias-source",
+      lineItemId: "source-alias-line-c1",
+      customerKey: "customer-alias-1",
+    });
+    expect(merged.sales.find((event) => event.id === "source-alias-c1").basketLineItems[1]).toMatchObject({
+      productId: beforeProductId,
+      variantId: "gid://shopify/ProductVariant/cache-alias-before",
+      lineItemId: "same-alias-line-c1",
+    });
+    expect(deterministic.metrics.productMomentum.inputs.unitsLast30Days).toBe(2);
+    expect(deterministic.metrics.productRelationshipIntelligenceSummary.top_bought_before[0]).toMatchObject({
+      related_product_id: beforeProductId,
+      relationship_direction: "before",
+      customer_count: 2,
+    });
+    expect(deterministic.metrics.productRelationshipIntelligenceSummary.top_bought_after[0]).toMatchObject({
+      related_product_id: afterProductId,
+      relationship_direction: "after",
+      customer_count: 2,
+    });
+  });
+
   it("reuses product content analysis until Shopify product content changes", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const snapshot = {

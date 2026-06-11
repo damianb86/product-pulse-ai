@@ -121,31 +121,38 @@ async function runChatKitActionEval(evalCase) {
     title: "Eval conversation",
   });
   const openAiCreate = vi.fn();
-  const response = await handleChatKitMessage(evalContext, JSON.stringify({
-    type: "threads.custom_action",
-    params: {
-      thread_id: "conversation-1",
-      item_id: "widget-1",
-      action: evalCase.actionPayload,
-    },
-  }), {
-    conversationStore: store,
-    actionRegistry: createEvalActionRegistry(actions),
-    orchestrator: { runAiChatTurnWithContext: openAiCreate },
-    now: () => new Date("2026-05-20T12:00:00.000Z"),
-  });
-  const body = await response.text();
-  const assistantMessage = store.messages.find((message) => message.role === "assistant");
-  return {
-    result: {
-      assistantText: assistantMessage?.content || body,
-      blocks: assistantMessage?.structuredContent?.blocks || [],
-      metadata: { estimatedCost: { totalUsd: 0 } },
-    },
-    toolCalls: [],
-    actions,
-    openAiCreate,
-  };
+  vi.stubEnv("AI_ASSISTANT_ENABLED", "true");
+  vi.stubEnv("AI_INTERNAL_ACTIONS_ENABLED", "true");
+  vi.stubEnv("AI_ACTION_CONFIRMATIONS_ENABLED", "true");
+  try {
+    const response = await handleChatKitMessage(evalContext, JSON.stringify({
+      type: "threads.custom_action",
+      params: {
+        thread_id: "conversation-1",
+        item_id: "widget-1",
+        action: evalCase.actionPayload,
+      },
+    }), {
+      conversationStore: store,
+      actionRegistry: createEvalActionRegistry(actions),
+      orchestrator: { runAiChatTurnWithContext: openAiCreate },
+      now: () => new Date("2026-05-20T12:00:00.000Z"),
+    });
+    const body = await response.text();
+    const assistantMessage = store.messages.find((message) => message.role === "assistant");
+    return {
+      result: {
+        assistantText: assistantMessage?.content || body,
+        blocks: assistantMessage?.structuredContent?.blocks || [],
+        metadata: { estimatedCost: { totalUsd: 0 } },
+      },
+      toolCalls: [],
+      actions,
+      openAiCreate,
+    };
+  } finally {
+    vi.unstubAllEnvs();
+  }
 }
 
 function createEvalToolRegistry(evalCase, toolCalls) {

@@ -5696,7 +5696,7 @@ function getBackgroundProcessStatusKey(status) {
 function isBackgroundProcessBatchMode(process) {
   const batchMode = process?.batchMode || process?.payload?.batchMode || {};
   const openAiBatch = process?.openAiBatch || process?.payload?.openAiBatch || {};
-  return Boolean(batchMode.freeCreditMode || batchMode.forceOpenAiBatch || openAiBatch.status === "waiting");
+  return Boolean(batchMode.freeCreditMode || openAiBatch.status === "waiting");
 }
 
 function getBackgroundProcessStatusIcon(status, process = null) {
@@ -10421,12 +10421,17 @@ function normalizeProductMomentum(momentum = null) {
   const catalog = momentum.catalog || {};
   const display = momentum.display || {};
   const score = Number(momentum.score ?? 0);
+  const hasUnitsPrevious30Input = inputs.unitsPrevious30Days !== undefined && inputs.unitsPrevious30Days !== null;
+  const tier = momentum.tier || getMomentumTierFromScore(score);
+  const direction = momentum.direction || "Steady";
+  const label = firstNonEmptyString(momentum.label, display.label, direction, tier);
 
   const normalized = {
     source: momentum.source || "",
     score: Number.isFinite(score) ? Math.round(score) : 0,
-    tier: momentum.tier || getMomentumTierFromScore(score),
-    direction: momentum.direction || "Steady",
+    tier,
+    direction,
+    label,
     confidence: Number(momentum.confidence || 0),
     confidenceLabel: momentum.confidenceLabel || getMomentumConfidenceLabel(Number(momentum.confidence || 0)),
     calculatedAt: momentum.calculatedAt || null,
@@ -10443,7 +10448,8 @@ function normalizeProductMomentum(momentum = null) {
       unitsLast7Days: Number(inputs.unitsLast7Days || 0),
       unitsLast14Days: Number(inputs.unitsLast14Days || 0),
       unitsLast30Days: Number(inputs.unitsLast30Days || 0),
-      unitsPrevious30Days: Number(inputs.unitsPrevious30Days || 0),
+      unitsPrevious30Days: hasUnitsPrevious30Input ? Number(inputs.unitsPrevious30Days || 0) : null,
+      hasUnitsPrevious30Input,
       unitsPrevious90Days: Number(inputs.unitsPrevious90Days || 0),
       revenueLast30Days: Number(inputs.revenueLast30Days || 0),
       revenuePrevious30Days: Number(inputs.revenuePrevious30Days || 0),
@@ -10466,6 +10472,7 @@ function normalizeProductMomentum(momentum = null) {
       hasCatalogBaseline: Boolean(catalog.hasCatalogBaseline),
     },
     display: {
+      label,
       growthPercent: Number(display.growthPercent || 0),
       growthLabel: display.growthLabel || formatSignedPercent(Number(display.growthPercent || 0)),
       catalogPositionLabel: display.catalogPositionLabel || (catalog.topCatalogPercent ? `Top ${catalog.topCatalogPercent}%` : "Catalog baseline pending"),
@@ -10502,6 +10509,19 @@ function getProductMomentumTone(momentum = {}) {
   return "blue";
 }
 
+function getProductMomentumDisplayLabel(momentum = {}) {
+  return firstNonEmptyString(momentum.label, momentum.display?.label, momentum.direction, momentum.tier, "Steady");
+}
+
+function getProductMomentumSecondaryLabel(momentum = {}) {
+  const label = getProductMomentumDisplayLabel(momentum);
+  return firstNonEmptyString(
+    momentum.tier && momentum.tier !== label ? momentum.tier : "",
+    momentum.direction && momentum.direction !== label ? momentum.direction : "",
+    "Commercial signal",
+  );
+}
+
 function getMomentumConfidenceLabel(confidence) {
   const value = Number(confidence || 0);
   if (value >= 80) return "High confidence";
@@ -10517,6 +10537,8 @@ function getValidatedProductMomentum(momentum = {}) {
     ? inputs.weeklyUnitsLast4Weeks.map((value) => Math.max(0, Number(value || 0)))
     : [];
   const unitsLast30 = Math.max(0, Number(inputs.unitsLast30Days || 0));
+  const hasUnitsPrevious30Input = inputs.hasUnitsPrevious30Input === true
+    || (inputs.hasUnitsPrevious30Input !== false && inputs.unitsPrevious30Days !== undefined && inputs.unitsPrevious30Days !== null);
   const unitsPrevious30 = Math.max(0, Number(inputs.unitsPrevious30Days || 0));
   const revenueLast30 = Math.max(0, Number(inputs.revenueLast30Days || 0));
   const revenuePrevious30 = Math.max(0, Number(inputs.revenuePrevious30Days || 0));
@@ -10549,15 +10571,26 @@ function getValidatedProductMomentum(momentum = {}) {
   ));
 
   if (unitsLast30 === 0 && revenueLast30 === 0) validatedScore = 0;
-  if (unitsPrevious30 === 0 && unitsLast30 > 0) {
+  if (hasUnitsPrevious30Input && unitsPrevious30 === 0 && unitsLast30 > 0) {
     validatedScore = Math.min(validatedScore, Math.round(78 + Math.min(9, Math.log1p(unitsLast30) * 2.6)));
   }
+  const tier = getMomentumTierFromScore(validatedScore);
+  const direction = getValidatedMomentumDirection({
+    momentum,
+    score: validatedScore,
+    unitsPrevious30,
+    unitsLast30,
+    weeklyUnits,
+    hasUnitsPrevious30Input,
+  });
+  const label = firstNonEmptyString(direction, momentum.display?.label, momentum.label, tier);
 
   return {
     ...momentum,
     score: validatedScore,
-    tier: getMomentumTierFromScore(validatedScore),
-    direction: getValidatedMomentumDirection({ momentum, score: validatedScore, unitsPrevious30, unitsLast30, weeklyUnits }),
+    tier,
+    direction,
+    label,
     components: {
       currentVelocityScore: Math.round(currentVelocityScore),
       growthScore: Math.round(growthScore),
@@ -10567,6 +10600,7 @@ function getValidatedProductMomentum(momentum = {}) {
     },
     display: {
       ...(momentum.display || {}),
+      label,
       trendLabel: getProductMomentumTrendInsight(weeklyUnits).label,
     },
   };
@@ -10660,8 +10694,8 @@ function calculateClientLinearRegressionSlope(values = []) {
   return points.reduce((total, point) => total + ((point.x - meanX) * (point.y - meanY)), 0) / denominator;
 }
 
-function getValidatedMomentumDirection({ momentum = {}, score = 0, unitsPrevious30 = 0, unitsLast30 = 0, weeklyUnits = [] } = {}) {
-  if (!unitsPrevious30 && unitsLast30 > 0) return "New activity";
+function getValidatedMomentumDirection({ momentum = {}, score = 0, unitsPrevious30 = 0, unitsLast30 = 0, weeklyUnits = [], hasUnitsPrevious30Input = true } = {}) {
+  if (hasUnitsPrevious30Input && !unitsPrevious30 && unitsLast30 > 0) return "New activity";
   if (weeklyUnits.length >= 2 && weeklyUnits[weeklyUnits.length - 1] > weeklyUnits[0]) return "Accelerating";
   if (weeklyUnits.length >= 2 && weeklyUnits[weeklyUnits.length - 1] < weeklyUnits[0]) return "Cooling";
   if (score >= 80) return "Hot";
@@ -11005,7 +11039,7 @@ function getProductDetailInsightCards(detail = {}) {
         : detail.productMomentum?.inputs?.weeklyUnitsLast4Weeks?.length
           ? "Last 4 weekly units"
           : "Commercial trend",
-      value: detail.productMomentum ? (detail.productMomentum.direction || detail.productMomentum.tier) : "Needs diagnosis",
+      value: detail.productMomentum ? getProductMomentumDisplayLabel(detail.productMomentum) : "Needs diagnosis",
       detail: detail.productMomentum ? `${formatInteger(momentumScore)} / 100` : "Sales Momentum unavailable",
       footnote: detail.productMomentum
         ? `${detail.productMomentum.display.growthLabel} 30d · ${detail.productMomentum.display.catalogPositionLabel}`
@@ -22486,7 +22520,7 @@ function ProductMomentumWeeklyChart({ momentum }) {
   }));
 
   return (
-    <div className="ppProductMomentumWeeklyChart" role="img" aria-label={`Last 4 weekly units sold for ${momentum.tier} Sales Momentum`}>
+    <div className="ppProductMomentumWeeklyChart" role="img" aria-label={`Last 4 weekly units sold for ${getProductMomentumDisplayLabel(momentum)} Sales Momentum`}>
       <span className="ppProductMomentumWeeklyYAxisTitle">Units sold</span>
       <div className="ppProductMomentumWeeklyYAxis" aria-hidden="true">
         {ticks.map((tick) => <span key={tick.key} style={{ top: tick.top }}>{formatInteger(tick.value)}</span>)}
@@ -22600,7 +22634,7 @@ function ProductMomentumGauge({ momentum }) {
       </div>
       <div className="ppProductMomentumGaugeCenter">
         <strong>{formatInteger(score)} <small>/ 100</small></strong>
-        <span>{momentum.direction}</span>
+        <span>{getProductMomentumDisplayLabel(momentum)}</span>
         <p><b>{momentum.display.growthLabel}</b> vs previous 30 days · <b>{momentum.display.catalogPositionLabel}</b></p>
       </div>
     </div>
@@ -25675,6 +25709,8 @@ function ProductMomentumCell({ product }) {
     ? momentum.inputs.weeklyUnitsLast4Weeks
     : [momentum.score, momentum.score];
   const momentumTone = getTrendTone(trendValues, momentum.score);
+  const momentumLabel = getProductMomentumDisplayLabel(momentum);
+  const secondaryMomentumLabel = getProductMomentumSecondaryLabel(momentum);
 
   return (
     <span
@@ -25695,7 +25731,7 @@ function ProductMomentumCell({ product }) {
       >
         <span className="ppMomentumTriggerMain">
           <MiniTrend tone={momentumTone} values={trendValues} />
-          <span>{momentum.tier} {momentum.score}</span>
+          <span>{momentumLabel} {momentum.score}</span>
         </span>
         <span className="ppMomentumSubline">{momentum.display.growthLabel} 30d · {momentum.display.catalogPositionLabel}</span>
       </Link>
@@ -25716,8 +25752,8 @@ function ProductMomentumCell({ product }) {
         </div>
         <div className="ppMomentumToastHero">
           <div>
-            <strong><span>{momentum.tier}</span> <span aria-hidden="true">·</span> <em>{momentum.score}</em><small>/100</small></strong>
-            <p>{momentum.direction} <span aria-hidden="true">·</span> <Link to={href}>{momentum.confidenceLabel}</Link></p>
+            <strong><span>{momentumLabel}</span> <span aria-hidden="true">·</span> <em>{momentum.score}</em><small>/100</small></strong>
+            <p>{secondaryMomentumLabel} <span aria-hidden="true">·</span> <Link to={href}>{momentum.confidenceLabel}</Link></p>
           </div>
           <div className="ppMomentumToastSignal">
             <MiniTrend tone={momentumTone} size="large" values={trendValues} />

@@ -10,7 +10,17 @@ export const SOURCE_WEIGHTS = {
   pdpQuestions: 6,
 };
 
-export const PRODUCT_PULSE_SCORING_VERSION = "risk_tail_calibrated_v2";
+export const PRODUCT_PULSE_SCORING_VERSION = "risk_temporal_weighted_v3";
+
+const RISK_FAMILY_WEIGHTS = Object.freeze({
+  returns: 1,
+  refunds: 0.95,
+  reviews: 0.9,
+  relationships: 0.85,
+  content: 0.72,
+  variants: 0.65,
+  sentiment: 0.55,
+});
 
 const PRODUCT_REASON_CATEGORIES = new Set([
   "product_quality",
@@ -319,6 +329,9 @@ function normalizeScoreInput(input = {}, options = {}) {
     strongestVariantSignalCount: number(input.strongestVariantSignalCount ?? input.topAffectedVariantCount),
     recentSignalUnits: number(input.recentSignalUnits ?? input.recentSignals),
     signalEventCount,
+    signalTrend: normalizeNumberList(input.signalTrend),
+    lastSignalAt: input.lastSignalAt || getLatestSignalEventDate(input.signalEvents),
+    signalRecencyWeight: normalizeTemporalSignalWeight(input.signalRecencyWeight ?? input.signalRecencyWeighting?.averageWeight),
     effectiveSampleSize,
     sourceCoverage,
     sourceCount: number(input.sourceCount ?? sourceCoverage.length),
@@ -350,6 +363,7 @@ function calculateRiskComponents(metrics, options = {}) {
   const relationshipRisk = calculateRelationshipRiskAdjustment(metrics);
   const purchaseRisk = calculatePurchaseContextRiskAdjustment(metrics, relationshipRisk);
   const productRelationshipRiskContext = calculateProductRelationshipRiskContext(metrics);
+  const temporalRisk = calculateRiskTemporalFactors(metrics, options);
   const hasEvidence = metrics.returnUnits
     || metrics.refundUnits
     || metrics.negativeReviewCount
@@ -371,7 +385,13 @@ function calculateRiskComponents(metrics, options = {}) {
   const highReturnPressure = metrics.returnUnits >= 3 && metrics.soldUnits >= 5 && metrics.returnRate > metrics.storeReturnBaseline + 0.25
     ? clamp(8 + (metrics.returnRate - metrics.storeReturnBaseline) * 14 + Math.log1p(metrics.returnUnits) * 1.2, 0, 25)
     : 0;
-  const returnsScore = clamp(Math.max(returnsRateScore, highReturnPressure) * purchaseRisk.returnScoreMultiplier, 0, 27);
+  const returnsScore = clamp(
+    Math.max(returnsRateScore, highReturnPressure)
+      * purchaseRisk.returnScoreMultiplier
+      * temporalRisk.hardSignalMultiplier,
+    0,
+    27,
+  );
   const refundRateScore = calculateSmoothedRateRisk({
     events: metrics.refundUnits,
     population: metrics.soldUnits,
@@ -386,16 +406,23 @@ function calculateRiskComponents(metrics, options = {}) {
     ? clamp(7 + (metrics.refundRate - 0.2) * 34 + Math.log1p(metrics.refundUnits) * 1.1, 0, 20)
     : 0;
   const rawRefundScore = clamp(Math.max(refundRateScore, highRefundPressure), 0, 20);
-  const refund_score = clamp(rawRefundScore * relationshipRisk.refundScoreMultiplier * purchaseRisk.refundScoreMultiplier, 0, 20);
-  const reviews_score = calculateReviewRisk(metrics, options);
-  const sentiment_score = calculateSentimentRisk(metrics, options);
+  const refund_score = clamp(
+    rawRefundScore
+      * relationshipRisk.refundScoreMultiplier
+      * purchaseRisk.refundScoreMultiplier
+      * temporalRisk.hardSignalMultiplier,
+    0,
+    20,
+  );
+  const reviews_score = clamp(calculateReviewRisk(metrics, options) * temporalRisk.reviewSignalMultiplier, 0, 25);
+  const sentiment_score = clamp(calculateSentimentRisk(metrics, options) * temporalRisk.softSignalMultiplier, 0, 15);
   const content_gap_score = clamp(Math.max(
     number(metrics.contentQualityRisk),
     metrics.contentIssueCount ? 4 + Math.log1p(metrics.contentIssueCount) * 4.5 : 0,
-  ), 0, 15);
-  const variant_score = clamp(calculateVariantRisk(metrics) + purchaseRisk.multiVariantRisk, 0, 12);
+  ) * temporalRisk.contentSignalMultiplier, 0, 15);
+  const variant_score = clamp((calculateVariantRisk(metrics) + purchaseRisk.multiVariantRisk) * temporalRisk.contextSignalMultiplier, 0, 12);
   const purchase_context_score = purchaseRisk.soloAttributionRisk + purchaseRisk.bulkSeverityRisk;
-  const relationship_score = clamp(relationshipRisk.relationshipScore + purchase_context_score, 0, 26);
+  const relationship_score = clamp((relationshipRisk.relationshipScore + purchase_context_score) * temporalRisk.contextSignalMultiplier, 0, 26);
   const familyRisks = [
     returnsScore,
     reviews_score,
@@ -406,21 +433,32 @@ function calculateRiskComponents(metrics, options = {}) {
     relationship_score,
   ];
   const activeFamilyCount = familyRisks.filter((score) => score >= 3).length;
-  const agreement_points = (metrics.sourceAgreement ? 4 : 0) + Math.max(0, activeFamilyCount - 1) * 2.2;
-  const agreement_bonus = clamp(agreement_points, 0, 8);
-  const recentShare = metrics.signalEventCount > 0 ? metrics.recentSignalUnits / metrics.signalEventCount : 0;
-  const recency_points = hasEvidence ? recentShare * 6 + (metrics.recentSignalUnits >= 3 ? 1.5 : 0) : 0;
-  const recency_bonus = clamp(recency_points, 0, 5);
+  const agreement_points = (metrics.sourceAgreement ? 2.5 : 0) + Math.max(0, activeFamilyCount - 1) * 1.45;
+  const agreement_bonus = clamp(agreement_points, 0, 6);
+  const recency_bonus = hasEvidence ? temporalRisk.recencyBonus : 0;
+  const severeAlignmentBonus = calculateSevereEvidenceAlignmentBonus({
+    metrics,
+    returnsScore,
+    reviewsScore: reviews_score,
+    refundScore: refund_score,
+    relationshipScore: relationship_score,
+    activeFamilyCount,
+    temporalRisk,
+  });
+  const weightedFamilyScore = calculateWeightedRiskFamilyScore({
+    returnsScore,
+    reviewsScore: reviews_score,
+    sentimentScore: sentiment_score,
+    contentGapScore: content_gap_score,
+    refundScore: refund_score,
+    variantScore: variant_score,
+    relationshipScore: relationship_score,
+  });
   const rawScore = base
-    + returnsScore
-    + reviews_score
-    + sentiment_score
-    + content_gap_score
-    + refund_score
-    + variant_score
-    + relationship_score
+    + weightedFamilyScore
     + agreement_bonus
-    + recency_bonus;
+    + recency_bonus
+    + severeAlignmentBonus;
   const calibratedRisk = calibrateProductRiskScore(rawScore, {
     metrics,
     returnsScore,
@@ -467,6 +505,17 @@ function calculateRiskComponents(metrics, options = {}) {
     relationshipMatchConfidence: roundScore(relationshipRisk.relationshipMatchConfidence * 100),
     agreementBonus: roundScore(agreement_bonus),
     recencyBonus: roundScore(recency_bonus),
+    severeAlignmentBonus: roundScore(severeAlignmentBonus),
+    weightedFamilyScore: roundScore(weightedFamilyScore),
+    riskFamilyWeights: RISK_FAMILY_WEIGHTS,
+    temporalFreshnessMultiplier: roundScore(temporalRisk.freshnessMultiplier),
+    temporalPersistenceMultiplier: roundScore(temporalRisk.persistenceMultiplier),
+    temporalHardSignalMultiplier: roundScore(temporalRisk.hardSignalMultiplier),
+    temporalReviewSignalMultiplier: roundScore(temporalRisk.reviewSignalMultiplier),
+    temporalContentSignalMultiplier: roundScore(temporalRisk.contentSignalMultiplier),
+    temporalRecentShare: roundScore(temporalRisk.recentShare * 100),
+    temporalTrendRecentShare: roundScore(temporalRisk.trendRecentShare * 100),
+    lastSignalAgeDays: temporalRisk.lastSignalAgeDays,
     rawScore: roundScore(rawScore),
     calibratedScore: roundScore(calibratedRisk),
     calculated: riskScore,
@@ -486,7 +535,7 @@ export function calibrateProductRiskScore(rawScore, {
   activeFamilyCount = 0,
 } = {}) {
   const normalizedRawScore = Math.max(0, number(rawScore));
-  if (normalizedRawScore <= 80) return clamp(normalizedRawScore, 0, 80);
+  if (normalizedRawScore <= 72) return clamp(normalizedRawScore, 0, 72);
 
   const hardSignalUnits = number(metrics.returnUnits) + number(metrics.refundUnits) + number(metrics.negativeReviewCount);
   const hardMetricScore = number(returnsScore) + number(refundScore) + number(reviewsScore) + number(relationshipScore);
@@ -497,22 +546,134 @@ export function calibrateProductRiskScore(rawScore, {
   const hasSevereHardEvidence = hardSignalUnits >= 16
     && activeFamilyCount >= 3
     && hardMetricScore >= 48;
-  const softTail = 80 + (19 * (1 - Math.exp(-(normalizedRawScore - 80) / 22)));
-  const ceiling = hasExtremeHardEvidence ? 100 : hasSevereHardEvidence ? 98 : 96;
+  const softTail = 72 + (27 * (1 - Math.exp(-(normalizedRawScore - 72) / 18)));
+  const ceiling = hasExtremeHardEvidence ? 99 : hasSevereHardEvidence ? 96 : 90;
   const calibrated = Math.min(softTail, ceiling);
 
   const weakHardEvidenceCeiling = hardSignalUnits < 3 && hardMetricScore < 12
-    ? 78
+    ? 70
     : hardSignalUnits < 6 && hardMetricScore < 22
-      ? 88
+      ? 82
       : ceiling;
   const contentOnlyCeiling = hardMetricScore < 8
     && number(contentGapScore) >= 10
     && number(sentimentScore) < 4
-    ? 72
+    ? 66
     : weakHardEvidenceCeiling;
 
   return clamp(Math.min(calibrated, contentOnlyCeiling), 0, 100);
+}
+
+function calculateWeightedRiskFamilyScore({
+  returnsScore = 0,
+  reviewsScore = 0,
+  sentimentScore = 0,
+  contentGapScore = 0,
+  refundScore = 0,
+  variantScore = 0,
+  relationshipScore = 0,
+} = {}) {
+  return (
+    number(returnsScore) * RISK_FAMILY_WEIGHTS.returns
+    + number(refundScore) * RISK_FAMILY_WEIGHTS.refunds
+    + number(reviewsScore) * RISK_FAMILY_WEIGHTS.reviews
+    + number(relationshipScore) * RISK_FAMILY_WEIGHTS.relationships
+    + number(contentGapScore) * RISK_FAMILY_WEIGHTS.content
+    + number(variantScore) * RISK_FAMILY_WEIGHTS.variants
+    + number(sentimentScore) * RISK_FAMILY_WEIGHTS.sentiment
+  );
+}
+
+function calculateSevereEvidenceAlignmentBonus({
+  metrics = {},
+  returnsScore = 0,
+  reviewsScore = 0,
+  refundScore = 0,
+  relationshipScore = 0,
+  activeFamilyCount = 0,
+  temporalRisk = {},
+} = {}) {
+  const hardSignalUnits = number(metrics.returnUnits) + number(metrics.refundUnits) + number(metrics.negativeReviewCount);
+  if (hardSignalUnits < 6 || activeFamilyCount < 3) return 0;
+  const hardScore = number(returnsScore) + number(refundScore) + number(reviewsScore) + number(relationshipScore);
+  const recentSupport = clamp(number(temporalRisk.hardSignalMultiplier || 1), 0.75, 1.08);
+  if (hardScore >= 58 && hardSignalUnits >= 22) return clamp(5.5 * recentSupport, 0, 6);
+  if (hardScore >= 42 && hardSignalUnits >= 12) return clamp(3.5 * recentSupport, 0, 4.5);
+  return clamp(1.5 * recentSupport, 0, 2);
+}
+
+function calculateRiskTemporalFactors(metrics = {}, options = {}) {
+  const signalCount = Math.max(0, number(metrics.signalEventCount));
+  const recentSignalUnits = Math.max(0, number(metrics.recentSignalUnits));
+  const recentShare = signalCount > 0 ? clamp(recentSignalUnits / signalCount, 0, 1) : 0;
+  const signalTrend = Array.isArray(metrics.signalTrend) ? metrics.signalTrend : [];
+  const trendTotal = signalTrend.reduce((total, value) => total + Math.max(0, number(value)), 0);
+  const trendRecentTotal = signalTrend.slice(-Math.max(1, Math.ceil(signalTrend.length / 3))).reduce((total, value) => total + Math.max(0, number(value)), 0);
+  const trendRecentShare = trendTotal > 0 ? clamp(trendRecentTotal / trendTotal, 0, 1) : 0;
+  const activeTrendShare = signalTrend.length
+    ? signalTrend.filter((value) => number(value) > 0).length / signalTrend.length
+    : 0;
+  const lastSignalDate = parseScoreDate(metrics.lastSignalAt);
+  const lastSignalAgeDays = lastSignalDate
+    ? Math.max(0, Math.round((Date.now() - lastSignalDate.getTime()) / (24 * 60 * 60 * 1000)))
+    : null;
+  const windowDays = Math.max(1, number(metrics.windowDays) || number(options.windowDays) || 90);
+
+  let freshnessMultiplier = 1;
+  if (signalCount > 0) {
+    if (recentShare >= 0.55) freshnessMultiplier = 1.04;
+    else if (recentShare >= 0.25) freshnessMultiplier = 0.99;
+    else if (recentShare > 0) freshnessMultiplier = 0.94;
+    else freshnessMultiplier = 0.86;
+  }
+
+  if (trendTotal > 0) {
+    if (trendRecentShare >= 0.55) freshnessMultiplier = Math.max(freshnessMultiplier, 1.03);
+    else if (trendRecentShare <= 0.2) freshnessMultiplier = Math.min(freshnessMultiplier, 0.9);
+  }
+
+  if (lastSignalAgeDays !== null) {
+    if (lastSignalAgeDays <= 14) freshnessMultiplier = Math.max(freshnessMultiplier, 1.02);
+    else if (lastSignalAgeDays > windowDays * 0.75) freshnessMultiplier = Math.min(freshnessMultiplier, 0.78);
+    else if (lastSignalAgeDays > windowDays * 0.5) freshnessMultiplier = Math.min(freshnessMultiplier, 0.86);
+    else if (lastSignalAgeDays > 30) freshnessMultiplier = Math.min(freshnessMultiplier, 0.92);
+  }
+
+  if (metrics.signalRecencyWeight > 0 && metrics.signalRecencyWeight < 1) {
+    freshnessMultiplier = Math.min(freshnessMultiplier, 0.84 + metrics.signalRecencyWeight * 0.16);
+  }
+
+  let persistenceMultiplier = 1;
+  if (signalTrend.length) {
+    if (activeTrendShare >= 0.55) persistenceMultiplier = 1.03;
+    else if (activeTrendShare > 0.2) persistenceMultiplier = 0.96;
+    else persistenceMultiplier = 0.88;
+    if (trendTotal > 0 && trendRecentTotal === 0) persistenceMultiplier = Math.min(persistenceMultiplier, 0.82);
+  }
+
+  const hardSignalMultiplier = clamp(freshnessMultiplier * persistenceMultiplier, 0.72, 1.08);
+  const reviewSignalMultiplier = clamp(0.62 + hardSignalMultiplier * 0.38, 0.86, 1.04);
+  const softSignalMultiplier = clamp(0.55 + hardSignalMultiplier * 0.45, 0.78, 1.02);
+  const contentSignalMultiplier = clamp(0.86 + hardSignalMultiplier * 0.14, 0.9, 1.02);
+  const contextSignalMultiplier = clamp(0.7 + hardSignalMultiplier * 0.3, 0.86, 1.04);
+  const recencyBonus = signalCount > 0
+    ? clamp(recentShare * 2.4 + (trendRecentShare >= 0.55 ? 0.8 : 0) + (lastSignalAgeDays !== null && lastSignalAgeDays <= 14 ? 0.8 : 0), 0, 4)
+    : 0;
+
+  return {
+    freshnessMultiplier,
+    persistenceMultiplier,
+    hardSignalMultiplier,
+    reviewSignalMultiplier,
+    softSignalMultiplier,
+    contentSignalMultiplier,
+    contextSignalMultiplier,
+    recentShare,
+    trendRecentShare,
+    activeTrendShare,
+    lastSignalAgeDays,
+    recencyBonus,
+  };
 }
 
 function calculateRelationshipRiskAdjustment(metrics) {
@@ -1929,6 +2090,41 @@ function normalizeConfidence(value) {
   if (numeric > 1) return clamp(numeric / 100, 0, 1);
   if (numeric > 0) return clamp(numeric, 0, 1);
   return 0;
+}
+
+function normalizeNumberList(values = []) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => number(value))
+    .filter((value) => Number.isFinite(value));
+}
+
+function normalizeTemporalSignalWeight(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? clamp(numeric, 0, 1) : 0;
+}
+
+function getLatestSignalEventDate(signalEvents = []) {
+  const timestamps = (Array.isArray(signalEvents) ? signalEvents : [])
+    .map((event) => parseScoreDate(
+      event?.signalAt
+        || event?.occurredAt
+        || event?.orderDate
+        || event?.orderProcessedAt
+        || event?.processedAt
+        || event?.createdAt
+        || event?.updatedAt,
+    ))
+    .filter(Boolean)
+    .map((date) => date.getTime());
+  if (!timestamps.length) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function parseScoreDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function normalizePercentScore(value) {

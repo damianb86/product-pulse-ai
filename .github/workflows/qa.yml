@@ -12,7 +12,7 @@ jobs:
     env:
       SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY || 'placeholder' }}
       SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET || 'placeholder' }}
-      SHOPIFY_APP_URL: ${{ secrets.SHOPIFY_APP_URL || 'https://app-ppa.zuam.dev' }}
+      SHOPIFY_APP_URL: ${{ secrets.SHOPIFY_APP_URL || 'https://app-product-pulse.zuam.dev' }}
       SCOPES: read_products,read_orders,read_returns
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/product_pulse_ai
     services:

@@ -6767,7 +6767,16 @@ function getProductTableSignalBars(signalCount = 0, sourceCount = 0) {
 
 function getProductTableMomentum(metrics = {}) {
   if (metrics.productMomentum && typeof metrics.productMomentum === "object" && !Array.isArray(metrics.productMomentum)) {
-    return metrics.productMomentum;
+    const momentum = metrics.productMomentum;
+    const label = getProductMomentumLabel(momentum);
+    return {
+      ...momentum,
+      label,
+      display: {
+        ...(momentum.display || {}),
+        label,
+      },
+    };
   }
 
   const scoreValue = Number(metrics.productMomentumScore);
@@ -6781,12 +6790,15 @@ function getProductTableMomentum(metrics = {}) {
   const score = Number.isFinite(scoreValue) ? Math.round(scoreValue) : 0;
   const confidence = Number.isFinite(confidenceValue) ? Math.round(confidenceValue) : 0;
   const direction = hasText(metrics.momentumDirection) ? String(metrics.momentumDirection) : "Steady";
+  const tier = hasText(metrics.productMomentumTier) ? String(metrics.productMomentumTier) : getProductTableMomentumTier(score);
+  const label = direction || tier;
 
   return {
     source: "product-table",
     score,
-    tier: hasText(metrics.productMomentumTier) ? String(metrics.productMomentumTier) : getProductTableMomentumTier(score),
+    tier,
     direction,
+    label,
     confidence,
     confidenceLabel: hasText(metrics.momentumConfidenceLabel)
       ? String(metrics.momentumConfidenceLabel)
@@ -6828,6 +6840,7 @@ function getProductTableMomentum(metrics = {}) {
       hasCatalogBaseline: false,
     },
     display: {
+      label,
       growthPercent: 0,
       growthLabel: "0%",
       catalogPositionLabel: "Catalog baseline pending",
@@ -6836,6 +6849,18 @@ function getProductTableMomentum(metrics = {}) {
     },
     flags: {},
   };
+}
+
+function getProductMomentumLabel(momentum = {}) {
+  return hasText(momentum.label)
+    ? String(momentum.label)
+    : hasText(momentum.display?.label)
+      ? String(momentum.display.label)
+      : hasText(momentum.direction)
+        ? String(momentum.direction)
+        : hasText(momentum.tier)
+          ? String(momentum.tier)
+          : "";
 }
 
 function getProductTableMomentumTier(score) {

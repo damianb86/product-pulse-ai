@@ -4417,7 +4417,9 @@ function calculateDeterministicDiagnosis({
     textInsights: analysisTextInsights,
     refundInsights: analysisRefundInsights,
     sourceCoverage,
-    signalEvents,
+    signalEvents: weightedTrendEvents,
+    signalTrend,
+    signalRecencyWeighting: signalWeighting.summary,
     affectedVariants,
     reviewSourceStats: analysisReviewSourceStats,
   };
@@ -4959,6 +4961,12 @@ function buildReconstructedRiskHistoryPoint({
   const signalWeighting = buildTemporalSignalWeighting({ signalEvents, sales, now: periodEnd });
   const weightedSignalEvents = signalWeighting.events;
   const weightedTrendEvents = weightedSignalEvents.map((event) => ({ ...event, value: Number(event.weightedValue || 0) }));
+  const trendOptions = {
+    startAt: getSinceDate(windowDays),
+    endAt: periodEnd.toISOString(),
+  };
+  const signalTrendResult = buildDatedSignalTrend(weightedTrendEvents, trendOptions);
+  const signalTrend = signalTrendResult.values;
   const effectiveReturnUnits = signalWeighting.byType.return.effectiveValue;
   const effectiveRefundUnits = signalWeighting.byType.refund.effectiveValue;
   const effectiveRefundAmount = roundCurrency(signalWeighting.byType.refund.effectiveAmount || refundAmount);
@@ -5057,6 +5065,8 @@ function buildReconstructedRiskHistoryPoint({
     refundInsights: analysisRefundInsights,
     sourceCoverage,
     signalEvents: weightedTrendEvents,
+    signalTrend,
+    signalRecencyWeighting: signalWeighting.summary,
     affectedVariants,
     variantInsights,
     reviewSourceStats: analysisReviewSourceStats,
@@ -5135,6 +5145,8 @@ function buildReconstructedRiskHistoryPoint({
       recentSignalUnits,
       rawRecentSignalUnits: countRecentSignalEventsFrom(signalEvents, 30, periodEnd),
       signalRecencyWeighting: signalWeighting.summary,
+      signalTrend,
+      trendMeta: signalTrendResult.meta,
       priorityScore: scoreModel.priorityScore,
       mainIssueIntensity: scoreModel.priorityScore,
       evidenceStrengthScore: scoreModel.evidenceStrengthScore,
@@ -8324,9 +8336,11 @@ function buildAiProductMomentumInput(momentum = null) {
     score: numberOrNull(momentum.score),
     tier: momentum.tier || null,
     direction: momentum.direction || null,
+    label: momentum.label || momentum.display?.label || momentum.direction || momentum.tier || null,
     confidence: numberOrNull(momentum.confidence),
     confidenceLabel: momentum.confidenceLabel || null,
     display: {
+      label: momentum.display?.label || momentum.label || momentum.direction || momentum.tier || null,
       trendLabel: momentum.display?.trendLabel || null,
       growthLabel: momentum.display?.growthLabel || null,
       growthPercent: numberOrNull(momentum.display?.growthPercent),
@@ -15560,7 +15574,14 @@ function buildTemporalSignalWeighting({ signalEvents = [], sales = [], now = new
 function buildSignalWeightSalesOrderTimeline(sales = []) {
   const orders = new Map();
   (Array.isArray(sales) ? sales : []).forEach((event, index) => {
-    const date = parseValidDate(event.createdAt || event.processedAt || event.updatedAt);
+    const date = parseValidDate(
+      event.orderDate
+        || event.orderProcessedAt
+        || event.processedAt
+        || event.orderCreatedAt
+        || event.createdAt
+        || event.updatedAt,
+    );
     if (!date) return;
     const key = String(event.orderId || event.orderName || event.name || event.id || `sale:${index}`);
     const quantity = Math.max(1, Number(event.quantity || 1));
@@ -16464,8 +16485,8 @@ function trimSourceEventForCache(item = {}, type) {
     cacheKey,
     id: item.id || null,
     orderId: item.orderId || null,
-    lineItemId: item.lineItemId || null,
-    productId: item.productId || null,
+    lineItemId: item.lineItemId || item.orderLineItemId || item.line_item_id || null,
+    productId: item.productId || item.productGid || item.product_id || null,
     orderDate,
     orderProcessedAt: toIso(item.orderProcessedAt || (type === "sales" ? processedAt || orderDate : null)),
     orderCreatedAt: toIso(item.orderCreatedAt || (type === "sales" ? item.createdAt || orderDate : null)),
@@ -16478,7 +16499,7 @@ function trimSourceEventForCache(item = {}, type) {
     imageUrl: truncateText(item.imageUrl || item.image_url || "", 600),
     imageAlt: truncateText(item.imageAlt || item.image_alt || "", 220),
     sku: String(item.sku || ""),
-    variantId: item.variantId || null,
+    variantId: item.variantId || item.variantGid || item.variant_id || null,
     variantTitle: truncateText(item.variantTitle || "", 160),
     selectedOptions: Array.isArray(item.selectedOptions) ? item.selectedOptions.slice(0, 12).map((option) => ({
       name: truncateText(option?.name || "", 80),
@@ -16534,13 +16555,13 @@ function normalizeCachedBasketLineItems(lineItems = []) {
     .slice(0, DIAGNOSIS_ORDER_LINE_ITEMS_PAGE_SIZE)
     .map((lineItem) => ({
       id: lineItem.id || null,
-      lineItemId: lineItem.lineItemId || lineItem.id || null,
-      productId: lineItem.productId || null,
+      lineItemId: lineItem.lineItemId || lineItem.orderLineItemId || lineItem.line_item_id || lineItem.id || null,
+      productId: lineItem.productId || lineItem.productGid || lineItem.product_id || null,
       handle: truncateText(lineItem.handle || "", 160),
       title: truncateText(lineItem.title || "", 180),
       imageUrl: truncateText(lineItem.imageUrl || lineItem.image_url || "", 600),
       imageAlt: truncateText(lineItem.imageAlt || lineItem.image_alt || "", 220),
-      variantId: lineItem.variantId || null,
+      variantId: lineItem.variantId || lineItem.variantGid || lineItem.variant_id || null,
       variantTitle: truncateText(lineItem.variantTitle || "", 160),
       sku: String(lineItem.sku || ""),
       quantity: Number(lineItem.quantity || 0),
@@ -16550,16 +16571,19 @@ function normalizeCachedBasketLineItems(lineItems = []) {
 
 function getSourceEventCacheKey(type, item = {}) {
   if (item.cacheKey) return String(item.cacheKey);
+  const lineItemId = item.lineItemId || item.orderLineItemId || item.line_item_id;
+  const productId = item.productId || item.productGid || item.product_id;
+  const variantId = item.variantId || item.variantGid || item.variant_id;
   if (type === "sales") {
-    return stableEventCacheKey("sale", item, [item.id, item.orderId, item.variantId, item.sku, item.quantity, item.amount, item.createdAt || item.orderDate || item.orderProcessedAt || item.processedAt]);
+    return stableEventCacheKey("sale", item, [item.id, item.orderId, lineItemId, productId, variantId, item.sku, item.quantity, item.amount, item.createdAt || item.orderDate || item.orderProcessedAt || item.processedAt]);
   }
   if (type === "returns") {
-    return stableEventCacheKey("return-source", item, [item.id, item.returnId, item.orderId, item.variantId, item.sku, item.reason, item.reasonNote, item.customerNote, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
+    return stableEventCacheKey("return-source", item, [item.id, item.returnId, item.orderId, lineItemId, productId, variantId, item.sku, item.reason, item.reasonNote, item.customerNote, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
   }
   if (type === "refunds") {
-    return stableEventCacheKey("refund-source", item, [item.id, item.refundId, item.orderId, item.variantId, item.sku, item.reason, item.reasonLabel, item.note, item.restockType, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
+    return stableEventCacheKey("refund-source", item, [item.id, item.refundId, item.orderId, lineItemId, productId, variantId, item.sku, item.reason, item.reasonLabel, item.note, item.restockType, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
   }
-  return stableEventCacheKey(String(type || "source"), item, [item.id, item.orderId, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
+  return stableEventCacheKey(String(type || "source"), item, [item.id, item.orderId, lineItemId, productId, variantId, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
 }
 
 function isSourceEventInsideLookback(item = {}, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, type = "") {
@@ -19626,7 +19650,7 @@ export function buildProductMomentum({
     .map((event, index) => ({
       id: event.id || event.orderId || `sale:${index}`,
       orderId: event.orderId || event.id || `sale:${index}`,
-      createdAt: parseValidDate(event.createdAt),
+      createdAt: parseValidDate(event.orderDate || event.orderProcessedAt || event.processedAt || event.orderCreatedAt || event.createdAt || event.updatedAt),
       quantity: Math.max(0, Number(event.quantity || 0)),
       amount: Math.max(0, Number(event.amount || 0)),
     }))
@@ -19740,6 +19764,7 @@ export function buildProductMomentum({
     smoothingUnits,
     inventoryConstraint: inventoryState.inventoryConstraint,
   });
+  const label = direction || tier;
   const growthPercent = previous30.units || previous30.revenue
     ? roundRate((combinedGrowthRatio - 1) * 100, 1)
     : last30.units > 0
@@ -19751,6 +19776,7 @@ export function buildProductMomentum({
     score,
     tier,
     direction,
+    label,
     confidence,
     confidenceLabel: getProductMomentumConfidenceLabel(confidence),
     calculatedAt: toIso(currentDate),
@@ -19799,6 +19825,7 @@ export function buildProductMomentum({
       hasCatalogBaseline: Boolean(catalog.hasCatalogBaseline),
     },
     display: {
+      label,
       growthPercent,
       growthLabel: formatSignedPercent(growthPercent),
       catalogPositionLabel: topCatalogPercent ? `Top ${topCatalogPercent}%` : "Catalog baseline pending",

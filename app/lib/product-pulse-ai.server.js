@@ -113,12 +113,16 @@ export async function runProductDiagnosisAiAnalysis({ shop, jobId, input, onPerf
   });
 
   try {
-    const forceBatchTerminalSteps = Boolean(input?.batchMode?.forceOpenAiBatch || input?.batchMode?.freeCreditMode);
+    const freeCreditBatchMode = Boolean(input?.batchMode?.freeCreditMode);
+    const forceBatchTerminalSteps = freeCreditBatchMode && Boolean(input?.batchMode?.forceOpenAiBatch || input?.batchMode?.freeCreditMode);
     const batchAvailability = getProductDiagnosisOpenAiBatchAvailability({ force: forceBatchTerminalSteps });
     if (forceBatchTerminalSteps && !batchAvailability.available) {
       throw new Error(batchAvailability.message || "OpenAI Batch mode is not available for Product Diagnosis.");
     }
-    const shouldBatchTerminalSteps = shouldUseOpenAiBatchForProductDiagnosis({ force: forceBatchTerminalSteps });
+    const shouldBatchTerminalSteps = shouldUseOpenAiBatchForProductDiagnosis({
+      freeCreditMode: freeCreditBatchMode,
+      force: forceBatchTerminalSteps,
+    });
     const chartInterpretationsPromise = shouldBatchTerminalSteps
       ? null
       : runChartInterpretationsAiStep({
@@ -563,7 +567,8 @@ export function getProductDiagnosisOpenAiBatchAvailability({ force = false } = {
   return { available: true, reason: "production_default", provider: routing.provider };
 }
 
-function shouldUseOpenAiBatchForProductDiagnosis({ force = false } = {}) {
+function shouldUseOpenAiBatchForProductDiagnosis({ freeCreditMode = false, force = false } = {}) {
+  if (!freeCreditMode) return false;
   return getProductDiagnosisOpenAiBatchAvailability({ force }).available;
 }
 
@@ -2948,4 +2953,5 @@ function uniqueTruthy(values) {
 export const __productPulseAiTestHooks = {
   buildWatchChangeReportNarrativePayload,
   buildWatchChangeReportNarrativePrompt,
+  shouldUseOpenAiBatchForProductDiagnosis,
 };

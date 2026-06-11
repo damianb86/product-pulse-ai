@@ -52,6 +52,8 @@ describe("ProductPulse AI provider fallback", () => {
     process.env.OPENAI_PRO_MODEL = "gpt-5.4-mini";
     process.env.OPENAI_PREMIUM_MODEL = "gpt-5.4";
     delete process.env.PRODUCT_PULSE_AI_LEVEL;
+    delete process.env.PRODUCT_PULSE_OPENAI_BATCH_ENABLED;
+    delete process.env.OPENAI_WEBHOOK_SECRET;
   });
 
   afterEach(() => {
@@ -364,6 +366,25 @@ describe("ProductPulse AI provider fallback", () => {
       level: "warn",
       event: "product_diagnosis.content_gap_failed",
     }));
+  });
+
+  it("uses OpenAI Batch only for free-credit Batch mode diagnosis work", () => {
+    process.env.PRODUCT_PULSE_AI_LEVEL = "3";
+    process.env.OPENAI_WEBHOOK_SECRET = "test-webhook-secret";
+    process.env.PRODUCT_PULSE_OPENAI_BATCH_ENABLED = "true";
+
+    expect(__productPulseAiTestHooks.shouldUseOpenAiBatchForProductDiagnosis({
+      freeCreditMode: false,
+      force: false,
+    })).toBe(false);
+    expect(__productPulseAiTestHooks.shouldUseOpenAiBatchForProductDiagnosis({
+      freeCreditMode: false,
+      force: true,
+    })).toBe(false);
+    expect(__productPulseAiTestHooks.shouldUseOpenAiBatchForProductDiagnosis({
+      freeCreditMode: true,
+      force: true,
+    })).toBe(true);
   });
 
   it("uses Gemini when AI level 1 is configured", async () => {

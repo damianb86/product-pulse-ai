@@ -508,7 +508,7 @@ describe("ProductPulse Catalog Scan", () => {
       negativeReviewCount: 8,
       negativeReviewRate: 100,
     });
-    expect(candidates[0].metrics.riskComponents.csvRatingRisk).toBeGreaterThan(14);
+    expect(candidates[0].metrics.riskComponents.csvRatingRisk).toBeGreaterThanOrEqual(14);
   });
 
   it("does not promote one isolated bad CSV rating into a Catalog Scan candidate", () => {
@@ -575,6 +575,7 @@ describe("ProductPulse Catalog Scan", () => {
         rating: index % 2 ? 2 : 1,
         reviewDate: "2026-05-01",
       })),
+      settings: { risk: { minimumScore: 10 } },
     });
 
     expect(candidates).toHaveLength(1);

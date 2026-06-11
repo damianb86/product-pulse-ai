@@ -318,58 +318,65 @@ describe("ProductPulse ChatKit integration", () => {
   });
 
   it("renders confirmed internal actions as deterministic result widgets without calling the orchestrator", async () => {
+    vi.stubEnv("AI_ASSISTANT_ENABLED", "true");
+    vi.stubEnv("AI_INTERNAL_ACTIONS_ENABLED", "true");
+    vi.stubEnv("AI_ACTION_CONFIRMATIONS_ENABLED", "true");
     const store = new InMemoryConversationStore();
-    store.conversations.push({
-      id: "conversation-1",
-      shop: baseContext.shop,
-      userId: baseContext.userId,
-      title: "ProductPulse AI assistant",
-      createdAt: "2026-05-20T12:00:00.000Z",
-      updatedAt: "2026-05-20T12:00:00.000Z",
-    });
-    const orchestrator = {
-      runAiChatTurnWithContext: vi.fn(),
-    };
-    const actionRegistry = {
-      confirmAiActionProposal: vi.fn().mockResolvedValue({
-        ok: true,
-        data: {
-          proposal: actionProposalFixture(),
-          execution: actionExecutionFixture(),
-        },
-      }),
-    };
+    try {
+      store.conversations.push({
+        id: "conversation-1",
+        shop: baseContext.shop,
+        userId: baseContext.userId,
+        title: "ProductPulse AI assistant",
+        createdAt: "2026-05-20T12:00:00.000Z",
+        updatedAt: "2026-05-20T12:00:00.000Z",
+      });
+      const orchestrator = {
+        runAiChatTurnWithContext: vi.fn(),
+      };
+      const actionRegistry = {
+        confirmAiActionProposal: vi.fn().mockResolvedValue({
+          ok: true,
+          data: {
+            proposal: actionProposalFixture(),
+            execution: actionExecutionFixture(),
+          },
+        }),
+      };
 
-    const response = await handleChatKitMessage(baseContext, JSON.stringify({
-      type: "threads.custom_action",
-      metadata: { pageContext: { type: "product", entityId: "core-linen-trouser" } },
-      params: {
-        thread_id: "conversation-1",
-        item_id: "widget-1",
-        action: {
-          type: "confirm_ai_action",
-          payload: { proposalId: "proposal-1" },
+      const response = await handleChatKitMessage(baseContext, JSON.stringify({
+        type: "threads.custom_action",
+        metadata: { pageContext: { type: "product", entityId: "core-linen-trouser" } },
+        params: {
+          thread_id: "conversation-1",
+          item_id: "widget-1",
+          action: {
+            type: "confirm_ai_action",
+            payload: { proposalId: "proposal-1" },
+          },
         },
-      },
-    }), {
-      conversationStore: store,
-      orchestrator,
-      actionRegistry,
-      now: () => new Date("2026-05-20T12:00:00.000Z"),
-    });
+      }), {
+        conversationStore: store,
+        orchestrator,
+        actionRegistry,
+        now: () => new Date("2026-05-20T12:00:00.000Z"),
+      });
 
-    const text = await response.text();
-    expect(actionRegistry.confirmAiActionProposal).toHaveBeenCalledWith(
-      expect.objectContaining({ shop: baseContext.shop }),
-      "proposal-1",
-    );
-    expect(orchestrator.runAiChatTurnWithContext).not.toHaveBeenCalled();
-    expect(text).toContain("\"assistant_message.content_part.text_delta\"");
-    expect(text).toContain("\"widget\"");
-    expect(text).toContain("\"Action completed\"");
-    expect(text).toContain("\"Product added to watchlist.\"");
-    expect(text).not.toContain("chatkit_custom_backend_action");
-    expect(JSON.stringify(store.messages)).toContain("action_result");
+      const text = await response.text();
+      expect(actionRegistry.confirmAiActionProposal).toHaveBeenCalledWith(
+        expect.objectContaining({ shop: baseContext.shop }),
+        "proposal-1",
+      );
+      expect(orchestrator.runAiChatTurnWithContext).not.toHaveBeenCalled();
+      expect(text).toContain("\"assistant_message.content_part.text_delta\"");
+      expect(text).toContain("\"widget\"");
+      expect(text).toContain("\"Action completed\"");
+      expect(text).toContain("\"Product added to watchlist.\"");
+      expect(text).not.toContain("chatkit_custom_backend_action");
+      expect(JSON.stringify(store.messages)).toContain("action_result");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("accepts ChatKit editable app mutation submissions through the message endpoint", async () => {

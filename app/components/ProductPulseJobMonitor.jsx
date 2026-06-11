@@ -887,7 +887,7 @@ function getCreditBatchModeSummary(pointSummary, pointBalance) {
   const batchMode = pointSummary?.batchMode && typeof pointSummary.batchMode === "object" ? pointSummary.batchMode : {};
   const rawAvailable = Number(pointBalance?.available ?? pointBalance?.balance ?? pointSummary?.balance?.available ?? pointSummary?.balance?.balance ?? 0);
   const available = Number.isFinite(rawAvailable) ? rawAvailable : 0;
-  const active = batchMode.active ?? available < 1;
+  const active = available < 1 && (batchMode.active ?? true);
   return {
     active: Boolean(active),
     message: batchMode.message || "ProductPulse is letting this store run Product Diagnosis without credits through the free Batch queue. These no-charge analyses do not consume credits, but only one can be started every 24 hours and results may take up to 24 hours to complete.",
@@ -1185,7 +1185,7 @@ function getJobStatusKey(job) {
 function isBatchModeJob(job) {
   const batchMode = job?.batchMode || job?.payload?.batchMode || {};
   const openAiBatch = job?.openAiBatch || job?.payload?.openAiBatch || {};
-  return Boolean(batchMode.freeCreditMode || batchMode.forceOpenAiBatch || openAiBatch.status === "waiting");
+  return Boolean(batchMode.freeCreditMode || openAiBatch.status === "waiting");
 }
 
 function getJobStateIconType(statusKey, job = null) {

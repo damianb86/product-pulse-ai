@@ -2,7 +2,7 @@
 
 client_id = "6907eae771cc52fc7a70e2300fff654a"
 name = "ProductPulse AI"
-application_url = "https://app-ppa.zuam.dev"
+application_url = "https://app-product-pulse.zuam.dev"
 embedded = true
 
 [access_scopes]
@@ -33,7 +33,7 @@ api_version = "2026-07"
   compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
 [auth]
-redirect_urls = [ "https://app-ppa.zuam.dev/auth/callback" ]
+redirect_urls = [ "https://app-product-pulse.zuam.dev/auth/callback" ]
 
 [build]
 include_config_on_deploy = true
