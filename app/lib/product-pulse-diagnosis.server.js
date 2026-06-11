@@ -16406,7 +16406,7 @@ function mergeSourceEventList({ type, previous = [], current = [], windowDays = 
   normalizeSourceEventList(current, type, windowDays).forEach((item) => {
     map.set(getSourceEventCacheKey(type, item), item);
   });
-  return limitSourceEventCacheItems(sortSourceEvents(Array.from(map.values())));
+  return limitSourceEventCacheItems(sortSourceEvents(Array.from(map.values()), type));
 }
 
 function selectDiagnosisRelationshipSalesForSummary({
@@ -16449,7 +16449,8 @@ function normalizeSourceEventList(items = [], type, windowDays = DIAGNOSIS_DEFAU
     (Array.isArray(items) ? items : [])
       .map((item) => trimSourceEventForCache(item, type))
       .filter(Boolean)
-      .filter((item) => isSourceEventInsideLookback(item, windowDays)),
+      .filter((item) => isSourceEventInsideLookback(item, windowDays, type)),
+    type,
   ));
 }
 
@@ -16457,17 +16458,19 @@ function trimSourceEventForCache(item = {}, type) {
   if (!item || typeof item !== "object") return null;
   const cacheKey = getSourceEventCacheKey(type, item);
   if (!cacheKey) return null;
+  const orderDate = toIso(item.orderDate || item.orderProcessedAt || item.processedAt || item.orderCreatedAt || item.createdAt || item.updatedAt || item.date);
+  const processedAt = toIso(item.processedAt || item.orderProcessedAt || (type === "sales" ? orderDate : null));
   const base = {
     cacheKey,
     id: item.id || null,
     orderId: item.orderId || null,
     lineItemId: item.lineItemId || null,
     productId: item.productId || null,
-    orderDate: toIso(item.orderDate || item.orderProcessedAt || item.orderCreatedAt),
-    orderProcessedAt: toIso(item.orderProcessedAt),
-    orderCreatedAt: toIso(item.orderCreatedAt),
-    createdAt: toIso(item.createdAt || item.processedAt || item.updatedAt),
-    updatedAt: toIso(item.updatedAt || item.processedAt || item.createdAt),
+    orderDate,
+    orderProcessedAt: toIso(item.orderProcessedAt || (type === "sales" ? processedAt || orderDate : null)),
+    orderCreatedAt: toIso(item.orderCreatedAt || (type === "sales" ? item.createdAt || orderDate : null)),
+    createdAt: toIso(item.createdAt || processedAt || orderDate || item.updatedAt || item.date),
+    updatedAt: toIso(item.updatedAt || processedAt || item.createdAt || orderDate || item.date),
     customerKey: item.customerKey || item.customerId || item.customerGid || item.customer?.id || null,
     quantity: Number(item.quantity || 0),
     amount: Number(item.amount || 0),
@@ -16548,34 +16551,37 @@ function normalizeCachedBasketLineItems(lineItems = []) {
 function getSourceEventCacheKey(type, item = {}) {
   if (item.cacheKey) return String(item.cacheKey);
   if (type === "sales") {
-    return stableEventCacheKey("sale", item, [item.id, item.orderId, item.variantId, item.sku, item.quantity, item.amount, item.createdAt]);
+    return stableEventCacheKey("sale", item, [item.id, item.orderId, item.variantId, item.sku, item.quantity, item.amount, item.createdAt || item.orderDate || item.orderProcessedAt || item.processedAt]);
   }
   if (type === "returns") {
-    return stableEventCacheKey("return-source", item, [item.id, item.returnId, item.orderId, item.variantId, item.sku, item.reason, item.reasonNote, item.customerNote, item.createdAt]);
+    return stableEventCacheKey("return-source", item, [item.id, item.returnId, item.orderId, item.variantId, item.sku, item.reason, item.reasonNote, item.customerNote, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
   }
   if (type === "refunds") {
-    return stableEventCacheKey("refund-source", item, [item.id, item.refundId, item.orderId, item.variantId, item.sku, item.reason, item.reasonLabel, item.note, item.restockType, item.createdAt]);
+    return stableEventCacheKey("refund-source", item, [item.id, item.refundId, item.orderId, item.variantId, item.sku, item.reason, item.reasonLabel, item.note, item.restockType, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
   }
-  return stableEventCacheKey(String(type || "source"), item, [item.id, item.orderId, item.createdAt]);
+  return stableEventCacheKey(String(type || "source"), item, [item.id, item.orderId, item.createdAt || item.processedAt || item.updatedAt || item.orderDate]);
 }
 
-function isSourceEventInsideLookback(item = {}, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS) {
-  const date = getSourceEventDate(item);
+function isSourceEventInsideLookback(item = {}, windowDays = DIAGNOSIS_DEFAULT_WINDOW_DAYS, type = "") {
+  const date = getSourceEventDate(item, type);
   if (!date) return true;
   const cutoff = Date.now() - Math.max(1, Number(windowDays || DIAGNOSIS_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000;
   return date.getTime() >= cutoff;
 }
 
-function getSourceEventDate(item = {}) {
-  return parseValidDate(item.createdAt || item.processedAt || item.updatedAt || item.date);
+function getSourceEventDate(item = {}, type = "") {
+  if (type === "sales") {
+    return parseValidDate(item.orderDate || item.orderProcessedAt || item.processedAt || item.orderCreatedAt || item.createdAt || item.updatedAt || item.date);
+  }
+  return parseValidDate(item.processedAt || item.updatedAt || item.createdAt || item.orderDate || item.orderProcessedAt || item.orderCreatedAt || item.date);
 }
 
-function sortSourceEvents(items = []) {
+function sortSourceEvents(items = [], type = "") {
   return (Array.isArray(items) ? items : []).sort((left, right) => {
-    const leftDate = getSourceEventDate(left)?.getTime() || 0;
-    const rightDate = getSourceEventDate(right)?.getTime() || 0;
+    const leftDate = getSourceEventDate(left, type)?.getTime() || 0;
+    const rightDate = getSourceEventDate(right, type)?.getTime() || 0;
     if (leftDate !== rightDate) return leftDate - rightDate;
-    return getSourceEventCacheKey("source", left).localeCompare(getSourceEventCacheKey("source", right));
+    return getSourceEventCacheKey(type || "source", left).localeCompare(getSourceEventCacheKey(type || "source", right));
   });
 }
 
@@ -16848,7 +16854,7 @@ async function persistShopSourceEventCache({ shop, windowDays = DIAGNOSIS_DEFAUL
 function buildShopSourceEventRow({ shop, sourceType, event = {}, now = new Date() } = {}) {
   const payload = trimSourceEventForCache(event, sourceType);
   if (!payload) return null;
-  const eventAt = getSourceEventDate(payload) || parseValidDate(payload.orderDate) || now;
+  const eventAt = getSourceEventDate(payload, sourceType) || parseValidDate(payload.orderDate) || now;
   return {
     shop,
     sourceType,

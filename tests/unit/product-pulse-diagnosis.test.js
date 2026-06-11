@@ -2238,6 +2238,98 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(merged.returns).toHaveLength(1);
   });
 
+  it("filters cached source sales by order date when createdAt is missing", () => {
+    const now = new Date("2026-06-11T12:00:00.000Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now.getTime());
+    try {
+      const recentOrderDate = "2026-06-01T00:00:00.000Z";
+      const staleOrderDate = "2026-02-01T00:00:00.000Z";
+      const merged = __productPulseDiagnosisTestHooks.mergeIncrementalSourceEvents({
+        previous: {
+          sales: [
+            {
+              id: "sale-recent-order-date-only",
+              orderId: "order-recent",
+              lineItemId: "line-recent",
+              productId: "gid://shopify/Product/source",
+              orderDate: recentOrderDate,
+              quantity: 1,
+              amount: 50,
+            },
+            {
+              id: "sale-stale-order-date-only",
+              orderId: "order-stale",
+              lineItemId: "line-stale",
+              productId: "gid://shopify/Product/source",
+              orderDate: staleOrderDate,
+              quantity: 1,
+              amount: 30,
+            },
+          ],
+          refunds: [],
+          returns: [],
+        },
+        current: { sales: [], refunds: [], returns: [] },
+        windowDays: 60,
+      });
+
+      expect(merged.sales.map((sale) => sale.id)).toEqual(["sale-recent-order-date-only"]);
+      expect(merged.sales[0]).toMatchObject({
+        orderDate: recentOrderDate,
+        createdAt: recentOrderDate,
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("filters cached refunds by refund processed date instead of original order date", () => {
+    const now = new Date("2026-06-11T12:00:00.000Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now.getTime());
+    try {
+      const merged = __productPulseDiagnosisTestHooks.mergeIncrementalSourceEvents({
+        previous: {
+          sales: [],
+          refunds: [
+            {
+              id: "refund-recent-for-old-order",
+              refundId: "refund-recent",
+              orderId: "order-old",
+              lineItemId: "line-old",
+              productId: "gid://shopify/Product/source",
+              orderDate: "2026-02-01T00:00:00.000Z",
+              processedAt: "2026-06-01T00:00:00.000Z",
+              quantity: 1,
+              amount: 30,
+            },
+            {
+              id: "refund-stale",
+              refundId: "refund-stale",
+              orderId: "order-stale",
+              lineItemId: "line-stale",
+              productId: "gid://shopify/Product/source",
+              orderDate: "2026-02-01T00:00:00.000Z",
+              processedAt: "2026-03-01T00:00:00.000Z",
+              quantity: 1,
+              amount: 30,
+            },
+          ],
+          returns: [],
+        },
+        current: { sales: [], refunds: [], returns: [] },
+        windowDays: 60,
+      });
+
+      expect(merged.refunds.map((refund) => refund.id)).toEqual(["refund-recent-for-old-order"]);
+      expect(merged.refunds[0]).toMatchObject({
+        orderDate: "2026-02-01T00:00:00.000Z",
+        processedAt: "2026-06-01T00:00:00.000Z",
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("uses merged full-window source sales for product relationship timelines after cache refresh", () => {
     const daysAgo = (days) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const sourceProductId = "gid://shopify/Product/cache-rel-source";
