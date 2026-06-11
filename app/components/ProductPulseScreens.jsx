@@ -37,6 +37,13 @@ import {
 } from "../lib/product-pulse-html-style-presets";
 import { buildEmbeddedApiPath } from "../lib/product-pulse-app-paths";
 import { BetaFeedbackPanelControls, BetaFeedbackPanelFrame } from "./beta-feedback/BetaFeedbackLayer";
+import {
+  AppPage,
+  EmptyState,
+  MetricCard,
+  PageShell,
+  StatusBadge,
+} from "./ProductPulseUi";
 
 const dashboardClientCache = new Map();
 const DASHBOARD_CLIENT_CACHE_MAX_ENTRIES = 8;
@@ -24688,37 +24695,38 @@ function DashboardKpiCard({ kpi }) {
   const resolutionBreakdown = getDashboardResolutionKpiBreakdown(kpi);
 
   return (
-    <article className="ppDashboardKpi">
-      <DashboardIcon type={kpi.icon} tone={kpi.tone} />
-      <div>
-        <h2>{kpi.label}</h2>
-        <strong>{kpi.value}</strong>
-        {resolutionBreakdown && <span className="ppDashboardKpiValueLabel">{resolutionBreakdown.valueLabel}</span>}
-        {kpi.trend ? (
-          <span className="ppTrend">
-            <strong>{trendValue}</strong>
-            <span>vs {trendContext}</span>
+    <MetricCard
+      className="ppDashboardKpi"
+      icon={<DashboardIcon type={kpi.icon} tone={kpi.tone} />}
+      label={kpi.label}
+      tone={kpi.tone}
+      value={kpi.value}
+    >
+      {resolutionBreakdown && <span className="ppDashboardKpiValueLabel">{resolutionBreakdown.valueLabel}</span>}
+      {kpi.trend ? (
+        <span className="ppTrend">
+          <strong>{trendValue}</strong>
+          <span>vs {trendContext}</span>
+        </span>
+      ) : resolutionBreakdown ? (
+        <span className="ppKpiDetail ppDashboardKpiResolvedDetail">
+          <span className="ppDashboardKpiBreakdown" aria-label={resolutionBreakdown.ariaLabel}>
+            {resolutionBreakdown.items.map((item) => (
+              <span key={item.label}>
+                <b>{item.value}</b>
+                {item.label}
+              </span>
+            ))}
           </span>
-        ) : resolutionBreakdown ? (
-          <span className="ppKpiDetail ppDashboardKpiResolvedDetail">
-            <span className="ppDashboardKpiBreakdown" aria-label={resolutionBreakdown.ariaLabel}>
-              {resolutionBreakdown.items.map((item) => (
-                <span key={item.label}>
-                  <b>{item.value}</b>
-                  {item.label}
-                </span>
-              ))}
-            </span>
-            <DashboardKpiInfoPopover help={help} />
-          </span>
-        ) : (
-          <span className="ppKpiDetail">
-            <span>{kpi.detail}</span>
-            <DashboardKpiInfoPopover help={help} />
-          </span>
-        )}
-      </div>
-    </article>
+          <DashboardKpiInfoPopover help={help} />
+        </span>
+      ) : (
+        <span className="ppKpiDetail">
+          <span>{kpi.detail}</span>
+          <DashboardKpiInfoPopover help={help} />
+        </span>
+      )}
+    </MetricCard>
   );
 }
 
@@ -25265,10 +25273,14 @@ function ProductsTableEmptyIcon() {
 
 function InlineBadge({ tone, icon, children }) {
   return (
-    <span className={`ppInlineBadge ppInlineBadge-${tone}`}>
-      <s-icon type={icon} size="small"></s-icon>
-      <span>{children}</span>
-    </span>
+    <StatusBadge
+      className={`ppInlineBadge ppInlineBadge-${tone}`}
+      icon={<s-icon type={icon} size="small"></s-icon>}
+      showMarker={false}
+      tone={tone}
+    >
+      {children}
+    </StatusBadge>
   );
 }
 
@@ -35733,18 +35745,16 @@ function getConnectCoverageGradient(categories) {
 }
 
 function ScreenShell({ children, className = "" }) {
-  return <div className={`ppShell ${className}`.trim()}>{children}</div>;
+  return <PageShell className={className}>{children}</PageShell>;
 }
 
 function FullWidthPage({ heading, label, className = "", children }) {
   const titleId = heading ? `pp-page-${heading.toLowerCase().replace(/[^a-z0-9]+/g, "-")}` : undefined;
-  const labelProps = heading ? { "aria-labelledby": titleId } : { "aria-label": label };
 
   return (
-    <main className={`ppFullWidthPage ${className}`.trim()} {...labelProps}>
-      {heading && <h1 id={titleId} className="ppPageTitle">{heading}</h1>}
+    <AppPage className={className} label={label} title={heading} titleId={titleId}>
       {children}
-    </main>
+    </AppPage>
   );
 }
 
@@ -35793,22 +35803,23 @@ function AnalyticsKpiCard({ kpi, index = 0 }) {
   const position = index + 1;
   const iconType = position === 2 && kpi.icon === "shield-check-mark" ? "diagnostic-confidence" : kpi.icon;
   return (
-    <article className={`ppAnalyticsKpi ppAnalyticsKpi-${position}`}>
-      <DashboardIcon type={iconType} tone={kpi.tone} className={`ppAnalyticsKpiIcon ppAnalyticsKpiIcon-${position}`} />
-      <div>
-        <h2>{kpi.label}</h2>
-        <strong>{kpi.value}</strong>
-        {kpi.trend ? (
-          <span className={`ppAnalyticsTrend ppAnalyticsTrend-${kpi.trendTone || "neutral"}`}>
-            {kpi.trendTone === "green" ? <span className="ppTrendArrowUp" aria-hidden="true" /> : <span className="ppTrendArrow" aria-hidden="true" />}
-            <b>{kpi.trend}</b>
-            {kpi.context}
-          </span>
-        ) : (
-          <span className="ppAnalyticsDetail">{kpi.detail}</span>
-        )}
-      </div>
-    </article>
+    <MetricCard
+      className={`ppAnalyticsKpi ppAnalyticsKpi-${position}`}
+      icon={<DashboardIcon type={iconType} tone={kpi.tone} className={`ppAnalyticsKpiIcon ppAnalyticsKpiIcon-${position}`} />}
+      label={kpi.label}
+      tone={kpi.tone}
+      value={kpi.value}
+    >
+      {kpi.trend ? (
+        <span className={`ppAnalyticsTrend ppAnalyticsTrend-${kpi.trendTone || "neutral"}`}>
+          {kpi.trendTone === "green" ? <span className="ppTrendArrowUp" aria-hidden="true" /> : <span className="ppTrendArrow" aria-hidden="true" />}
+          <b>{kpi.trend}</b>
+          {kpi.context}
+        </span>
+      ) : (
+        <span className="ppAnalyticsDetail">{kpi.detail}</span>
+      )}
+    </MetricCard>
   );
 }
 
@@ -36715,10 +36726,11 @@ function getAnalyticsTooltipAriaLabel(point) {
 
 function AnalyticsEmptyPanel({ message }) {
   return (
-    <div className="ppAnalyticsEmptyPanel">
-      <s-icon type="chart-line" size="small"></s-icon>
-      <span>{message}</span>
-    </div>
+    <EmptyState
+      className="ppAnalyticsEmptyPanel"
+      description={message}
+      icon={<s-icon type="chart-line" size="small"></s-icon>}
+    />
   );
 }
 
