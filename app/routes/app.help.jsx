@@ -30,7 +30,7 @@ const requestCards = [
   {
     icon: "spark",
     title: "Suggest a workflow improvement",
-    text: "Share ideas for connectors, metric timelines, retention views, issue labels, action templates, or catalog review flows your team needs.",
+    text: "Share ideas for connectors, metric timelines, retention views, issue labels, action templates, or store-specific review flows your team needs.",
     action: "Send suggestion",
     modal: "suggestion",
   },
@@ -66,6 +66,11 @@ const supportAreas = [
     icon: "spark",
     title: "Assistant and confirmations",
     text: "Use the AI assistant for explanations and ProductPulse-owned proposals while keeping Shopify writes behind separate, explicit workflows.",
+  },
+  {
+    icon: "actions",
+    title: "Store-specific workflow fit",
+    text: "If your catalog, CX, merchandising, or operations process needs a different screen, metric, connector, action template, or guided flow, send the workflow context. We can help decide whether it fits ProductPulse configuration or needs a more tailored implementation for your shop.",
   },
 ];
 
@@ -142,6 +147,7 @@ const commonTopics = [
   "Recommended action previews are ProductPulse records first; direct Shopify product writes are not performed by the assistant.",
   "Watchlist reports compare new source movement, product risk, Sales Momentum, evidence, and diagnosis changes against a stored baseline.",
   "Missing Shopify scopes should show recovery guidance instead of silently producing partial analysis.",
+  "Some teams need a shop-specific workflow. Send the store context, decision flow, and what should work differently so we can recommend configuration, ProductPulse adjustments, or a more tailored implementation path.",
 ];
 
 const privacyStoredItems = [
@@ -180,9 +186,9 @@ const modalContent = {
     subjectPlaceholder: "Connector, analytics, or action idea",
     messageLabel: "What should ProductPulse add or improve?",
     messagePlaceholder:
-      "Example: Add a Zendesk source and show which support themes changed the risk score, retention health, or recommended action for each product.",
+      "Example: Add a store-specific review flow for seasonal products, or show which support themes changed the risk score, retention health, or recommended action for each product.",
     intro:
-      "Connector requests, missing issue labels, analytics gaps, confusing copy, and action-template ideas are all useful.",
+      "Connector requests, missing issue labels, analytics gaps, confusing copy, store-specific workflow needs, and action-template ideas are all useful.",
     primary: "Send suggestion",
   },
   support: {
