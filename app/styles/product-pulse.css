@@ -18,6 +18,12 @@
   --pp-success-green: #16A34A;
   --pp-warning-amber: #F59E0B;
   --pp-risk-red: #EF4444;
+  --pp-batch-accent: #A84836;
+  --pp-batch-accent-hover: #8F392C;
+  --pp-batch-accent-rgb: 168, 72, 54;
+  --pp-batch-soft: #FFF3ED;
+  --pp-batch-text: #7A2E24;
+  --pp-batch-border: #F2C5B6;
   --pp-info-cyan: #2563EB;
   --pp-primary-green: #0F6B3F;
   --pp-dark-cta: #111827;
@@ -31683,12 +31689,12 @@ s-page[inline-size="large-500"] {
 }
 
 .ppBackgroundProcessCard.isBatchMode {
-  border-color: rgba(var(--pp-risk-red-rgb), 0.30);
+  border-color: rgba(var(--pp-batch-accent-rgb), 0.28);
   background:
-    linear-gradient(180deg, #fff1f2 0%, rgba(255, 255, 255, 0.98) 72%),
+    linear-gradient(180deg, var(--pp-batch-soft) 0%, rgba(255, 255, 255, 0.98) 72%),
     var(--pp-cloud-white);
   box-shadow:
-    inset 4px 0 0 #b91c1c,
+    inset 4px 0 0 var(--pp-batch-accent),
     0 1px 2px rgba(var(--pp-shadow-rgb), 0.04);
 }
 
@@ -31786,13 +31792,15 @@ s-page[inline-size="large-500"] {
 }
 
 .ppBackgroundProcessStatusIcon-batch-mode {
-  background: #991b1b;
+  background: var(--pp-batch-accent);
   color: var(--pp-cloud-white);
-  box-shadow: 0 0 0 3px rgba(var(--pp-risk-red-rgb), 0.10);
+  box-shadow: 0 0 0 3px rgba(var(--pp-batch-accent-rgb), 0.12);
 }
 
 .ppBackgroundProcessStatusIcon-batch-mode s-icon {
+  --s-icon-color: var(--pp-cloud-white);
   animation: none;
+  color: var(--pp-cloud-white);
 }
 
 .ppBackgroundProcessStatusLine {
@@ -31832,8 +31840,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppBackgroundProcessCard.isBatchMode .ppBackgroundProcessStatusPill {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--pp-batch-soft);
+  color: var(--pp-batch-text);
 }
 
 .ppBackgroundProcessBatchPill {
@@ -31842,16 +31850,17 @@ s-page[inline-size="large-500"] {
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--pp-batch-border);
   border-radius: 999px;
-  background: #fff1f2;
-  color: #991b1b;
+  background: var(--pp-batch-soft);
+  color: var(--pp-batch-text);
   font-size: 10px;
   font-weight: 850;
   white-space: nowrap;
 }
 
 .ppBackgroundProcessBatchPill s-icon {
+  color: var(--pp-batch-text);
   transform: scale(0.68);
 }
 
@@ -35180,23 +35189,23 @@ s-page[inline-size="large-500"] {
 }
 
 .ppGlobalTopbarPoints.isBatchMode {
-  border-color: rgba(var(--pp-risk-red-rgb), 0.42);
-  background: #b91c1c;
+  border-color: rgba(var(--pp-batch-accent-rgb), 0.42);
+  background: var(--pp-batch-accent);
   color: #ffffff;
-  box-shadow: 0 12px 28px rgba(var(--pp-risk-red-rgb), 0.22);
+  box-shadow: 0 12px 28px rgba(var(--pp-batch-accent-rgb), 0.22);
 }
 
 .ppGlobalTopbarPoints.isBatchMode:hover,
 .ppGlobalTopbarPoints.isBatchMode:focus-visible,
 .ppGlobalTopbarPoints.isBatchMode.isActive {
-  border-color: rgba(var(--pp-risk-red-rgb), 0.62);
-  background: #991b1b;
+  border-color: rgba(var(--pp-batch-accent-rgb), 0.62);
+  background: var(--pp-batch-accent-hover);
   color: #ffffff;
-  box-shadow: 0 14px 32px rgba(var(--pp-risk-red-rgb), 0.3);
+  box-shadow: 0 14px 32px rgba(var(--pp-batch-accent-rgb), 0.28);
 }
 
 .ppGlobalTopbarPoints.isBatchMode:focus-visible {
-  box-shadow: 0 0 0 3px rgba(var(--pp-risk-red-rgb), 0.22), 0 14px 32px rgba(var(--pp-risk-red-rgb), 0.3);
+  box-shadow: 0 0 0 3px rgba(var(--pp-batch-accent-rgb), 0.22), 0 14px 32px rgba(var(--pp-batch-accent-rgb), 0.28);
 }
 
 .ppGlobalTopbarPoints strong {
@@ -35252,7 +35261,7 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarPoints.isBatchMode .ppGlobalTopbarWalletIcon span {
   border-color: #ffffff;
-  background: #991b1b;
+  background: var(--pp-batch-accent-hover);
 }
 
 .ppGlobalTopbarCreditsPopover {
@@ -35280,11 +35289,11 @@ s-page[inline-size="large-500"] {
   gap: 12px;
   margin: 12px 12px 0;
   padding: 14px 15px;
-  border: 1px solid rgba(var(--pp-risk-red-rgb), 0.24);
+  border: 1px solid rgba(var(--pp-batch-accent-rgb), 0.24);
   border-radius: 12px;
-  background: #fff1f2;
-  color: #7f1d1d;
-  box-shadow: 0 8px 28px rgba(var(--pp-risk-red-rgb), 0.08) inset;
+  background: var(--pp-batch-soft);
+  color: var(--pp-batch-text);
+  box-shadow: 0 8px 28px rgba(var(--pp-batch-accent-rgb), 0.08) inset;
 }
 
 .ppCreditsBatchModeIcon {
@@ -35293,14 +35302,19 @@ s-page[inline-size="large-500"] {
   display: inline-grid;
   place-items: center;
   border-radius: 9px;
-  background: #b91c1c;
+  background: var(--pp-batch-accent);
+  color: #ffffff;
+}
+
+.ppCreditsBatchModeIcon s-icon {
+  --s-icon-color: #ffffff;
   color: #ffffff;
 }
 
 .ppCreditsBatchModeNotice strong {
   display: block;
   margin: 0 0 4px;
-  color: #7f1d1d;
+  color: var(--pp-batch-text);
   font-size: 13px;
   font-weight: 760;
   line-height: 1.2;
@@ -35308,7 +35322,7 @@ s-page[inline-size="large-500"] {
 
 .ppCreditsBatchModeNotice p {
   margin: 0;
-  color: #7f1d1d;
+  color: var(--pp-batch-text);
   font-size: 12px;
   font-weight: 560;
   line-height: 1.45;
@@ -35317,7 +35331,7 @@ s-page[inline-size="large-500"] {
 .ppCreditsBatchModeNotice small {
   display: block;
   margin-top: 7px;
-  color: #991b1b;
+  color: var(--pp-batch-text);
   font-size: 10.5px;
   font-weight: 650;
   line-height: 1.35;
@@ -35956,8 +35970,8 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarJobItem.isBatchMode {
   border-radius: 6px;
-  background: linear-gradient(180deg, #fff1f2 0%, rgba(255, 255, 255, 0.98) 78%);
-  box-shadow: inset 3px 0 0 #b91c1c;
+  background: linear-gradient(180deg, var(--pp-batch-soft) 0%, rgba(255, 255, 255, 0.98) 78%);
+  box-shadow: inset 3px 0 0 var(--pp-batch-accent);
 }
 
 .ppGlobalTopbarJobStateIcon {
@@ -35996,13 +36010,15 @@ s-page[inline-size="large-500"] {
 }
 
 .ppGlobalTopbarJobStateIcon-batch-mode {
-  background: #991b1b;
+  background: var(--pp-batch-accent);
   color: var(--pp-cloud-white);
-  box-shadow: 0 0 0 3px rgba(var(--pp-risk-red-rgb), 0.10);
+  box-shadow: 0 0 0 3px rgba(var(--pp-batch-accent-rgb), 0.12);
 }
 
 .ppGlobalTopbarJobStateIcon-batch-mode s-icon {
+  --s-icon-color: var(--pp-cloud-white);
   animation: none;
+  color: var(--pp-cloud-white);
 }
 
 .ppGlobalTopbarJobMain {
@@ -36071,8 +36087,8 @@ s-page[inline-size="large-500"] {
 }
 
 .ppGlobalTopbarJobItem.isBatchMode .ppGlobalTopbarJobStatus {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--pp-batch-soft);
+  color: var(--pp-batch-text);
 }
 
 .ppGlobalTopbarJobElapsed {
@@ -36123,15 +36139,16 @@ s-page[inline-size="large-500"] {
 
 .ppGlobalTopbarJobMetaItem-batch {
   padding: 2px 6px;
-  border: 1px solid #fecaca;
+  border: 1px solid rgba(var(--pp-batch-accent-rgb), 0.32);
   border-radius: 999px;
-  background: #fff1f2;
-  color: #991b1b;
+  background: var(--pp-batch-accent);
+  color: #ffffff;
   font-weight: 850;
 }
 
 .ppGlobalTopbarJobMetaItem-batch s-icon {
-  color: #991b1b;
+  --s-icon-color: #ffffff;
+  color: #ffffff;
 }
 
 .ppGlobalTopbarJobOpenButton {

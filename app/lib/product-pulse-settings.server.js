@@ -210,7 +210,7 @@ export function getProductPulseBatchModeSummary(settings = {}, pointBalance = nu
     lastFreeBatchJobId: configured.lastFreeBatchJobId || null,
     lastFreeBatchProductGid: configured.lastFreeBatchProductGid || null,
     message: outOfCredits
-      ? "Batch mode is active because this store has no credits. Product Diagnosis runs do not consume credits in this mode, but only one analysis can be started every 24 hours and results can take up to 24 hours to complete. This applies regardless of the current plan."
+      ? "ProductPulse is letting this store run Product Diagnosis without credits through the free Batch queue. These no-charge analyses do not consume credits, but only one can be started every 24 hours and results may take up to 24 hours to complete."
       : "",
   };
 }

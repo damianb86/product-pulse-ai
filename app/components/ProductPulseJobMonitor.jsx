@@ -690,7 +690,7 @@ function ProductPulseGlobalTopbar({
   const batchModeSummary = getCreditBatchModeSummary(pointSummary, pointBalance);
   const batchModeActive = Boolean(batchModeSummary.active);
   const creditsButtonLabel = batchModeActive
-    ? `Batch mode active, ${pointLabel} Credits available`
+    ? `Free Batch queue active, ${pointLabel} Credits available`
     : hasPointBalance(pointBalance) ? `${pointLabel} Credits available` : "Credits";
 
   return (
@@ -781,14 +781,14 @@ function CreditsPopover({ id, pointSummary, pointBalance, loading = false, error
   return (
     <div className="ppGlobalTopbarPopover ppGlobalTopbarCreditsPopover" id={id} role="dialog" aria-label="Credit details">
       {summary.batchMode.active ? (
-        <section className="ppCreditsBatchModeNotice" aria-label="Batch mode active">
+        <section className="ppCreditsBatchModeNotice" aria-label="Free Batch queue active">
           <span className="ppCreditsBatchModeIcon" aria-hidden="true">
             <s-icon type="clock" size="small"></s-icon>
           </span>
           <div>
-            <strong>Batch mode is active</strong>
+            <strong>Free Batch queue is active</strong>
             <p>{summary.batchMode.message}</p>
-            <small>{summary.batchMode.nextFreeBatchDiagnosisAt ? `Next free analysis window: ${formatCreditDateTime(summary.batchMode.nextFreeBatchDiagnosisAt)}.` : "The next free Batch analysis can be started now."}</small>
+            <small>{summary.batchMode.nextFreeBatchDiagnosisAt ? `Next free Batch slot: ${formatCreditDateTime(summary.batchMode.nextFreeBatchDiagnosisAt)}.` : "A free Batch analysis can be started now."}</small>
           </div>
         </section>
       ) : null}
@@ -890,7 +890,7 @@ function getCreditBatchModeSummary(pointSummary, pointBalance) {
   const active = batchMode.active ?? available < 1;
   return {
     active: Boolean(active),
-    message: batchMode.message || "Batch mode is active because this store has no credits. Product Diagnosis runs do not consume credits in this mode, but only one analysis can be started every 24 hours and results can take up to 24 hours to complete. This applies regardless of the current plan.",
+    message: batchMode.message || "ProductPulse is letting this store run Product Diagnosis without credits through the free Batch queue. These no-charge analyses do not consume credits, but only one can be started every 24 hours and results may take up to 24 hours to complete.",
     nextFreeBatchDiagnosisAt: batchMode.nextFreeBatchDiagnosisAt || null,
     canStartFreeBatchAnalysis: batchMode.canStartFreeBatchAnalysis ?? true,
   };
@@ -1200,7 +1200,7 @@ function getJobMetaItems(job, now, current) {
   const showElapsed = current || job.status !== "Queued";
   const batchModeActive = isBatchModeJob(job);
   return [
-    batchModeActive ? { icon: "batch", iconType: "clock", label: "Batch mode" } : null,
+    batchModeActive ? { icon: "batch", iconType: "clock", label: "Free Batch" } : null,
     { icon: "clock", label: getJobTimeMetaLabel(job) },
     batchModeActive ? null : { icon: "points", label: getJobCreditLabel(job) },
     showElapsed ? { icon: "clock", label: formatElapsed(job, now) } : null,
@@ -1217,7 +1217,7 @@ function getJobTimeMetaLabel(job) {
 }
 
 function getJobCreditLabel(job) {
-  if (job.batchMode?.freeCreditMode) return "Batch mode";
+  if (job.batchMode?.freeCreditMode) return "Free Batch";
   const points = Number(job.pointsConsumed ?? job.creditsConsumed ?? job.credits ?? job.creditCost ?? (job.kind === "product-diagnosis" ? 1 : 0));
   if (!Number.isFinite(points) || points <= 0) return "";
   return `${formatPointBalanceLabel({ available: points })} credit${points === 1 ? "" : "s"}`;

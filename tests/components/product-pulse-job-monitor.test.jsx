@@ -630,21 +630,21 @@ describe("ProductPulseJobMonitor", () => {
           active: true,
           cooldownHours: 24,
           nextFreeBatchDiagnosisAt: "2026-05-21T12:00:00.000Z",
-          message: "Batch mode is active because this store has no credits. Product Diagnosis runs do not consume credits in this mode, but only one analysis can be started every 24 hours and results can take up to 24 hours to complete. This applies regardless of the current plan.",
+          message: "ProductPulse is letting this store run Product Diagnosis without credits through the free Batch queue. These no-charge analyses do not consume credits, but only one can be started every 24 hours and results may take up to 24 hours to complete.",
         },
         activity: [],
       },
     });
 
-    const creditsButton = screen.getByRole("button", { name: "Batch mode active, 0 Credits available" });
+    const creditsButton = screen.getByRole("button", { name: "Free Batch queue active, 0 Credits available" });
     expect(creditsButton).toHaveClass("isBatchMode");
 
     fireEvent.click(creditsButton);
     const creditsDialog = screen.getByRole("dialog", { name: "Credit details" });
-    expect(within(creditsDialog).getByText("Batch mode is active")).toBeVisible();
-    expect(creditsDialog).toHaveTextContent("Product Diagnosis runs do not consume credits in this mode");
-    expect(creditsDialog).toHaveTextContent("only one analysis can be started every 24 hours");
-    expect(creditsDialog).toHaveTextContent("regardless of the current plan");
+    expect(within(creditsDialog).getByText("Free Batch queue is active")).toBeVisible();
+    expect(creditsDialog).toHaveTextContent("run Product Diagnosis without credits through the free Batch queue");
+    expect(creditsDialog).toHaveTextContent("only one can be started every 24 hours");
+    expect(creditsDialog).toHaveTextContent("may take up to 24 hours to complete");
   });
 
   it("shows active and past jobs from the top bar with product navigation", () => {
@@ -747,7 +747,7 @@ describe("ProductPulseJobMonitor", () => {
     const batchJob = document.querySelector(".ppGlobalTopbarJobItem.isBatchMode");
     expect(batchJob).toBeInTheDocument();
     expect(batchJob.querySelector(".ppGlobalTopbarJobStateIcon-batch-mode")).toBeInTheDocument();
-    expect(within(batchJob).getByText("Batch mode")).toBeVisible();
+    expect(within(batchJob).getByText("Free Batch")).toBeVisible();
     expect(within(batchJob).queryByText(/credit/i)).not.toBeInTheDocument();
   });
 
