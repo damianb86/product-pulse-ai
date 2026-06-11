@@ -578,20 +578,24 @@ export default function Help() {
           </div>
 
           <aside className={styles.contactPanel} aria-labelledby="direct-contact-title">
-            <div className={styles.cardTitle}>
-              <span className={styles.smallIconDark}>
-                <HelpIcon type="email" />
-              </span>
-              <h2 id="direct-contact-title">Direct contact</h2>
+            <div className={styles.contactPanelBody}>
+              <div className={styles.cardTitle}>
+                <span className={styles.smallIconDark}>
+                  <HelpIcon type="email" />
+                </span>
+                <h2 id="direct-contact-title">Direct contact</h2>
+              </div>
+              <p>
+                Prefer email? Send the shop context, screen name, product handle,
+                and the result your team expected.
+              </p>
+              <div className={styles.emailBox}>{contactEmail}</div>
             </div>
-            <p>
-              Prefer email? Send the shop context, screen name, product handle,
-              and the result your team expected.
-            </p>
-            <div className={styles.emailBox}>{contactEmail}</div>
-            <s-button onClick={() => setOpenModal("support")}>
-              Send from app
-            </s-button>
+            <div className={styles.contactPanelAction}>
+              <s-button onClick={() => setOpenModal("support")}>
+                Send from app
+              </s-button>
+            </div>
           </aside>
         </section>
 

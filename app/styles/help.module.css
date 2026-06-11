@@ -482,13 +482,18 @@
 }
 
 .contactPanel {
-  align-content: space-between;
+  align-self: start;
   display: grid;
-  gap: 16px;
+  gap: 14px;
   overflow: hidden;
-  padding: 20px;
+  padding: 18px;
   color: var(--pp-cloud-white);
-  background: var(--pp-dark-neutral-gradient);
+  background:
+    linear-gradient(145deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98)),
+    var(--pp-slate-900);
+  box-shadow:
+    0 1px 1px rgba(var(--pp-shadow-rgb), 0.08),
+    0 14px 32px rgba(var(--pp-shadow-rgb), 0.12);
 }
 
 .contactPanel h2,
@@ -496,16 +501,41 @@
   color: var(--pp-cloud-white);
 }
 
+.contactPanelBody {
+  display: grid;
+  gap: 13px;
+}
+
+.contactPanel .cardTitle {
+  gap: 10px;
+}
+
+.contactPanel p {
+  max-width: 34ch;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12.5px;
+  line-height: 1.48;
+}
+
+.contactPanelAction {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 2px;
+}
+
 .emailBox {
   overflow-wrap: anywhere;
-  padding: 12px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.085);
   color: var(--pp-cloud-white);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.4;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.35;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .topicPanel,
