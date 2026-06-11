@@ -1196,7 +1196,7 @@ function buildFinalReportPrompt(input, classification, contentGaps, emergentSent
     "When a recommendation is pending, frame it as carried-forward work, not a new recommendation. When an issue has too little post-action evidence, recommend monitoring or Watchlist instead of repeating the same fix.",
     "When productEvolution marks a candidate reopened/persistent or recommendedTreatment escalate_persistent_issue, say the same issue persists after prior action and suggest escalation, QA, source verification, or stronger review instead of repeating the original low-level fix.",
     "When the product improved after an action, reflect that improvement in the interpretation and avoid unnecessary new recommendations.",
-    "Return post_action_status for successive diagnoses. Keep it concise and aligned with productEvolution.postActionStatus: what was already done, what changed after that point, and the next best step.",
+    "Return post_action_status only when productEvolution.postActionStatus is present. Keep it concise and aligned with productEvolution.postActionStatus: what was already done, what changed after that point, and the next best step.",
     "Product-modifying copy in recommendation_copy is applied to Shopify only after merchant review. Use your strongest product-copy reasoning here: be specific, accurate, and preserve useful existing product information.",
     "For shopper-facing notes, FAQs, description add-ons, SEO copy, titles, media alt text, and product descriptions, write only the inner merchant-ready copy. The ProductPulse application will wrap notes, FAQ blocks, and add-ons in a consistent HTML callout.",
     "Use plain text or simple paragraph/list structure only. Do not include outer CSS, inline styles, scripts, custom wrappers, or theme-specific markup in recommendation_copy.",
@@ -1457,6 +1457,7 @@ const PRODUCT_CHART_INTERPRETATION_DEFINITIONS = [
 export function buildCompactProductChartInterpretationInput(input = {}) {
   const metrics = input?.deterministic?.metrics || {};
   const product = input?.product || {};
+  const temporalEvolution = compactProductTemporalEvolutionForAi(metrics, input?.deterministic);
   const charts = {
     monthly_order_activity: compactMonthlyOrderActivityForAi(metrics.monthlyOrderActivity),
     return_rate_prediction: compactReturnRatePredictionForAi(metrics.returnRatePrediction),
@@ -1472,6 +1473,7 @@ export function buildCompactProductChartInterpretationInput(input = {}) {
       handle: cleanRelationshipText(product.handle || "", 120),
     },
     instruction: "Interpret the actual business story in each chart, not generic metric definitions.",
+    temporal_evolution: temporalEvolution,
     charts,
   };
 }
@@ -1482,6 +1484,8 @@ function buildProductChartInterpretationsPrompt(compactInput) {
     "The merchant already sees the chart labels. Do not explain what each metric generally means.",
     "Instead, interpret what the supplied values, dates, direction, volatility, forecast and gaps say about this specific product as a business signal.",
     "Write for a store owner or operator: what can they conclude, what tension is visible, and what deserves attention.",
+    "Use temporal_evolution when available to explain how the product is evolving across diagnoses and elapsed time, but do not force it into a chart when it is not relevant to that chart.",
+    "Only mention post-action state when temporal_evolution.has_post_action_status is true.",
     "Use only supplied data. Do not invent facts, causes, exact values, dates, trends, products, customers, or recommendations not supported by the data.",
     "Keep each chart answer to one short paragraph, ideally 35 to 75 words and never more than 90 words.",
     "If a chart has unavailable or too-thin data, return an empty string for that chart.",
@@ -1499,6 +1503,75 @@ function buildProductChartInterpretationsPrompt(compactInput) {
     "Compact chart data:",
     stringifyAiJson(compactInput),
   ].join("\n\n");
+}
+
+function compactProductTemporalEvolutionForAi(metrics = {}, deterministic = {}) {
+  const stored = metrics.temporalEvolution || {};
+  const productEvolution = metrics.productEvolution || {};
+  const riskHistory = compactProductRiskHistoryForAi(metrics, deterministic);
+  const points = Array.isArray(riskHistory.points) ? riskHistory.points : [];
+  const firstPoint = points[0] || null;
+  const lastPoint = points[points.length - 1] || null;
+  const hasPreviousDiagnosis = Boolean(
+    stored.hasPreviousDiagnosis
+      || productEvolution.hasPreviousDiagnosis
+      || productEvolution.mode === "successive"
+      || productEvolution.previousDiagnosis,
+  );
+  const previousDiagnosisAt = stored.previousDiagnosisAt
+    || productEvolution.previousDiagnosis?.completedAt
+    || productEvolution.previousCompletedAt
+    || firstPoint?.recordedAt
+    || null;
+  const currentDiagnosisAt = stored.currentDiagnosisAt
+    || productEvolution.currentRun?.analyzedAt
+    || lastPoint?.recordedAt
+    || null;
+  const previousRiskScore = toAiOptionalNumber(
+    stored.risk?.previousRiskScore
+      ?? productEvolution.previousDiagnosis?.riskScore
+      ?? firstPoint?.riskScore,
+  );
+  const currentRiskScore = toAiOptionalNumber(
+    stored.risk?.currentRiskScore
+      ?? productEvolution.currentRun?.riskScore
+      ?? deterministic?.riskScore
+      ?? lastPoint?.riskScore,
+  );
+  const riskDelta = previousRiskScore === null || currentRiskScore === null
+    ? null
+    : roundAiNumber(currentRiskScore - previousRiskScore);
+  const handledActionCount = toAiNumber(
+    stored.handledActionCount
+      ?? productEvolution.actionCounts?.handled
+      ?? productEvolution.handledActionsSincePreviousDiagnosis?.length,
+  );
+  const hasPostActionStatus = Boolean((stored.hasPostActionStatus || productEvolution.postActionStatus) && hasPreviousDiagnosis && handledActionCount > 0);
+  const summary = cleanRelationshipText(stored.summary || productEvolution.summary || "", 420);
+
+  return {
+    available: Boolean(stored.available || hasPreviousDiagnosis || points.length > 1 || summary),
+    mode: cleanRelationshipText(stored.mode || productEvolution.mode || (points.length > 1 ? "successive" : "baseline"), 40),
+    transition_kind: cleanRelationshipText(stored.transitionKind || productEvolution.transitionKind || "", 60),
+    has_previous_diagnosis: hasPreviousDiagnosis,
+    previous_diagnosis_at: previousDiagnosisAt,
+    current_diagnosis_at: currentDiagnosisAt,
+    elapsed_since_previous_diagnosis_days: toAiOptionalNumber(stored.elapsedSincePreviousDiagnosisDays ?? calculateAiElapsedDays(previousDiagnosisAt, currentDiagnosisAt)),
+    handled_action_count: handledActionCount,
+    has_post_action_status: hasPostActionStatus,
+    has_new_evidence: Boolean(stored.hasNewEvidence || productEvolution.sourceSummary?.hasNewEvidence),
+    risk: {
+      previous_risk_score: previousRiskScore,
+      current_risk_score: currentRiskScore,
+      delta: toAiOptionalNumber(stored.risk?.delta ?? riskDelta),
+      direction: cleanRelationshipText(stored.risk?.direction || getAiRiskDeltaDirection(riskDelta), 40),
+    },
+    summary,
+    metric_changes: (stored.metricChanges || productEvolution.metricChanges || []).slice(0, 6),
+    issue_transition: stored.issueTransition || productEvolution.issueTransition || null,
+    source_summary: stored.sourceSummary || productEvolution.sourceSummary || null,
+    risk_history_points: points.slice(-6),
+  };
 }
 
 export function normalizeProductChartInterpretations(raw = null, compactInput = {}, modelSummary = null) {
@@ -2008,6 +2081,21 @@ function roundAiNumber(value, digits = 1) {
   if (!Number.isFinite(numeric)) return 0;
   const factor = 10 ** digits;
   return Math.round(numeric * factor) / factor;
+}
+
+function calculateAiElapsedDays(start, end) {
+  const startDate = start ? new Date(start) : null;
+  const endDate = end ? new Date(end) : null;
+  if (!startDate || !endDate || Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+  return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function getAiRiskDeltaDirection(delta) {
+  if (delta === null || delta === undefined) return "unknown";
+  const numeric = Number(delta);
+  if (!Number.isFinite(numeric)) return "unknown";
+  if (Math.abs(numeric) < 0.5) return "stable";
+  return numeric > 0 ? "worsened" : "improved";
 }
 
 function buildProductDiagnosisPrompt(product) {

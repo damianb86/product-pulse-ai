@@ -5467,6 +5467,7 @@ function buildPersistedDiagnosis({ snapshot, shopifyData, judgeMeData, yotpoData
 }
 
 function normalizeAiPostActionStatus(rawStatus = null, productEvolution = null) {
+  if (!hasEligibleProductEvolutionPostActionStatus(productEvolution)) return null;
   const fallback = productEvolution?.postActionStatus || null;
   if (!rawStatus || typeof rawStatus !== "object") return fallback;
   const value = (...keys) => String(
@@ -6168,12 +6169,17 @@ function attachProductEvolutionToDeterministic(deterministic = {}, productEvolut
 
 function sanitizeProductEvolutionForAi(productEvolution = null) {
   if (!productEvolution || typeof productEvolution !== "object") return null;
+  const postActionStatus = hasEligibleProductEvolutionPostActionStatus(productEvolution)
+    ? productEvolution.postActionStatus || null
+    : null;
   return {
     schemaVersion: productEvolution.schemaVersion || 1,
     mode: productEvolution.mode || "baseline",
     transitionKind: productEvolution.transitionKind || "baseline",
+    hasPreviousDiagnosis: Boolean(productEvolution.hasPreviousDiagnosis || productEvolution.mode === "successive" || productEvolution.previousDiagnosis),
     summary: productEvolution.summary || "",
     previousDiagnosis: productEvolution.previousDiagnosis || null,
+    previousCompletedAt: productEvolution.previousCompletedAt || productEvolution.previousDiagnosis?.completedAt || null,
     currentRun: productEvolution.currentRun || null,
     handledActionsSincePreviousDiagnosis: (productEvolution.handledActionsSincePreviousDiagnosis || []).slice(0, 8),
     openActionsSincePreviousDiagnosis: (productEvolution.openActionsSincePreviousDiagnosis || []).slice(0, 4),
@@ -6183,7 +6189,7 @@ function sanitizeProductEvolutionForAi(productEvolution = null) {
     issueTransition: productEvolution.issueTransition || null,
     comparisonBaseline: productEvolution.comparisonBaseline || null,
     postActionEvidence: productEvolution.postActionEvidence || null,
-    postActionStatus: productEvolution.postActionStatus || null,
+    postActionStatus,
     previousRecommendationLifecycle: (productEvolution.previousRecommendationLifecycle || []).slice(0, 10),
     candidateTransitions: (productEvolution.candidateTransitions || []).slice(0, 12),
     recommendationPolicy: productEvolution.recommendationPolicy || null,
@@ -6211,8 +6217,28 @@ function summarizeProductEvolutionForJobLog(productEvolution = {}) {
     actionCounts: productEvolution?.actionCounts || {},
     sourceChanges: productEvolution?.sourceSummary?.changes || [],
     metricChanges: (productEvolution?.metricChanges || []).slice(0, 8),
-    postActionStatus: productEvolution?.postActionStatus || null,
+    postActionStatus: hasEligibleProductEvolutionPostActionStatus(productEvolution) ? productEvolution?.postActionStatus || null : null,
   };
+}
+
+function hasEligibleProductEvolutionPostActionStatus(productEvolution = null) {
+  if (!productEvolution || typeof productEvolution !== "object") return false;
+  const hasPreviousDiagnosis = Boolean(
+    productEvolution.hasPreviousDiagnosis
+      || productEvolution.mode === "successive"
+      || productEvolution.previousDiagnosis,
+  );
+  return hasPreviousDiagnosis && getProductEvolutionHandledActionCount(productEvolution) > 0;
+}
+
+function getProductEvolutionHandledActionCount(productEvolution = null) {
+  if (!productEvolution || typeof productEvolution !== "object") return 0;
+  const explicitCount = numberOrNull(productEvolution.actionCounts?.handled);
+  if (explicitCount !== null) return Math.max(0, explicitCount);
+  const handledActions = Array.isArray(productEvolution.handledActionsSincePreviousDiagnosis)
+    ? productEvolution.handledActionsSincePreviousDiagnosis
+    : [];
+  return handledActions.length;
 }
 
 function normalizeProductEvolutionActions(actionRecords = [], { previousCompletedAt = null, previousDiagnosisId = null } = {}) {
@@ -6784,12 +6810,12 @@ function buildProductEvolutionPostActionStatus({
   metricChanges = [],
   issueTransition = {},
 } = {}) {
-  if (!hasPreviousDiagnosis) return null;
+  const handledCount = (Array.isArray(handledActions) ? handledActions : []).length;
+  if (!hasPreviousDiagnosis || handledCount < 1) return null;
   const lifecycleCounts = countProductEvolutionLifecycleStates(previousRecommendationLifecycle);
   const reopenedCount = lifecycleCounts["reopened/persistent"] || 0;
   const pendingCount = lifecycleCounts.pending || 0;
   const monitoringCount = lifecycleCounts.monitoring || 0;
-  const handledCount = (Array.isArray(handledActions) ? handledActions : []).length;
   const status = getProductEvolutionPostActionStatusState({
     reopenedCount,
     pendingCount,
@@ -8075,6 +8101,13 @@ function buildAiProductInput(product, snapshot) {
 
 function buildAiDeterministicInput(deterministic) {
   const signalRelevance = buildSignalRelevanceGuidance(deterministic);
+  const productEvolution = sanitizeProductEvolutionForAi(deterministic.metrics.productEvolution);
+  const riskHistory = buildAiRiskHistoryInput(deterministic.metrics.reconstructedRiskHistory || deterministic.metrics.riskHistory);
+  const temporalEvolution = buildAiTemporalEvolutionInput({
+    deterministic,
+    productEvolution,
+    riskHistory,
+  });
   return {
     riskScore: deterministic.riskScore,
     confidence: deterministic.confidence,
@@ -8141,12 +8174,110 @@ function buildAiDeterministicInput(deterministic) {
       returnRatePrediction: buildAiReturnRatePredictionInput(deterministic.metrics.returnRatePrediction),
       productRetention: buildAiProductRetentionInput(deterministic.metrics.productRetention),
       productMomentum: buildAiProductMomentumInput(deterministic.metrics.productMomentum),
-      riskHistory: buildAiRiskHistoryInput(deterministic.metrics.reconstructedRiskHistory || deterministic.metrics.riskHistory),
+      riskHistory,
+      productEvolution,
+      productEvolutionSummary: productEvolution?.summary || "",
+      temporalEvolution,
       windowDays: deterministic.metrics.windowDays,
       orderAccessDenied: deterministic.metrics.orderAccessDenied,
       incrementalDiagnosis: sanitizeIncrementalDiagnosisForAi(deterministic.metrics.incrementalDiagnosis),
     },
   };
+}
+
+function buildAiTemporalEvolutionInput({ deterministic = {}, productEvolution = null, riskHistory = [] } = {}) {
+  const history = Array.isArray(riskHistory) ? riskHistory.filter(Boolean) : [];
+  const firstPoint = history[0] || null;
+  const lastPoint = history[history.length - 1] || null;
+  const hasPreviousDiagnosis = Boolean(productEvolution?.hasPreviousDiagnosis || productEvolution?.mode === "successive" || productEvolution?.previousDiagnosis);
+  const previousDiagnosisAt = productEvolution?.previousDiagnosis?.completedAt
+    || productEvolution?.previousCompletedAt
+    || (productEvolution?.comparisonBaseline?.type === "diagnosis" ? productEvolution.comparisonBaseline.at : null)
+    || firstPoint?.recordedAt
+    || null;
+  const currentDiagnosisAt = productEvolution?.currentRun?.analyzedAt
+    || lastPoint?.recordedAt
+    || null;
+  const previousRiskScore = firstNonNullNumber(
+    productEvolution?.previousDiagnosis?.riskScore,
+    firstPoint?.riskScore,
+  );
+  const currentRiskScore = firstNonNullNumber(
+    productEvolution?.currentRun?.riskScore,
+    deterministic.riskScore,
+    lastPoint?.riskScore,
+  );
+  const previousConfidence = firstNonNullNumber(
+    productEvolution?.previousDiagnosis?.confidence,
+    firstPoint?.confidence,
+  );
+  const currentConfidence = firstNonNullNumber(
+    productEvolution?.currentRun?.confidence,
+    deterministic.confidence,
+    lastPoint?.confidence,
+  );
+  const riskDelta = calculateMetricDelta(previousRiskScore, currentRiskScore);
+  const confidenceDelta = calculateMetricDelta(previousConfidence, currentConfidence);
+
+  return {
+    available: Boolean(hasPreviousDiagnosis || history.length > 1 || productEvolution?.summary),
+    mode: productEvolution?.mode || (history.length > 1 ? "successive" : "baseline"),
+    transitionKind: productEvolution?.transitionKind || null,
+    hasPreviousDiagnosis,
+    previousDiagnosisAt,
+    currentDiagnosisAt,
+    elapsedSincePreviousDiagnosisDays: calculateElapsedDays(previousDiagnosisAt, currentDiagnosisAt),
+    handledActionCount: getProductEvolutionHandledActionCount(productEvolution),
+    openActionCount: numberOrNull(productEvolution?.actionCounts?.open) ?? (productEvolution?.openActionsSincePreviousDiagnosis || []).length,
+    hasNewEvidence: Boolean(productEvolution?.sourceSummary?.hasNewEvidence),
+    hasPostActionStatus: Boolean(productEvolution?.postActionStatus),
+    summary: productEvolution?.summary || "",
+    risk: {
+      previousRiskScore,
+      currentRiskScore,
+      delta: riskDelta,
+      direction: getMetricDeltaDirection(riskDelta, { lowerIsBetter: true }),
+    },
+    confidence: {
+      previousConfidence,
+      currentConfidence,
+      delta: confidenceDelta,
+      direction: getMetricDeltaDirection(confidenceDelta),
+    },
+    metricChanges: (productEvolution?.metricChanges || []).slice(0, 8),
+    issueTransition: productEvolution?.issueTransition || null,
+    sourceSummary: productEvolution?.sourceSummary || null,
+    postActionStatus: productEvolution?.postActionStatus || null,
+    riskHistoryPoints: history.slice(-6),
+  };
+}
+
+function firstNonNullNumber(...values) {
+  for (const value of values) {
+    const number = numberOrNull(value);
+    if (number !== null) return number;
+  }
+  return null;
+}
+
+function calculateMetricDelta(previousValue, currentValue) {
+  if (previousValue === null || currentValue === null) return null;
+  return Math.round((Number(currentValue) - Number(previousValue)) * 100) / 100;
+}
+
+function calculateElapsedDays(start, end) {
+  const startDate = parseValidDate(start);
+  const endDate = parseValidDate(end);
+  if (!startDate || !endDate) return null;
+  return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)));
+}
+
+function getMetricDeltaDirection(delta, { lowerIsBetter = false } = {}) {
+  if (delta === null) return "unknown";
+  if (Math.abs(delta) < 0.5) return "stable";
+  const increased = delta > 0;
+  if (lowerIsBetter) return increased ? "worsened" : "improved";
+  return increased ? "increased" : "decreased";
 }
 
 function buildAiMonthlyOrderActivityInput(activity = null) {

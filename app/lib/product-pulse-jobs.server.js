@@ -8254,6 +8254,8 @@ function formatSnapshotForDiagnosis(snapshot, actions = [], latestDiagnosis = nu
       checkedSources: Array.isArray(diagnosisReport.checkedSources) ? diagnosisReport.checkedSources : [],
       aiModels: diagnosisReport.aiModels || null,
       chartInterpretations: metrics.chartInterpretations || diagnosisReport.chartInterpretations || null,
+      productEvolution: metrics.productEvolution || diagnosisReport.productEvolution || null,
+      productEvolutionSummary: metrics.productEvolutionSummary || diagnosisReport.productEvolutionSummary || metrics.productEvolution?.summary || diagnosisReport.productEvolution?.summary || "",
       orderAccessDenied: Boolean(metrics.orderAccessDenied),
       descriptionLength: metrics.descriptionLength || 0,
       descriptionWordCount: metrics.descriptionWordCount || 0,

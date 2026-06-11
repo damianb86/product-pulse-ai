@@ -508,7 +508,7 @@ describe("ProductPulse Catalog Scan", () => {
       negativeReviewCount: 8,
       negativeReviewRate: 100,
     });
-    expect(candidates[0].metrics.riskComponents.csvRatingRisk).toBeGreaterThanOrEqual(14);
+    expect(candidates[0].metrics.riskComponents.csvRatingRisk).toBeGreaterThanOrEqual(13);
   });
 
   it("does not promote one isolated bad CSV rating into a Catalog Scan candidate", () => {

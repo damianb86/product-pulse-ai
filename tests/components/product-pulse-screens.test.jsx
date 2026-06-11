@@ -7159,6 +7159,7 @@ describe("ProductPulse screens", () => {
   it("renders closed-loop post-action status and recommendation lifecycle", () => {
     const selectedProduct = {
       ...defaultView.products.find((product) => product.slug === "trail-run-vest"),
+      diagnosisCount: 2,
       postActionStatus: {
         title: "Post-action status",
         status: "reopened_persistent",
@@ -7171,6 +7172,11 @@ describe("ProductPulse screens", () => {
           label: "Rewrite product description",
           lifecycleState: "reopened/persistent",
           actionStatus: "applied",
+        }],
+        alreadyDone: [{
+          label: "Rewrite product description",
+          status: "applied",
+          handledAt: "2026-05-12T00:00:00.000Z",
         }],
       },
       recommendedActions: [{
@@ -7193,6 +7199,49 @@ describe("ProductPulse screens", () => {
     expect(within(postActionStatus).getByText("A prior description action was applied, but new review evidence still points to the same fit issue.")).toBeInTheDocument();
     expect(within(postActionStatus).getByText("Escalate the reopened issue instead of repeating the same copy fix.")).toBeInTheDocument();
     expect(container.querySelector(".ppCompactRecommendedLifecycle")?.textContent).toContain("Reopened");
+  });
+
+  it("hides post-action status until the product has multiple diagnoses and handled actions", () => {
+    const baseProduct = {
+      ...defaultView.products.find((product) => product.slug === "trail-run-vest"),
+      postActionStatus: {
+        title: "Post-action status",
+        status: "monitoring",
+        tone: "info",
+        summary: "A prior action is waiting for post-action evidence.",
+        nextBestStep: "Wait for new evidence.",
+        alreadyDone: [{ label: "Rewrite product description", status: "applied" }],
+      },
+    };
+
+    const firstRun = renderWithRouter(<ProductDiagnosisScreen data={defaultView} product={{ ...baseProduct, diagnosisCount: 1 }} />);
+    expect(screen.queryByLabelText("Post-action status")).not.toBeInTheDocument();
+    firstRun.unmount();
+
+    renderWithRouter(<ProductDiagnosisScreen
+      data={defaultView}
+      product={{
+        ...baseProduct,
+        diagnosisCount: 2,
+        postActionStatus: {
+          ...baseProduct.postActionStatus,
+          alreadyDone: [],
+          lifecycle: [],
+          lifecycleCounts: { pending: 1 },
+        },
+        actionHistory: [],
+        metrics: {
+          ...baseProduct.metrics,
+          productEvolution: {
+            mode: "successive",
+            hasPreviousDiagnosis: true,
+            actionCounts: { handled: 0, open: 1 },
+            handledActionsSincePreviousDiagnosis: [],
+          },
+        },
+      }}
+    />);
+    expect(screen.queryByLabelText("Post-action status")).not.toBeInTheDocument();
   });
 
   it("adds main finding question blocks for stored diagnosis text that omitted them", () => {

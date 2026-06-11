@@ -801,6 +801,26 @@ describe("ProductPulse AI provider fallback", () => {
             { label: "Apr 2026", riskScore: 71, confidence: 88, returnRate: 35, refundRate: 10 },
             { label: "May 2026", riskScore: 84, confidence: 90, returnRate: 58.33, refundRate: 25 },
           ],
+          productEvolution: {
+            mode: "successive",
+            transitionKind: "actions_changed",
+            hasPreviousDiagnosis: true,
+            summary: "Risk moved upward after a handled content action and fresh post-purchase evidence.",
+            previousDiagnosis: {
+              completedAt: "2026-04-20T00:00:00.000Z",
+              riskScore: 71,
+              confidence: 88,
+            },
+            currentRun: {
+              analyzedAt: "2026-05-02T00:00:00.000Z",
+              riskScore: 84,
+              confidence: 90,
+            },
+            actionCounts: { handled: 1, open: 0 },
+            handledActionsSincePreviousDiagnosis: [{ label: "Rewrite product description", status: "applied" }],
+            sourceSummary: { hasNewEvidence: true },
+            postActionStatus: { status: "changed", summary: "New evidence arrived after the action." },
+          },
           productMomentum: {
             score: 77,
             tier: "Active",
@@ -824,6 +844,18 @@ describe("ProductPulse AI provider fallback", () => {
     expect(compact.charts.product_retention_metrics.summary).toMatchObject({
       totalCustomersAnalyzed: 7,
       retentionHealthScore: 93,
+    });
+    expect(compact.temporal_evolution).toMatchObject({
+      available: true,
+      has_previous_diagnosis: true,
+      handled_action_count: 1,
+      has_post_action_status: true,
+      risk: {
+        previous_risk_score: 71,
+        current_risk_score: 84,
+        delta: 13,
+        direction: "worsened",
+      },
     });
   });
 

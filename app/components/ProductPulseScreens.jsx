@@ -8826,9 +8826,16 @@ function getProductDetailModel(product) {
   const baseEvidenceSources = getProductEvidenceSources(product);
   const checkedItems = getProductCheckedItems(product);
   const mainFinding = sanitizeProductMainFinding(product.mainFinding);
-  const postActionStatus = normalizeProductPostActionStatus(
-    product.postActionStatus || metrics.diagnosisReport?.postActionStatus || metrics.productEvolution?.postActionStatus,
-  );
+  const diagnosisCount = getProductDetailDiagnosisCount(product, metrics);
+  const rawPostActionStatus = product.postActionStatus || metrics.diagnosisReport?.postActionStatus || metrics.productEvolution?.postActionStatus;
+  const postActionStatus = shouldShowProductPostActionStatus({
+    product,
+    metrics,
+    status: rawPostActionStatus,
+    diagnosisCount,
+  })
+    ? normalizeProductPostActionStatus(rawPostActionStatus)
+    : null;
   const riskTrendValues = getProductRiskTrendValues(product);
   const riskDisplay = getProductRiskDisplay(product.riskScore, riskTrendValues, product.riskTone, hasRiskSnapshot);
   const monthlyOrderActivity = normalizeProductMonthlyOrderActivity(metrics.monthlyOrderActivity);
@@ -8932,7 +8939,7 @@ function getProductDetailModel(product) {
     analysisDepth: analysisStatus.depth,
     analysisLabel: analysisStatus.label,
     analysisDetail: analysisStatus.detail,
-    diagnosisCount: Number.isFinite(Number(product.diagnosisCount)) ? Number(product.diagnosisCount) : null,
+    diagnosisCount,
     hasRiskSnapshot,
     hasFullDiagnosis,
     activeDiagnosisJob,
@@ -12102,6 +12109,65 @@ function normalizeProductPostActionStatus(status) {
     lifecycle,
     lifecycleCounts: status.lifecycleCounts && typeof status.lifecycleCounts === "object" ? status.lifecycleCounts : {},
   };
+}
+
+function getProductDetailDiagnosisCount(product = {}, metrics = {}) {
+  const directCount = Number(product.diagnosisCount);
+  if (Number.isFinite(directCount)) return directCount;
+  const metricCount = Number(metrics.diagnosisCount);
+  if (Number.isFinite(metricCount)) return metricCount;
+  const productEvolution = asPlainObject(metrics.productEvolution || metrics.diagnosisReport?.productEvolution);
+  if (
+    productEvolution.hasPreviousDiagnosis
+    || productEvolution.mode === "successive"
+    || productEvolution.previousDiagnosis
+  ) {
+    return 2;
+  }
+  return null;
+}
+
+function shouldShowProductPostActionStatus({
+  product = {},
+  metrics = {},
+  status = null,
+  diagnosisCount = null,
+} = {}) {
+  if (!status || typeof status !== "object") return false;
+  if (!(Number(diagnosisCount) > 1)) return false;
+  return hasHandledProductPostAction({ product, metrics, status });
+}
+
+function hasHandledProductPostAction({ product = {}, metrics = {}, status = null } = {}) {
+  const rawStatus = status && typeof status === "object" ? status : {};
+  if (Array.isArray(rawStatus.alreadyDone) && rawStatus.alreadyDone.length > 0) return true;
+  const lifecycleCounts = asPlainObject(rawStatus.lifecycleCounts);
+  if (Number(lifecycleCounts.applied || 0) > 0 || Number(lifecycleCounts.monitoring || 0) > 0 || Number(lifecycleCounts["reopened/persistent"] || 0) > 0 || Number(lifecycleCounts.superseded || 0) > 0) {
+    return true;
+  }
+  if (Array.isArray(rawStatus.lifecycle) && rawStatus.lifecycle.some(isHandledProductPostActionLifecycleEntry)) return true;
+
+  const productEvolution = asPlainObject(metrics.productEvolution || metrics.diagnosisReport?.productEvolution);
+  if (Number(productEvolution.actionCounts?.handled || 0) > 0) return true;
+  if (Array.isArray(productEvolution.handledActionsSincePreviousDiagnosis) && productEvolution.handledActionsSincePreviousDiagnosis.length > 0) return true;
+
+  return (Array.isArray(product.actionHistory) ? product.actionHistory : []).some(isHandledProductActionHistoryRecord);
+}
+
+function isHandledProductPostActionLifecycleEntry(entry = {}) {
+  const state = normalizeRecommendedActionLifecycleState(entry.lifecycleState || entry.state || entry.status);
+  if (["applied", "monitoring", "reopened/persistent", "superseded"].includes(state)) return true;
+  return isHandledProductActionStatus(entry.actionStatus || entry.status);
+}
+
+function isHandledProductActionHistoryRecord(record = {}) {
+  if (isSystemRecommendedActionRecord(record)) return false;
+  return isHandledProductActionStatus(record.status);
+}
+
+function isHandledProductActionStatus(status = "") {
+  const normalized = String(status || "").trim().toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_+|_+$/g, "");
+  return ["applied", "completed", "complete", "done", "reviewed", "review", "dismissed", "ignored", "cancelled", "canceled"].includes(normalized);
 }
 
 function normalizeProductPostActionLifecycleEntry(entry = {}) {

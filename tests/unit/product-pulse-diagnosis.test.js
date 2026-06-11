@@ -3333,6 +3333,36 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
           { label: "Apr 2026", riskScore: 71, confidence: 88, returnRate: 35, refundRate: 10 },
           { label: "May 2026", riskScore: 84, confidence: 90, returnRate: 58.33, refundRate: 25 },
         ],
+        productEvolution: {
+          mode: "successive",
+          transitionKind: "actions_changed",
+          hasPreviousDiagnosis: true,
+          summary: "Risk increased after the previous Product Diagnosis and a handled content action.",
+          previousDiagnosis: {
+            id: "diagnosis-previous-chart-input",
+            completedAt: "2026-04-20T00:00:00.000Z",
+            riskScore: 71,
+            confidence: 88,
+          },
+          currentRun: {
+            analyzedAt: "2026-05-02T00:00:00.000Z",
+            riskScore: 84,
+            confidence: 90,
+          },
+          actionCounts: { handled: 1, open: 0 },
+          handledActionsSincePreviousDiagnosis: [{
+            label: "Rewrite product description",
+            status: "applied",
+            handledAt: "2026-04-25T00:00:00.000Z",
+          }],
+          sourceSummary: { hasNewEvidence: true },
+          metricChanges: [{ key: "riskScore", previousValue: 71, currentValue: 84, delta: 13 }],
+          postActionStatus: {
+            title: "Post-action status",
+            status: "changed",
+            summary: "A handled action now has new follow-up evidence.",
+          },
+        },
       },
     });
 
@@ -3343,6 +3373,23 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(aiInput.metrics.productRetention).toMatchObject({ available: true, retentionHealthScore: 93 });
     expect(aiInput.metrics.productMomentum).toMatchObject({ available: true, score: 77 });
     expect(aiInput.metrics.riskHistory).toHaveLength(2);
+    expect(aiInput.metrics.productEvolution).toMatchObject({
+      mode: "successive",
+      hasPreviousDiagnosis: true,
+      postActionStatus: { status: "changed" },
+    });
+    expect(aiInput.metrics.temporalEvolution).toMatchObject({
+      available: true,
+      hasPreviousDiagnosis: true,
+      handledActionCount: 1,
+      elapsedSincePreviousDiagnosisDays: 12,
+      risk: {
+        previousRiskScore: 71,
+        currentRiskScore: 84,
+        delta: 13,
+        direction: "worsened",
+      },
+    });
   });
 
   it("matches CSV reviews by Shopify numeric ID or product handle", () => {
@@ -4014,6 +4061,58 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(productEvolution.postActionStatus.status).toBe("monitoring");
     expect(productEvolution.postActionStatus.summary).toContain("not enough post-action evidence");
     expect(filteredCandidates.map((candidate) => candidate.id)).not.toContain("rewrite-product-description");
+  });
+
+  it("does not build post-action status for successive diagnoses without handled actions", () => {
+    const deterministic = {
+      mainIssue: "product_content",
+      mainIssueLabel: "Product content",
+      riskScore: 64,
+      confidence: 76,
+      issueSignalCounts: { product_content: 1 },
+      sourceCoverage: ["Shopify products"],
+      estimatedImpact: { revenueAtRisk: 0 },
+      product: {
+        id: "gid://shopify/Product/no-handled-actions",
+        title: "No Handled Actions Product",
+        handle: "no-handled-actions-product",
+      },
+      metrics: { contentIssueCount: 1, signalCount: 1 },
+      evidenceSnippets: [],
+    };
+    const productEvolution = __productPulseDiagnosisTestHooks.buildProductDiagnosisEvolutionContextFromRecords({
+      snapshot: {
+        productGid: deterministic.product.id,
+        productTitle: deterministic.product.title,
+        handle: deterministic.product.handle,
+      },
+      deterministic,
+      previousDiagnosis: {
+        id: "diagnosis-previous-no-handled-actions",
+        productGid: deterministic.product.id,
+        riskScore: 62,
+        confidence: 74,
+        likelyCause: "Product content",
+        recommendations: [{ id: "rewrite-product-description", label: "Rewrite product description" }],
+        metrics: { contentIssueCount: 1, signalCount: 1 },
+        completedAt: "2026-05-10T00:00:00.000Z",
+      },
+      actionRecords: [{
+        id: "action-pending-no-status",
+        diagnosisId: "diagnosis-previous-no-handled-actions",
+        productGid: deterministic.product.id,
+        actionType: "rewrite-product-description",
+        label: "Rewrite product description",
+        status: "draft",
+        payload: { canonicalActionId: "rewrite-product-description" },
+        createdAt: "2026-05-11T00:00:00.000Z",
+      }],
+      recommendationCandidates: [{ id: "rewrite-product-description", type: "PDP copy" }],
+    });
+
+    expect(productEvolution.hasPreviousDiagnosis).toBe(true);
+    expect(productEvolution.handledActionsSincePreviousDiagnosis).toHaveLength(0);
+    expect(productEvolution.postActionStatus).toBeNull();
   });
 
   it("treats newly cached historical Shopify source events as evolution evidence", () => {
