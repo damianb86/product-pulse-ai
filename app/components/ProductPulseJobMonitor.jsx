@@ -1192,6 +1192,7 @@ function getJobStateIconType(statusKey, job = null) {
   if (isBatchModeJob(job)) return "clock";
   if (statusKey === "completed") return "check-circle";
   if (statusKey === "failed") return "alert-circle";
+  if (statusKey === "canceled" || statusKey === "cancelled") return "x";
   if (statusKey === "queued") return "clock";
   return "refresh";
 }

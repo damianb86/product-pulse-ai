@@ -18,12 +18,12 @@
   --pp-success-green: #16A34A;
   --pp-warning-amber: #F59E0B;
   --pp-risk-red: #EF4444;
-  --pp-batch-accent: #A84836;
-  --pp-batch-accent-hover: #8F392C;
-  --pp-batch-accent-rgb: 168, 72, 54;
-  --pp-batch-soft: #FFF3ED;
-  --pp-batch-text: #7A2E24;
-  --pp-batch-border: #F2C5B6;
+  --pp-batch-accent: #8A5A05;
+  --pp-batch-accent-hover: #704804;
+  --pp-batch-accent-rgb: 138, 90, 5;
+  --pp-batch-soft: #FFF7D6;
+  --pp-batch-text: #5F4108;
+  --pp-batch-border: #E5C866;
   --pp-info-cyan: #2563EB;
   --pp-primary-green: #0F6B3F;
   --pp-dark-cta: #111827;
@@ -31836,6 +31836,12 @@ s-page[inline-size="large-500"] {
   color: var(--pp-risk-red);
 }
 
+.ppBackgroundProcessStatusIcon-canceled,
+.ppBackgroundProcessStatusIcon-cancelled {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+}
+
 .ppBackgroundProcessStatusIcon-batch-mode {
   background: var(--pp-batch-accent);
   color: var(--pp-cloud-white);
@@ -31882,6 +31888,12 @@ s-page[inline-size="large-500"] {
 .ppBackgroundProcessStatusPill-failed {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
+}
+
+.ppBackgroundProcessStatusPill-canceled,
+.ppBackgroundProcessStatusPill-cancelled {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
 }
 
 .ppBackgroundProcessCard.isBatchMode .ppBackgroundProcessStatusPill {
@@ -36054,6 +36066,12 @@ s-page[inline-size="large-500"] {
   color: var(--pp-risk-red);
 }
 
+.ppGlobalTopbarJobStateIcon-canceled,
+.ppGlobalTopbarJobStateIcon-cancelled {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
+}
+
 .ppGlobalTopbarJobStateIcon-batch-mode {
   background: var(--pp-batch-accent);
   color: var(--pp-cloud-white);
@@ -36129,6 +36147,12 @@ s-page[inline-size="large-500"] {
 .ppGlobalTopbarJobStatus-failed {
   background: var(--pp-red-soft);
   color: var(--pp-risk-red);
+}
+
+.ppGlobalTopbarJobStatus-canceled,
+.ppGlobalTopbarJobStatus-cancelled {
+  background: var(--pp-slate-100);
+  color: var(--pp-slate-700);
 }
 
 .ppGlobalTopbarJobItem.isBatchMode .ppGlobalTopbarJobStatus {

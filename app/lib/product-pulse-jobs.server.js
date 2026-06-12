@@ -101,6 +101,7 @@ const PRODUCT_RISK_NAVIGATION_SELECT = {
 };
 const STALE_JOB_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const STALE_JOB_SWEEP_INTERVAL_MS = 60 * 1000;
+const PRODUCT_PULSE_JOB_MAX_RUNTIME_MS = 24 * 60 * 60 * 1000;
 const JOB_MONITOR_RECENT_JOB_LIMIT = 6;
 const BACKGROUND_PROCESS_LOG_LIMIT = 1000;
 const BACKGROUND_PROCESS_PAGE_SIZE = 10;
@@ -2185,7 +2186,7 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
     return { status: "validation_error", message: "Only queued or running jobs can be cancelled." };
   }
 
-  const cancellationRefund = await refundCancelledQueuedProductDiagnosisJob(job);
+  const cancellationRefund = await refundCancelledProductDiagnosisJobCredits(job);
   const cancellationPayload = cancellationRefund?.refunded
     ? {
       ...(job.payload || {}),
@@ -2203,12 +2204,10 @@ export async function cancelBackgroundJobForShop(shop, jobId) {
       status: { in: ["Queued", "Running"] },
     },
     data: getTerminalLeaseData({
-      status: "Failed",
+      status: "Canceled",
       progress: 100,
       source: "Canceled by user",
-      errorMessage: cancellationRefund?.refunded
-        ? "Canceled from Background processes. Reserved credit was refunded."
-        : "Canceled from Background processes. Any credits already consumed by the queued job are not automatically refunded.",
+      errorMessage: getCancellationMessageForJob(job, cancellationRefund),
       payload: cancellationPayload,
       finishedAt: new Date(),
     }),
@@ -2253,13 +2252,27 @@ export async function handleOpenAiWebhookEventForProductPulse(event, headers = {
   };
 }
 
-async function refundCancelledQueuedProductDiagnosisJob(job) {
-  if (job.kind !== PRODUCT_DIAGNOSIS_KIND || job.status !== "Queued") return null;
+function getCancellationMessageForJob(job, cancellationRefund) {
+  if (cancellationRefund?.refunded) return "Canceled from Background processes. Credit was refunded.";
+  if (cancellationRefund?.status && cancellationRefund.status !== "not_refundable") {
+    return "Canceled from Background processes. Credit refund could not be recorded automatically.";
+  }
+  if (job.kind === PRODUCT_DIAGNOSIS_KIND && job.payload?.pointLedgerEntryId) {
+    return "Canceled from Background processes. No additional credit refund was recorded.";
+  }
+  return "Canceled from Background processes.";
+}
+
+async function refundCancelledProductDiagnosisJobCredits(job, options = {}) {
+  if (job.kind !== PRODUCT_DIAGNOSIS_KIND) return null;
+  if (!isActiveStatus(job.status)) return null;
   const payload = job.payload || {};
   if (!payload.pointLedgerEntryId || payload.pointRefundLedgerEntryId) return null;
 
   const amount = Number(payload.pointCost || payload.pointsConsumed || payload.creditsConsumed || 1);
-  const refund = await creditStorePointsForShop(job.shop, {
+  const creditPoints = options.creditStorePointsForShop || creditStorePointsForShop;
+  const recordLog = options.recordJobLog || recordJobLog;
+  const refund = await creditPoints(job.shop, {
     amount: Number.isFinite(amount) && amount > 0 ? amount : 1,
     reason: `Product Diagnosis refund credit product-diagnosis-cancel-refund:${job.id} - ${payload.productTitle || "selected product"}`,
     idempotencyKey: `product-diagnosis-cancel-refund:${job.id}`,
@@ -2274,7 +2287,7 @@ async function refundCancelledQueuedProductDiagnosisJob(job) {
   });
 
   if (!isPointCreditRecorded(refund)) {
-    await recordJobLog({
+    await recordLog({
       shop: job.shop,
       jobId: job.id,
       level: "error",
@@ -5514,6 +5527,7 @@ export async function runProductPulseBackgroundWorkerCycle(options = {}) {
     ownerId: JOB_WORKER_OWNER_ID,
   });
 
+  await failTimedOutProductPulseJobs(options.shop);
   await requeueExpiredProductPulseJobs(options.shop);
 
   for (; processed < maxJobs; processed += 1) {
@@ -5954,6 +5968,7 @@ function ensureProductDiagnosisQueueWorker(shop, options = {}) {
   activeDiagnosisQueueWorkers.add(PRODUCT_DIAGNOSIS_QUEUE_WORKER_KEY);
   setTimeout(async () => {
     try {
+      await failTimedOutProductPulseJobs();
       await requeueExpiredProductPulseJobs();
 
       for (;;) {
@@ -6041,13 +6056,14 @@ async function recoverExpiredProductPulseJobsForShop(shop) {
   if (nowMs - lastSweepMs < STALE_JOB_SWEEP_INTERVAL_MS) return 0;
   staleProductPulseJobSweeps.set(normalizedShop, nowMs);
 
+  const timedOutCount = await failTimedOutProductPulseJobs(normalizedShop);
   const recoveredCount = await requeueExpiredProductPulseJobs(normalizedShop);
-  if (recoveredCount > 0) {
+  if (timedOutCount > 0 || recoveredCount > 0) {
     invalidateJobMonitorCache(normalizedShop);
     invalidateBackgroundProcessCache(normalizedShop);
     invalidateProductPulseDashboardCache(normalizedShop);
   }
-  return recoveredCount;
+  return timedOutCount + recoveredCount;
 }
 
 function buildExpiredProductPulseJobWhere(shop, now = new Date()) {
@@ -6065,6 +6081,44 @@ function buildExpiredProductPulseJobWhere(shop, now = new Date()) {
         { payload: { path: ["openAiBatch", "status"], equals: "waiting" } },
       ],
     },
+    ...(shop ? { shop } : {}),
+  };
+}
+
+async function failTimedOutProductPulseJobs(shop, now = new Date()) {
+  const jobs = await prisma.catalogSignalJob.findMany({
+    where: buildTimedOutProductPulseJobWhere(shop, now),
+    orderBy: [{ startedAt: "asc" }],
+    take: 100,
+  });
+
+  for (const job of jobs) {
+    const error = new Error("Background job exceeded the 24 hour runtime limit.");
+    await markJobFailed(job.id, error, `${getJobDisplayName(job.kind)} timed out after 24 hours`);
+    await recordJobLog({
+      shop: job.shop,
+      jobId: job.id,
+      level: "error",
+      event: "background_worker.timeout",
+      message: "Background job exceeded the 24 hour runtime limit and was marked as failed.",
+      data: {
+        kind: job.kind,
+        status: job.status,
+        startedAt: toIso(job.startedAt),
+        openAiBatchStatus: job.payload?.openAiBatch?.status || null,
+      },
+    });
+  }
+
+  return jobs.length;
+}
+
+function buildTimedOutProductPulseJobWhere(shop, now = new Date()) {
+  const cutoff = new Date(now.getTime() - PRODUCT_PULSE_JOB_MAX_RUNTIME_MS);
+  return {
+    kind: { in: [FAST_PRODUCT_SCAN_KIND, PRODUCT_DIAGNOSIS_KIND, SHOPIFY_MOCK_DATASET_KIND] },
+    status: { in: ["Queued", "Running"] },
+    startedAt: { lte: cutoff },
     ...(shop ? { shop } : {}),
   };
 }
@@ -9722,10 +9776,12 @@ export const __productPulseJobsTestHooks = {
   formatProductRow,
   formatBackgroundProcess,
   buildExpiredProductPulseJobWhere,
+  buildTimedOutProductPulseJobWhere,
   buildRecentBatchModeJobWhere,
   buildBackgroundProcessStats,
   filterProductSnapshots,
   formatShopifyProductSearchResult,
+  refundCancelledProductDiagnosisJobCredits,
   refundFailedProductDiagnosisJobCredits,
   getAppliedProductReviewToastMetadata,
   getProductTableFilterOptions,

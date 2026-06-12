@@ -5704,6 +5704,7 @@ function getBackgroundProcessStatusIcon(status, process = null) {
   const key = getBackgroundProcessStatusKey(status);
   if (key === "completed") return "check-circle";
   if (key === "failed") return "alert-circle";
+  if (key === "canceled" || key === "cancelled") return "x";
   if (key === "queued") return "clock";
   return "refresh";
 }

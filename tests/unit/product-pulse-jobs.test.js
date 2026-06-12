@@ -85,6 +85,19 @@ describe("ProductPulse product job helpers", () => {
     expect(where.OR[1].updatedAt.lte.toISOString()).toBe("2026-06-10T03:00:00.000Z");
   });
 
+  it("builds 24 hour timeout criteria including OpenAI Batch waits", () => {
+    const now = new Date("2026-06-10T05:00:00.000Z");
+    const where = productPulseJobsTestHooks.buildTimedOutProductPulseJobWhere("store.myshopify.com", now);
+
+    expect(where).toEqual({
+      shop: "store.myshopify.com",
+      kind: { in: ["fast-product-scan", "product-diagnosis", "shopify-mock-dataset"] },
+      status: { in: ["Queued", "Running"] },
+      startedAt: { lte: new Date("2026-06-09T05:00:00.000Z") },
+    });
+    expect(where.NOT).toBeUndefined();
+  });
+
   it("uses CatalogSignalJob.startedAt for recent free Batch mode Product Diagnosis jobs", () => {
     const cutoff = new Date("2026-06-09T05:00:00.000Z");
     const where = productPulseJobsTestHooks.buildRecentBatchModeJobWhere("store.myshopify.com", cutoff);
@@ -864,6 +877,58 @@ describe("ProductPulse product job helpers", () => {
           originalLedgerEntryId: "ledger-debit-1",
           failed: true,
           error: "OpenAI returned HTTP 429.",
+        },
+      },
+    });
+  });
+
+  it("refunds consumed credits when a running Product Diagnosis job is cancelled", async () => {
+    const creditCalls = [];
+    const refund = await productPulseJobsTestHooks.refundCancelledProductDiagnosisJobCredits(
+      {
+        id: "job-cancel-credit-refund",
+        shop: "test.myshopify.com",
+        kind: "product-diagnosis",
+        status: "Running",
+        payload: {
+          pointCost: 1,
+          pointsConsumed: 1,
+          creditsConsumed: 1,
+          pointLedgerEntryId: "ledger-debit-cancel",
+          productGid: "gid://shopify/Product/123",
+          productTitle: "GEN Cancelled Product",
+        },
+      },
+      {
+        creditStorePointsForShop: async (shop, input) => {
+          creditCalls.push({ shop, input });
+          return {
+            status: "success",
+            amount: input.amount,
+            credited: true,
+            ledgerEntry: { id: "ledger-refund-cancel" },
+            balance: { available: 10, label: "10.0" },
+          };
+        },
+      },
+    );
+
+    expect(refund).toMatchObject({
+      status: "success",
+      refunded: true,
+      ledgerEntry: { id: "ledger-refund-cancel" },
+    });
+    expect(creditCalls).toHaveLength(1);
+    expect(creditCalls[0]).toMatchObject({
+      shop: "test.myshopify.com",
+      input: {
+        amount: 1,
+        idempotencyKey: "product-diagnosis-cancel-refund:job-cancel-credit-refund",
+        metadata: {
+          source: "product_diagnosis_refund",
+          jobId: "job-cancel-credit-refund",
+          originalLedgerEntryId: "ledger-debit-cancel",
+          cancelled: true,
         },
       },
     });
