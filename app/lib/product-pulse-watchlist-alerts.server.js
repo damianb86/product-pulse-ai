@@ -313,14 +313,6 @@ function buildWatchlistAlertDecision({ settings = {}, reports = [], jobs = [], m
   if (!Array.isArray(settings.alertRecipients) || !settings.alertRecipients.length) {
     return { shouldSend: false, reason: "no_watchlist_alert_recipients", label: "No Watchlist alert recipients configured" };
   }
-  if (metadata.forceEmail) {
-    return {
-      shouldSend: true,
-      reason: metadata.creditExhausted ? "manual_watchlist_credit_exhausted" : "manual_watchlist_run",
-      label: metadata.creditExhausted ? "Manual Watchlist run blocked by credits" : "Manual Watchlist run completed",
-    };
-  }
-
   if (metadata.creditExhausted || uniqueStrings(metadata.skippedForCredits).length) {
     return { shouldSend: true, reason: "credit_exhausted", label: "Watchlist credits exhausted" };
   }
@@ -333,6 +325,7 @@ function buildWatchlistAlertDecision({ settings = {}, reports = [], jobs = [], m
 
   const changedReports = reports.filter(reportHasAnyChange);
   const matchers = {
+    every_watch_run: () => reports.length > 0 || jobs.length > 0 || uniqueStrings(metadata.productGids).length > 0,
     any_watch_change: () => changedReports.length > 0,
     new_issue_only: () => reports.some(reportHasNewIssue),
     risk_score_increase: () => reports.some(reportHasRiskIncrease),
@@ -780,7 +773,7 @@ function buildEmailAssistantIconHtml() {
 function buildSummaryTableHtml(reports = [], context = {}) {
   const rows = reports.length
     ? reports.map((report) => buildSummaryRowHtml(report, context)).join("")
-    : `<tr><td colspan="7" style="padding:14px 12px;font-size:12px;line-height:18px;color:#475569;">No watched products were included in this report.</td></tr>`;
+    : `<tr><td colspan="6" style="padding:14px 12px;font-size:12px;line-height:18px;color:#475569;">No watched products were included in this report.</td></tr>`;
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:separate;border-spacing:0;border:1px solid #cbd5e1;border-radius:6px;background:#ffffff;">
     <tr>
       <td style="padding:13px 14px 9px 14px;font-size:12px;line-height:16px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:#0f172a;border-bottom:1px solid #cbd5e1;">Product change summary</td>
@@ -790,7 +783,6 @@ function buildSummaryTableHtml(reports = [], context = {}) {
         <table class="gw-summary-table" role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
           <tr>
             <th align="left" style="padding:10px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;line-height:14px;color:#0f172a;">Product</th>
-            <th align="left" style="padding:10px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;line-height:14px;color:#0f172a;">Status</th>
             <th align="center" style="padding:10px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;line-height:14px;color:#0f172a;">Orders<br><span style="font-weight:400;">New</span></th>
             <th align="center" style="padding:10px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;line-height:14px;color:#0f172a;">Returns<br><span style="font-weight:400;">Units</span></th>
             <th align="center" style="padding:10px 8px;border-bottom:1px solid #cbd5e1;font-size:11px;line-height:14px;color:#0f172a;">Refunds<br><span style="font-weight:400;">Units</span></th>
@@ -808,7 +800,6 @@ function buildSummaryRowHtml(report = {}, context = {}) {
   const href = buildProductReportHref(report, context);
   const image = buildProductImageHtml(report, href, { size: 48 });
   const metrics = report.metrics || buildWatchEmailMetrics(report);
-  const status = buildStatusBadgeHtml(report.statusLabel || getEmailStatusLabel(report), report.statusTone || getEmailStatusTone(report));
   const title = `<a href="${escapeAttribute(href)}" style="color:#050816;text-decoration:none;font-weight:800;">${escapeHtml(report.productTitle)}</a>`;
   return `<tr>
     <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;vertical-align:middle;">
@@ -819,7 +810,6 @@ function buildSummaryRowHtml(report = {}, context = {}) {
         </tr>
       </table>
     </td>
-    <td style="padding:10px 8px;border-bottom:1px solid #e2e8f0;vertical-align:middle;">${status}</td>
     ${buildSummaryMetricCell(metrics.orders)}
     ${buildSummaryMetricCell(metrics.returns)}
     ${buildSummaryMetricCell(metrics.refunds)}
@@ -1295,8 +1285,9 @@ function reportHasNewIssue(report = {}) {
 
 function reportHasRiskIncrease(report = {}) {
   if ((report.changes || []).some((change) => change.id === "risk-score" && change.direction === "up")) return true;
-  const previousRisk = safeNumber(report.previous?.riskScore);
-  const currentRisk = safeNumber(report.current?.riskScore);
+  const previousRisk = optionalNumber(report.previous?.riskScore);
+  const currentRisk = optionalNumber(report.current?.riskScore);
+  if (previousRisk === null || currentRisk === null) return false;
   return currentRisk > previousRisk;
 }
 
@@ -1307,11 +1298,12 @@ function reportHasMediumOrHighRisk(report = {}) {
 
 function getTriggerRuleEmailLabel(value) {
   const rule = String(value || "new_or_rising_risk");
+  if (rule === "every_watch_run") return "Every Watchlist run";
   if (rule === "new_issue_only") return "New issue detected";
   if (rule === "risk_score_increase") return "Risk score increased";
   if (rule === "medium_or_high_risk") return "Medium or high risk detected";
-  if (rule === "any_watch_change") return "Any watched product change";
-  return "New issue or rising risk";
+  if (rule === "any_watch_change") return "Any watched product changed";
+  return "New issue or risk increased";
 }
 
 function normalizeObject(value) {
@@ -1337,6 +1329,11 @@ function normalizeIssue(value) {
 function safeNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function optionalNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function escapeHtml(value) {

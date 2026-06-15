@@ -28,6 +28,8 @@ import {
 } from "../lib/product-pulse-connect";
 import {
   PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
+  PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET,
+  PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET,
   PRODUCT_PULSE_HTML_STYLE_PRESETS,
   PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS,
   buildProductPulseHtmlStylePreviewHtml,
@@ -1034,14 +1036,20 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
   const [localResolvedSortConfig, setLocalResolvedSortConfig] = useState(null);
   const candidateSortConfig = localCandidateSortConfig || (candidateFilters.sort ? { key: candidateFilters.sort, direction: candidateFilters.direction || "desc" } : null);
   const resolvedSortConfig = localResolvedSortConfig || (resolvedFilters.sort ? { key: resolvedFilters.sort, direction: resolvedFilters.direction || "desc" } : null);
+  const watchlistSummary = useMemo(
+    () => getProductsWatchlistSummary(data.watchlist, actionData),
+    [data.watchlist, actionData],
+  );
   const selectedProductRows = useMemo(
     () => allVisibleRows.filter((product) => selectedProducts.has(getProductActionKey(product))),
     [allVisibleRows, selectedProducts],
   );
+  const selectedWatchlistCandidates = useMemo(
+    () => selectedProductRows.filter(isProductWatchlistAddCandidate),
+    [selectedProductRows],
+  );
   const selectedCount = selectedProducts.size;
-  const selectedWatchlistEligibleCount = selectedProductRows.filter((product) => (
-    getWatchlistProductGid(product) && canAddProductToWatchlist(product)
-  )).length;
+  const selectedWatchlistEligibleCount = selectedWatchlistCandidates.length;
   const currentSearchQuery = filters.query || "";
   const currentCandidateSearchQuery = candidateFilters.query || "";
   const currentResolvedSearchQuery = resolvedFilters.query || "";
@@ -1488,22 +1496,16 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   const handleAddSelectedToWatchlist = () => {
     if (!selectedCount || pendingBulkWatchlistAdd) return;
-    const products = selectedProductRows
-      .filter((product) => getWatchlistProductGid(product) && canAddProductToWatchlist(product))
-      .map((product) => ({
-        productGid: getWatchlistProductGid(product),
-        title: product.title,
-        handle: product.handle,
-        sku: product.sku,
-        imageUrl: product.imageUrl,
-        imageAlt: product.imageAlt || product.title,
-      }));
+    const products = selectedWatchlistCandidates
+      .map(getWatchlistProductPayload)
+      .filter((product) => product.productGid);
     if (!products.length) return;
-
-    const formData = new FormData();
-    formData.set("_action", "add-selected-to-watchlist");
-    formData.set("products", JSON.stringify(products));
-    submit(formData, { method: "post" });
+    setOpenActionProduct(null);
+    setWatchlistConfirmation({
+      mode: "bulk-add",
+      products,
+      watchlist: watchlistSummary,
+    });
   };
 
   const handleAnalyzeProduct = (product) => {
@@ -1528,6 +1530,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
     setWatchlistConfirmation({
       mode: product.isWatched ? "remove" : "add",
       product: { ...product, productGid },
+      watchlist: watchlistSummary,
     });
   };
 
@@ -1863,6 +1866,11 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
                               <span aria-hidden="true" />
                             </span>
                           )}
+                          {displayProduct.isWatched && (
+                            <span className="ppProductWatchlistBadge" aria-label={`Watched product: ${displayProduct.title}`}>
+                              <ProductPulseGlyph type="binoculars" />
+                            </span>
+                          )}
                         </span>
                         <span className="ppProductsProductText">
                           <span>{displayProduct.title}</span>
@@ -2124,6 +2132,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
   const [shopifyProductSearchQuery, setShopifyProductSearchQuery] = useState("");
   const [watchlistActionConfirmation, setWatchlistActionConfirmation] = useState(null);
   const [watchOverviewSort, setWatchOverviewSort] = useState("urgency");
+  const [openWatchlistRowMenu, setOpenWatchlistRowMenu] = useState("");
   const shopifyProductSearchSubmitRef = useRef(shopifyProductSearchFetcher.submit);
   const watchlist = data.watchlist || {};
   const rows = useMemo(() => (Array.isArray(watchlist.rows) ? watchlist.rows : []), [watchlist.rows]);
@@ -2206,6 +2215,7 @@ export function WatchlistScreen({ data = {}, actionData }) {
     }
     if (actionData?.status === "success" && ["pause-watched-product", "resume-watched-product", "remove-watched-product"].includes(String(actionData?.action?.id || ""))) {
       setWatchlistActionConfirmation(null);
+      setOpenWatchlistRowMenu("");
     }
   }, [actionData, data?.shop, data?.watchlist?.shop]);
 
@@ -2275,49 +2285,13 @@ export function WatchlistScreen({ data = {}, actionData }) {
           trend={trend}
           sort={watchOverviewSort}
           onSortChange={setWatchOverviewSort}
+          watchedCount={watchedCount}
+          pendingRowAction={pendingWatchlistRowAction}
+          openActionMenuKey={openWatchlistRowMenu}
+          onToggleActionMenu={(key) => setOpenWatchlistRowMenu((current) => (current === key ? "" : key))}
+          onCloseActionMenu={() => setOpenWatchlistRowMenu("")}
+          onRequestAction={setWatchlistActionConfirmation}
         />
-
-        <s-section padding="none">
-          <div className="ppWatchlistTableWrap" data-pp-watchlist-table>
-            <table className="ppWatchlistTable">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Status</th>
-                  <th>Latest risk score</th>
-                  <th>Latest change / new issue</th>
-                  <th>Last issue / last update</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan="6">
-                      <div className="ppWatchlistEmptyState">
-                        <DashboardIcon type="binoculars" tone="watch" />
-                        <div>
-                          <h2>No watched products yet</h2>
-                          <p>Add up to {maxProducts} Shopify products to monitor on the watch cadence.</p>
-                        </div>
-                        <button className="ppPrimaryButton ppWatchlistAddButton" type="button" disabled={pendingAdd} onClick={handleOpenWatchlistProductSearch}>
-                          <ProductPulseGlyph type="binoculars" />
-                          Add watched product
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {rows.map((product) => (
-                  <WatchlistProductRow product={product} key={product.productGid || product.id} onRequestAction={setWatchlistActionConfirmation} pending={pendingWatchlistRowAction} />
-                ))}
-              </tbody>
-            </table>
-            <div className="ppWatchlistTableFooter">
-              {rows.length ? `1-${rows.length} of ${rows.length} products` : `0 of ${maxProducts} products`}
-            </div>
-          </div>
-        </s-section>
 
         <div className="ppWatchlistBottomGrid">
           <WatchlistActivityPanel activities={activities} />
@@ -2374,7 +2348,18 @@ function WatchlistStatCard({ icon, tone, label, value, detail, trend = "", iconI
   );
 }
 
-function WatchlistOverviewDashboard({ overview = {}, trend = {}, sort = "urgency", onSortChange }) {
+function WatchlistOverviewDashboard({
+  overview = {},
+  trend = {},
+  sort = "urgency",
+  onSortChange,
+  watchedCount = 0,
+  pendingRowAction = false,
+  openActionMenuKey = "",
+  onToggleActionMenu,
+  onCloseActionMenu,
+  onRequestAction,
+}) {
   const hasRuns = Array.isArray(overview.runRows) && overview.runRows.length > 0;
   const hasProducts = Array.isArray(overview.productRows) && overview.productRows.length > 0;
   const hasCategories = Array.isArray(overview.categoryRows) && overview.categoryRows.length > 0;
@@ -2384,14 +2369,20 @@ function WatchlistOverviewDashboard({ overview = {}, trend = {}, sort = "urgency
   return (
     <section className="ppWatchOverviewDashboard" aria-label="Watchlist run overview">
       {hasRuns ? <WatchRecentRunsTimeline rows={overview.runRows} /> : null}
+      <WatchlistOverviewProductsTable
+        rows={overview.productRows || []}
+        windowLabel={overview.windowLabel}
+        sort={sort}
+        onSortChange={onSortChange}
+        watchedCount={watchedCount}
+        pendingRowAction={pendingRowAction}
+        openActionMenuKey={openActionMenuKey}
+        onToggleActionMenu={onToggleActionMenu}
+        onCloseActionMenu={onCloseActionMenu}
+        onRequestAction={onRequestAction}
+      />
       <div className="ppWatchOverviewDashboardGrid">
         <div className="ppWatchOverviewMain">
-          <WatchlistOverviewProductChanges
-            rows={overview.productRows || []}
-            windowLabel={overview.windowLabel}
-            sort={sort}
-            onSortChange={onSortChange}
-          />
           <WatchlistTrendPanel trend={trend} />
         </div>
         <div className="ppWatchOverviewSide">
@@ -2403,7 +2394,18 @@ function WatchlistOverviewDashboard({ overview = {}, trend = {}, sort = "urgency
   );
 }
 
-function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "urgency", onSortChange }) {
+function WatchlistOverviewProductsTable({
+  rows = [],
+  windowLabel = "",
+  sort = "urgency",
+  onSortChange,
+  watchedCount = 0,
+  pendingRowAction = false,
+  openActionMenuKey = "",
+  onToggleActionMenu,
+  onCloseActionMenu,
+  onRequestAction,
+}) {
   const panel = buildBetaFeedbackPanel("watchlist.productChanges", "Watchlist product changes", {
     watchlist: {
       rowCount: rows.length,
@@ -2419,9 +2421,12 @@ function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "
   });
   return (
     <BetaFeedbackPanelFrame panel={panel}>
-      <section className="ppWatchOverviewPanel ppWatchOverviewChangesPanel" aria-label="Watchlist changes since previous run">
+      <section className="ppWatchOverviewPanel ppWatchOverviewProductsPanel" aria-label="Products in watchlist">
         <header className="ppWatchOverviewPanelHeader">
-          <h3>Changes since previous run {windowLabel ? <span>{windowLabel}</span> : null}</h3>
+          <div>
+            <h3>Products in watchlist <span>{formatInteger(watchedCount || rows.length)}</span></h3>
+            <small>Run snapshot based on the selected Recent run {windowLabel ? <em>{windowLabel}</em> : null}</small>
+          </div>
           <div className="ppBetaFeedbackHeaderActions">
             <BetaFeedbackPanelControls panel={panel} />
             <label className="ppWatchOverviewSort">
@@ -2436,18 +2441,29 @@ function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "
           </div>
         </header>
         {rows.length ? (
-          <div className="ppWatchOverviewProductList">
-            {rows.map((row, index) => <WatchlistOverviewProductChangeRow row={row} rank={index + 1} key={row.id || row.productGid || row.title} />)}
+          <div className="ppWatchOverviewProductList" data-pp-watchlist-table>
+            {rows.map((row, index) => (
+              <WatchlistOverviewProductTableRow
+                row={row}
+                rank={index + 1}
+                pending={pendingRowAction}
+                open={openActionMenuKey === getWatchOverviewRowActionKey(row)}
+                onToggleMenu={() => onToggleActionMenu?.(getWatchOverviewRowActionKey(row))}
+                onCloseMenu={onCloseActionMenu}
+                onRequestAction={onRequestAction}
+                key={getWatchOverviewRowActionKey(row)}
+              />
+            ))}
           </div>
         ) : (
           <div className="ppWatchOverviewEmpty">
             <s-icon type="check-circle" size="small"></s-icon>
-            <span>No changed products were found in the latest Watchlist run.</span>
+            <span>No watched products were found for the selected run.</span>
           </div>
         )}
         {rows.length ? (
           <footer className="ppWatchOverviewPanelFooter">
-            <span>Showing 1-{rows.length} of {rows.length} changed products</span>
+            <span>Showing 1-{rows.length} of {formatInteger(watchedCount || rows.length)} watched products</span>
           </footer>
         ) : null}
       </section>
@@ -2455,7 +2471,15 @@ function WatchlistOverviewProductChanges({ rows = [], windowLabel = "", sort = "
   );
 }
 
-function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
+function WatchlistOverviewProductTableRow({
+  row = {},
+  rank = 1,
+  pending = false,
+  open = false,
+  onToggleMenu,
+  onCloseMenu,
+  onRequestAction,
+}) {
   const sourceMetric = getWatchOverviewPrimaryMetric(row);
   const metrics = [
     { id: "risk", label: "Risk", value: row.riskDeltaLabel, tone: row.riskDeltaTone },
@@ -2463,11 +2487,17 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
     { id: "margin", label: "Margin", value: row.marginDeltaLabel, tone: row.marginDeltaTone },
     sourceMetric,
   ].filter(Boolean);
+  const runLabel = formatWatchReportTimestamp(row.timestamp) || row.lastScanLabel || "Not scanned yet";
+  const paused = String(row.status || row.product?.status || "").toLowerCase() === "paused";
 
   return (
-    <article className={`ppWatchOverviewProductRow ppWatchOverviewProductRow-${row.tone || "neutral"}`}>
+    <article className={`ppWatchOverviewProductRow ppWatchOverviewProductRow-${row.tone || "neutral"}${paused ? " isPaused" : ""}`}>
       <span className={`ppWatchOverviewRank ppWatchOverviewRank-${row.tone || "neutral"}`}>{rank}</span>
-      <Link className="ppWatchOverviewProductIdentity" to={row.watchlistHref || row.href || "/app/watchlist"}>
+      <Link
+        className="ppWatchOverviewProductIdentity"
+        to={row.watchlistHref || "/app/watchlist"}
+        aria-label={`View Watchlist report for ${row.title || "product"}`}
+      >
         <span className="ppWatchOverviewProductImage">
           <ProductArt
             variant={row.variant || "shirt"}
@@ -2475,6 +2505,11 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
             imageUrl={row.imageUrl}
             imageAlt={row.imageAlt || row.title}
           />
+          {paused ? (
+            <span className="ppWatchOverviewPausedBadge" title="Paused" aria-hidden="true">
+              <span className="ppPauseGlyph"><span /><span /></span>
+            </span>
+          ) : null}
         </span>
         <span className="ppWatchOverviewProductCopy">
           <span className="ppWatchOverviewProductTitleRow">
@@ -2487,7 +2522,18 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
           <em className={`ppWatchOverviewRiskPill ppWatchOverviewRiskPill-${row.tone || "neutral"}`}>{row.riskLabel || "Tracked"}</em>
         </span>
       </Link>
-      <div className="ppWatchOverviewPrimaryChange">
+      <div className="ppWatchOverviewMetricPack">
+        {metrics.map((metric) => (
+          <WatchOverviewTinyMetric label={metric.label} value={metric.value} tone={metric.tone} key={metric.id || metric.label} />
+        ))}
+      </div>
+      <div className="ppWatchOverviewRunMeta">
+        <span>
+          <b>Last scan</b>
+          <strong>{runLabel}</strong>
+        </span>
+      </div>
+      <div className={`ppWatchOverviewPrimaryChange ppWatchOverviewPrimaryChange-${row.tone || "neutral"}`}>
         <span className={`ppWatchOverviewChangeIcon ppWatchOverviewChangeIcon-${row.tone || "neutral"}`} aria-hidden="true">
           <ProductPulseGlyph type={getWatchOverviewEventIcon(row)} />
         </span>
@@ -2496,15 +2542,15 @@ function WatchlistOverviewProductChangeRow({ row = {}, rank = 1 }) {
           <span>{row.changeDetail}</span>
         </span>
       </div>
-      <div className="ppWatchOverviewMetricPack">
-        {metrics.map((metric) => (
-          <WatchOverviewTinyMetric label={metric.label} value={metric.value} tone={metric.tone} key={metric.id || metric.label} />
-        ))}
-      </div>
       <div className="ppWatchOverviewRecommendation">
-        <Link className="ppWatchOverviewProductButton" to={row.watchlistHref || row.href || "/app/watchlist"} aria-label={`Open ${row.title || "product"} Watchlist details`}>
-          <s-icon type="external" size="small"></s-icon>
-        </Link>
+        <WatchlistProductRowActionMenu
+          row={row}
+          open={open}
+          pending={pending}
+          onToggle={onToggleMenu}
+          onClose={onCloseMenu}
+          onRequestAction={onRequestAction}
+        />
       </div>
     </article>
   );
@@ -2630,7 +2676,7 @@ function buildWatchlistOverviewDashboard(rows = [], activities = [], sort = "urg
   const runContext = buildWatchOverviewRunContext(rows, activities, selectedRunId);
   const runRows = runContext.runRows;
   const effectiveRunId = runContext.selectedRunId;
-  const productRows = getWatchlistOverviewProductRows(rows, sort, { selectedRunId: effectiveRunId, runContext });
+  const productRows = getWatchlistOverviewProductRows(rows, sort, { limit: 999, selectedRunId: effectiveRunId, runContext, includeUnchanged: true });
   const allChangedRows = getWatchlistOverviewProductRows(rows, "urgency", { limit: 99, selectedRunId: effectiveRunId, runContext });
   const eventRows = getWatchlistOverviewEventRows(allChangedRows, effectiveRunId ? [] : activities);
   return {
@@ -2644,9 +2690,9 @@ function buildWatchlistOverviewDashboard(rows = [], activities = [], sort = "urg
   };
 }
 
-function getWatchlistOverviewProductRows(rows = [], sort = "urgency", { limit = 5, selectedRunId = "", runContext = null } = {}) {
+function getWatchlistOverviewProductRows(rows = [], sort = "urgency", { limit = 5, selectedRunId = "", runContext = null, includeUnchanged = false } = {}) {
   const mapped = (Array.isArray(rows) ? rows : [])
-    .map((product) => buildWatchlistOverviewProductRow(product, { selectedRunId, runContext }))
+    .map((product) => buildWatchlistOverviewProductRow(product, { selectedRunId, runContext, includeUnchanged }))
     .filter(Boolean);
   const sorted = sortWatchlistOverviewRows(mapped, sort);
   return sorted.slice(0, limit);
@@ -2723,14 +2769,17 @@ function getWatchOverviewFallbackReportForRun(latestReport = {}, selectedRunId =
   };
 }
 
-function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "", runContext = null } = {}) {
+function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "", runContext = null, includeUnchanged = false } = {}) {
   const report = getWatchOverviewReportForRun(product, selectedRunId, runContext);
-  if (!report || !watchOverviewReportHasChanges(report)) return null;
+  if (!report) return includeUnchanged ? buildWatchlistOverviewFallbackProductRow(product) : null;
+  const hasChanges = watchOverviewReportHasChanges(report);
+  if (!hasChanges && !includeUnchanged) return null;
   const previous = report.previous || {};
   const current = report.current || {};
   const sections = getVisibleWatchReportSections(report.sections || []);
   const biggestChange = getWatchReportBiggestChanges(report, getWatchSourceChangeCards(report), sections)[0]
-    || getFallbackWatchOverviewChange(report);
+    || getFallbackWatchOverviewChange(report)
+    || getStableWatchOverviewChange(report, product);
   const riskDelta = watchNumberDeltaValue(current.riskScore, previous.riskScore);
   const momentumDelta = watchNumberDeltaValue(current.productMomentumScore, previous.productMomentumScore);
   const marginDelta = watchNumberDeltaValue(current.marginAtRisk, previous.marginAtRisk);
@@ -2739,7 +2788,7 @@ function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "", ru
   const marginTone = getWatchDeltaTone(marginDelta, { lowerIsGood: true });
   const sourceDeltas = getWatchOverviewSourceDeltas(previous, current);
   const urgencyScore = getWatchOverviewUrgencyScore({ report, current, riskDelta, marginDelta, sourceDeltas });
-  const tone = getWatchOverviewProductTone({ urgencyScore, current, riskDelta, sourceDeltas });
+  const tone = hasChanges ? getWatchOverviewProductTone({ urgencyScore, current, riskDelta, sourceDeltas }) : "low";
   const baseWatchlistHref = getWatchlistProductPageHref(product);
   const watchlistHref = report.id ? `${baseWatchlistHref}?runId=${encodeURIComponent(report.id)}` : baseWatchlistHref;
   return {
@@ -2750,11 +2799,15 @@ function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "", ru
     sku: product.sku || "",
     imageUrl: product.imageUrl,
     imageAlt: product.imageAlt || product.title,
+    productHref: product.href || "/app/products",
     href: product.href || baseWatchlistHref,
     watchlistHref,
+    status: product.status || "Watching",
+    statusTone: product.statusTone || "success",
+    riskScore: Number(current.riskScore ?? product.riskScore ?? 0),
     riskLabel: current.riskLabel || product.riskLabel || "Tracked",
     variantLabel: product.sku ? `SKU ${product.sku}` : product.handle ? `/${product.handle}` : "",
-    changeTitle: biggestChange?.label || report.headline || "Watchlist signal changed",
+    changeTitle: report.headline || biggestChange?.label || "Watchlist signal changed",
     changeDetail: biggestChange?.value || biggestChange?.delta || report.summary || "Latest Watchlist run changed stored product signals.",
     changeCount: Number(report.changeCount || 0),
     sourceChangeCount: Number(report.sourceChangeCount || 0),
@@ -2772,7 +2825,74 @@ function buildWatchlistOverviewProductRow(product = {}, { selectedRunId = "", ru
     marginDeltaTone: marginTone,
     recommendationLabel: getWatchOverviewRecommendationLabel({ tone, report }),
     recommendationDetail: getWatchOverviewRecommendationDetail({ report, biggestChange, tone }),
+    lastScanLabel: formatWatchReportTimestamp(report.currentRunAt || report.createdAt || report.current?.capturedAt),
+    product,
     report,
+  };
+}
+
+function buildWatchlistOverviewFallbackProductRow(product = {}) {
+  const issueDisplay = getWatchlistIssueCellDisplay(product);
+  const baseWatchlistHref = getWatchlistProductPageHref(product);
+  const hasScore = Number.isFinite(Number(product.riskScore));
+  const tone = product.status === "Paused"
+    ? "neutral"
+    : product.riskTone === "critical"
+      ? "high"
+      : product.riskTone === "warning"
+        ? "medium"
+        : "low";
+  return {
+    id: product.id || product.productGid || product.title,
+    productGid: product.productGid || "",
+    title: product.title || "Watched product",
+    handle: product.handle || "",
+    sku: product.sku || "",
+    imageUrl: product.imageUrl,
+    imageAlt: product.imageAlt || product.title,
+    productHref: product.href || "/app/products",
+    href: product.href || baseWatchlistHref,
+    watchlistHref: baseWatchlistHref,
+    status: product.status || "Watching",
+    statusTone: product.statusTone || "success",
+    riskScore: hasScore ? Number(product.riskScore) : 0,
+    riskLabel: product.riskLabel || (hasScore ? "Tracked" : "Pending"),
+    variantLabel: product.sku ? `SKU ${product.sku}` : product.handle ? `/${product.handle}` : "",
+    changeTitle: issueDisplay.title || "Awaiting first scan",
+    changeDetail: issueDisplay.detail || "Waiting for automatic watch cadence.",
+    changeCount: 0,
+    sourceChangeCount: 0,
+    signalCount: 0,
+    actionCount: 0,
+    timestamp: "",
+    urgencyScore: hasScore ? Number(product.riskScore) : 0,
+    tone,
+    sourceDeltas: [],
+    riskDeltaLabel: "-",
+    riskDeltaTone: "neutral",
+    momentumDeltaLabel: "-",
+    momentumDeltaTone: "neutral",
+    marginDeltaLabel: "-",
+    marginDeltaTone: "neutral",
+    recommendationLabel: "Monitoring",
+    recommendationDetail: issueDisplay.detail || "Waiting for the next Watchlist run.",
+    lastScanLabel: product.lastIssue || "",
+    product,
+    report: null,
+  };
+}
+
+function getStableWatchOverviewChange(report = {}, product = {}) {
+  const summary = String(report.summary || "").trim();
+  if (Number(report.changeCount || 0) > 0 || Number(report.sourceChangeCount || 0) > 0) {
+    return {
+      label: report.headline || "Minor changes detected",
+      value: summary || "Signals changed slightly in this run.",
+    };
+  }
+  return {
+    label: product.status === "Paused" ? "Paused" : "Stable performance",
+    value: summary || "No meaningful Watchlist changes were detected in this run.",
   };
 }
 
@@ -2797,10 +2917,14 @@ function getFallbackWatchOverviewChange(report = {}) {
 function sortWatchlistOverviewRows(rows = [], sort = "urgency") {
   return rows.slice().sort((left, right) => {
     if (sort === "product") return String(left.title || "").localeCompare(String(right.title || ""));
-    if (sort === "risk") return Number(right.report?.current?.riskScore || 0) - Number(left.report?.current?.riskScore || 0);
+    if (sort === "risk") return getWatchOverviewRowRiskScore(right) - getWatchOverviewRowRiskScore(left);
     if (sort === "latest") return new Date(right.timestamp || 0).getTime() - new Date(left.timestamp || 0).getTime();
     return Number(right.urgencyScore || 0) - Number(left.urgencyScore || 0);
   });
+}
+
+function getWatchOverviewRowRiskScore(row = {}) {
+  return Number(row.report?.current?.riskScore ?? row.product?.riskScore ?? row.riskScore ?? 0) || 0;
 }
 
 function buildWatchOverviewRunContext(rows = [], activities = [], selectedRunId = "") {
@@ -3161,112 +3285,98 @@ function formatWatchOverviewRelativeTime(value) {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-function WatchlistProductRow({ product, onRequestAction, pending = false }) {
-  const latestTone = product.latestChangeTone || "slate";
-  const hasScore = Number.isFinite(Number(product.riskScore));
-  const paused = product.status === "Paused";
-  const diagnosisState = getProductDiagnosisState(product);
-  const watchlistProductHref = getWatchlistProductPageHref(product);
-  const issueDisplay = getWatchlistIssueCellDisplay(product);
-  const hasWatchlistReport = Boolean(product.latestChangeReport);
+function WatchlistProductRowActionMenu({ row = {}, open = false, pending = false, onToggle, onClose, onRequestAction }) {
+  const triggerRef = useRef(null);
+  const product = row.product || row;
+  const paused = product.status === "Paused" || row.status === "Paused";
+  const productHref = row.productHref || product.href || "/app/products";
+  const watchlistHref = row.watchlistHref || getWatchlistProductPageHref(product);
+  const productTitle = row.title || product.title || "product";
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (target instanceof Node && triggerRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(".ppWatchRowActionMenu")) return;
+      onClose?.();
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
+
+  const requestAction = (kind) => {
+    onClose?.();
+    onRequestAction?.({ kind, product });
+  };
+
+  const handleReportClick = () => {
+    onClose?.();
+    dispatchProductPulseWatchlistWizardEvent({
+      type: "report-opened",
+      productTitle,
+      href: watchlistHref,
+    });
+  };
 
   return (
-    <tr
-      className={diagnosisState ? "isDiagnosing" : ""}
-      data-pp-watchlist-product-row={product.productGid || product.id || product.handle || product.title || "product"}
-      data-pp-watchlist-ready-row={hasWatchlistReport ? "true" : undefined}
-    >
-      <td>
-        <Link className="ppWatchlistProductCell" to={product.href || "/app/products"}>
-          <span className="ppWatchlistProductImageWrap">
-            <ProductArt
-              variant={product.variant || "shirt"}
-              label={product.title}
-              imageUrl={product.imageUrl}
-              imageAlt={product.imageAlt}
-            />
-            {diagnosisState && (
-              <span className="ppProductDiagnosisLoader" aria-label={`${diagnosisState.label} for ${product.title}`}>
-                <span aria-hidden="true" />
-              </span>
-            )}
-          </span>
-          <span>
-            <strong>{product.title}</strong>
-            {diagnosisState && <small className="ppWatchlistDiagnosisLabel">{diagnosisState.label}</small>}
-            <small>{product.sku ? `SKU: ${product.sku}` : product.handle ? `/${product.handle}` : "Shopify product"}</small>
-          </span>
-        </Link>
-      </td>
-      <td>
-        <span className={`ppWatchStatus ppWatchStatus-${product.statusTone || "success"}`}>
-          <span aria-hidden="true" />
-          {product.status || "Watching"}
-        </span>
-      </td>
-      <td>
-        <div className="ppWatchRiskCell">
-          <span className={`ppWatchRiskDial ppWatchRiskDial-${product.riskTone || "subdued"}`}>{hasScore ? product.riskScore : "-"}</span>
-          <strong className={`ppWatchRiskLabel ppWatchRiskLabel-${product.riskTone || "subdued"}`}>{product.riskLabel || "Pending"}</strong>
-        </div>
-      </td>
-      <td>
-        <div className="ppWatchIssueCell">
-          <span className={`ppWatchIssueDot ppWatchIssueDot-${latestTone}`} aria-hidden="true" />
-          <span>
-            <strong>{issueDisplay.title}</strong>
-            {issueDisplay.detail ? <small>{issueDisplay.detail}</small> : null}
-          </span>
-        </div>
-      </td>
-      <td>
-        <div className="ppWatchUpdateCell">
-          <strong>{product.lastIssue || "Not scanned yet"}</strong>
-          <small>{product.lastIssueDetail || "Waiting for automatic watch cadence"}</small>
-        </div>
-      </td>
-      <td>
-        <div className="ppWatchRowActions" aria-label={`Watchlist actions for ${product.title}`}>
-          <Link
-            className="ppWatchActionsButton ppWatchActionsButton-report"
-            to={watchlistProductHref}
-            aria-label={`View Watchlist report for ${product.title}`}
-            data-pp-watchlist-view-report={hasWatchlistReport ? "true" : undefined}
-            onClick={() => dispatchProductPulseWatchlistWizardEvent({
-              type: "report-opened",
-              productTitle: product.title || "",
-              href: watchlistProductHref,
-            })}
-          >
+    <span className="ppActionMenuWrap ppWatchRowActionMenuWrap" ref={triggerRef}>
+      <button
+        className="ppWatchOverviewProductButton"
+        type="button"
+        aria-expanded={open}
+        aria-label={`More actions for ${productTitle}`}
+        onClick={onToggle}
+      >
+        <s-icon type="menu-horizontal" size="small"></s-icon>
+      </button>
+      {open && (
+        <FloatingTablePopover anchorRef={triggerRef} open={open} className="ppActionMenu ppWatchRowActionMenu" width={236} estimatedHeight={236} placement="bottom-end" role="menu">
+          <Link role="menuitem" to={productHref} onClick={onClose}>
+            <s-icon type="view" size="small"></s-icon>
+            View product page
+          </Link>
+          <Link role="menuitem" to={watchlistHref} onClick={handleReportClick}>
             <s-icon type="chart-line" size="small"></s-icon>
-            <span>View report</span>
+            View product report
           </Link>
           <button
-            className={`ppWatchActionsButton ppWatchActionsButton-toggle ${paused ? "ppWatchActionsButton-resume" : "ppWatchActionsButton-pause"}`}
+            role="menuitem"
             type="button"
-            aria-label={`${paused ? "Resume" : "Pause"} ${product.title}`}
             disabled={pending || !product.productGid}
-            onClick={() => onRequestAction?.({ kind: paused ? "resume" : "pause", product })}
+            onClick={() => requestAction(paused ? "resume" : "pause")}
           >
-            {paused ? (
-              <s-icon type="play" size="small"></s-icon>
-            ) : (
-              <span className="ppPauseGlyph" aria-hidden="true"><span /><span /></span>
-            )}
+            {paused ? <s-icon type="play" size="small"></s-icon> : <span className="ppPauseGlyph ppPauseGlyph-inline" aria-hidden="true"><span /><span /></span>}
+            {paused ? "Resume product" : "Pause product"}
           </button>
           <button
-            className="ppWatchActionsButton ppWatchActionsButton-danger"
+            className="ppActionMenuDanger"
+            role="menuitem"
             type="button"
-            aria-label={`Remove ${product.title} from watchlist`}
             disabled={pending || !product.productGid}
-            onClick={() => onRequestAction?.({ kind: "remove", product })}
+            onClick={() => requestAction("remove")}
           >
             <s-icon type="x" size="small"></s-icon>
+            Remove from Watchlist
           </button>
-        </div>
-      </td>
-    </tr>
+        </FloatingTablePopover>
+      )}
+    </span>
   );
+}
+
+function getWatchOverviewRowActionKey(row = {}) {
+  return String(row.productGid || row.id || row.handle || row.title || "watchlist-row");
 }
 
 function getWatchlistIssueCellDisplay(product = {}) {
@@ -5740,16 +5850,17 @@ function WatchlistSettingsPanel({ settings = {}, watchedCount = 0, activeWatched
     { value: "14", label: "Every 2 weeks" },
   ];
   const triggerRuleOptions = settingsOptions.triggerRules || [
-    { value: "new_or_rising_risk", label: "Notify on new issues or rising risk" },
-    { value: "new_issue_only", label: "Only new issue detected" },
+    { value: "new_or_rising_risk", label: "New issue or risk increases" },
+    { value: "any_watch_change", label: "Any watched product changed" },
+    { value: "every_watch_run", label: "Every Watchlist run" },
     { value: "risk_score_increase", label: "Risk score increases" },
-    { value: "medium_or_high_risk", label: "Medium or high risk detected" },
-    { value: "any_watch_change", label: "Any watched product change" },
+    { value: "new_issue_only", label: "New issue detected" },
+    { value: "medium_or_high_risk", label: "Medium/high risk detected" },
   ];
   const rows = [
     ["clock", "Scan cadence", settings.scanCadenceLabel || "Every 3 days"],
     ["profile", "Alert recipients", `${settings.alertRecipientCount || 0} recipient${Number(settings.alertRecipientCount || 0) === 1 ? "" : "s"}`],
-    ["email", "Trigger rule", settings.triggerRuleLabel || "Notify on new issues or rising risk"],
+    ["email", "Trigger rule", settings.triggerRuleLabel || "New issue or risk increases"],
   ];
 
   useEffect(() => {
@@ -5862,7 +5973,10 @@ export function SettingsScreen({ data = {}, actionData }) {
   const navigation = useNavigation();
   const navigate = useNavigate();
   const submit = useSubmit();
+  const htmlStyleProductSearchFetcher = useFetcher();
+  const htmlStyleExtractionFetcher = useFetcher();
   const formRef = useRef(null);
+  const htmlStyleProductSearchSubmitRef = useRef(htmlStyleProductSearchFetcher.submit);
   const settings = actionData?.settings || data.settings || getDefaultProductPulseClientSettings();
   const normalizedSettingsRisk = useMemo(() => normalizeClientRiskThresholds(settings.risk), [settings.risk]);
   const normalizedMomentumThreshold = normalizeClientMomentumThreshold(settings.momentum?.minimumScore);
@@ -5875,6 +5989,8 @@ export function SettingsScreen({ data = {}, actionData }) {
   const [lookbackDays, setLookbackDays] = useState(normalizedLookbackDays);
   const [htmlStylePreset, setHtmlStylePreset] = useState(normalizedHtmlStyle.preset);
   const [htmlStyleCustomTemplate, setHtmlStyleCustomTemplate] = useState(normalizedHtmlStyle.customTemplate);
+  const [htmlStyleProductSearchOpen, setHtmlStyleProductSearchOpen] = useState(false);
+  const [htmlStyleProductSearchQuery, setHtmlStyleProductSearchQuery] = useState("");
   const isSaving = navigation.state === "submitting";
   const pendingMockDatasetStage = navigation.state === "submitting"
     && navigation.formData?.get("_action") === "start-shopify-mock-dataset"
@@ -5892,6 +6008,30 @@ export function SettingsScreen({ data = {}, actionData }) {
     preset: htmlStylePreset,
     customTemplate: htmlStyleCustomTemplate,
   }), [htmlStylePreset, htmlStyleCustomTemplate]);
+  const normalizedHtmlStyleProductSearchQuery = htmlStyleProductSearchQuery.trim();
+  const htmlStyleProductSearchData = htmlStyleProductSearchFetcher.data || {};
+  const htmlStyleProductSearchResponseQuery = String(htmlStyleProductSearchData.query || "");
+  const htmlStyleProductSearchHasQuery = normalizedHtmlStyleProductSearchQuery.length >= 2;
+  const htmlStyleProductSearchHasFreshResponse = htmlStyleProductSearchOpen
+    && htmlStyleProductSearchHasQuery
+    && htmlStyleProductSearchResponseQuery === normalizedHtmlStyleProductSearchQuery;
+  const htmlStyleProductSearchResults = htmlStyleProductSearchHasFreshResponse
+    ? htmlStyleProductSearchData.products || []
+    : [];
+  const htmlStyleProductSearchPending = htmlStyleProductSearchOpen
+    && htmlStyleProductSearchHasQuery
+    && (htmlStyleProductSearchFetcher.state !== "idle" || !htmlStyleProductSearchHasFreshResponse);
+  const htmlStyleProductSearchError = htmlStyleProductSearchHasFreshResponse && htmlStyleProductSearchData.status === "validation_error"
+    ? htmlStyleProductSearchData.message
+    : "";
+  const htmlStyleExtractionData = htmlStyleExtractionFetcher.data;
+  const htmlStyleExtractionPending = htmlStyleExtractionFetcher.state !== "idle";
+  const htmlStyleExtractionMessage = htmlStyleExtractionData?.status === "success"
+    ? htmlStyleExtractionData.summary || htmlStyleExtractionData.message || ""
+    : "";
+  const htmlStyleExtractionError = htmlStyleExtractionData?.status === "validation_error"
+    ? htmlStyleExtractionData.message || "Unable to extract product HTML style."
+    : "";
 
   useEffect(() => {
     setRiskThresholds(normalizedSettingsRisk);
@@ -5900,6 +6040,30 @@ export function SettingsScreen({ data = {}, actionData }) {
     setHtmlStylePreset(normalizedHtmlStyle.preset);
     setHtmlStyleCustomTemplate(normalizedHtmlStyle.customTemplate);
   }, [normalizedSettingsRisk, normalizedMomentumThreshold, normalizedLookbackDays, normalizedHtmlStyle]);
+
+  useEffect(() => {
+    htmlStyleProductSearchSubmitRef.current = htmlStyleProductSearchFetcher.submit;
+  }, [htmlStyleProductSearchFetcher.submit]);
+
+  useEffect(() => {
+    if (!htmlStyleProductSearchOpen) return undefined;
+    const query = htmlStyleProductSearchQuery.trim();
+    const timeout = window.setTimeout(() => {
+      const formData = new FormData();
+      formData.set("_action", "search-shopify-products");
+      formData.set("query", query);
+      htmlStyleProductSearchSubmitRef.current(formData, { method: "post" });
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [htmlStyleProductSearchOpen, htmlStyleProductSearchQuery]);
+
+  useEffect(() => {
+    if (htmlStyleExtractionData?.status !== "success" || !htmlStyleExtractionData.template) return;
+    setHtmlStylePreset(PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET);
+    setHtmlStyleCustomTemplate(htmlStyleExtractionData.template);
+    setHtmlStyleProductSearchOpen(false);
+    setHtmlStyleProductSearchQuery("");
+  }, [htmlStyleExtractionData]);
 
   useEffect(() => {
     const saveBar = getShopifySaveBarApi();
@@ -5966,6 +6130,20 @@ export function SettingsScreen({ data = {}, actionData }) {
     setHtmlStylePreset(normalizedHtmlStyle.preset);
     setHtmlStyleCustomTemplate(normalizedHtmlStyle.customTemplate);
     getShopifySaveBarApi()?.hide?.(PRODUCT_PULSE_SETTINGS_SAVE_BAR_ID)?.catch?.(() => {});
+  };
+
+  const handleOpenHtmlStyleProductSearch = () => {
+    setHtmlStylePreset(PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET);
+    setHtmlStyleProductSearchQuery("");
+    setHtmlStyleProductSearchOpen(true);
+  };
+
+  const handleAnalyzeHtmlStyleProduct = (product) => {
+    if (htmlStyleExtractionPending || !product?.id) return;
+    const formData = new FormData();
+    formData.set("_action", "extract-html-style-from-product");
+    formData.set("productId", product.id);
+    htmlStyleExtractionFetcher.submit(formData, { method: "post" });
   };
 
   const handleStartWizard = () => {
@@ -6096,6 +6274,11 @@ export function SettingsScreen({ data = {}, actionData }) {
               onPresetChange={setHtmlStylePreset}
               customTemplate={htmlStyleCustomTemplate}
               onCustomTemplateChange={setHtmlStyleCustomTemplate}
+              extractionPending={htmlStyleExtractionPending}
+              extractionMessage={htmlStyleExtractionMessage}
+              extractionError={htmlStyleExtractionError}
+              extractionProduct={htmlStyleExtractionData?.product}
+              onAnalyzeProductStyle={handleOpenHtmlStyleProductSearch}
             />
           </section>
         </Form>
@@ -6241,6 +6424,27 @@ export function SettingsScreen({ data = {}, actionData }) {
             </section>
           </div>
         ) : null}
+        {htmlStyleProductSearchOpen && (
+          <ShopifyProductSearchModal
+            query={htmlStyleProductSearchQuery}
+            results={htmlStyleProductSearchResults}
+            pending={htmlStyleProductSearchPending}
+            error={htmlStyleProductSearchError || htmlStyleExtractionError}
+            onAnalyze={handleAnalyzeHtmlStyleProduct}
+            onCancel={() => setHtmlStyleProductSearchOpen(false)}
+            onQueryChange={setHtmlStyleProductSearchQuery}
+            title="Select product for style extraction"
+            eyebrow="AI HTML style extraction"
+            description="Choose the Shopify product whose description HTML should define the extracted ProductPulse template."
+            actionLabel={htmlStyleExtractionPending ? "Analyzing..." : "Analyze style"}
+            actionIcon="wand"
+            actionDisabled={htmlStyleExtractionPending}
+            actionTooltip="Analyze this product description HTML and inline CSS with the cheapest configured AI model."
+            emptyPrompt="Search and select a product before ProductPulse extracts a reusable HTML style preset."
+            pendingText={htmlStyleExtractionPending ? "Analyzing selected product style..." : "Searching Shopify products..."}
+            noResultsText="No Shopify products matched this search."
+          />
+        )}
       </ScreenShell>
     </FullWidthPage>
   );
@@ -7144,14 +7348,31 @@ function PlansCreditsIcon({ type }) {
   return <svg {...common}><circle cx="12" cy="12" r="7.5" /></svg>;
 }
 
-function HtmlStylePresetSettings({ value, onPresetChange, customTemplate, onCustomTemplateChange }) {
+function HtmlStylePresetSettings({
+  value,
+  onPresetChange,
+  customTemplate,
+  onCustomTemplateChange,
+  extractionPending = false,
+  extractionMessage = "",
+  extractionError = "",
+  extractionProduct = null,
+  onAnalyzeProductStyle,
+}) {
   const selectedPreset = value.preset === PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET
-    ? getProductPulseHtmlStylePreset(PRODUCT_PULSE_HTML_STYLE_PRESETS[0].id)
+    ? getProductPulseHtmlStylePreset(PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET)
     : getProductPulseHtmlStylePreset(value.preset);
   const previewHtml = buildProductPulseHtmlStylePreviewHtml(value, {
     title: "Product note",
   });
   const customSelected = value.preset === PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET;
+  const extractedSelected = value.preset === PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET;
+  const templatePlaceholder = extractedSelected
+    ? selectedPreset.template
+    : `<section ${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes}>\n  <h3>${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.title}</h3>\n  ${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}\n</section>`;
+  const extractionProductLabel = extractionProduct?.title
+    ? `${extractionProduct.title}${extractionProduct.handle ? ` /${extractionProduct.handle}` : ""}`
+    : "";
 
   return (
     <div className="ppSettingsHtmlStyle">
@@ -7174,6 +7395,30 @@ function HtmlStylePresetSettings({ value, onPresetChange, customTemplate, onCust
         })}
       </div>
 
+      {extractedSelected && (
+        <div className="ppSettingsHtmlExtractionPanel">
+          <div>
+            <span>AI style extraction</span>
+            <strong>{customTemplate ? "Extracted template is ready" : "Build this preset from a product"}</strong>
+            <p>
+              ProductPulse reads the selected product description HTML and inline CSS with the cheapest configured AI model, then turns headings, rules, spacing, lists and panels into the reusable template below.
+            </p>
+            {extractionProductLabel && <small>Last source: {extractionProductLabel}</small>}
+            {extractionMessage && <small>{extractionMessage}</small>}
+            {extractionError && <small className="ppSettingsHtmlExtractionError">{extractionError}</small>}
+          </div>
+          <button
+            type="button"
+            className="ppPrimaryButton"
+            disabled={extractionPending ? true : undefined}
+            onClick={onAnalyzeProductStyle}
+          >
+            <s-icon type="wand" size="small"></s-icon>
+            {extractionPending ? "Analyzing..." : "Select product to analyze"}
+          </button>
+        </div>
+      )}
+
       <div className="ppSettingsHtmlPreviewGrid">
         <div className="ppSettingsHtmlPreviewPanel">
           <div>
@@ -7189,8 +7434,8 @@ function HtmlStylePresetSettings({ value, onPresetChange, customTemplate, onCust
         <div className="ppSettingsHtmlEditorPanel">
           <div className="ppSettingsHtmlEditorHeader">
             <div>
-              <span>Custom template</span>
-              <strong>Edit the wrapper HTML</strong>
+              <span>{extractedSelected ? "Extracted template" : "Custom template"}</span>
+              <strong>{extractedSelected ? "Review the generated wrapper HTML" : "Edit the wrapper HTML"}</strong>
             </div>
             <button
               type="button"
@@ -7206,7 +7451,7 @@ function HtmlStylePresetSettings({ value, onPresetChange, customTemplate, onCust
               aria-label="Custom HTML template"
               value={customTemplate}
               onChange={(event) => onCustomTemplateChange(event.target.value)}
-              placeholder={`<section ${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes}>\n  <h3>${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.title}</h3>\n  ${PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}\n</section>`}
+              placeholder={templatePlaceholder}
               rows={8}
             />
           </label>
@@ -7217,7 +7462,7 @@ function HtmlStylePresetSettings({ value, onPresetChange, customTemplate, onCust
             <span><code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}</code> generated note, FAQ, specs, or content</span>
           </div>
           <p>
-            Custom templates must include <code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}</code>. If you omit <code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes}</code>, ProductPulse wraps your HTML to preserve tracking.
+            Custom and extracted templates must include <code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml}</code>. If you omit <code>{PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.attributes}</code>, ProductPulse wraps your HTML to preserve tracking.
           </p>
         </div>
       </div>
@@ -7722,12 +7967,35 @@ function ProductDiagnosisQueueOverlay({ count = 0, timedOut = false, onDismiss }
 }
 
 function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
-  const product = confirmation.product || {};
-  const removing = confirmation.mode === "remove";
+  const mode = confirmation?.mode || "add";
+  const removing = mode === "remove";
+  const bulkAdding = mode === "bulk-add";
+  const adding = !removing;
+  const products = (bulkAdding ? confirmation.products || [] : [confirmation.product || {}])
+    .map((product) => ({
+      ...product,
+      productGid: getWatchlistProductGid(product),
+      title: product.title || "Selected product",
+    }))
+    .filter((product) => product.productGid || product.title);
+  const product = products[0] || {};
+  const requestedCount = products.length;
+  const watchlistCapacity = getWatchlistCapacityState(confirmation?.watchlist, requestedCount);
+  const capacityBlocked = adding && watchlistCapacity.blocked;
   const titleId = removing ? "watchlist-remove-confirm-title" : "watchlist-add-confirm-title";
+  const heading = removing
+    ? "Remove watched product"
+    : bulkAdding
+      ? "Add selected products"
+      : "Add watched product";
   const submitLabel = removing
     ? pending ? "Removing..." : "Remove from Watchlist"
-    : pending ? "Adding..." : "Add to Watchlist";
+    : pending ? "Adding..." : bulkAdding ? "Add Products to Watchlist" : "Add to Watchlist";
+  const submitDisabled = pending || (removing ? !product.productGid : !requestedCount || capacityBlocked);
+  const noticeClassName = [
+    "ppActionConfirmNotice",
+    capacityBlocked ? "ppActionConfirmNotice-blocked" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <div className="ppAnalysisConfirmOverlay" role="presentation">
@@ -7738,45 +8006,55 @@ function WatchlistConfirmModal({ confirmation, pending, onCancel }) {
           </span>
           <div>
             <span>Watchlist</span>
-            <h2 id={titleId}>{removing ? "Remove watched product" : "Add watched product"}</h2>
+            <h2 id={titleId}>{heading}</h2>
             <p>
               {removing
                 ? "ProductPulse will stop monitoring this product on the Watchlist cadence. Existing Product Diagnosis results and history will stay available."
-                : "ProductPulse will add this product to the Watchlist so it can be monitored by the configured automatic cadence."}
+                : bulkAdding
+                  ? `ProductPulse will add ${requestedCount} selected product${requestedCount === 1 ? "" : "s"} to the Watchlist so they can be monitored by the configured automatic cadence.`
+                  : "ProductPulse will add this product to the Watchlist so it can be monitored by the configured automatic cadence."}
             </p>
           </div>
         </div>
 
         <div className="ppAnalysisConfirmProducts">
-          <span>Product</span>
+          <span>{requestedCount === 1 ? "Product" : "Products"}</span>
           <ul>
-            <li>{product.title || "Selected product"}</li>
+            {products.map((item) => (
+              <li key={item.productGid || item.title}>{item.title || "Selected product"}</li>
+            ))}
           </ul>
         </div>
 
-        <div className="ppActionConfirmNotice">
-          <s-icon type="info" size="small"></s-icon>
+        <div className={noticeClassName}>
+          <s-icon type={capacityBlocked ? "alert-circle" : "info"} size="small"></s-icon>
           <p>
             {removing
               ? "You can add this product back later from the product detail page or the Products table."
-              : "The Watchlist limit depends on the current plan. If it is full, ProductPulse will ask you to remove one first."}
+              : watchlistCapacity.message}
           </p>
         </div>
 
         <Form method="post" className="ppAnalysisConfirmFooter">
-          <input type="hidden" name="_action" value={removing ? "remove-from-watchlist" : "add-to-watchlist"} />
-          <input type="hidden" name="productGid" value={product.productGid || ""} />
-          {!removing && (
+          <input type="hidden" name="_action" value={removing ? "remove-from-watchlist" : bulkAdding ? "add-selected-to-watchlist" : "add-to-watchlist"} />
+          {bulkAdding ? (
+            <input type="hidden" name="products" value={JSON.stringify(products)} />
+          ) : (
             <>
-              <input type="hidden" name="title" value={product.title || ""} />
-              <input type="hidden" name="handle" value={product.handle || ""} />
-              <input type="hidden" name="sku" value={product.sku || ""} />
-              <input type="hidden" name="imageUrl" value={product.imageUrl || ""} />
-              <input type="hidden" name="imageAlt" value={product.imageAlt || product.title || ""} />
+              <input type="hidden" name="productGid" value={product.productGid || ""} />
+              {!removing && (
+                <>
+                  <input type="hidden" name="title" value={product.title || ""} />
+                  <input type="hidden" name="handle" value={product.handle || ""} />
+                  <input type="hidden" name="sku" value={product.sku || ""} />
+                  <input type="hidden" name="imageUrl" value={product.imageUrl || ""} />
+                  <input type="hidden" name="imageAlt" value={product.imageAlt || product.title || ""} />
+                </>
+              )}
             </>
           )}
           <button className="ppSecondaryButton" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button className={removing ? "ppSecondaryButton ppWatchlistRemoveConfirmButton" : "ppPrimaryButton"} type="submit" disabled={pending || !product.productGid}>
+          <button className={removing ? "ppSecondaryButton ppWatchlistRemoveConfirmButton" : "ppPrimaryButton"} type="submit" disabled={submitDisabled}>
             {removing ? <s-icon type="x" size="small"></s-icon> : <ProductPulseGlyph type="binoculars" />}
             {submitLabel}
           </button>
@@ -8058,6 +8336,8 @@ function ShopifyProductSearchModal({
   description = "Search the live Shopify catalog, select a product that has not appeared in Catalog Scan, and queue a Product Diagnosis.",
   actionLabel = "Run diagnosis",
   actionIcon = "wand",
+  actionDisabled = false,
+  actionTooltip = "",
   addedProductIds = [],
   addedActionLabel = "Added",
   addedStatusKind = "watchlist",
@@ -8151,7 +8431,7 @@ function ShopifyProductSearchModal({
               {results.map((product) => {
                 const alreadyAdded = addedProductIdSet.has(product.id);
                 const watchlistEligible = !watchlistAddMode || isProductSearchFullDiagnosis(product);
-                const actionDisabled = (watchlistAddMode && (alreadyAdded || !watchlistEligible));
+                const productActionDisabled = actionDisabled || (watchlistAddMode && (alreadyAdded || !watchlistEligible));
                 return (
                   <article className="ppShopifyProductResult" role="listitem" key={product.id}>
                     <ProductArt
@@ -8177,14 +8457,14 @@ function ShopifyProductSearchModal({
                         className="ppShopifyProductResultRunAction"
                         icon={actionIcon}
                         label={actionLabel}
-                        disabled={actionDisabled}
-                        tooltip={watchlistAddMode
+                        disabled={productActionDisabled}
+                        tooltip={actionTooltip || (watchlistAddMode
                           ? alreadyAdded
                             ? "This product is already on the Watchlist."
                             : watchlistEligible
                               ? "Add this diagnosed product to automatic Watchlist monitoring."
                               : "Run Product Diagnosis before adding this product to Watchlist."
-                          : "Run Product Diagnosis and move this product into Product Diagnosis while the job runs."}
+                          : "Run Product Diagnosis and move this product into Product Diagnosis while the job runs.")}
                         iconOnly={Boolean(onAddCandidate)}
                         onClick={() => onAnalyze(product)}
                       />
@@ -8315,11 +8595,85 @@ function canAddProductToWatchlist(product = {}) {
     || Boolean(product.latestDiagnosisId || product.diagnosisId || product.metrics?.latestDiagnosisId || product.metrics?.lastDetailedDiagnosisAt);
 }
 
+function isProductWatchlistAddCandidate(product = {}) {
+  return Boolean(getWatchlistProductGid(product))
+    && canAddProductToWatchlist(product)
+    && !product.isWatched;
+}
+
+function getWatchlistProductPayload(product = {}) {
+  return {
+    productGid: getWatchlistProductGid(product),
+    title: product.title || "",
+    handle: product.handle || "",
+    sku: product.sku || "",
+    imageUrl: product.imageUrl || "",
+    imageAlt: product.imageAlt || product.title || "",
+  };
+}
+
 function getWatchlistProductGid(product = {}) {
   const productGid = String(product.productGid || "").trim();
   if (productGid) return productGid;
   const id = String(product.id || "").trim();
   return id.startsWith("gid://shopify/Product/") ? id : "";
+}
+
+function getProductsWatchlistSummary(watchlist = null, actionData = null) {
+  const maxProducts = Number(watchlist?.maxProducts);
+  const currentWatchedCount = Number(watchlist?.watchedCount);
+  const actionWatchedCount = Number(actionData?.watchedCount);
+  const watchedCount = Number.isFinite(actionWatchedCount)
+    ? actionWatchedCount
+    : Number.isFinite(currentWatchedCount)
+      ? currentWatchedCount
+      : null;
+  const slotsAvailable = Number.isFinite(maxProducts) && watchedCount !== null
+    ? Math.max(0, maxProducts - watchedCount)
+    : Number.isFinite(Number(watchlist?.slotsAvailable))
+      ? Number(watchlist.slotsAvailable)
+      : null;
+
+  return {
+    maxProducts: Number.isFinite(maxProducts) ? maxProducts : null,
+    planName: watchlist?.planName || "current",
+    planKey: watchlist?.planKey || "",
+    watchedCount,
+    slotsAvailable,
+  };
+}
+
+function getWatchlistCapacityState(watchlist = null, requestedCount = 1) {
+  const summary = getProductsWatchlistSummary(watchlist);
+  const count = Math.max(1, Number(requestedCount) || 1);
+  const hasKnownCapacity = Number.isFinite(summary.maxProducts) && Number.isFinite(summary.watchedCount);
+  if (!hasKnownCapacity) {
+    return {
+      blocked: false,
+      message: count === 1
+        ? "ProductPulse will verify Watchlist capacity before adding this product."
+        : "ProductPulse will verify Watchlist capacity before adding the selected products.",
+    };
+  }
+
+  const slotsAvailable = Math.max(0, Number(summary.slotsAvailable ?? (summary.maxProducts - summary.watchedCount)) || 0);
+  const planLabel = summary.planName ? ` on the ${summary.planName} plan` : "";
+  if (slotsAvailable <= 0) {
+    return {
+      blocked: true,
+      message: `The Watchlist is currently full${planLabel} (${summary.watchedCount}/${summary.maxProducts} watched products). Remove one watched product before adding another one.`,
+    };
+  }
+  if (count > slotsAvailable) {
+    return {
+      blocked: true,
+      message: `There is room for ${slotsAvailable} more watched product${slotsAvailable === 1 ? "" : "s"}, but ${count} selected product${count === 1 ? "" : "s"} would be added. Remove watched products or reduce the selection before adding them.`,
+    };
+  }
+  return {
+    blocked: false,
+    message: `Watchlist space available${planLabel}: ${summary.watchedCount}/${summary.maxProducts} watched products. This will use ${count} slot${count === 1 ? "" : "s"}.`,
+  };
 }
 
 function getProductSearchStatus(product = {}, alreadyAdded = false, addedStatusKind = "watchlist") {
@@ -15404,7 +15758,7 @@ function writeProductPulseLocalStorageValue(key = "", value = "") {
   }
 }
 
-export function ProductDiagnosisScreen({ product, actionData }) {
+export function ProductDiagnosisScreen({ data = {}, product, actionData }) {
   const navigate = useNavigate();
   const location = useLocation();
   const navigation = useNavigation();
@@ -15444,6 +15798,10 @@ export function ProductDiagnosisScreen({ product, actionData }) {
   const productResolvedAt = product?.resolvedAt || "";
   const pendingActionType = navigation.state === "submitting" ? navigation.formData?.get("_action") : null;
   const pendingActionId = navigation.state === "submitting" ? navigation.formData?.get("actionId") : null;
+  const watchlistSummary = useMemo(
+    () => getProductsWatchlistSummary(data.watchlist, actionData),
+    [data.watchlist, actionData],
+  );
 
   useEffect(() => {
     productRef.current = product;
@@ -15795,6 +16153,7 @@ export function ProductDiagnosisScreen({ product, actionData }) {
     setWatchlistConfirmation({
       mode: isWatched ? "remove" : "add",
       product: { ...detail, productGid },
+      watchlist: watchlistSummary,
     });
   };
 
@@ -31749,6 +32108,7 @@ function ProductPulseToast({ actionData, onDismiss }) {
   const [visible, setVisible] = useState(false);
   const showToast = shouldShowActionToast(actionData);
   const tone = getProductPulseToastTone(actionData);
+  const variant = getProductPulseToastVariant(actionData);
   const reviewUrl = typeof actionData?.reviewUrl === "string" ? actionData.reviewUrl.trim() : "";
   const reviewMessage = String(actionData?.reviewMessage || "Please open this product in Shopify admin and verify that the applied changes are correct.").trim();
   const reviewLabel = String(actionData?.reviewLabel || "Open product in Shopify admin").trim();
@@ -31766,8 +32126,12 @@ function ProductPulseToast({ actionData, onDismiss }) {
 
   if (!showToast || !visible) return null;
   return (
-    <div className={`ppProductToast ppProductToast-${tone}`} role="status">
-      <s-icon type={tone === "success" ? "check" : "info"} size="small"></s-icon>
+    <div className={`ppProductToast ppProductToast-${tone}${variant ? ` ppProductToast-${variant}` : ""}`} role="status">
+      <span className="ppProductToastIcon" aria-hidden="true">
+        {variant === "watchlist"
+          ? <ProductPulseGlyph type="binoculars" />
+          : <s-icon type={tone === "success" ? "check" : "info"} size="small"></s-icon>}
+      </span>
       <div className="ppProductToastBody">
         <span>{actionData.message}</span>
         {reviewUrl && (
@@ -31806,6 +32170,12 @@ function getProductPulseToastTone(actionData) {
   if (actionData?.status === "success") return "success";
   if (actionData?.status === "validation_error" || actionData?.status === "warning") return "warning";
   return "critical";
+}
+
+function getProductPulseToastVariant(actionData = {}) {
+  const actionId = String(actionData?.action?.id || "");
+  if (["add-watched-product", "add-watched-products"].includes(actionId)) return "watchlist";
+  return "";
 }
 
 function getPermissionToastData(permissionState) {

@@ -12,7 +12,7 @@ import {
   searchShopifyProductsForDiagnosis,
   startFastProductScan,
 } from "../lib/product-pulse-jobs.server";
-import { addWatchedProductForShop, addWatchedProductsForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
+import { addWatchedProductForShop, addWatchedProductsForShop, getWatchlistCapacityForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
 import { createProductPulsePerfLogger, measureProductPulseStep } from "../lib/product-pulse-perf.server";
 
 export const loader = async ({ request }) => {
@@ -49,11 +49,18 @@ export const loader = async ({ request }) => {
       };
     }
 
-    const quickScanCsvReviews = await measureProductPulseStep(
-      perf,
-      "getCsvReviewSourceStatusForShop",
-      () => getCsvReviewSourceStatusForShop(session.shop),
-    );
+    const [quickScanCsvReviews, watchlistCapacity] = await Promise.all([
+      measureProductPulseStep(
+        perf,
+        "getCsvReviewSourceStatusForShop",
+        () => getCsvReviewSourceStatusForShop(session.shop),
+      ),
+      measureProductPulseStep(
+        perf,
+        "getWatchlistCapacityForShop",
+        () => getWatchlistCapacityForShop(session.shop),
+      ),
+    ]);
     const appViewData = getAppViewData(filters, {
       includeAnalytics: false,
       includeDashboard: false,
@@ -71,6 +78,7 @@ export const loader = async ({ request }) => {
         candidateProductTable: buildEmptyProductTable(candidateFilters),
         resolvedProductTable: buildEmptyProductTable(resolvedFilters),
         quickScanCsvReviews,
+        watchlist: watchlistCapacity,
         persistProductJobs: true,
         productTablesDeferred: true,
       },

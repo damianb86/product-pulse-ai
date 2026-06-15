@@ -119,7 +119,6 @@ export const action = async ({ request }) => {
           triggeredBy: "watchlist-manual-run",
           forceEmail: true,
           ignoreCadence: true,
-          ignoreTriggerRule: true,
           availableCredits: creditPlan.availableCredits,
           watchedCount: productItems.length,
           skippedForCredits: creditPlan.skippedForCredits.map(formatCreditSkippedItem),
@@ -150,9 +149,7 @@ export const action = async ({ request }) => {
         detail: `${result.queuedCount || productIds.length} deep product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued from Watchlist.`,
         metadata: {
           triggeredBy: "watchlist-manual-run",
-          forceEmail: true,
           ignoreCadence: true,
-          ignoreTriggerRule: true,
           queuedCount: result.queuedCount || productIds.length,
           productGids: productIds,
           productTitles: creditPlan.queueItems.map((product) => product.productTitle).filter(Boolean),
@@ -169,7 +166,7 @@ export const action = async ({ request }) => {
       ...result,
       action: { id: "run-watch-scan" },
       message: result?.status === "success"
-        ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued. A confirmation email will be sent when email alerts are enabled.`
+        ? `${result.queuedCount || productIds.length} watched product diagnostic${(result.queuedCount || productIds.length) === 1 ? "" : "s"} queued. Email will be sent only if the Watchlist trigger rule is met.`
         : result?.message || "Watchlist Product Diagnosis could not be queued.",
       suppressBanner: result?.status === "success",
     };

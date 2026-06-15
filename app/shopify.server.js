@@ -11,6 +11,7 @@ import {
   PRODUCT_PULSE_STARTER_PLAN,
   getConfiguredProductPulseStarterPlanAmount,
 } from "./lib/product-pulse-billing-config";
+import { sendAppInstalledNotification } from "./lib/app-lifecycle-notifications.server";
 import { getConfiguredShopifyScopes } from "./lib/product-pulse-scopes";
 
 export { PRODUCT_PULSE_STARTER_PLAN };
@@ -26,6 +27,11 @@ const shopify = shopifyApp({
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
+  },
+  hooks: {
+    afterAuth: async ({ session, admin }) => {
+      await sendAppInstalledNotification({ session, admin });
+    },
   },
   billing: {
     [PRODUCT_PULSE_STARTER_PLAN]: {

@@ -8,13 +8,20 @@ import {
   recordProductDetailActionForShop,
   rerunProductDiagnosisForShop,
 } from "../lib/product-pulse-jobs.server";
-import { addWatchedProductForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
+import { addWatchedProductForShop, getWatchlistCapacityForShop, removeWatchedProductForShop } from "../lib/product-pulse-watchlist.server";
 
 export const loader = async ({ request, params }) => {
   const { admin, session } = await authenticate.admin(request);
+  const [product, watchlistCapacity] = await Promise.all([
+    getProductDetailForShop(session.shop, params.productId, admin),
+    getWatchlistCapacityForShop(session.shop),
+  ]);
   return {
-    data: getAppViewData(),
-    product: await getProductDetailForShop(session.shop, params.productId, admin),
+    data: {
+      ...getAppViewData(),
+      watchlist: watchlistCapacity,
+    },
+    product,
   };
 };
 

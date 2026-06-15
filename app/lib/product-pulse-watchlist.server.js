@@ -23,11 +23,12 @@ export const WATCH_SCAN_CADENCE_OPTIONS = [
   { value: "14", label: "Every 2 weeks" },
 ];
 export const WATCH_TRIGGER_RULE_OPTIONS = [
-  { value: "new_or_rising_risk", label: "Notify on new issues or rising risk" },
-  { value: "new_issue_only", label: "Only new issue detected" },
+  { value: "new_or_rising_risk", label: "New issue or risk increases" },
+  { value: "any_watch_change", label: "Any watched product changed" },
+  { value: "every_watch_run", label: "Every Watchlist run" },
   { value: "risk_score_increase", label: "Risk score increases" },
-  { value: "medium_or_high_risk", label: "Medium or high risk detected" },
-  { value: "any_watch_change", label: "Any watched product change" },
+  { value: "new_issue_only", label: "New issue detected" },
+  { value: "medium_or_high_risk", label: "Medium/high risk detected" },
 ];
 export const WATCH_SUMMARY_OPTIONS = [
   { value: "daily_digest_8am", label: "Daily digest at 8:00 AM" },
@@ -137,6 +138,24 @@ export async function enforceWatchlistPlanLimitForShop(shop, options = {}) {
     items: keptItems,
     removedItems,
     removedCount: removedItems.length,
+  };
+}
+
+export async function getWatchlistCapacityForShop(shop, options = {}) {
+  const db = options.db || prisma;
+  const limitContext = getWatchlistLimitContext(options);
+  const watchedCount = shop
+    ? await db.productWatchlistItem.count({ where: { shop } })
+    : 0;
+
+  return {
+    maxProducts: limitContext.maxProducts,
+    planKey: limitContext.planKey,
+    planName: limitContext.planName,
+    betaActive: limitContext.betaActive,
+    watchedCount,
+    slotsAvailable: Math.max(0, limitContext.maxProducts - watchedCount),
+    full: watchedCount >= limitContext.maxProducts,
   };
 }
 
@@ -424,6 +443,7 @@ export async function addWatchedProductForShop(shop, product = {}) {
     return {
       status: "validation_error",
       message: `Watchlist is full for the ${limitContext.planName} plan (${limitContext.maxProducts} product${limitContext.maxProducts === 1 ? "" : "s"}). Remove a watched product before adding another one.`,
+      watchedCount,
     };
   }
 
@@ -510,11 +530,21 @@ export async function addWatchedProductsForShop(shop, products = []) {
       status: "validation_error",
       message: `Watchlist is full for the ${limitContext.planName} plan (${limitContext.maxProducts} product${limitContext.maxProducts === 1 ? "" : "s"}). Remove a watched product before adding selected products.`,
       action: { id: "add-watched-products" },
+      watchedCount,
     };
   }
 
-  const productsToCreate = eligibleCandidates.slice(0, slotsAvailable);
-  const skippedForCapacity = Math.max(0, eligibleCandidates.length - productsToCreate.length);
+  if (eligibleCandidates.length > slotsAvailable) {
+    return {
+      status: "validation_error",
+      message: `There is room for ${slotsAvailable} more watched product${slotsAvailable === 1 ? "" : "s"}, but ${eligibleCandidates.length} selected product${eligibleCandidates.length === 1 ? "" : "s"} need to be added. Remove watched products or select fewer products before adding them.`,
+      action: { id: "add-watched-products", addedCount: 0, skippedForCapacity: eligibleCandidates.length - slotsAvailable },
+      watchedCount,
+    };
+  }
+
+  const productsToCreate = eligibleCandidates;
+  const skippedForCapacity = 0;
   const createdItems = [];
 
   for (const product of productsToCreate) {
@@ -641,8 +671,9 @@ export async function removeWatchedProductForShop(shop, productGid) {
     watchlistItemId: item.id,
   });
   invalidateProductPulseDashboardAndAnalyticsCache(shop);
+  const watchedCount = await prisma.productWatchlistItem.count({ where: { shop } });
 
-  return { status: "success", message: `${item.productTitle} removed from the watchlist.`, action: { id: "remove-watched-product" }, suppressBanner: true, invalidateDashboardCache: true };
+  return { status: "success", message: `${item.productTitle} removed from the watchlist.`, action: { id: "remove-watched-product" }, watchedCount, suppressBanner: true, invalidateDashboardCache: true };
 }
 
 export async function pauseAllWatchesForShop(shop) {
@@ -2487,7 +2518,7 @@ function getCadenceLabel(days) {
 }
 
 function getTriggerRuleLabel(value) {
-  return WATCH_TRIGGER_RULE_OPTIONS.find((option) => option.value === value)?.label || "Notify on new issues or rising risk";
+  return WATCH_TRIGGER_RULE_OPTIONS.find((option) => option.value === value)?.label || "New issue or risk increases";
 }
 
 function getSummaryLabel(value) {

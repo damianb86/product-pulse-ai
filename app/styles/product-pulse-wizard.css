@@ -21,7 +21,7 @@
   background:
     linear-gradient(135deg, rgba(var(--pp-shadow-rgb), 0.22), rgba(var(--pp-shadow-rgb), 0.12)),
     rgba(248, 250, 252, 0.38);
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(1.5px);
 }
 
 .ppWizardWelcomeModal,

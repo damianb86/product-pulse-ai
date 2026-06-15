@@ -76,6 +76,25 @@ describe("ProductPulse watchlist alert helpers", () => {
     expect(decision.reason).toBe("new_or_rising_risk");
   });
 
+  it("notifies every-watch-run even when no product changed", () => {
+    const decision = __productPulseWatchlistAlertsTestHooks.buildWatchlistAlertDecision({
+      settings: { ...baseSettings, triggerRule: "every_watch_run" },
+      reports: [{
+        status: "unchanged",
+        changeCount: 0,
+        sourceChangeCount: 0,
+        sourceChanges: [],
+        changes: [],
+        previous: { riskScore: 24, primaryIssue: "No primary issue" },
+        current: { riskScore: 24, riskLabel: "Low", primaryIssue: "No primary issue" },
+      }],
+    });
+
+    expect(decision.shouldSend).toBe(true);
+    expect(decision.reason).toBe("every_watch_run");
+    expect(decision.label).toBe("Every Watchlist run");
+  });
+
   it("notifies risk-score-increase only when risk rises", () => {
     const rising = __productPulseWatchlistAlertsTestHooks.buildWatchlistAlertDecision({
       settings: { ...baseSettings, triggerRule: "risk_score_increase" },
@@ -132,7 +151,7 @@ describe("ProductPulse watchlist alert helpers", () => {
     expect(unchanged.shouldSend).toBe(false);
   });
 
-  it("forces manual scan emails even when trigger settings would normally skip them", () => {
+  it("respects trigger settings for manual scan emails", () => {
     const decision = __productPulseWatchlistAlertsTestHooks.buildWatchlistAlertDecision({
       settings: {
         ...baseSettings,
@@ -150,8 +169,8 @@ describe("ProductPulse watchlist alert helpers", () => {
       }],
     });
 
-    expect(decision.shouldSend).toBe(true);
-    expect(decision.reason).toBe("manual_watchlist_run");
+    expect(decision.shouldSend).toBe(false);
+    expect(decision.reason).toBe("trigger_rule_not_met:new_issue_only");
   });
 
   it("does not send forced manual scan emails when email alerts are disabled", () => {
@@ -183,7 +202,7 @@ describe("ProductPulse watchlist alert helpers", () => {
     const email = __productPulseWatchlistAlertsTestHooks.buildWatchlistRunEmail({
       shop: "demo.myshopify.com",
       settings: baseSettings,
-      decision: { reason: "any_watch_change", label: "Any watched product change" },
+      decision: { reason: "any_watch_change", label: "Any watched product changed" },
       metadata: { productGids: ["gid://shopify/Product/1"] },
       reports: [{
         productTitle: "GEN EchoLock Voice Safe",
@@ -266,6 +285,7 @@ describe("ProductPulse watchlist alert helpers", () => {
       expect(brandIconHtml).not.toContain("border-radius");
       expect(brandIconHtml).not.toContain("border:1px");
       expect(email.html).toContain("Product change summary");
+      expect(email.html).not.toContain(">Status</th>");
       expect(email.html).toContain("GEN LiftAir Inflatable Standing Desk");
       expect(email.html).toContain("GEN Quiet Product");
       expect(email.html).toContain("No changes");

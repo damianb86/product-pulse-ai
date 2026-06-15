@@ -4,6 +4,7 @@ import {
   __productPulseWatchlistTestHooks,
   enforceWatchlistPlanLimitForShop,
   getDefaultWatchAlertRecipientsForShop,
+  getWatchlistCapacityForShop,
   getWatchlistLimitContext,
   getWatchlistProductLimitForPlan,
   isProductPulseBetaActive,
@@ -46,6 +47,30 @@ describe("ProductPulse watchlist helpers", () => {
     };
 
     await expect(getDefaultWatchAlertRecipientsForShop("test-shop.myshopify.com", { db })).resolves.toEqual(["owner@example.com"]);
+  });
+
+  it("reports watchlist capacity without loading full watchlist rows", async () => {
+    const db = {
+      productWatchlistItem: {
+        count: async ({ where }) => {
+          expect(where).toEqual({ shop: "test-shop.myshopify.com" });
+          return 4;
+        },
+      },
+    };
+
+    await expect(getWatchlistCapacityForShop("test-shop.myshopify.com", {
+      db,
+      planKey: "starter",
+      betaActive: false,
+    })).resolves.toMatchObject({
+      planKey: "starter",
+      planName: "Starter",
+      maxProducts: 5,
+      watchedCount: 4,
+      slotsAvailable: 1,
+      full: false,
+    });
   });
 
   it("removes products beyond the active plan limit and keeps the oldest items", async () => {

@@ -1119,13 +1119,18 @@ describe("ProductPulse screens", () => {
             alertRecipientCount: 2,
             alertRecipientsText: "ops@store.com, support@store.com",
             triggerRule: "new_or_rising_risk",
-            triggerRuleLabel: "Notify on new issues or rising risk",
+            triggerRuleLabel: "New issue or risk increases",
             summarySchedule: "daily_digest_8am",
             summaryScheduleLabel: "Daily digest at 8:00 AM",
             alertsEnabled: true,
             options: {
               cadence: [{ value: "3", label: "Every 3 days" }, { value: "7", label: "Weekly" }],
-              triggerRules: [{ value: "new_or_rising_risk", label: "Notify on new issues or rising risk" }],
+              triggerRules: [
+                { value: "new_or_rising_risk", label: "New issue or risk increases" },
+                { value: "any_watch_change", label: "Any watched product changed" },
+                { value: "every_watch_run", label: "Every Watchlist run" },
+                { value: "risk_score_increase", label: "Risk score increases" },
+              ],
               summaries: [{ value: "daily_digest_8am", label: "Daily digest at 8:00 AM" }],
             },
           },
@@ -1158,15 +1163,17 @@ describe("ProductPulse screens", () => {
     fireEvent.click(within(trendLegend).getByRole("button", { name: /Nintendo New 3DS XL/ }));
     expect(trendChart.querySelectorAll(".ppWatchTrendLine")).toHaveLength(5);
     expect(screen.queryByRole("link", { name: "View Nintendo New 3DS XL" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "View Watchlist report for Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl");
+    expect(screen.getByRole("link", { name: "View Watchlist report for Nintendo New 3DS XL" })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl?runId=overview-run-latest");
     expect(screen.queryByText("Watch signal captured")).not.toBeInTheDocument();
     expect(screen.getByText("Paused · automatic scans disabled")).toBeInTheDocument();
     expect(screen.queryByText("This product will be checked on the next watch run.")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Recent runs" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Changes since previous run/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Products in watchlist/i })).toBeInTheDocument();
+    const watchlistTable = document.querySelector("[data-pp-watchlist-table]");
+    expect(within(watchlistTable).queryByText("Status")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /What changed/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Events from this run" })).toBeInTheDocument();
-    expect(screen.getAllByText("New returns").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/New returns/).length).toBeGreaterThan(0);
     expect(screen.queryByText("New orders")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /View all changed/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /View all signals/i })).not.toBeInTheDocument();
@@ -1179,15 +1186,21 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByRole("dialog", { name: "Nintendo New 3DS XL" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Move Nintendo New 3DS XL/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/app/watchlist/activity");
-    fireEvent.click(screen.getByRole("button", { name: "Pause Nintendo New 3DS XL" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Nintendo New 3DS XL" }));
+    expect(screen.getByRole("menuitem", { name: "View product page" })).toHaveAttribute("href", "/app/products/nintendo-new-3ds-xl");
+    expect(screen.getByRole("menuitem", { name: "View product report" })).toHaveAttribute("href", "/app/watchlist/nintendo-new-3ds-xl?runId=overview-run-latest");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pause product" }));
     expect(screen.getByRole("dialog", { name: "Pause watch" })).toBeInTheDocument();
     expect(screen.getByText(/stop automatic Watchlist scans/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Nintendo New 3DS XL from watchlist" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Nintendo New 3DS XL" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from Watchlist" }));
     expect(screen.getByRole("dialog", { name: "Remove watched product" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove from Watchlist" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.getByRole("button", { name: "Resume THE NIGHT WATCH | REMBRANDT VAN RIJN" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More actions for THE NIGHT WATCH | REMBRANDT VAN RIJN" }));
+    expect(screen.getByRole("menuitem", { name: "Resume product" })).toBeInTheDocument();
+    fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("button", { name: "Watch settings" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByText("Save settings")).toBeInTheDocument();
@@ -1195,6 +1208,9 @@ describe("ProductPulse screens", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Disable watch alerts" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resume all watches" })).toBeInTheDocument();
+    const pausedProductRow = screen.getByRole("button", { name: "More actions for THE NIGHT WATCH | REMBRANDT VAN RIJN" }).closest(".ppWatchOverviewProductRow");
+    expect(pausedProductRow).toHaveClass("isPaused");
+    expect(pausedProductRow.querySelector(".ppWatchOverviewPausedBadge")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add watched product" }));
     expect(screen.getByRole("heading", { name: "Add watched product" })).toBeInTheDocument();
     expect(screen.getByText(/Only products with a completed Product Diagnosis are shown here/i)).toBeInTheDocument();
@@ -1330,8 +1346,8 @@ describe("ProductPulse screens", () => {
 
     expect(screen.getAllByRole("link", { name: /View Watchlist run May 17/ })).toHaveLength(1);
     expect(screen.getByRole("link", { name: /View Watchlist run May 17/ })).toHaveAttribute("href", "/app/watchlist?runId=global-watch-run-1");
-    expect(screen.getAllByText("Alpha return pressure").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Beta refund pressure").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Alpha return pressure/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Beta refund pressure/).length).toBeGreaterThan(0);
   });
 
   it("renders a dedicated product Watchlist report page", () => {
@@ -1930,6 +1946,8 @@ describe("ProductPulse screens", () => {
     expect(screen.getByText("Evidence lookback")).toBeInTheDocument();
     expect(screen.getByLabelText("Analysis lookback days")).toHaveValue("120");
     expect(screen.getByText("Product HTML injection style")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Extracted product style/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Soft highlight/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Professional card/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Custom HTML template")).toHaveAttribute("placeholder", expect.stringContaining("{{CONTENT_HTML}}"));
     expect(screen.getByTitle("Product HTML style preview")).toBeInTheDocument();
@@ -1938,6 +1956,77 @@ describe("ProductPulse screens", () => {
     expect(screen.queryByText(/OpenAI Batch/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start wizard" })).not.toBeInTheDocument();
     expect(screen.queryByText("Create Shopify mock dataset")).not.toBeInTheDocument();
+  });
+
+  it("extracts an HTML style template from a selected Shopify product", async () => {
+    const action = vi.fn(async ({ request }) => {
+      const formData = await request.formData();
+      const actionType = String(formData.get("_action") || "");
+      if (actionType === "search-shopify-products") {
+        return {
+          status: "success",
+          query: String(formData.get("query") || ""),
+          products: [
+            {
+              id: "gid://shopify/Product/777",
+              title: "Theme Source Lamp",
+              handle: "theme-source-lamp",
+              status: "ACTIVE",
+              shopifyStatus: "active",
+              shopifyStatusLabel: "Active",
+              shopifyStatusTone: "active",
+              productPulseStatus: "catalog",
+              detail: "Zuam / Lighting",
+              imageUrl: null,
+              imageAlt: null,
+              variant: "product",
+            },
+          ],
+        };
+      }
+      if (actionType === "extract-html-style-from-product") {
+        return {
+          status: "success",
+          template: "<section {{ATTRIBUTES}}><h3 class=\"theme-title\">{{TITLE}}</h3><div class=\"theme-body\">{{CONTENT_HTML}}</div></section>",
+          summary: "Matched the source product heading and spacing.",
+          product: {
+            id: "gid://shopify/Product/777",
+            title: "Theme Source Lamp",
+            handle: "theme-source-lamp",
+          },
+        };
+      }
+      return { status: "validation_error", message: "Unexpected action" };
+    });
+
+    renderWithAction(<SettingsScreen data={{
+      ...defaultView,
+      settings: {
+        risk: { minimumScore: 50, mediumThreshold: 55, highThreshold: 75 },
+        momentum: { minimumScore: 72 },
+        analysis: { lookbackDays: 120 },
+        htmlStyle: {
+          preset: "professional-card",
+          customTemplate: "",
+        },
+      },
+    }} />, action);
+
+    fireEvent.click(screen.getByRole("button", { name: /Extracted product style/ }));
+    expect(screen.getByRole("button", { name: "Select product to analyze" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select product to analyze" }));
+    const dialog = screen.getByRole("dialog", { name: "Select product for style extraction" });
+    fireEvent.change(within(dialog).getByPlaceholderText("Search by title, handle, product ID or SKU"), { target: { value: "lamp" } });
+
+    await waitFor(() => expect(within(dialog).getByText("Theme Source Lamp")).toBeInTheDocument());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Analyze style" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Select product for style extraction" })).not.toBeInTheDocument());
+    expect(screen.getByText("Extracted template is ready")).toBeInTheDocument();
+    expect(screen.getByText("Matched the source product heading and spacing.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Custom HTML template").value).toContain("theme-title");
+    expect(action).toHaveBeenCalledTimes(2);
   });
 
   it("shows development-only wizard and mock dataset controls in development mode", async () => {
@@ -2296,8 +2385,101 @@ describe("ProductPulse screens", () => {
       },
     };
     renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
+    expect(screen.getByLabelText("Watched product: Watched Linen Shirt")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "More actions for Watched Linen Shirt" }));
     expect(screen.getByRole("menuitem", { name: "Remove from Watchlist" })).toBeInTheDocument();
+  });
+
+  it("blocks adding a product when the Watchlist is full", () => {
+    const data = {
+      ...makeProductsData(makeTableProduct({
+        title: "Capacity Linen Shirt",
+        handle: "capacity-linen-shirt",
+        href: "/app/products/capacity-linen-shirt",
+        productGid: "gid://shopify/Product/capacity-linen",
+      })),
+      watchlist: {
+        planName: "Starter",
+        maxProducts: 2,
+        watchedCount: 2,
+        slotsAvailable: 0,
+      },
+    };
+
+    renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Capacity Linen Shirt" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add to Watchlist" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Add watched product" });
+    expect(within(dialog).getByText(/The Watchlist is currently full on the Starter plan \(2\/2 watched products\)/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add to Watchlist" })).toBeDisabled();
+  });
+
+  it("confirms selected Watchlist additions and blocks them when capacity is insufficient", () => {
+    const data = {
+      ...defaultView,
+      productTable: {
+        ...(defaultView.productTable || {}),
+        rows: [
+          makeTableProduct({
+            title: "Bulk Alpha Shirt",
+            handle: "bulk-alpha-shirt",
+            href: "/app/products/bulk-alpha-shirt",
+            productGid: "gid://shopify/Product/bulk-alpha",
+          }),
+          makeTableProduct({
+            title: "Bulk Beta Shirt",
+            handle: "bulk-beta-shirt",
+            href: "/app/products/bulk-beta-shirt",
+            productGid: "gid://shopify/Product/bulk-beta",
+          }),
+        ],
+        total: 2,
+        totalAll: 2,
+        totalPages: 1,
+      },
+      candidateProductTable: {
+        ...(defaultView.candidateProductTable || {}),
+        rows: [],
+        total: 0,
+        totalAll: 0,
+        totalPages: 1,
+      },
+      watchlist: {
+        planName: "Starter",
+        maxProducts: 3,
+        watchedCount: 2,
+        slotsAvailable: 1,
+      },
+    };
+
+    renderWithRouter(<ProductsScreen data={data} filters={{ query: "", risk: "all" }} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Bulk Alpha Shirt" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Bulk Beta Shirt" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add selected products to Watchlist (2)" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Add selected products" });
+    expect(within(dialog).getByText("Bulk Alpha Shirt")).toBeInTheDocument();
+    expect(within(dialog).getByText("Bulk Beta Shirt")).toBeInTheDocument();
+    expect(within(dialog).getByText(/There is room for 1 more watched product, but 2 selected products would be added/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add Products to Watchlist" })).toBeDisabled();
+  });
+
+  it("uses the Watchlist toast variant when products are added", async () => {
+    const { container } = renderWithRouter(
+      <ProductsScreen
+        data={defaultView}
+        filters={{ query: "", risk: "all" }}
+        actionData={{
+          status: "success",
+          message: "2 products added to the watchlist.",
+          action: { id: "add-watched-products", addedCount: 2 },
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector(".ppProductToast-watchlist")).toBeInTheDocument());
+    expect(container.querySelector(".ppProductToastIcon .ppBinocularsIcon")).toBeInTheDocument();
   });
 
   it("shows storefront and Shopify admin links in product row actions across table tabs", () => {

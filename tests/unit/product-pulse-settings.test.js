@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET } from "../../app/lib/product-pulse-html-style-presets";
+import {
+  PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET,
+  PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET,
+  PRODUCT_PULSE_HTML_STYLE_PRESETS,
+  getProductPulseHtmlStyleTemplate,
+} from "../../app/lib/product-pulse-html-style-presets";
 import {
   getQuickScanMinimumRiskScore,
   getQuickScanMinimumMomentumScore,
@@ -151,5 +156,26 @@ describe("ProductPulse settings", () => {
         customTemplate: "<section>No replacement marker</section>",
       },
     })).toMatch(/CONTENT_HTML/);
+  });
+
+  it("keeps the extracted product style preset first and removes soft highlight", () => {
+    expect(PRODUCT_PULSE_HTML_STYLE_PRESETS[0].id).toBe(PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET);
+    expect(PRODUCT_PULSE_HTML_STYLE_PRESETS.map((preset) => preset.id)).not.toContain("soft-highlight");
+  });
+
+  it("uses analyzed HTML as the extracted product style template", () => {
+    const template = "<section {{ATTRIBUTES}}><h3>{{TITLE}}</h3><div>{{CONTENT_HTML}}</div></section>";
+    const settings = normalizeProductPulseSettings({
+      htmlStyle: {
+        preset: PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET,
+        customTemplate: template,
+      },
+    });
+
+    expect(settings.htmlStyle).toEqual({
+      preset: PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET,
+      customTemplate: template,
+    });
+    expect(getProductPulseHtmlStyleTemplate(settings.htmlStyle)).toBe(template);
   });
 });

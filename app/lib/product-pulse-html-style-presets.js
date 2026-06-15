@@ -1,4 +1,5 @@
 export const PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET = "productpulse-current";
+export const PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET = "theme-extracted";
 export const PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET = "custom";
 export const PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS = {
   attributes: "{{ATTRIBUTES}}",
@@ -8,6 +9,22 @@ export const PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS = {
 };
 
 export const PRODUCT_PULSE_HTML_STYLE_PRESETS = [
+  {
+    id: PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET,
+    label: "Extracted product style",
+    shortLabel: "AI extracted",
+    description: "Select a product and ProductPulse uses the cheapest AI model to read its description HTML and inline CSS, then build a reusable template that follows that product or theme style.",
+    tone: "inverse",
+    attributeStyle: "margin:18px 0;padding:0;border:0;background:transparent;color:inherit;",
+    headingStyle: "margin:0 0 10px;color:inherit;font-size:14px;font-weight:750;letter-spacing:0;text-transform:none;line-height:1.35;",
+    paragraphStyle: "margin:0 0 10px;color:inherit;line-height:inherit;",
+    template: `<section {{ATTRIBUTES}}>
+<h3 style="margin:0 0 10px;font-size:16px;line-height:1.35;font-weight:700;color:inherit;">{{TITLE}}</h3>
+<div style="display:grid;gap:8px;">
+{{CONTENT_HTML}}
+</div>
+</section>`,
+  },
   {
     id: PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET,
     label: "Current ProductPulse",
@@ -72,22 +89,6 @@ export const PRODUCT_PULSE_HTML_STYLE_PRESETS = [
 </section>`,
   },
   {
-    id: "soft-highlight",
-    label: "Soft highlight",
-    shortLabel: "Highlight",
-    description: "Subtle tinted notice for guidance that should stand out slightly.",
-    tone: "green",
-    attributeStyle: "margin:18px 0;padding:14px 16px;border:1px solid #d9eadc;border-radius:10px;background:#f7faf7;color:#111827;",
-    headingStyle: "display:inline-block;margin:0 0 9px;padding:2px 7px;border-radius:999px;background:#e9f5ec;color:#166534;font-size:11px;font-weight:800;letter-spacing:0.02em;text-transform:uppercase;",
-    paragraphStyle: "margin:0 0 9px;color:#334155;line-height:1.56;",
-    template: `<aside {{ATTRIBUTES}}>
-{{HEADING_HTML}}
-<div style="padding-left:1px;">
-{{CONTENT_HTML}}
-</div>
-</aside>`,
-  },
-  {
     id: "editorial-guide",
     label: "Editorial guide",
     shortLabel: "Editorial",
@@ -121,12 +122,16 @@ export function normalizeProductPulseHtmlStyle(input = {}) {
 
 export function getProductPulseHtmlStylePreset(presetId) {
   return PRODUCT_PULSE_HTML_STYLE_PRESETS.find((preset) => preset.id === presetId)
+    || PRODUCT_PULSE_HTML_STYLE_PRESETS.find((preset) => preset.id === PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET)
     || PRODUCT_PULSE_HTML_STYLE_PRESETS[0];
 }
 
 export function getProductPulseHtmlStyleTemplate(input = {}) {
   const style = normalizeProductPulseHtmlStyle(input);
-  if (style.preset === PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET && style.customTemplate) {
+  if (
+    (style.preset === PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET || style.preset === PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET)
+    && style.customTemplate
+  ) {
     return style.customTemplate;
   }
   return getProductPulseHtmlStylePreset(style.preset).template;
@@ -134,7 +139,9 @@ export function getProductPulseHtmlStyleTemplate(input = {}) {
 
 export function validateProductPulseHtmlStyle(input = {}) {
   const style = normalizeProductPulseHtmlStyle(input);
-  if (style.preset !== PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET) return "";
+  const requiresTemplateValidation = style.preset === PRODUCT_PULSE_CUSTOM_HTML_STYLE_PRESET
+    || (style.preset === PRODUCT_PULSE_EXTRACTED_HTML_STYLE_PRESET && style.customTemplate);
+  if (!requiresTemplateValidation) return "";
   if (!style.customTemplate) return "Custom HTML style needs a template.";
   if (!style.customTemplate.includes(PRODUCT_PULSE_HTML_TEMPLATE_PLACEHOLDERS.contentHtml)) {
     return "Custom HTML style must include {{CONTENT_HTML}} where ProductPulse should place the generated note or FAQ.";
