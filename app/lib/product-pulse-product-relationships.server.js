@@ -62,6 +62,7 @@ export function buildProductRelationshipSummaries({
     ...Array.from(orderState.productOrderIds.keys()),
   ]);
   const summaries = new Map();
+  const sharedContext = buildRelationshipSharedContext(orderState);
 
   productIds.forEach((productId) => {
     summaries.set(productId, finalizeProductRelationshipSummary({
@@ -71,6 +72,7 @@ export function buildProductRelationshipSummaries({
       impactEvents,
       windowDays,
       topRelationshipLimit,
+      sharedContext,
     }));
   });
 
@@ -346,16 +348,17 @@ function finalizeProductRelationshipSummary({
   impactEvents = [],
   windowDays = null,
   topRelationshipLimit = DEFAULT_TOP_RELATIONSHIP_LIMIT,
+  sharedContext = null,
 }) {
   const summary = createEmptyProductRelationshipSummary(productId, { windowDays });
-  const allOrders = Array.from(orderState.orders.values());
-  const knownBasketOrders = allOrders.filter((order) => order.basketKnown && !order.incompleteLineCount);
-  const customerOrders = allOrders.filter((order) => order.customerKey && parseDate(order.orderDate));
+  const context = sharedContext || buildRelationshipSharedContext(orderState);
+  const knownBasketOrders = context.knownBasketOrders;
+  const customerOrders = context.customerOrders;
   const sourceOrderIds = orderState.productOrderIds.get(productId) || new Set();
   const sourceOrders = Array.from(sourceOrderIds).map((orderId) => orderState.orders.get(orderId)).filter(Boolean);
   const sourceKnownBasketOrders = sourceOrders.filter((order) => order.basketKnown && !order.incompleteLineCount);
   const sourceCustomers = orderState.productCustomerKeys.get(productId) || new Set();
-  const allCustomers = new Set(customerOrders.map((order) => order.customerKey).filter(Boolean));
+  const allCustomers = context.allCustomers;
   const customerSequenceAvailable = allCustomers.size > 0;
   const warnings = new Set();
 
@@ -386,6 +389,7 @@ function finalizeProductRelationshipSummary({
   };
 
   const sourceMonthlyOrderCounts = buildSourceMonthlyOrderCounts(productId, orderState);
+  const sourceMonthlyCustomerCounts = buildSourceMonthlyCustomerCounts(productId, orderState);
   const sameOrderRelationships = buildSameOrderRelationships({
     productId,
     productIndex,
@@ -395,16 +399,21 @@ function finalizeProductRelationshipSummary({
     impactEvents,
     sourceMonthlyOrderCounts,
     sameOrderCustomerIdentityAvailable: sourceKnownBasketOrders.some((order) => order.customerKey),
+    productOrderFrequency: context.productOrderFrequency,
+    productMonthOrderFrequency: context.productMonthOrderFrequency,
   });
   const sequenceRelationships = buildSequenceRelationships({
     productId,
     productIndex,
-    orderState,
     customerOrders,
+    sourceOrders,
     sourceCustomers,
     allCustomers,
     impactEvents,
     sourceMonthlyOrderCounts,
+    sourceMonthlyCustomerCounts,
+    ordersByCustomer: context.ordersByCustomer,
+    productCustomerFrequency: context.productCustomerFrequency,
   });
 
   summary.same_order_relationships = topRelationshipItems(sameOrderRelationships, topRelationshipLimit);
@@ -451,23 +460,15 @@ function finalizeProductRelationshipSummary({
   return summary;
 }
 
-function buildSameOrderRelationships({
-  productId,
-  productIndex,
-  knownBasketOrders,
-  sourceKnownBasketOrders,
-  impactEvents,
-  sourceMonthlyOrderCounts,
-  sameOrderCustomerIdentityAvailable = false,
-}) {
-  const totalKnownOrders = knownBasketOrders.length;
-  if (!sourceKnownBasketOrders.length || !totalKnownOrders) return [];
-  const minimumOrderSupport = calculateMinimumRelationshipSupport({
-    sourceCount: sourceKnownBasketOrders.length,
-    siteCount: totalKnownOrders,
-  });
+function buildRelationshipSharedContext(orderState) {
+  const allOrders = Array.from(orderState.orders.values());
+  const knownBasketOrders = allOrders.filter((order) => order.basketKnown && !order.incompleteLineCount);
+  const customerOrders = allOrders.filter((order) => order.customerKey && parseDate(order.orderDate));
+  const allCustomers = new Set(customerOrders.map((order) => order.customerKey).filter(Boolean));
   const productOrderFrequency = new Map();
   const productMonthOrderFrequency = new Map();
+  const ordersByCustomer = new Map();
+  const productCustomerFrequency = new Map();
 
   knownBasketOrders.forEach((order) => {
     const month = monthKey(order.orderDate);
@@ -476,6 +477,44 @@ function buildSameOrderRelationships({
       if (month) incrementMap(productMonthOrderFrequency, `${id}::${month}`, 1);
     });
   });
+
+  customerOrders.forEach((order) => {
+    addToMapArray(ordersByCustomer, order.customerKey, order);
+    getDistinctProductIds(order).forEach((id) => addSetValue(productCustomerFrequency, id, order.customerKey));
+  });
+  ordersByCustomer.forEach((orders) => orders.sort(compareOrdersByDate));
+
+  return {
+    allOrders,
+    knownBasketOrders,
+    customerOrders,
+    allCustomers,
+    productOrderFrequency,
+    productMonthOrderFrequency,
+    ordersByCustomer,
+    productCustomerFrequency,
+  };
+}
+
+function buildSameOrderRelationships({
+  productId,
+  productIndex,
+  knownBasketOrders,
+  sourceKnownBasketOrders,
+  impactEvents,
+  sourceMonthlyOrderCounts,
+  sameOrderCustomerIdentityAvailable = false,
+  productOrderFrequency = null,
+  productMonthOrderFrequency = null,
+}) {
+  const totalKnownOrders = knownBasketOrders.length;
+  if (!sourceKnownBasketOrders.length || !totalKnownOrders) return [];
+  const minimumOrderSupport = calculateMinimumRelationshipSupport({
+    sourceCount: sourceKnownBasketOrders.length,
+    siteCount: totalKnownOrders,
+  });
+  const orderFrequency = productOrderFrequency || new Map();
+  const monthOrderFrequency = productMonthOrderFrequency || new Map();
 
   const statsByRelatedProduct = new Map();
   sourceKnownBasketOrders.forEach((order) => {
@@ -520,7 +559,7 @@ function buildSameOrderRelationships({
     }
     const relatedProduct = productIndex.byId.get(stats.relatedProductId);
     const attachRate = safeDivide(stats.orderCount, sourceKnownBasketOrders.length);
-    const relatedProductBaseRate = safeDivide(productOrderFrequency.get(stats.relatedProductId) || 0, totalKnownOrders);
+    const relatedProductBaseRate = safeDivide(orderFrequency.get(stats.relatedProductId) || 0, totalKnownOrders);
     const lift = relatedProductBaseRate > 0 ? attachRate / relatedProductBaseRate : null;
     const impact = calculateSameOrderImpact({
       sourceProductId: productId,
@@ -531,7 +570,7 @@ function buildSameOrderRelationships({
     const monthly = finalizeRelationshipMonthlyRows({
       stats,
       sourceMonthlyOrderCounts,
-      productMonthOrderFrequency,
+      productMonthOrderFrequency: monthOrderFrequency,
       knownBasketOrders,
       denominatorKind: "orders",
     });
@@ -599,34 +638,29 @@ function buildSameOrderRelationships({
 function buildSequenceRelationships({
   productId,
   productIndex,
-  orderState,
   customerOrders,
+  sourceOrders = [],
   sourceCustomers,
   allCustomers,
   sourceMonthlyOrderCounts,
+  sourceMonthlyCustomerCounts,
+  ordersByCustomer = null,
+  productCustomerFrequency = null,
 }) {
   if (!customerOrders.length || !sourceCustomers.size) return { previous: [], next: [] };
   const minimumCustomerSupport = calculateMinimumRelationshipSupport({
     sourceCount: sourceCustomers.size,
     siteCount: allCustomers.size,
   });
-  const ordersByCustomer = new Map();
-  const productCustomerFrequency = new Map();
-
-  customerOrders.forEach((order) => {
-    addToMapArray(ordersByCustomer, order.customerKey, order);
-    getDistinctProductIds(order).forEach((id) => addSetValue(productCustomerFrequency, id, order.customerKey));
-  });
-  ordersByCustomer.forEach((orders) => orders.sort(compareOrdersByDate));
+  const customerOrderIndex = ordersByCustomer || new Map();
+  const customerFrequency = productCustomerFrequency || new Map();
 
   const previousStats = new Map();
   const nextStats = new Map();
-  const sourceOrderRows = Array.from(orderState.productOrderIds.get(productId) || [])
-    .map((orderId) => orderState.orders.get(orderId))
-    .filter((order) => order?.customerKey && parseDate(order.orderDate));
+  const sourceOrderRows = sourceOrders.filter((order) => order?.customerKey && parseDate(order.orderDate));
 
   sourceOrderRows.forEach((sourceOrder) => {
-    const customerOrderList = ordersByCustomer.get(sourceOrder.customerKey) || [];
+    const customerOrderList = customerOrderIndex.get(sourceOrder.customerKey) || [];
     const sourceDate = parseDate(sourceOrder.orderDate);
     if (!sourceDate) return;
     customerOrderList.forEach((candidateOrder) => {
@@ -681,11 +715,12 @@ function buildSequenceRelationships({
     }
     const relatedProduct = productIndex.byId.get(item.relatedProductId);
     const relationshipRate = safeDivide(item.customerKeys.size, sourceCustomers.size);
-    const relatedProductBaseRate = safeDivide(productCustomerFrequency.get(item.relatedProductId)?.size || 0, allCustomers.size);
+    const relatedProductBaseRate = safeDivide(customerFrequency.get(item.relatedProductId)?.size || 0, allCustomers.size);
     const lift = relatedProductBaseRate > 0 ? relationshipRate / relatedProductBaseRate : null;
     const monthly = finalizeRelationshipMonthlyRows({
       stats: item,
       sourceMonthlyOrderCounts,
+      sourceMonthlyCustomerCounts,
       productMonthOrderFrequency: new Map(),
       knownBasketOrders: [],
       denominatorKind: "customers",
@@ -868,19 +903,28 @@ function eventMatchesSourceLine(event, sourceProductId, sourceLineIds) {
 function finalizeRelationshipMonthlyRows({
   stats,
   sourceMonthlyOrderCounts,
+  sourceMonthlyCustomerCounts = new Map(),
   productMonthOrderFrequency,
   knownBasketOrders,
   denominatorKind,
 }) {
+  const sourceMonthlyDenominatorCounts = denominatorKind === "customers"
+    ? sourceMonthlyCustomerCounts
+    : sourceMonthlyOrderCounts;
   const months = Array.from(new Set([
     ...Array.from(stats.monthly.keys()),
-    ...Array.from(sourceMonthlyOrderCounts.keys()),
+    ...Array.from(sourceMonthlyDenominatorCounts.keys()),
   ])).sort().slice(-DEFAULT_TREND_MONTH_LIMIT);
 
   return months.map((month) => {
     const monthly = stats.monthly.get(month) || createMonthlyStats(month);
     const sourceOrders = sourceMonthlyOrderCounts.get(month) || 0;
-    const relationshipRate = safeDivide(monthly.order_count, sourceOrders);
+    const sourceCustomers = sourceMonthlyCustomerCounts.get(month) || 0;
+    const sourceDenominator = sourceMonthlyDenominatorCounts.get(month) || 0;
+    const relationshipCount = denominatorKind === "customers"
+      ? monthly.customer_count || 0
+      : monthly.order_count;
+    const relationshipRate = safeDivide(relationshipCount, sourceDenominator);
     let baseRate = 0;
     if (denominatorKind === "orders") {
       const knownOrdersInMonth = knownBasketOrders.filter((order) => monthKey(order.orderDate) === month).length;
@@ -891,14 +935,16 @@ function finalizeRelationshipMonthlyRows({
     return {
       month,
       source_product_orders: sourceOrders,
+      source_product_customers: sourceCustomers,
       related_order_count: monthly.order_count,
+      related_customer_count: monthly.customer_count || 0,
       order_count: monthly.order_count,
       customer_count: monthly.customer_count || 0,
       unit_count: roundRate(monthly.unit_count),
       revenue: roundMoney(monthly.revenue),
       relationship_rate: roundRate(relationshipRate),
       lift: lift === null ? null : roundRate(lift),
-      confidence: confidenceLabelScore(calculateMonthlyConfidence(monthly.order_count, sourceOrders)),
+      confidence: confidenceLabelScore(calculateMonthlyConfidence(relationshipCount, sourceDenominator)),
     };
   });
 }
@@ -911,6 +957,18 @@ function buildSourceMonthlyOrderCounts(productId, orderState) {
     if (month) incrementMap(counts, month, 1);
   });
   return counts;
+}
+
+function buildSourceMonthlyCustomerCounts(productId, orderState) {
+  const customersByMonth = new Map();
+  Array.from(orderState.productOrderIds.get(productId) || []).forEach((orderId) => {
+    const order = orderState.orders.get(orderId);
+    const month = monthKey(order?.orderDate);
+    if (!month || !order?.customerKey) return;
+    if (!customersByMonth.has(month)) customersByMonth.set(month, new Set());
+    customersByMonth.get(month).add(order.customerKey);
+  });
+  return new Map(Array.from(customersByMonth.entries()).map(([month, customers]) => [month, customers.size]));
 }
 
 function buildRelationshipTrendRecord(item) {

@@ -26,7 +26,7 @@ describe("ProductPulse settings", () => {
     });
     expect(settings.momentum).toEqual({ minimumScore: 70 });
     expect(settings.diagnosis).toBeUndefined();
-    expect(settings.analysis.lookbackDays).toBe(60);
+    expect(settings.analysis.lookbackDays).toBe(90);
     expect(settings.htmlStyle).toEqual({ preset: "productpulse-current", customTemplate: "" });
   });
 
@@ -44,7 +44,7 @@ describe("ProductPulse settings", () => {
 
     expect(getQuickScanMinimumRiskScore(settings)).toBe(40);
     expect(getQuickScanMinimumMomentumScore(settings)).toBe(76);
-    expect(getAnalysisLookbackDays(settings)).toBe(60);
+    expect(getAnalysisLookbackDays(settings)).toBe(90);
     expect(getRiskLabelForScore(59, settings)).toBe("Low");
     expect(getRiskLabelForScore(60, settings)).toBe("Medium");
     expect(getRiskLabelForScore(82, settings)).toBe("High");

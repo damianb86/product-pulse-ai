@@ -7,10 +7,10 @@ const PRODUCT_RETENTION_DEFAULT_LOOKBACK_DAYS = 365;
 const PRODUCT_RETENTION_DEFAULT_MAX_COHORT_AGE_DAYS = 180;
 const PRODUCT_RETENTION_LOW_SAMPLE_SIZE = 5;
 const PRODUCT_RETENTION_MIN_HEALTH_SCORE_SAMPLE = 5;
-const PRODUCT_RETENTION_ORDER_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_ORDER_PAGE_SIZE", 50, 5, 50);
-const PRODUCT_RETENTION_MAX_ORDER_PAGES = getRetentionIntegerEnv("PRODUCT_RETENTION_MAX_ORDER_PAGES", 80, 1, 80);
-const PRODUCT_RETENTION_LINE_ITEMS_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_LINE_ITEMS_PAGE_SIZE", 100, 10, 100);
-const PRODUCT_RETENTION_REFUND_LINE_ITEMS_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_REFUND_LINE_ITEMS_PAGE_SIZE", 100, 10, 100);
+const PRODUCT_RETENTION_ORDER_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_ORDER_PAGE_SIZE", 250, 5, 250);
+const PRODUCT_RETENTION_MAX_ORDER_PAGES = getRetentionIntegerEnv("PRODUCT_RETENTION_MAX_ORDER_PAGES", 80, 1, 100);
+const PRODUCT_RETENTION_LINE_ITEMS_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_LINE_ITEMS_PAGE_SIZE", 100, 10, 250);
+const PRODUCT_RETENTION_REFUND_LINE_ITEMS_PAGE_SIZE = getRetentionIntegerEnv("PRODUCT_RETENTION_REFUND_LINE_ITEMS_PAGE_SIZE", 100, 10, 250);
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RETENTION_THRESHOLDS = [7, 14, 30, 60, 90, 180];
 
@@ -744,7 +744,11 @@ async function prepareProductRetentionCalculationInput({
       source: "shopify_admin_api",
       ordersScanned: fetched.orders.length,
       pagesScanned: fetched.pagesScanned,
-      truncated: fetched.truncated,
+      truncated: fetched.truncated || fetched.lineItemsTruncated > 0 || fetched.refundLineItemsTruncated > 0,
+      orderPageTruncated: fetched.truncated,
+      lineItemsTruncated: fetched.lineItemsTruncated,
+      refundLineItemsTruncated: fetched.refundLineItemsTruncated,
+      orderPageSize: PRODUCT_RETENTION_ORDER_PAGE_SIZE,
     };
   }
 
@@ -1510,6 +1514,8 @@ async function fetchShopifyProductRetentionOrders({ admin, windowStartDate, wind
   const orders = [];
   let cursor = null;
   let pagesScanned = 0;
+  let lineItemsTruncated = 0;
+  let refundLineItemsTruncated = 0;
   const query = [
     `processed_at:>=${toShopifyDateQueryValue(windowStartDate)}`,
     `processed_at:<=${toShopifyDateQueryValue(windowEndDate)}`,
@@ -1524,14 +1530,19 @@ async function fetchShopifyProductRetentionOrders({ admin, windowStartDate, wind
       query,
     });
     pagesScanned += 1;
-    getConnectionNodes(data?.orders).forEach((order) => orders.push(normalizeShopifyRetentionOrder(order)));
+    getConnectionNodes(data?.orders).forEach((order) => {
+      const normalizedOrder = normalizeShopifyRetentionOrder(order);
+      if (normalizedOrder.lineItemsTruncated) lineItemsTruncated += 1;
+      if (normalizedOrder.refundLineItemsTruncated) refundLineItemsTruncated += 1;
+      orders.push(normalizedOrder);
+    });
     if (!data?.orders?.pageInfo?.hasNextPage) {
-      return { orders, pagesScanned, truncated: false };
+      return { orders, pagesScanned, truncated: false, lineItemsTruncated, refundLineItemsTruncated };
     }
     cursor = data.orders.pageInfo.endCursor;
   }
 
-  return { orders, pagesScanned, truncated: true };
+  return { orders, pagesScanned, truncated: true, lineItemsTruncated, refundLineItemsTruncated };
 }
 
 function getRetentionIntegerEnv(key, defaultValue, min, max) {
@@ -1543,6 +1554,7 @@ function getRetentionIntegerEnv(key, defaultValue, min, max) {
 function normalizeShopifyRetentionOrder(order) {
   const rawLineItems = getConnectionNodes(order?.lineItems);
   const totalRefundedCents = moneyBagToCents(order?.totalRefundedSet);
+  const refundLineItemsTruncated = (order?.refunds || []).some((refund) => refund?.refundLineItems?.pageInfo?.hasNextPage);
   const refundByLineItemId = new Map();
   const refundEventsByLineItemId = new Map();
   (order?.refunds || []).forEach((refund) => {
@@ -1582,6 +1594,8 @@ function normalizeShopifyRetentionOrder(order) {
     referrerUrl: order.referrerUrl,
     landingPageUrl: order.landingPageUrl,
     customer: order.customer,
+    lineItemsTruncated: Boolean(order?.lineItems?.pageInfo?.hasNextPage),
+    refundLineItemsTruncated,
     discountCodes: normalizeDiscountCodes(order.discountApplications),
     totalDiscountsCents: moneyBagToCents(order.totalDiscountsSet),
     lineItems: discountedByLine.map(({ lineItem, originalCents, discountedCents }) => {
@@ -1652,6 +1666,9 @@ function buildProductRetentionOrdersQuery() {
             }
           }
           lineItems(first: $lineItemsFirst) {
+            pageInfo {
+              hasNextPage
+            }
             nodes {
               id
               quantity
@@ -1704,6 +1721,9 @@ function buildProductRetentionOrdersQuery() {
             createdAt
             processedAt
             refundLineItems(first: $refundLineItemsFirst) {
+              pageInfo {
+                hasNextPage
+              }
               nodes {
                 id
                 quantity

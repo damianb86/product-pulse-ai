@@ -364,8 +364,91 @@ describe("Product retention deterministic engine", () => {
 
     expect(query).toContain("customer {");
     expect(query).toContain("id");
+    expect(query).toContain("lineItems(first: $lineItemsFirst) {");
+    expect(query).toContain("refundLineItems(first: $refundLineItemsFirst) {");
+    expect(query).toMatch(/lineItems\(first: \$lineItemsFirst\) \{\s+pageInfo \{\s+hasNextPage\s+\}/);
+    expect(query).toMatch(/refundLineItems\(first: \$refundLineItemsFirst\) \{\s+pageInfo \{\s+hasNextPage\s+\}/);
     expect(query).not.toMatch(/\b(email|phone|firstName|lastName|displayName|shippingAddress|billingAddress|address1|address2|city|province|country|zip)\b/i);
     expect(query).not.toContain("emailMarketingConsent");
+  });
+
+  it("uses the maximum Shopify order page size and marks nested truncation as partial", async () => {
+    const graphql = vi.fn()
+      .mockResolvedValueOnce({
+        json: async () => ({
+          data: {
+            shop: {
+              ianaTimezone: "UTC",
+              currencyCode: "USD",
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        json: async () => ({
+          data: {
+            orders: {
+              pageInfo: {
+                hasNextPage: false,
+                endCursor: null,
+              },
+              nodes: [{
+                id: "gid://shopify/Order/1",
+                name: "#1",
+                createdAt: "2024-01-01T10:00:00.000Z",
+                processedAt: "2024-01-01T10:00:00.000Z",
+                cancelledAt: null,
+                test: false,
+                displayFinancialStatus: "PAID",
+                sourceName: "web",
+                referrerUrl: "",
+                landingPageUrl: "",
+                customer: {
+                  id: "gid://shopify/Customer/1",
+                  tags: [],
+                },
+                totalDiscountsSet: { shopMoney: { amount: "0", currencyCode: "USD" } },
+                totalRefundedSet: { shopMoney: { amount: "0", currencyCode: "USD" } },
+                discountApplications: { nodes: [] },
+                lineItems: {
+                  pageInfo: { hasNextPage: true },
+                  nodes: [{
+                    id: "gid://shopify/LineItem/1",
+                    quantity: 1,
+                    title: "Product A",
+                    sku: "",
+                    product: { id: PRODUCT_A, title: "Product A", handle: "product-a" },
+                    variant: { id: VARIANT_A_1, title: "Default Title", sku: "", product: { id: PRODUCT_A, title: "Product A", handle: "product-a" } },
+                    originalTotalSet: { shopMoney: { amount: "100.00", currencyCode: "USD" } },
+                    discountedTotalSet: { shopMoney: { amount: "100.00", currencyCode: "USD" } },
+                    discountAllocations: [],
+                  }],
+                },
+                refunds: [],
+              }],
+            },
+          },
+        }),
+      });
+
+    const preview = await calculateProductRetentionPreview({
+      shopId: "fixture-shop.myshopify.com",
+      productGid: PRODUCT_A,
+      admin: { graphql },
+      asOfDate: "2024-07-01T00:00:00.000Z",
+      windowStartDate: "2024-01-01T00:00:00.000Z",
+      windowEndDate: "2024-06-30T23:59:59.000Z",
+      maxCohortAgeDays: 180,
+    });
+    const orderVariables = graphql.mock.calls[1][1].variables;
+
+    expect(orderVariables.first).toBe(250);
+    expect(preview.status).toBe("partial");
+    expect(preview.fetchStats).toMatchObject({
+      orderPageSize: 250,
+      lineItemsTruncated: 1,
+      truncated: true,
+    });
   });
 
   it("builds the product detail payload contract and stays idempotent for the same inputs", () => {

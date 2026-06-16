@@ -583,16 +583,30 @@ describe("ProductPulse Catalog Scan", () => {
     expect(candidates[0].metrics.reviewCount).toBe(6);
   });
 
-  it("keeps refund line item connections out of the orders bulk query", () => {
+  it("keeps operational signal connections out of the sales bulk query", () => {
     const query = buildOrdersBulkQuery(60);
 
     expect(query).toContain("processed_at:>=");
     expect(query).toContain("processedAt");
     expect(query).toContain("customer");
     expect(query).toContain("lineItems");
-    expect(query).toContain("returns");
+    expect(query).not.toMatch(/\breturns\s*\{/);
     expect(query).not.toMatch(/\brefunds\s*\{/);
     expect(query).not.toContain("refundLineItems");
+  });
+
+  it("uses a dedicated updated-at bulk query for recent returns and refunds", () => {
+    const query = __productPulseQuickScanTestHooks.buildOperationalOrdersBulkQuery(60);
+
+    expect(query).toContain("updated_at:>=");
+    expect(query).toContain("displayFinancialStatus");
+    expect(query).toContain("totalRefundedSet");
+    expect(query).toMatch(/\brefunds\s*\{/);
+    expect(query).toContain("orderAdjustments");
+    expect(query).toContain("refundLineItems");
+    expect(query).toMatch(/\breturns\s*\{/);
+    expect(query).toContain("returnLineItems");
+    expect(query).not.toMatch(/\bcustomer\s*\{/);
   });
 
   it("uses complete paginated refund queries with refund reasons and refunded financial statuses", () => {

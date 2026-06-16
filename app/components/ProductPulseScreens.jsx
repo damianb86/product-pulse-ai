@@ -7650,14 +7650,14 @@ function getDefaultProductPulseClientSettings() {
       minimumScore: DEFAULT_MOMENTUM_INCLUSION_THRESHOLD,
     },
     analysis: {
-      lookbackDays: 60,
+      lookbackDays: 90,
     },
     htmlStyle: normalizeProductPulseHtmlStyle(),
   };
 }
 
 function normalizeClientLookbackDays(value) {
-  return clampClientInteger(value, PRODUCT_PULSE_MIN_LOOKBACK_DAYS, PRODUCT_PULSE_MAX_LOOKBACK_DAYS, 60);
+  return clampClientInteger(value, PRODUCT_PULSE_MIN_LOOKBACK_DAYS, PRODUCT_PULSE_MAX_LOOKBACK_DAYS, 90);
 }
 
 function normalizeClientMomentumThreshold(value) {

@@ -3,7 +3,6 @@ import { getNormalizedCsvReviewRatingsForShop } from "./product-pulse-csv.server
 import { recordJobLog } from "./product-pulse-job-logs.server";
 import { recordProductScoreHistoryBatch } from "./product-pulse-history.server";
 import {
-  getAnalysisLookbackDays,
   getProductPulseSettings,
   getQuickScanMinimumMomentumScore,
   getQuickScanMinimumRiskScore,
@@ -40,19 +39,20 @@ const QUICK_SCAN_ORDER_COUNT_TIMEOUT_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QU
 const QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PROGRESS_LOG_INTERVAL_MS", 5_000, { min: 1_000, max: 60_000 });
 const QUICK_SCAN_MAX_PAGINATED_PAGES = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_MAX_PAGINATED_PAGES", 1_000, { min: 10, max: 100_000 });
 const QUICK_SCAN_REFUND_BROAD_SCAN_ENABLED = getBooleanEnv(process.env.PRODUCT_PULSE_QUICK_SCAN_REFUND_BROAD_SCAN_ENABLED, true);
-const PAGINATED_PRODUCTS_PAGE_SIZE = 20;
-const PAGINATED_PRODUCT_COLLECTIONS_PAGE_SIZE = 5;
-const PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE = 20;
-const PAGINATED_ORDERS_PAGE_SIZE = 8;
-const PAGINATED_ORDER_LINE_ITEMS_PAGE_SIZE = 25;
-const PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE = 20;
-const PAGINATED_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE = 25;
-const PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = 5;
-const PAGINATED_RETURNS_PAGE_SIZE = 3;
-const PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE = 15;
+const PAGINATED_PRODUCTS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_PRODUCTS_PAGE_SIZE", 100, { min: 10, max: 250 });
+const PAGINATED_PRODUCT_COLLECTIONS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_PRODUCT_COLLECTIONS_PAGE_SIZE", 10, { min: 1, max: 250 });
+const PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_PRODUCT_VARIANTS_PAGE_SIZE", 100, { min: 10, max: 250 });
+const PAGINATED_ORDERS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_ORDERS_PAGE_SIZE", 50, { min: 8, max: 250 });
+const PAGINATED_ORDER_LINE_ITEMS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_ORDER_LINE_ITEMS_PAGE_SIZE", 100, { min: 25, max: 250 });
+const PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_REFUND_LINE_ITEMS_PAGE_SIZE", 100, { min: 20, max: 250 });
+const PAGINATED_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_REFUND_FALLBACK_LINE_ITEMS_PAGE_SIZE", 100, { min: 25, max: 250 });
+const PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_REFUND_ORDER_ADJUSTMENTS_PAGE_SIZE", 20, { min: 5, max: 250 });
+const PAGINATED_RETURNS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_RETURNS_PAGE_SIZE", 20, { min: 3, max: 250 });
+const PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE = getBoundedIntegerEnv("PRODUCT_PULSE_QUICK_SCAN_PAGINATED_RETURN_LINE_ITEMS_PAGE_SIZE", 100, { min: 15, max: 250 });
 
 export function getQuickScanWindowDays(settings = undefined) {
-  return getAnalysisLookbackDays(settings);
+  void settings;
+  return QUICK_SCAN_DEFAULT_WINDOW_DAYS;
 }
 
 export async function runShopifyQuickScan({ shop, admin, jobId, scopes }) {
@@ -420,11 +420,13 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId, perf = nul
 
   try {
     const catalogLines = await runBulkQuery(admin, PRODUCT_CATALOG_BULK_QUERY, "catalog", { shop, jobId, perf, logContext });
-    let orderLines = [];
+    let salesOrderLines = [];
+    let operationalOrderLines = [];
     let orderAccessDenied = false;
 
     try {
-      orderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders", { shop, jobId, perf, logContext });
+      salesOrderLines = await runBulkQuery(admin, buildOrdersBulkQuery(windowDays), "orders-sales", { shop, jobId, perf, logContext });
+      operationalOrderLines = await runBulkQuery(admin, buildOperationalOrdersBulkQuery(windowDays), "orders-operational", { shop, jobId, perf, logContext });
     } catch (orderError) {
       if (!isShopifyOrderAccessDeniedError(orderError, "orders")) throw orderError;
       orderAccessDenied = true;
@@ -435,18 +437,33 @@ async function extractQuickScanData({ admin, windowDays, shop, jobId, perf = nul
       }, "warn");
     }
 
-    const bulkData = normalizeBulkQuickScanData(catalogLines, orderLines);
-    markQuickScanProgress(perf, "quick_scan.bulk.normalize", logContext, {
-      products: bulkData.products.length,
-      events: bulkData.events.length,
-      catalogLines: catalogLines.length,
-      orderLines: orderLines.length,
+    const products = normalizeBulkProducts(catalogLines);
+    const salesEvents = normalizeBulkOrderEvents(salesOrderLines, {
+      includeSales: true,
+      includeReturns: false,
+      includeRefunds: false,
+      enableRefundFallback: false,
     });
-    const refundEvents = orderAccessDenied ? [] : await extractSupplementalRefundEvents({ admin, windowDays, shop, jobId, perf, logContext });
+    const operationalEvents = normalizeBulkOrderEvents(operationalOrderLines, {
+      includeSales: false,
+      includeReturns: true,
+      includeRefunds: true,
+      enableRefundFallback: true,
+    });
+    const events = mergeQuickScanEvents(filterQuickScanEventsByLookback([...salesEvents, ...operationalEvents], windowDays));
+    markQuickScanProgress(perf, "quick_scan.bulk.normalize", logContext, {
+      products: products.length,
+      events: events.length,
+      catalogLines: catalogLines.length,
+      salesOrderLines: salesOrderLines.length,
+      operationalOrderLines: operationalOrderLines.length,
+      salesEvents: salesEvents.length,
+      operationalEvents: operationalEvents.length,
+    });
 
     return {
-      ...bulkData,
-      events: [...bulkData.events, ...refundEvents],
+      products,
+      events,
       meta: {
         extractionMode: orderAccessDenied ? "catalog-only" : "bulk",
         windowDays,
@@ -525,7 +542,7 @@ async function resolveQuickScanExtractionMode({ admin, windowDays, shop, jobId, 
       }
     }
     const productCountAllowsPaginated = productCount !== null && productCount <= QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT;
-    const orderCountAllowsPaginated = orderCount === null || orderCount <= QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT;
+    const orderCountAllowsPaginated = orderCount !== null && orderCount <= QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT;
     const usePaginated = productCountAllowsPaginated && orderCountAllowsPaginated;
     const extractionMode = usePaginated ? "paginated" : "bulk";
     markQuickScanProgress(perf, "quick_scan.extraction_mode.auto", logContext, {
@@ -572,13 +589,17 @@ async function resolveQuickScanExtractionMode({ admin, windowDays, shop, jobId, 
 async function getShopifyQuickScanProductCount(admin) {
   if (!admin?.graphql) return null;
   const data = await withTimeout(
-    shopifyGraphql(admin, `#graphql
-      query ProductPulseQuickScanProductCount {
-        productsCount {
+    shopifyGraphql(
+      admin,
+      `#graphql
+      query ProductPulseQuickScanProductCount($limit: Int) {
+        productsCount(limit: $limit) {
           count
         }
       }
-    `),
+    `,
+      { limit: QUICK_SCAN_PAGINATED_AUTO_PRODUCT_LIMIT + 1 },
+    ),
     QUICK_SCAN_PRODUCT_COUNT_TIMEOUT_MS,
     "Catalog product count timed out.",
   );
@@ -592,13 +613,16 @@ async function getShopifyQuickScanOrderCount(admin, windowDays) {
     shopifyGraphql(
       admin,
       `#graphql
-        query ProductPulseQuickScanOrderCount($query: String) {
-          ordersCount(query: $query) {
+        query ProductPulseQuickScanOrderCount($query: String, $limit: Int) {
+          ordersCount(query: $query, limit: $limit) {
             count
           }
         }
       `,
-      { query: `processed_at:>=${getSinceDate(windowDays)}` },
+      {
+        query: `processed_at:>=${getSinceDate(windowDays)}`,
+        limit: QUICK_SCAN_PAGINATED_AUTO_ORDER_LIMIT + 1,
+      },
     ),
     QUICK_SCAN_ORDER_COUNT_TIMEOUT_MS,
     "Catalog order count timed out.",
@@ -845,38 +869,6 @@ async function pollBulkOperation(admin, operationId, label, perf = null, logCont
   throw new Error(`${label} bulk operation timed out.`);
 }
 
-async function extractSupplementalRefundEvents({ admin, windowDays, shop, jobId, perf = null, logContext = null }) {
-  try {
-    const events = await measureQuickScanStep(
-      perf,
-      "quick_scan.refunds_supplemental",
-      logContext,
-      () => extractRefundEventsWithPaginatedQueries({ admin, windowDays, perf, logContext }),
-    );
-    await recordJobLog({
-      shop,
-      jobId,
-      event: "quick_scan.refunds_extracted",
-      message: "Supplemental refund line items extracted with low-cost paginated queries.",
-      data: { refundEvents: events.length },
-    });
-    return events;
-  } catch (error) {
-    logQuickScanProgress("quick_scan.refunds_supplemental.failed", logContext, {
-      error: getErrorMessage(error),
-    }, "warn");
-    await recordJobLog({
-      shop,
-      jobId,
-      level: "warn",
-      event: "quick_scan.refunds_skipped",
-      message: "Supplemental refund extraction failed; Catalog Scan will continue with sales and returns.",
-      data: { error: getErrorMessage(error) },
-    });
-    return [];
-  }
-}
-
 async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays, shop, jobId, perf = null, logContext = null }) {
   logQuickScanProgress("quick_scan.paginated.started", logContext, {
     windowDays,
@@ -950,7 +942,7 @@ async function extractQuickScanDataWithPaginatedQueries({ admin, windowDays, sho
 
   return {
     products: products.map(normalizeProduct),
-    events: [...salesEvents, ...refundEvents, ...returnEvents].filter(Boolean),
+    events: mergeQuickScanEvents(filterQuickScanEventsByLookback([...salesEvents, ...refundEvents, ...returnEvents], windowDays)),
   };
 }
 
@@ -1625,7 +1617,13 @@ function normalizeBulkProducts(lines) {
   return Array.from(products.values());
 }
 
-function normalizeBulkOrderEvents(lines) {
+function normalizeBulkOrderEvents(lines, options = {}) {
+  const {
+    includeSales = true,
+    includeReturns = true,
+    includeRefunds = true,
+    enableRefundFallback = true,
+  } = options;
   const orders = new Map();
   const refunds = new Map();
   const returns = new Map();
@@ -1641,23 +1639,39 @@ function normalizeBulkOrderEvents(lines) {
         processedAt: line.processedAt,
         originalCreatedAt: line.createdAt,
         customerKey: line.customer?.id || null,
+        name: line.name || "",
+        updatedAt: line.updatedAt || null,
+        displayFinancialStatus: line.displayFinancialStatus || "",
+        totalRefundedSet: line.totalRefundedSet,
+        lineItems: [],
+        refunds: [],
       };
       orders.set(line.id, order);
-      appendGroupedOrderEvents(line, order, events);
+      appendGroupedOrderEvents(line, order, events, { includeSales, includeReturns, includeRefunds, enableRefundFallback });
       return;
     }
 
     if (line.__typename === "Refund") {
       const order = orders.get(line.__parentId);
-      refunds.set(line.id, {
+      const refund = {
         id: line.id,
         orderDate: order?.createdAt || null,
         orderProcessedAt: order?.processedAt || null,
         orderCreatedAt: order?.originalCreatedAt || null,
-        createdAt: line.createdAt || order?.createdAt,
+        createdAt: line.processedAt || line.createdAt || order?.createdAt,
+        processedAt: line.processedAt || null,
+        updatedAt: line.updatedAt || line.processedAt || line.createdAt || null,
         orderId: line.__parentId,
+        orderName: order?.name || "",
+        displayFinancialStatus: order?.displayFinancialStatus || "",
         note: line.note,
-      });
+        totalRefundedAmount: moneyAmount(line.totalRefundedSet),
+        totalRefundedSet: line.totalRefundedSet,
+        adjustmentReasons: getRefundAdjustmentReasons(line),
+        refundLineItems: [],
+      };
+      refunds.set(line.id, refund);
+      if (order) order.refunds.push(refund);
       return;
     }
 
@@ -1677,44 +1691,120 @@ function normalizeBulkOrderEvents(lines) {
 
     if (line.__typename === "LineItem" || ("quantity" in line && line.__parentId && orders.has(line.__parentId))) {
       const order = orders.get(line.__parentId);
-      events.push(normalizeOrderLineItemEvent(line, order));
+      if (order) order.lineItems.push(line);
+      if (includeSales) events.push(normalizeOrderLineItemEvent(line, order));
       return;
     }
 
     if (line.__typename === "RefundLineItem" || ("restockType" in line && refunds.has(line.__parentId))) {
       const refund = refunds.get(line.__parentId);
-      events.push(normalizeRefundLineItemEvent(line, refund));
+      if (refund) refund.refundLineItems.push(line);
+      if (includeRefunds) events.push(normalizeRefundLineItemEvent(line, refund));
       return;
     }
 
     if (line.__typename === "ReturnLineItem" || ("returnReason" in line && returns.has(line.__parentId))) {
       const itemReturn = returns.get(line.__parentId);
-      events.push(normalizeReturnLineItemEvent(line, itemReturn));
+      if (includeReturns) events.push(normalizeReturnLineItemEvent(line, itemReturn));
     }
   });
+
+  if (includeRefunds && enableRefundFallback) {
+    orders.forEach((order) => {
+      const seenOrderLevelRefundLineItemIds = new Set();
+      const orderForFallback = {
+        ...order,
+        lineItems: { nodes: order.lineItems },
+      };
+
+      order.refunds.forEach((refund) => {
+        if (refund.refundLineItems.length) return;
+        events.push(...buildOrderLevelRefundFallbackEvents({
+          order: orderForFallback,
+          refund,
+          adjustmentReasons: refund.adjustmentReasons || [],
+          seenOrderLevelRefundLineItemIds,
+        }));
+      });
+
+      if (!order.refunds.length) {
+        events.push(...buildOrderLevelRefundFallbackEvents({
+          order: orderForFallback,
+          refund: null,
+          adjustmentReasons: [],
+          seenOrderLevelRefundLineItemIds,
+        }));
+      }
+    });
+  }
 
   return events.filter(Boolean);
 }
 
-function appendGroupedOrderEvents(orderLine, order, events) {
-  getNodes(orderLine.lineItems).forEach((lineItem) => {
-    events.push(normalizeOrderLineItemEvent(lineItem, order));
-  });
-
-  (orderLine.refunds || []).forEach((refund) => {
-    getNodes(refund.refundLineItems).forEach((refundLineItem) => {
-      events.push(normalizeRefundLineItemEvent(refundLineItem, {
-        id: refund.id,
-        orderDate: order.createdAt,
-        orderProcessedAt: order.processedAt,
-        orderCreatedAt: order.originalCreatedAt,
-        createdAt: refund.createdAt || order.createdAt,
-        orderId: order.id,
-        note: refund.note,
-      }));
+function appendGroupedOrderEvents(orderLine, order, events, options = {}) {
+  const {
+    includeSales = true,
+    includeReturns = true,
+    includeRefunds = true,
+    enableRefundFallback = true,
+  } = options;
+  const lineItems = getNodes(orderLine.lineItems);
+  if (includeSales) {
+    lineItems.forEach((lineItem) => {
+      events.push(normalizeOrderLineItemEvent(lineItem, order));
     });
-  });
+  }
 
+  if (includeRefunds) {
+    const seenOrderLevelRefundLineItemIds = new Set();
+    (orderLine.refunds || []).forEach((refund) => {
+      const adjustmentReasons = getRefundAdjustmentReasons(refund);
+      const refundLineItems = getNodes(refund.refundLineItems);
+      refundLineItems.forEach((refundLineItem) => {
+        events.push(normalizeRefundLineItemEvent(refundLineItem, {
+          id: refund.id,
+          orderDate: order.createdAt,
+          orderProcessedAt: order.processedAt,
+          orderCreatedAt: order.originalCreatedAt,
+          createdAt: refund.processedAt || refund.createdAt || order.createdAt,
+          updatedAt: refund.updatedAt || refund.processedAt || refund.createdAt || order.updatedAt || order.createdAt,
+          orderId: order.id,
+          orderName: orderLine.name || order.name || "",
+          displayFinancialStatus: orderLine.displayFinancialStatus || order.displayFinancialStatus || "",
+          note: refund.note,
+          adjustmentReasons,
+          totalRefundedAmount: moneyAmount(refund.totalRefundedSet),
+        }));
+      });
+      if (enableRefundFallback && !refundLineItems.length) {
+        events.push(...buildOrderLevelRefundFallbackEvents({
+          order: {
+            ...orderLine,
+            lineItems: { nodes: lineItems },
+          },
+          refund: {
+            ...refund,
+            totalRefundedAmount: moneyAmount(refund.totalRefundedSet),
+          },
+          adjustmentReasons,
+          seenOrderLevelRefundLineItemIds,
+        }));
+      }
+    });
+    if (enableRefundFallback && !(orderLine.refunds || []).length) {
+      events.push(...buildOrderLevelRefundFallbackEvents({
+        order: {
+          ...orderLine,
+          lineItems: { nodes: lineItems },
+        },
+        refund: null,
+        adjustmentReasons: [],
+        seenOrderLevelRefundLineItemIds,
+      }));
+    }
+  }
+
+  if (!includeReturns) return;
   getNodes(orderLine.returns).forEach((itemReturn) => {
     const returnContext = {
       id: itemReturn.id,
@@ -2885,9 +2975,9 @@ function filterRowsByLookbackWindow(rows = [], dateKey = "createdAt", windowDays
   const cutoff = Date.now() - Math.max(1, Number(windowDays || QUICK_SCAN_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000;
   return rows.filter((row) => {
     const value = row?.[dateKey];
-    if (!value) return true;
+    if (!value) return false;
     const time = new Date(value).getTime();
-    return !Number.isFinite(time) || time >= cutoff;
+    return Number.isFinite(time) && time >= cutoff;
   });
 }
 
@@ -2895,6 +2985,12 @@ function parseOptionalDate(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function parseValidDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function getNodes(connection) {
@@ -2934,6 +3030,57 @@ function getQuickScanExtractionCounts(extraction = {}) {
     refundEvents: events.filter((event) => event?.type === "refund").length,
     returnEvents: events.filter((event) => event?.type === "return").length,
   };
+}
+
+function filterQuickScanEventsByLookback(events = [], windowDays = QUICK_SCAN_DEFAULT_WINDOW_DAYS) {
+  const cutoff = Date.now() - Math.max(1, Number(windowDays || QUICK_SCAN_DEFAULT_WINDOW_DAYS)) * 24 * 60 * 60 * 1000;
+  return (events || []).filter((event) => {
+    if (!event) return false;
+    const date = getQuickScanEventDate(event);
+    if (!date) return false;
+    return date.getTime() >= cutoff;
+  });
+}
+
+function getQuickScanEventDate(event = {}) {
+  return parseValidDate(
+    event.occurredAt
+      || event.orderDate
+      || event.orderProcessedAt
+      || event.orderCreatedAt
+      || event.updatedAt
+      || event.createdAt,
+  );
+}
+
+function mergeQuickScanEvents(events = []) {
+  const seen = new Set();
+  const merged = [];
+  (events || []).forEach((event, index) => {
+    if (!event) return;
+    const key = getQuickScanEventDedupeKey(event, index);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(event);
+  });
+  return merged;
+}
+
+function getQuickScanEventDedupeKey(event = {}, index = 0) {
+  const stableId = event.refundLineItemId
+    || event.returnLineItemId
+    || (event.type === "sale" ? event.lineItemId : null)
+    || event.id;
+  if (stableId) return `${event.type || "event"}:${stableId}`;
+  return [
+    event.type || "event",
+    event.orderId || "",
+    event.lineItemId || "",
+    event.productId || "",
+    event.variantId || "",
+    event.occurredAt || event.orderDate || "",
+    index,
+  ].join(":");
 }
 
 function createQuickScanLogContext({ shop, jobId, startedAt = Date.now() } = {}) {
@@ -3244,6 +3391,137 @@ export function buildOrdersBulkQuery(windowDays) {
               }
             }
           }
+        }
+      }
+    }
+  }`;
+}
+
+export function buildOperationalOrdersBulkQuery(windowDays) {
+  return `{
+    orders(query: "updated_at:>=${getSinceDate(windowDays)}") {
+      edges {
+        node {
+          __typename
+          id
+          name
+          createdAt
+          processedAt
+          updatedAt
+          displayFinancialStatus
+          totalRefundedSet {
+            shopMoney {
+              amount
+            }
+          }
+          lineItems {
+            edges {
+              node {
+                __typename
+                id
+                quantity
+                title
+                sku
+                product {
+                  id
+                  legacyResourceId
+                  handle
+                  title
+                }
+                variant {
+                  id
+                  legacyResourceId
+                  title
+                  sku
+                  selectedOptions {
+                    name
+                    value
+                  }
+                  product {
+                    id
+                    legacyResourceId
+                    handle
+                    title
+                  }
+                }
+                originalTotalSet {
+                  shopMoney {
+                    amount
+                  }
+                }
+              }
+            }
+          }
+          refunds {
+            __typename
+            id
+            createdAt
+            processedAt
+            updatedAt
+            note
+            totalRefundedSet {
+              shopMoney {
+                amount
+              }
+            }
+            orderAdjustments {
+              edges {
+                node {
+                  __typename
+                  id
+                  reason
+                  amountSet {
+                    shopMoney {
+                      amount
+                    }
+                  }
+                }
+              }
+            }
+            refundLineItems {
+              edges {
+                node {
+                  __typename
+                  id
+                  quantity
+                  restockType
+                  subtotalSet {
+                    shopMoney {
+                      amount
+                    }
+                  }
+                  lineItem {
+                    id
+                    quantity
+                    title
+                    sku
+                    product {
+                      id
+                      legacyResourceId
+                      handle
+                      title
+                    }
+                    variant {
+                      id
+                      legacyResourceId
+                      title
+                      sku
+                      selectedOptions {
+                        name
+                        value
+                      }
+                      product {
+                        id
+                        legacyResourceId
+                        handle
+                        title
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
           returns {
             edges {
               node {
@@ -3300,6 +3578,7 @@ export function buildOrdersBulkQuery(windowDays) {
 export const __productPulseQuickScanTestHooks = {
   buildPaginatedRefundsQuery,
   buildRefundOrderQueries,
+  buildOperationalOrdersBulkQuery,
   buildOrderLevelRefundFallbackEvents,
   productCatalogBulkQuery: PRODUCT_CATALOG_BULK_QUERY,
   normalizeBulkQuickScanData,

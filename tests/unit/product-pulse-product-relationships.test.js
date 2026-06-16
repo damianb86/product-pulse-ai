@@ -243,6 +243,41 @@ describe("product relationship intelligence metrics", () => {
     });
   });
 
+  it("uses unique customers for monthly previous and next purchase relationship rates", () => {
+    const summary = summaryFor([
+      sale({ orderId: "c1-before-1", lineItemId: "line-c1-b-1", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-01T12:00:00.000Z" }),
+      sale({ orderId: "c1-before-2", lineItemId: "line-c1-b-2", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-02T12:00:00.000Z" }),
+      sale({ orderId: "c1-source", lineItemId: "line-c1-a", customerKey: "customer-1", orderDate: "2026-05-10T12:00:00.000Z" }),
+      sale({ orderId: "c1-after-1", lineItemId: "line-c1-c-1", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-1", amount: 70, orderDate: "2026-05-20T12:00:00.000Z" }),
+      sale({ orderId: "c1-after-2", lineItemId: "line-c1-c-2", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-1", amount: 70, orderDate: "2026-05-25T12:00:00.000Z" }),
+      sale({ orderId: "c2-before", lineItemId: "line-c2-b", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-2", orderDate: "2026-05-03T12:00:00.000Z" }),
+      sale({ orderId: "c2-source", lineItemId: "line-c2-a", customerKey: "customer-2", orderDate: "2026-05-12T12:00:00.000Z" }),
+      sale({ orderId: "c2-after", lineItemId: "line-c2-c", productId: PRODUCT_C, variantId: VARIANT_C, customerKey: "customer-2", amount: 70, orderDate: "2026-05-22T12:00:00.000Z" }),
+    ]);
+
+    const previous30 = summary.previous_purchase_relationships.find((item) => item.related_product_id === PRODUCT_B && item.time_window === "30d_before");
+    const next30 = summary.next_purchase_relationships.find((item) => item.related_product_id === PRODUCT_C && item.time_window === "30d_after");
+
+    expect(previous30.monthly).toContainEqual(expect.objectContaining({
+      month: "2026-05",
+      source_product_orders: 2,
+      source_product_customers: 2,
+      related_order_count: 3,
+      related_customer_count: 2,
+      customer_count: 2,
+      relationship_rate: 1,
+    }));
+    expect(next30.monthly).toContainEqual(expect.objectContaining({
+      month: "2026-05",
+      source_product_orders: 2,
+      source_product_customers: 2,
+      related_order_count: 3,
+      related_customer_count: 2,
+      customer_count: 2,
+      relationship_rate: 1,
+    }));
+  });
+
   it("dedupes sequence timing windows before applying the top limit", () => {
     const events = [
       sale({ orderId: "b-a-source", lineItemId: "line-b-a-source", productId: PRODUCT_B, variantId: VARIANT_B, customerKey: "customer-1", orderDate: "2026-05-01T12:00:00.000Z" }),

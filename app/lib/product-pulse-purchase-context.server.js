@@ -76,6 +76,7 @@ export function buildProductPurchaseContextSummaries({
     ...Array.from(orderState.productOrderIds.keys()),
   ]);
   const summaries = new Map();
+  const sharedContext = buildPurchaseContextSharedContext(orderState);
 
   productIds.forEach((productId) => {
     summaries.set(productId, finalizeProductPurchaseContextSummary({
@@ -85,6 +86,7 @@ export function buildProductPurchaseContextSummaries({
       operationalEvents,
       bulkPurchaseThreshold,
       topCoPurchasedLimit,
+      sharedContext,
     }));
   });
 
@@ -361,6 +363,7 @@ function finalizeProductPurchaseContextSummary({
   operationalEvents = [],
   bulkPurchaseThreshold,
   topCoPurchasedLimit,
+  sharedContext = null,
 }) {
   const summary = createEmptyPurchaseContextSummary(productId);
   const targetOrderIds = Array.from(orderState.productOrderIds.get(productId) || []);
@@ -397,6 +400,7 @@ function finalizeProductPurchaseContextSummary({
     targetRows: knownBasketRows,
     orderState,
     limit: topCoPurchasedLimit,
+    sharedContext,
   });
   summary.purchase_context_segments = buildPurchaseContextOutcomeSegments({
     productId,
@@ -416,6 +420,21 @@ function finalizeProductPurchaseContextSummary({
   summary.purchase_context_confidence_label = confidenceLabel(summary.purchase_context_confidence);
   finalizeRates(summary);
   return summary;
+}
+
+function buildPurchaseContextSharedContext(orderState) {
+  const knownStoreOrders = Array.from(orderState.orders.values()).filter((order) => order.basketKnown && !order.incompleteLineCount);
+  const productOrderFrequency = new Map();
+
+  knownStoreOrders.forEach((order) => {
+    const productIds = new Set(Array.from(order.lines.values()).map((line) => line.productId).filter(Boolean));
+    productIds.forEach((id) => incrementMap(productOrderFrequency, id, 1));
+  });
+
+  return {
+    knownStoreOrders,
+    productOrderFrequency,
+  };
 }
 
 function buildProductOrderContextRow(productId, order) {
@@ -594,17 +613,13 @@ function buildQuantityDistribution(quantityRows, totalOrders) {
   return distribution;
 }
 
-function buildTopCoPurchasedProducts({ productId, productIndex, targetRows, orderState, limit }) {
+function buildTopCoPurchasedProducts({ productId, productIndex, targetRows, orderState, limit, sharedContext = null }) {
   const knownTargetOrderCount = targetRows.length;
   if (!knownTargetOrderCount) return [];
   const coOrdersByProduct = new Map();
-  const knownStoreOrders = Array.from(orderState.orders.values()).filter((order) => order.basketKnown && !order.incompleteLineCount);
-  const productOrderFrequency = new Map();
-
-  knownStoreOrders.forEach((order) => {
-    const productIds = new Set(Array.from(order.lines.values()).map((line) => line.productId).filter(Boolean));
-    productIds.forEach((id) => incrementMap(productOrderFrequency, id, 1));
-  });
+  const context = sharedContext || buildPurchaseContextSharedContext(orderState);
+  const knownStoreOrders = context.knownStoreOrders;
+  const productOrderFrequency = context.productOrderFrequency;
 
   targetRows.forEach((row) => {
     row.distinctProductIds.forEach((otherProductId) => {

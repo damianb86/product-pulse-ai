@@ -24,7 +24,7 @@ export const DEFAULT_PRODUCT_PULSE_SETTINGS = {
     minimumScore: 70,
   },
   analysis: {
-    lookbackDays: 60,
+    lookbackDays: 90,
   },
   htmlStyle: {
     preset: PRODUCT_PULSE_DEFAULT_HTML_STYLE_PRESET,

@@ -250,6 +250,126 @@ describe("ProductPulse diagnosis return extraction helpers", () => {
     expect(query).toContain("altText");
   });
 
+  it("builds separated bulk queries for diagnosis sales and operational evidence", () => {
+    const salesQuery = __productPulseDiagnosisTestHooks.buildDiagnosisSalesBulkQuery(90, "2026-03-18");
+    const operationalQuery = __productPulseDiagnosisTestHooks.buildDiagnosisOperationalBulkQuery(90, "2026-03-18");
+
+    expect(__productPulseDiagnosisTestHooks.diagnosisBulkGroupObjects).toBe(false);
+    expect(salesQuery).toContain('orders(query: "processed_at:>=2026-03-18")');
+    expect(salesQuery).toContain("customer");
+    expect(salesQuery).toContain("lineItems");
+    expect(salesQuery).not.toMatch(/\brefunds\s*\{/);
+    expect(salesQuery).not.toMatch(/\breturns\s*\{/);
+
+    expect(operationalQuery).toContain('orders(query: "updated_at:>=2026-03-18")');
+    expect(operationalQuery).toContain("displayFinancialStatus");
+    expect(operationalQuery).toContain("totalRefundedSet");
+    expect(operationalQuery).toMatch(/\brefunds\s*\{/);
+    expect(operationalQuery).toContain("refundLineItems");
+    expect(operationalQuery).toMatch(/\breturns\s*\{/);
+    expect(operationalQuery).toContain("returnLineItems");
+    expect(operationalQuery).not.toMatch(/\bcustomer\s*\{/);
+  });
+
+  it("normalizes flat Shopify diagnosis bulk output into product source events", () => {
+    const product = {
+      id: "gid://shopify/Product/bulk-product",
+      title: "Bulk Product",
+      handle: "bulk-product",
+      variants: [{ id: "gid://shopify/ProductVariant/bulk-variant", title: "Default Title", sku: "BULK-SKU", selectedOptions: [] }],
+    };
+    const snapshot = {
+      productGid: product.id,
+      productTitle: product.title,
+      handle: product.handle,
+    };
+    const order = {
+      __typename: "Order",
+      id: "gid://shopify/Order/bulk-order",
+      createdAt: "2026-05-01T10:00:00.000Z",
+      processedAt: "2026-05-01T10:00:00.000Z",
+      updatedAt: "2026-05-03T10:00:00.000Z",
+      customer: { id: "gid://shopify/Customer/bulk" },
+      displayFinancialStatus: "PARTIALLY_REFUNDED",
+      totalRefundedSet: { shopMoney: { amount: "20.00" } },
+    };
+    const lineItem = {
+      __typename: "LineItem",
+      __parentId: order.id,
+      id: "gid://shopify/LineItem/bulk-line",
+      quantity: 2,
+      title: product.title,
+      sku: "BULK-SKU",
+      product: { id: product.id, handle: product.handle, title: product.title },
+      variant: { id: "gid://shopify/ProductVariant/bulk-variant", title: "Default Title", sku: "BULK-SKU", selectedOptions: [] },
+      originalTotalSet: { shopMoney: { amount: "40.00" } },
+    };
+    const refund = {
+      __typename: "Refund",
+      __parentId: order.id,
+      id: "gid://shopify/Refund/bulk-refund",
+      createdAt: "2026-05-03T10:00:00.000Z",
+      processedAt: "2026-05-03T10:00:00.000Z",
+      updatedAt: "2026-05-03T10:00:00.000Z",
+      note: "Customer said the fit was wrong.",
+      totalRefundedSet: { shopMoney: { amount: "20.00" } },
+    };
+    const refundLineItem = {
+      __typename: "RefundLineItem",
+      __parentId: refund.id,
+      id: "gid://shopify/RefundLineItem/bulk-refund-line",
+      quantity: 1,
+      restockType: "RETURN",
+      subtotalSet: { shopMoney: { amount: "20.00" } },
+      lineItem,
+    };
+    const itemReturn = {
+      __typename: "Return",
+      __parentId: order.id,
+      id: "gid://shopify/Return/bulk-return",
+      createdAt: "2026-05-02T10:00:00.000Z",
+      status: "RETURNED",
+    };
+    const returnLineItem = {
+      __typename: "ReturnLineItem",
+      __parentId: itemReturn.id,
+      id: "gid://shopify/ReturnLineItem/bulk-return-line",
+      quantity: 1,
+      processedQuantity: 1,
+      refundedQuantity: 1,
+      customerNote: "Runs small.",
+      returnReason: "SIZE_TOO_SMALL",
+      returnReasonNote: "Size was tight.",
+      fulfillmentLineItem: { lineItem },
+    };
+
+    const result = __productPulseDiagnosisTestHooks.normalizeDiagnosisBulkSourceEventLines({
+      salesLines: [order, lineItem],
+      operationalLines: [order, lineItem, refund, refundLineItem, itemReturn, returnLineItem],
+      product,
+      snapshot,
+      includeAllProducts: true,
+    });
+
+    expect(result.sales).toHaveLength(1);
+    expect(result.relationshipSales).toHaveLength(1);
+    expect(result.refunds).toHaveLength(1);
+    expect(result.returns).toHaveLength(1);
+    expect(result.sales[0]).toMatchObject({ productId: product.id, quantity: 2, amount: 40 });
+    expect(result.refunds[0]).toMatchObject({
+      productId: product.id,
+      quantity: 1,
+      amount: 20,
+      note: "Customer said the fit was wrong.",
+    });
+    expect(result.returns[0]).toMatchObject({
+      productId: product.id,
+      quantity: 1,
+      reason: "SIZE_TOO_SMALL",
+      customerNote: "Runs small.",
+    });
+  });
+
   it("builds product-targeted sales queries with processed date and SKU filters", () => {
     expect(__productPulseDiagnosisTestHooks.buildDiagnosisSalesOrderQuery({
       sinceDate: "2026-03-12",
