@@ -1,6 +1,8 @@
 import nodemailer from "nodemailer";
 
 const APP_NAME = "ProductPulse AI";
+const DEFAULT_FROM_EMAIL = "noreply@zuam.dev";
+const DEFAULT_FROM_NAME = "Zuam ProductPulse";
 
 function getSmtpConfig() {
   const port = Number(process.env.EMAIL_PORT ?? 587);
@@ -12,6 +14,8 @@ function getSmtpConfig() {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
     recipient: process.env.CONTACT_EMAIL,
+    fromEmail: process.env.EMAIL_FROM ?? DEFAULT_FROM_EMAIL,
+    fromName: process.env.EMAIL_FROM_NAME ?? DEFAULT_FROM_NAME,
   };
 }
 
@@ -94,7 +98,7 @@ export async function sendProductPulseEmail({
   });
 
   await transporter.sendMail({
-    from: smtp.user,
+    from: { name: smtp.fromName, address: smtp.fromEmail },
     to: recipients,
     replyTo: replyEmail,
     subject: `[${APP_NAME}] ${subject || type}`,
