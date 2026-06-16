@@ -2047,18 +2047,6 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
         </div>
       </ScreenShell>
-      {fastScanRunning && (
-        <div className="ppProductsScanOverlay" role="status">
-          <div>
-            <span className="ppScanSpinner" aria-hidden="true" />
-            <h2>Catalog Scan running</h2>
-            <p>
-              ProductPulse is checking the catalog for potential quality signals. The backend job will keep running.
-            </p>
-            <small>{activeScanJob ? activeScanJob.source : "Starting scan..."}</small>
-          </div>
-        </div>
-      )}
       {shopifyProductSearchOpen && (
         <ShopifyProductSearchModal
           query={shopifyProductSearchQuery}

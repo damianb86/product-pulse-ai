@@ -2121,7 +2121,7 @@ describe("ProductPulse screens", () => {
     window.removeEventListener("productpulse:wizard-settings-leave-allowed", handleAllowed);
   });
 
-  it("shows a scan overlay when a catalog scan starts", async () => {
+  it("starts Catalog Scan without showing a scan overlay", async () => {
     const wizardEvents = [];
     const handleWizardEvent = (event) => wizardEvents.push(event.detail?.type);
     window.addEventListener("productpulse:wizard", handleWizardEvent);
@@ -2135,8 +2135,13 @@ describe("ProductPulse screens", () => {
       expect(within(dialog).getByText("No credits used")).toBeInTheDocument();
       expect(within(dialog).getByText(/Products that already have a Product Diagnosis will be ignored/)).toBeInTheDocument();
       fireEvent.click(within(dialog).getByRole("button", { name: "Run Catalog Scan" }));
-      expect(screen.getByText("Catalog Scan running")).toBeInTheDocument();
-      expect(screen.getByText(/backend job will keep running/)).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Catalog Scan running..." })).toHaveLength(2);
+      screen.getAllByRole("button", { name: "Catalog Scan running..." }).forEach((button) => {
+        expect(button).toBeDisabled();
+      });
+      expect(screen.queryByText("Catalog Scan running")).not.toBeInTheDocument();
+      expect(screen.queryByText(/backend job will keep running/)).not.toBeInTheDocument();
+      expect(container.querySelector(".ppProductsScanOverlay:not(.ppProductsQueueOverlay)")).not.toBeInTheDocument();
       expect(screen.queryByText(/8%/)).not.toBeInTheDocument();
       expect(wizardEvents).toContain("quick-scan-started");
       await waitFor(() => expect(wizardEvents).toContain("quick-scan-job-started"));
