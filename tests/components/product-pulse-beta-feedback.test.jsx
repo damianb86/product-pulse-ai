@@ -88,7 +88,14 @@ describe("BetaFeedbackProvider", () => {
     renderLayer({ config: { enabled: false } });
 
     expect(screen.queryByRole("button", { name: "Open beta feedback" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Beta feedback for Risk panel" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide Risk panel" })).not.toBeInTheDocument();
+  });
+
+  it("leaves no launcher or panel controls when config is missing", () => {
+    renderLayer({ config: undefined });
+
+    expect(screen.queryByRole("button", { name: "Open beta feedback" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide Risk panel" })).not.toBeInTheDocument();
   });
 
   it("ignores non-json preference responses from auth fallbacks", async () => {
@@ -162,7 +169,9 @@ describe("BetaFeedbackProvider", () => {
   });
 });
 
-function renderLayer({ config = betaConfig } = {}) {
+function renderLayer(options = {}) {
+  const config = Object.hasOwn(options, "config") ? options.config : betaConfig;
+
   return render(
     <MemoryRouter initialEntries={["/app/products/wool-hat?risk=high"]}>
       <BetaFeedbackProvider config={config}>

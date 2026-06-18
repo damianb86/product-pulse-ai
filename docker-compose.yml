@@ -21,6 +21,8 @@ services:
 
   app:
     build: .
+    env_file:
+      - .env
     restart: unless-stopped
     init: true
     expose:
@@ -37,6 +39,9 @@ services:
       SHOPIFY_APP_URL: ${PROD_SHOPIFY_APP_URL:?Set PROD_SHOPIFY_APP_URL in the app .env}
       SHOPIFY_ADMIN_APP_HANDLE: ${SHOPIFY_ADMIN_APP_HANDLE:-}
       CONTACT_EMAIL: ${CONTACT_EMAIL:-}
+      PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: ${PRODUCT_PULSE_BETA_FEEDBACK_ENABLED:-}
+      BETA_FEEDBACK_ENABLED: ${BETA_FEEDBACK_ENABLED:-}
+      BETA_FEEDBACK_RECIPIENT: ${BETA_FEEDBACK_RECIPIENT:-}
       EMAIL_HOST: ${EMAIL_HOST:-}
       EMAIL_PORT: ${EMAIL_PORT:-587}
       EMAIL_USER: ${EMAIL_USER:-}
@@ -104,6 +109,8 @@ services:
 
   worker:
     build: .
+    env_file:
+      - .env
     restart: unless-stopped
     init: true
     command: ["npm", "run", "docker-worker"]

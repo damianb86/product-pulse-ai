@@ -2024,7 +2024,7 @@ export function ProductsScreen({ data, filters = {}, actionData }) {
 
   return (
     <FullWidthPage heading="Products">
-      <ScreenShell className={`ppDashboard ppProductsScreen ${fastScanRunning ? "isScanning" : ""}`.trim()}>
+      <ScreenShell className="ppDashboard ppProductsScreen">
         <div className="ppProductsContent">
           <div className="ppProductsHeader">
             <p className="ppDashboardSubtitle">

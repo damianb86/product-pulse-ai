@@ -16,11 +16,13 @@ ProductPulse beta feedback is intentionally isolated so it can be disabled or re
 Set:
 
 ```env
-BETA_FEEDBACK_ENABLED=true
+PRODUCT_PULSE_BETA_FEEDBACK_ENABLED=true
+# Legacy fallback:
+# BETA_FEEDBACK_ENABLED=true
 BETA_FEEDBACK_RECIPIENT=internal@example.com
 ```
 
-When `BETA_FEEDBACK_ENABLED` is not true, the provider renders only its children. There is no floating launcher, no contextual panel controls, no hide prompts, and `/api/beta-feedback` rejects writes.
+When `PRODUCT_PULSE_BETA_FEEDBACK_ENABLED` is not true, the provider renders only its children. There is no floating launcher, no contextual panel controls, no hide prompts, and `/api/beta-feedback` rejects writes. `BETA_FEEDBACK_ENABLED` is only used as a legacy fallback when the ProductPulse-specific flag is not set.
 
 `BETA_FEEDBACK_RECIPIENT` controls notification email delivery. If it is missing, the layer falls back to `CONTACT_EMAIL`. In development with no SMTP configured, the existing email utility logs the payload instead of sending.
 

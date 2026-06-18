@@ -3,7 +3,7 @@
 export const PRODUCT_PULSE_BETA_FEEDBACK_ENABLED_ENV = "PRODUCT_PULSE_BETA_FEEDBACK_ENABLED";
 
 export function isBetaFeedbackEnabled(env = process.env) {
-  return booleanEnv(getConfiguredEnvValue(env[PRODUCT_PULSE_BETA_FEEDBACK_ENABLED_ENV], env.BETA_FEEDBACK_ENABLED), true);
+  return booleanEnv(getConfiguredEnvValue(env[PRODUCT_PULSE_BETA_FEEDBACK_ENABLED_ENV], env.BETA_FEEDBACK_ENABLED), false);
 }
 
 export function getBetaFeedbackClientConfig({ session } = {}, env = process.env) {
@@ -36,7 +36,7 @@ function getBetaFeedbackSessionUser(session = {}) {
 
 function booleanEnv(value, defaultValue = false) {
   if (value == null || value === "") return defaultValue;
-  const normalized = String(value).trim().toLowerCase();
+  const normalized = unwrapEnvValue(value);
   if (["1", "true", "yes", "on", "enabled"].includes(normalized)) return true;
   if (["0", "false", "no", "off", "disabled"].includes(normalized)) return false;
   return defaultValue;
@@ -44,4 +44,17 @@ function booleanEnv(value, defaultValue = false) {
 
 function getConfiguredEnvValue(...values) {
   return values.find((value) => value != null && String(value).trim() !== "");
+}
+
+function unwrapEnvValue(value) {
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized.length < 2) return normalized;
+
+  const first = normalized[0];
+  const last = normalized[normalized.length - 1];
+  if ((first === "\"" && last === "\"") || (first === "'" && last === "'")) {
+    return normalized.slice(1, -1).trim();
+  }
+
+  return normalized;
 }

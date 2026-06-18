@@ -65,11 +65,14 @@ describe("ProductPulse beta feedback layer", () => {
   });
 
   it("is fully feature flagged for client config", () => {
-    expect(isBetaFeedbackEnabled({})).toBe(true);
+    expect(isBetaFeedbackEnabled({})).toBe(false);
     expect(isBetaFeedbackEnabled({ PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "false" })).toBe(false);
+    expect(isBetaFeedbackEnabled({ PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "\"false\"" })).toBe(false);
+    expect(isBetaFeedbackEnabled({ PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "'false'" })).toBe(false);
     expect(isBetaFeedbackEnabled({ PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "true" })).toBe(true);
     expect(isBetaFeedbackEnabled({ BETA_FEEDBACK_ENABLED: "false" })).toBe(false);
     expect(isBetaFeedbackEnabled({ PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "", BETA_FEEDBACK_ENABLED: "false" })).toBe(false);
+    expect(isBetaFeedbackEnabled({ PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "false", BETA_FEEDBACK_ENABLED: "true" })).toBe(false);
     expect(getBetaFeedbackClientConfig({ session }, { PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "false" })).toEqual({ enabled: false });
     expect(getBetaFeedbackClientConfig({ session }, { PRODUCT_PULSE_BETA_FEEDBACK_ENABLED: "true", NODE_ENV: "test" })).toMatchObject({
       enabled: true,

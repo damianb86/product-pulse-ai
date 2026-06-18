@@ -51,16 +51,17 @@ shell_quote() {
   printf "'%s'" "$(printf "%s" "$1" | sed "s/'/'\\\\''/g")"
 }
 
+remote_env_path() {
+  case "$REMOTE_ENV_FILE" in
+    /*) printf '%s\n' "$REMOTE_ENV_FILE" ;;
+    *) printf '%s/%s\n' "$REMOTE_APP_DIR" "$REMOTE_ENV_FILE" ;;
+  esac
+}
+
 cd "$APP_DIR"
 
 if [ -z "$LOCAL_ENV_FILE" ]; then
-  if [ -f "$APP_DIR/.env.production" ]; then
-    LOCAL_ENV_FILE="$APP_DIR/.env.production"
-  elif [ -f "$APP_DIR/.production" ]; then
-    LOCAL_ENV_FILE="$APP_DIR/.production"
-  else
-    LOCAL_ENV_FILE="$APP_DIR/.env"
-  fi
+  LOCAL_ENV_FILE="$APP_DIR/.env.production"
 fi
 
 require_command npm
@@ -77,7 +78,7 @@ printf '  build env:   %s\n' "$LOCAL_ENV_FILE"
 printf '  server:      %s\n' "$SSH_TARGET"
 printf '  remote app:  %s\n' "$REMOTE_APP_DIR"
 if [ -n "$REMOTE_ENV_FILE" ]; then
-  printf '  runtime env: %s\n' "$REMOTE_ENV_FILE"
+  printf '  runtime env: %s\n' "$(remote_env_path)"
 else
   printf '  runtime env: auto (.env)\n'
 fi
@@ -96,7 +97,7 @@ require_file "$APP_DIR/build/server/index.js" "Missing build/server/index.js aft
 require_file "$APP_DIR/build/product-pulse-worker.mjs" "Missing build/product-pulse-worker.mjs after build."
 
 start_step "Checking remote app directory"
-REMOTE_CHECK_COMMAND="REMOTE_APP_DIR=$(shell_quote "$REMOTE_APP_DIR") REMOTE_ENV_FILE=$(shell_quote "$REMOTE_ENV_FILE") sh -s"
+REMOTE_CHECK_COMMAND="REMOTE_APP_DIR=$(shell_quote "$REMOTE_APP_DIR") sh -s"
 ssh $SSH_OPTS "$SSH_TARGET" "$REMOTE_CHECK_COMMAND" <<'REMOTE_CHECK'
 set -eu
 
@@ -116,23 +117,6 @@ fi
 if [ ! -x "$REMOTE_APP_DIR/deploy.sh" ]; then
   fail "Remote deploy script is not executable. Run: chmod +x $REMOTE_APP_DIR/deploy.sh"
 fi
-
-if [ -n "$REMOTE_ENV_FILE" ]; then
-  case "$REMOTE_ENV_FILE" in
-    /*) REMOTE_ENV_PATH=$REMOTE_ENV_FILE ;;
-    *) REMOTE_ENV_PATH="$REMOTE_APP_DIR/$REMOTE_ENV_FILE" ;;
-  esac
-
-  if [ ! -f "$REMOTE_ENV_PATH" ]; then
-    fail "Missing remote app env file: $REMOTE_ENV_PATH"
-  fi
-
-  printf 'Remote app env: %s\n' "$REMOTE_ENV_PATH"
-elif [ -f "$REMOTE_APP_DIR/.env" ]; then
-  printf 'Remote app env: %s\n' "$REMOTE_APP_DIR/.env"
-else
-  fail "Missing remote app env file. Expected $REMOTE_APP_DIR/.env"
-fi
 REMOTE_CHECK
 finish_step
 
@@ -142,6 +126,14 @@ if [ -n "$REMOTE_GIT_SYNC_COMMAND" ]; then
   ssh $SSH_OPTS "$SSH_TARGET" "cd $REMOTE_APP_DIR_QUOTED && $REMOTE_GIT_SYNC_COMMAND"
   finish_step
 fi
+
+start_step "Uploading production env file"
+REMOTE_ENV_PATH=$(remote_env_path)
+REMOTE_ENV_DIR=$(dirname -- "$REMOTE_ENV_PATH")
+ssh $SSH_OPTS "$SSH_TARGET" "mkdir -p $(shell_quote "$REMOTE_ENV_DIR")"
+rsync -az -e "$RSYNC_SSH" "$LOCAL_ENV_FILE" "$SSH_TARGET:$REMOTE_ENV_PATH"
+ssh $SSH_OPTS "$SSH_TARGET" "chmod 600 $(shell_quote "$REMOTE_ENV_PATH")"
+finish_step
 
 start_step "Uploading build directory to production server"
 rsync -az --delete -e "$RSYNC_SSH" "$APP_DIR/build/" "$SSH_TARGET:$REMOTE_APP_DIR/build/"
