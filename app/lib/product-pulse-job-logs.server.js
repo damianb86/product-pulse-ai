@@ -32,6 +32,19 @@ export async function getJobLogsForShop(shop, limit = 80) {
 }
 
 export function serializeError(error) {
+  if (isResponseLike(error)) {
+    return {
+      name: "Response",
+      message: `${error.status || 0} ${error.statusText || ""}`.trim() || "Response error",
+      status: error.status,
+      statusText: error.statusText,
+      ok: error.ok,
+      redirected: error.redirected,
+      type: error.type,
+      url: error.url,
+    };
+  }
+
   if (error instanceof Error) {
     return {
       name: error.name,
@@ -47,6 +60,16 @@ export function serializeError(error) {
   return {
     message: typeof error === "string" ? error : inspect(error, { depth: 4, breakLength: 140 }),
   };
+}
+
+function isResponseLike(value) {
+  return value instanceof Response
+    || (value
+      && typeof value === "object"
+      && typeof value.status === "number"
+      && typeof value.statusText === "string"
+      && typeof value.headers === "object"
+      && typeof value.clone === "function");
 }
 
 function redact(value, depth = 0) {
